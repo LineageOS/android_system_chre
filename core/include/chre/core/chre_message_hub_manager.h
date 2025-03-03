@@ -201,8 +201,7 @@ class ChreMessageHubManager
                             message::EndpointId endpointId);
 
   //! @return The free callback record from the callback allocator.
-  std::optional<
-      message::CallbackAllocator<MessageFreeCallbackData>::CallbackRecord>
+  std::optional<CallbackAllocator<MessageFreeCallbackData>::CallbackRecord>
   getAndRemoveFreeCallbackRecord(void *ptr) {
     return mAllocator.GetAndRemoveCallbackRecord(ptr);
   }
@@ -254,6 +253,8 @@ class ChreMessageHubManager
       const char *serviceDescriptor) override;
   bool doesEndpointHaveService(message::EndpointId endpointId,
                                const char *serviceDescriptor) override;
+  void onHubRegistered(const message::MessageHubInfo &info) override;
+  void onHubUnregistered(message::MessageHubId id) override;
   void onEndpointRegistered(message::MessageHubId messageHubId,
                             message::EndpointId endpointId) override;
   void onEndpointUnregistered(message::MessageHubId messageHubId,
@@ -264,14 +265,13 @@ class ChreMessageHubManager
 
   //! The vector of free callback records - used by the
   //! CallbackAllocator
-  pw::Vector<
-      message::CallbackAllocator<MessageFreeCallbackData>::CallbackRecord,
-      kMaxFreeCallbackRecords>
+  pw::Vector<CallbackAllocator<MessageFreeCallbackData>::CallbackRecord,
+             kMaxFreeCallbackRecords>
       mFreeCallbackRecords;
 
   //! The allocator for message free callbacks - used when sending a message
   //! from a nanoapp with a free callback
-  message::CallbackAllocator<MessageFreeCallbackData> mAllocator;
+  CallbackAllocator<MessageFreeCallbackData> mAllocator;
 
   //! Mutex to protect mNanoappPublishedServices
   Mutex mNanoappPublishedServicesMutex;

@@ -40,7 +40,6 @@
 #include <cstring>
 #include <optional>
 
-using ::chre::message::CallbackAllocator;
 using ::chre::message::Endpoint;
 using ::chre::message::ENDPOINT_ID_ANY;
 using ::chre::message::ENDPOINT_ID_INVALID;
@@ -123,7 +122,7 @@ void ChreMessageHubManager::init() {
   if (chreMessageHub.has_value()) {
     mChreMessageHub = std::move(*chreMessageHub);
   } else {
-    LOGE("Failed to register the CHRE MessageHub");
+    FATAL_ERROR("Failed to register the CHRE MessageHub");
   }
 }
 
@@ -830,6 +829,14 @@ bool ChreMessageHubManager::doesEndpointHaveService(
   // if and only if the endpoint ID matches the endpoint ID we are looking for
   std::optional<EndpointId> endpoint = getEndpointForService(serviceDescriptor);
   return endpoint.has_value() && endpoint.value() == endpointId;
+}
+
+void ChreMessageHubManager::onHubRegistered(const MessageHubInfo & /*info*/) {
+  // We don't depend on this notification.
+}
+
+void ChreMessageHubManager::onHubUnregistered(MessageHubId /*id*/) {
+  // We don't depend on this notification.
 }
 
 void ChreMessageHubManager::onEndpointRegistered(MessageHubId messageHubId,
