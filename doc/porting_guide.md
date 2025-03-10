@@ -335,7 +335,7 @@ with CHRE. If you are using one of our existing platforms, you can add one of
 the following CHRE daemon build targets to your PRODUCT_PACKAGES as you did the
 generic HAL above.
 
-Qualcomm target: `chre`\
+Qualcomm target: `chre_daemon_msm`\
 Exynos target: `chre_daemon_exynos`\
 MediaTek target: `TBD`
 
