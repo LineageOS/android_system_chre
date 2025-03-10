@@ -17,7 +17,7 @@
 on post-fs-data
     mkdir /data/vendor/chre 0770 context_hub context_hub
 
-service vendor.chre /vendor/bin/chre
+service vendor.chre /vendor/bin/chre_daemon_msm
     class late_start
     user context_hub
     group wakelock context_hub

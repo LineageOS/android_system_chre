@@ -1195,6 +1195,47 @@ cc_binary {
     init_rc: ["host/exynos/chre_daemon_exynos.rc"],
 }
 
+cc_binary {
+    name: "chre_daemon_msm",
+    cpp_std: "c++20",
+    defaults: ["chre_daemon_common"],
+    soc_specific: true,
+    include_dirs: [
+        "external/fastrpc/inc",
+    ],
+    local_include_dirs: [
+        "host/msm/daemon",
+        "platform/slpi/include",
+    ],
+    cflags: select(soong_config_variable("chre", "chre_daemon_load_into_sensorspd"), {
+        true: ["-DCHRE_DAEMON_LOAD_INTO_SENSORSPD"],
+        default: [],
+    }) + select(soong_config_variable("chre", "chre_daemon_lpma_enabled"), {
+        true: ["-DCHRE_DAEMON_LPMA_ENABLED"],
+        default: [],
+    }),
+    srcs: [
+        "host/msm/daemon/fastrpc_daemon.cc",
+        "host/msm/daemon/generated/chre_slpi_stub.c",
+        "host/msm/daemon/main.cc",
+    ],
+    static_libs: [
+        "pw_detokenizer",
+        "pw_polyfill",
+        "pw_span",
+        "pw_varint",
+    ],
+    shared_libs: [
+        "android.hardware.soundtrigger@2.0",
+        "libhidlbase",
+        "libpower",
+    ] + select(soong_config_variable("chre", "chre_daemon_dsp_library"), {
+        any @ flag_val: [flag_val],
+        default: [],
+    }),
+    init_rc: ["host/msm/chre_daemon_msm.rc"],
+}
+
 java_library_static {
     name: "chre_api_test_proto_java_lite",
     host_supported: true,
