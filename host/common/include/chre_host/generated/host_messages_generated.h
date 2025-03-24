@@ -165,6 +165,22 @@ struct BtSocketCloseResponse;
 struct BtSocketCloseResponseBuilder;
 struct BtSocketCloseResponseT;
 
+struct BtSocketCapabilitiesRequest;
+struct BtSocketCapabilitiesRequestBuilder;
+struct BtSocketCapabilitiesRequestT;
+
+struct BtSocketLeCocCapabilities;
+struct BtSocketLeCocCapabilitiesBuilder;
+struct BtSocketLeCocCapabilitiesT;
+
+struct BtSocketRfcommCapabilities;
+struct BtSocketRfcommCapabilitiesBuilder;
+struct BtSocketRfcommCapabilitiesT;
+
+struct BtSocketCapabilitiesResponse;
+struct BtSocketCapabilitiesResponseBuilder;
+struct BtSocketCapabilitiesResponseT;
+
 struct VendorHubInfo;
 struct VendorHubInfoBuilder;
 struct VendorHubInfoT;
@@ -196,6 +212,14 @@ struct EndpointInfoT;
 struct RegisterEndpoint;
 struct RegisterEndpointBuilder;
 struct RegisterEndpointT;
+
+struct AddServiceToEndpoint;
+struct AddServiceToEndpointBuilder;
+struct AddServiceToEndpointT;
+
+struct EndpointReady;
+struct EndpointReadyBuilder;
+struct EndpointReadyT;
 
 struct UnregisterEndpoint;
 struct UnregisterEndpointBuilder;
@@ -818,11 +842,15 @@ enum class ChreMessage : uint8_t {
   EndpointSessionClosed = 45,
   EndpointSessionMessage = 46,
   EndpointSessionMessageDeliveryStatus = 47,
+  BtSocketCapabilitiesRequest = 48,
+  BtSocketCapabilitiesResponse = 49,
+  AddServiceToEndpoint = 50,
+  EndpointReady = 51,
   MIN = NONE,
-  MAX = EndpointSessionMessageDeliveryStatus
+  MAX = EndpointReady
 };
 
-inline const ChreMessage (&EnumValuesChreMessage())[48] {
+inline const ChreMessage (&EnumValuesChreMessage())[52] {
   static const ChreMessage values[] = {
     ChreMessage::NONE,
     ChreMessage::NanoappMessage,
@@ -871,13 +899,17 @@ inline const ChreMessage (&EnumValuesChreMessage())[48] {
     ChreMessage::EndpointSessionOpened,
     ChreMessage::EndpointSessionClosed,
     ChreMessage::EndpointSessionMessage,
-    ChreMessage::EndpointSessionMessageDeliveryStatus
+    ChreMessage::EndpointSessionMessageDeliveryStatus,
+    ChreMessage::BtSocketCapabilitiesRequest,
+    ChreMessage::BtSocketCapabilitiesResponse,
+    ChreMessage::AddServiceToEndpoint,
+    ChreMessage::EndpointReady
   };
   return values;
 }
 
 inline const char * const *EnumNamesChreMessage() {
-  static const char * const names[49] = {
+  static const char * const names[53] = {
     "NONE",
     "NanoappMessage",
     "HubInfoRequest",
@@ -926,13 +958,17 @@ inline const char * const *EnumNamesChreMessage() {
     "EndpointSessionClosed",
     "EndpointSessionMessage",
     "EndpointSessionMessageDeliveryStatus",
+    "BtSocketCapabilitiesRequest",
+    "BtSocketCapabilitiesResponse",
+    "AddServiceToEndpoint",
+    "EndpointReady",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameChreMessage(ChreMessage e) {
-  if (flatbuffers::IsOutRange(e, ChreMessage::NONE, ChreMessage::EndpointSessionMessageDeliveryStatus)) return "";
+  if (flatbuffers::IsOutRange(e, ChreMessage::NONE, ChreMessage::EndpointReady)) return "";
   const size_t index = static_cast<size_t>(e);
   return EnumNamesChreMessage()[index];
 }
@@ -1127,6 +1163,22 @@ template<> struct ChreMessageTraits<chre::fbs::EndpointSessionMessage> {
 
 template<> struct ChreMessageTraits<chre::fbs::EndpointSessionMessageDeliveryStatus> {
   static const ChreMessage enum_value = ChreMessage::EndpointSessionMessageDeliveryStatus;
+};
+
+template<> struct ChreMessageTraits<chre::fbs::BtSocketCapabilitiesRequest> {
+  static const ChreMessage enum_value = ChreMessage::BtSocketCapabilitiesRequest;
+};
+
+template<> struct ChreMessageTraits<chre::fbs::BtSocketCapabilitiesResponse> {
+  static const ChreMessage enum_value = ChreMessage::BtSocketCapabilitiesResponse;
+};
+
+template<> struct ChreMessageTraits<chre::fbs::AddServiceToEndpoint> {
+  static const ChreMessage enum_value = ChreMessage::AddServiceToEndpoint;
+};
+
+template<> struct ChreMessageTraits<chre::fbs::EndpointReady> {
+  static const ChreMessage enum_value = ChreMessage::EndpointReady;
 };
 
 struct ChreMessageUnion {
@@ -1536,6 +1588,38 @@ struct ChreMessageUnion {
   const chre::fbs::EndpointSessionMessageDeliveryStatusT *AsEndpointSessionMessageDeliveryStatus() const {
     return type == ChreMessage::EndpointSessionMessageDeliveryStatus ?
       reinterpret_cast<const chre::fbs::EndpointSessionMessageDeliveryStatusT *>(value) : nullptr;
+  }
+  chre::fbs::BtSocketCapabilitiesRequestT *AsBtSocketCapabilitiesRequest() {
+    return type == ChreMessage::BtSocketCapabilitiesRequest ?
+      reinterpret_cast<chre::fbs::BtSocketCapabilitiesRequestT *>(value) : nullptr;
+  }
+  const chre::fbs::BtSocketCapabilitiesRequestT *AsBtSocketCapabilitiesRequest() const {
+    return type == ChreMessage::BtSocketCapabilitiesRequest ?
+      reinterpret_cast<const chre::fbs::BtSocketCapabilitiesRequestT *>(value) : nullptr;
+  }
+  chre::fbs::BtSocketCapabilitiesResponseT *AsBtSocketCapabilitiesResponse() {
+    return type == ChreMessage::BtSocketCapabilitiesResponse ?
+      reinterpret_cast<chre::fbs::BtSocketCapabilitiesResponseT *>(value) : nullptr;
+  }
+  const chre::fbs::BtSocketCapabilitiesResponseT *AsBtSocketCapabilitiesResponse() const {
+    return type == ChreMessage::BtSocketCapabilitiesResponse ?
+      reinterpret_cast<const chre::fbs::BtSocketCapabilitiesResponseT *>(value) : nullptr;
+  }
+  chre::fbs::AddServiceToEndpointT *AsAddServiceToEndpoint() {
+    return type == ChreMessage::AddServiceToEndpoint ?
+      reinterpret_cast<chre::fbs::AddServiceToEndpointT *>(value) : nullptr;
+  }
+  const chre::fbs::AddServiceToEndpointT *AsAddServiceToEndpoint() const {
+    return type == ChreMessage::AddServiceToEndpoint ?
+      reinterpret_cast<const chre::fbs::AddServiceToEndpointT *>(value) : nullptr;
+  }
+  chre::fbs::EndpointReadyT *AsEndpointReady() {
+    return type == ChreMessage::EndpointReady ?
+      reinterpret_cast<chre::fbs::EndpointReadyT *>(value) : nullptr;
+  }
+  const chre::fbs::EndpointReadyT *AsEndpointReady() const {
+    return type == ChreMessage::EndpointReady ?
+      reinterpret_cast<const chre::fbs::EndpointReadyT *>(value) : nullptr;
   }
 };
 
@@ -5151,6 +5235,270 @@ inline flatbuffers::Offset<BtSocketCloseResponse> CreateBtSocketCloseResponse(
 
 flatbuffers::Offset<BtSocketCloseResponse> CreateBtSocketCloseResponse(flatbuffers::FlatBufferBuilder &_fbb, const BtSocketCloseResponseT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
+struct BtSocketCapabilitiesRequestT : public flatbuffers::NativeTable {
+  typedef BtSocketCapabilitiesRequest TableType;
+  BtSocketCapabilitiesRequestT() {
+  }
+};
+
+struct BtSocketCapabilitiesRequest FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef BtSocketCapabilitiesRequestT NativeTableType;
+  typedef BtSocketCapabilitiesRequestBuilder Builder;
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           verifier.EndTable();
+  }
+  BtSocketCapabilitiesRequestT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(BtSocketCapabilitiesRequestT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<BtSocketCapabilitiesRequest> Pack(flatbuffers::FlatBufferBuilder &_fbb, const BtSocketCapabilitiesRequestT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct BtSocketCapabilitiesRequestBuilder {
+  typedef BtSocketCapabilitiesRequest Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  explicit BtSocketCapabilitiesRequestBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  BtSocketCapabilitiesRequestBuilder &operator=(const BtSocketCapabilitiesRequestBuilder &);
+  flatbuffers::Offset<BtSocketCapabilitiesRequest> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<BtSocketCapabilitiesRequest>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<BtSocketCapabilitiesRequest> CreateBtSocketCapabilitiesRequest(
+    flatbuffers::FlatBufferBuilder &_fbb) {
+  BtSocketCapabilitiesRequestBuilder builder_(_fbb);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<BtSocketCapabilitiesRequest> CreateBtSocketCapabilitiesRequest(flatbuffers::FlatBufferBuilder &_fbb, const BtSocketCapabilitiesRequestT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct BtSocketLeCocCapabilitiesT : public flatbuffers::NativeTable {
+  typedef BtSocketLeCocCapabilities TableType;
+  int32_t numberOfSupportedSockets;
+  int32_t mtu;
+  BtSocketLeCocCapabilitiesT()
+      : numberOfSupportedSockets(0),
+        mtu(0) {
+  }
+};
+
+struct BtSocketLeCocCapabilities FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef BtSocketLeCocCapabilitiesT NativeTableType;
+  typedef BtSocketLeCocCapabilitiesBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_NUMBEROFSUPPORTEDSOCKETS = 4,
+    VT_MTU = 6
+  };
+  int32_t numberOfSupportedSockets() const {
+    return GetField<int32_t>(VT_NUMBEROFSUPPORTEDSOCKETS, 0);
+  }
+  bool mutate_numberOfSupportedSockets(int32_t _numberOfSupportedSockets) {
+    return SetField<int32_t>(VT_NUMBEROFSUPPORTEDSOCKETS, _numberOfSupportedSockets, 0);
+  }
+  int32_t mtu() const {
+    return GetField<int32_t>(VT_MTU, 0);
+  }
+  bool mutate_mtu(int32_t _mtu) {
+    return SetField<int32_t>(VT_MTU, _mtu, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int32_t>(verifier, VT_NUMBEROFSUPPORTEDSOCKETS) &&
+           VerifyField<int32_t>(verifier, VT_MTU) &&
+           verifier.EndTable();
+  }
+  BtSocketLeCocCapabilitiesT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(BtSocketLeCocCapabilitiesT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<BtSocketLeCocCapabilities> Pack(flatbuffers::FlatBufferBuilder &_fbb, const BtSocketLeCocCapabilitiesT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct BtSocketLeCocCapabilitiesBuilder {
+  typedef BtSocketLeCocCapabilities Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_numberOfSupportedSockets(int32_t numberOfSupportedSockets) {
+    fbb_.AddElement<int32_t>(BtSocketLeCocCapabilities::VT_NUMBEROFSUPPORTEDSOCKETS, numberOfSupportedSockets, 0);
+  }
+  void add_mtu(int32_t mtu) {
+    fbb_.AddElement<int32_t>(BtSocketLeCocCapabilities::VT_MTU, mtu, 0);
+  }
+  explicit BtSocketLeCocCapabilitiesBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  BtSocketLeCocCapabilitiesBuilder &operator=(const BtSocketLeCocCapabilitiesBuilder &);
+  flatbuffers::Offset<BtSocketLeCocCapabilities> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<BtSocketLeCocCapabilities>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<BtSocketLeCocCapabilities> CreateBtSocketLeCocCapabilities(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    int32_t numberOfSupportedSockets = 0,
+    int32_t mtu = 0) {
+  BtSocketLeCocCapabilitiesBuilder builder_(_fbb);
+  builder_.add_mtu(mtu);
+  builder_.add_numberOfSupportedSockets(numberOfSupportedSockets);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<BtSocketLeCocCapabilities> CreateBtSocketLeCocCapabilities(flatbuffers::FlatBufferBuilder &_fbb, const BtSocketLeCocCapabilitiesT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct BtSocketRfcommCapabilitiesT : public flatbuffers::NativeTable {
+  typedef BtSocketRfcommCapabilities TableType;
+  int32_t numberOfSupportedSockets;
+  int32_t maxFrameSize;
+  BtSocketRfcommCapabilitiesT()
+      : numberOfSupportedSockets(0),
+        maxFrameSize(0) {
+  }
+};
+
+struct BtSocketRfcommCapabilities FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef BtSocketRfcommCapabilitiesT NativeTableType;
+  typedef BtSocketRfcommCapabilitiesBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_NUMBEROFSUPPORTEDSOCKETS = 4,
+    VT_MAXFRAMESIZE = 6
+  };
+  int32_t numberOfSupportedSockets() const {
+    return GetField<int32_t>(VT_NUMBEROFSUPPORTEDSOCKETS, 0);
+  }
+  bool mutate_numberOfSupportedSockets(int32_t _numberOfSupportedSockets) {
+    return SetField<int32_t>(VT_NUMBEROFSUPPORTEDSOCKETS, _numberOfSupportedSockets, 0);
+  }
+  int32_t maxFrameSize() const {
+    return GetField<int32_t>(VT_MAXFRAMESIZE, 0);
+  }
+  bool mutate_maxFrameSize(int32_t _maxFrameSize) {
+    return SetField<int32_t>(VT_MAXFRAMESIZE, _maxFrameSize, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int32_t>(verifier, VT_NUMBEROFSUPPORTEDSOCKETS) &&
+           VerifyField<int32_t>(verifier, VT_MAXFRAMESIZE) &&
+           verifier.EndTable();
+  }
+  BtSocketRfcommCapabilitiesT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(BtSocketRfcommCapabilitiesT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<BtSocketRfcommCapabilities> Pack(flatbuffers::FlatBufferBuilder &_fbb, const BtSocketRfcommCapabilitiesT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct BtSocketRfcommCapabilitiesBuilder {
+  typedef BtSocketRfcommCapabilities Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_numberOfSupportedSockets(int32_t numberOfSupportedSockets) {
+    fbb_.AddElement<int32_t>(BtSocketRfcommCapabilities::VT_NUMBEROFSUPPORTEDSOCKETS, numberOfSupportedSockets, 0);
+  }
+  void add_maxFrameSize(int32_t maxFrameSize) {
+    fbb_.AddElement<int32_t>(BtSocketRfcommCapabilities::VT_MAXFRAMESIZE, maxFrameSize, 0);
+  }
+  explicit BtSocketRfcommCapabilitiesBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  BtSocketRfcommCapabilitiesBuilder &operator=(const BtSocketRfcommCapabilitiesBuilder &);
+  flatbuffers::Offset<BtSocketRfcommCapabilities> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<BtSocketRfcommCapabilities>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<BtSocketRfcommCapabilities> CreateBtSocketRfcommCapabilities(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    int32_t numberOfSupportedSockets = 0,
+    int32_t maxFrameSize = 0) {
+  BtSocketRfcommCapabilitiesBuilder builder_(_fbb);
+  builder_.add_maxFrameSize(maxFrameSize);
+  builder_.add_numberOfSupportedSockets(numberOfSupportedSockets);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<BtSocketRfcommCapabilities> CreateBtSocketRfcommCapabilities(flatbuffers::FlatBufferBuilder &_fbb, const BtSocketRfcommCapabilitiesT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct BtSocketCapabilitiesResponseT : public flatbuffers::NativeTable {
+  typedef BtSocketCapabilitiesResponse TableType;
+  std::unique_ptr<chre::fbs::BtSocketLeCocCapabilitiesT> leCocCapabilities;
+  std::unique_ptr<chre::fbs::BtSocketRfcommCapabilitiesT> rfcommCapabilities;
+  BtSocketCapabilitiesResponseT() {
+  }
+};
+
+struct BtSocketCapabilitiesResponse FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef BtSocketCapabilitiesResponseT NativeTableType;
+  typedef BtSocketCapabilitiesResponseBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_LECOCCAPABILITIES = 4,
+    VT_RFCOMMCAPABILITIES = 6
+  };
+  const chre::fbs::BtSocketLeCocCapabilities *leCocCapabilities() const {
+    return GetPointer<const chre::fbs::BtSocketLeCocCapabilities *>(VT_LECOCCAPABILITIES);
+  }
+  chre::fbs::BtSocketLeCocCapabilities *mutable_leCocCapabilities() {
+    return GetPointer<chre::fbs::BtSocketLeCocCapabilities *>(VT_LECOCCAPABILITIES);
+  }
+  const chre::fbs::BtSocketRfcommCapabilities *rfcommCapabilities() const {
+    return GetPointer<const chre::fbs::BtSocketRfcommCapabilities *>(VT_RFCOMMCAPABILITIES);
+  }
+  chre::fbs::BtSocketRfcommCapabilities *mutable_rfcommCapabilities() {
+    return GetPointer<chre::fbs::BtSocketRfcommCapabilities *>(VT_RFCOMMCAPABILITIES);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_LECOCCAPABILITIES) &&
+           verifier.VerifyTable(leCocCapabilities()) &&
+           VerifyOffset(verifier, VT_RFCOMMCAPABILITIES) &&
+           verifier.VerifyTable(rfcommCapabilities()) &&
+           verifier.EndTable();
+  }
+  BtSocketCapabilitiesResponseT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(BtSocketCapabilitiesResponseT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<BtSocketCapabilitiesResponse> Pack(flatbuffers::FlatBufferBuilder &_fbb, const BtSocketCapabilitiesResponseT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct BtSocketCapabilitiesResponseBuilder {
+  typedef BtSocketCapabilitiesResponse Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_leCocCapabilities(flatbuffers::Offset<chre::fbs::BtSocketLeCocCapabilities> leCocCapabilities) {
+    fbb_.AddOffset(BtSocketCapabilitiesResponse::VT_LECOCCAPABILITIES, leCocCapabilities);
+  }
+  void add_rfcommCapabilities(flatbuffers::Offset<chre::fbs::BtSocketRfcommCapabilities> rfcommCapabilities) {
+    fbb_.AddOffset(BtSocketCapabilitiesResponse::VT_RFCOMMCAPABILITIES, rfcommCapabilities);
+  }
+  explicit BtSocketCapabilitiesResponseBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  BtSocketCapabilitiesResponseBuilder &operator=(const BtSocketCapabilitiesResponseBuilder &);
+  flatbuffers::Offset<BtSocketCapabilitiesResponse> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<BtSocketCapabilitiesResponse>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<BtSocketCapabilitiesResponse> CreateBtSocketCapabilitiesResponse(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<chre::fbs::BtSocketLeCocCapabilities> leCocCapabilities = 0,
+    flatbuffers::Offset<chre::fbs::BtSocketRfcommCapabilities> rfcommCapabilities = 0) {
+  BtSocketCapabilitiesResponseBuilder builder_(_fbb);
+  builder_.add_rfcommCapabilities(rfcommCapabilities);
+  builder_.add_leCocCapabilities(leCocCapabilities);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<BtSocketCapabilitiesResponse> CreateBtSocketCapabilitiesResponse(flatbuffers::FlatBufferBuilder &_fbb, const BtSocketCapabilitiesResponseT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
 struct VendorHubInfoT : public flatbuffers::NativeTable {
   typedef VendorHubInfo TableType;
   std::vector<int8_t> name;
@@ -5896,6 +6244,144 @@ inline flatbuffers::Offset<RegisterEndpoint> CreateRegisterEndpoint(
 }
 
 flatbuffers::Offset<RegisterEndpoint> CreateRegisterEndpoint(flatbuffers::FlatBufferBuilder &_fbb, const RegisterEndpointT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct AddServiceToEndpointT : public flatbuffers::NativeTable {
+  typedef AddServiceToEndpoint TableType;
+  std::unique_ptr<chre::fbs::EndpointIdT> endpoint;
+  std::unique_ptr<chre::fbs::ServiceT> service;
+  AddServiceToEndpointT() {
+  }
+};
+
+/// MessageRouter handles service inspection separately from endpoint inspection
+/// so these messages are required to send embedded endpoint information in
+/// pieces to the host. After RegisterEndpoint, the endpoint is only ready once
+/// an EndpointReady message is sent. After EndpointReady, AddServiceToEndpoint
+/// will be rejected.
+struct AddServiceToEndpoint FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef AddServiceToEndpointT NativeTableType;
+  typedef AddServiceToEndpointBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_ENDPOINT = 4,
+    VT_SERVICE = 6
+  };
+  const chre::fbs::EndpointId *endpoint() const {
+    return GetPointer<const chre::fbs::EndpointId *>(VT_ENDPOINT);
+  }
+  chre::fbs::EndpointId *mutable_endpoint() {
+    return GetPointer<chre::fbs::EndpointId *>(VT_ENDPOINT);
+  }
+  const chre::fbs::Service *service() const {
+    return GetPointer<const chre::fbs::Service *>(VT_SERVICE);
+  }
+  chre::fbs::Service *mutable_service() {
+    return GetPointer<chre::fbs::Service *>(VT_SERVICE);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_ENDPOINT) &&
+           verifier.VerifyTable(endpoint()) &&
+           VerifyOffset(verifier, VT_SERVICE) &&
+           verifier.VerifyTable(service()) &&
+           verifier.EndTable();
+  }
+  AddServiceToEndpointT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(AddServiceToEndpointT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<AddServiceToEndpoint> Pack(flatbuffers::FlatBufferBuilder &_fbb, const AddServiceToEndpointT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct AddServiceToEndpointBuilder {
+  typedef AddServiceToEndpoint Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_endpoint(flatbuffers::Offset<chre::fbs::EndpointId> endpoint) {
+    fbb_.AddOffset(AddServiceToEndpoint::VT_ENDPOINT, endpoint);
+  }
+  void add_service(flatbuffers::Offset<chre::fbs::Service> service) {
+    fbb_.AddOffset(AddServiceToEndpoint::VT_SERVICE, service);
+  }
+  explicit AddServiceToEndpointBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  AddServiceToEndpointBuilder &operator=(const AddServiceToEndpointBuilder &);
+  flatbuffers::Offset<AddServiceToEndpoint> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<AddServiceToEndpoint>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<AddServiceToEndpoint> CreateAddServiceToEndpoint(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<chre::fbs::EndpointId> endpoint = 0,
+    flatbuffers::Offset<chre::fbs::Service> service = 0) {
+  AddServiceToEndpointBuilder builder_(_fbb);
+  builder_.add_service(service);
+  builder_.add_endpoint(endpoint);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<AddServiceToEndpoint> CreateAddServiceToEndpoint(flatbuffers::FlatBufferBuilder &_fbb, const AddServiceToEndpointT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct EndpointReadyT : public flatbuffers::NativeTable {
+  typedef EndpointReady TableType;
+  std::unique_ptr<chre::fbs::EndpointIdT> endpoint;
+  EndpointReadyT() {
+  }
+};
+
+struct EndpointReady FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef EndpointReadyT NativeTableType;
+  typedef EndpointReadyBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_ENDPOINT = 4
+  };
+  const chre::fbs::EndpointId *endpoint() const {
+    return GetPointer<const chre::fbs::EndpointId *>(VT_ENDPOINT);
+  }
+  chre::fbs::EndpointId *mutable_endpoint() {
+    return GetPointer<chre::fbs::EndpointId *>(VT_ENDPOINT);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_ENDPOINT) &&
+           verifier.VerifyTable(endpoint()) &&
+           verifier.EndTable();
+  }
+  EndpointReadyT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(EndpointReadyT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<EndpointReady> Pack(flatbuffers::FlatBufferBuilder &_fbb, const EndpointReadyT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct EndpointReadyBuilder {
+  typedef EndpointReady Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_endpoint(flatbuffers::Offset<chre::fbs::EndpointId> endpoint) {
+    fbb_.AddOffset(EndpointReady::VT_ENDPOINT, endpoint);
+  }
+  explicit EndpointReadyBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  EndpointReadyBuilder &operator=(const EndpointReadyBuilder &);
+  flatbuffers::Offset<EndpointReady> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<EndpointReady>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<EndpointReady> CreateEndpointReady(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<chre::fbs::EndpointId> endpoint = 0) {
+  EndpointReadyBuilder builder_(_fbb);
+  builder_.add_endpoint(endpoint);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<EndpointReady> CreateEndpointReady(flatbuffers::FlatBufferBuilder &_fbb, const EndpointReadyT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct UnregisterEndpointT : public flatbuffers::NativeTable {
   typedef UnregisterEndpoint TableType;
@@ -6820,6 +7306,18 @@ struct MessageContainer FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const chre::fbs::EndpointSessionMessageDeliveryStatus *message_as_EndpointSessionMessageDeliveryStatus() const {
     return message_type() == chre::fbs::ChreMessage::EndpointSessionMessageDeliveryStatus ? static_cast<const chre::fbs::EndpointSessionMessageDeliveryStatus *>(message()) : nullptr;
   }
+  const chre::fbs::BtSocketCapabilitiesRequest *message_as_BtSocketCapabilitiesRequest() const {
+    return message_type() == chre::fbs::ChreMessage::BtSocketCapabilitiesRequest ? static_cast<const chre::fbs::BtSocketCapabilitiesRequest *>(message()) : nullptr;
+  }
+  const chre::fbs::BtSocketCapabilitiesResponse *message_as_BtSocketCapabilitiesResponse() const {
+    return message_type() == chre::fbs::ChreMessage::BtSocketCapabilitiesResponse ? static_cast<const chre::fbs::BtSocketCapabilitiesResponse *>(message()) : nullptr;
+  }
+  const chre::fbs::AddServiceToEndpoint *message_as_AddServiceToEndpoint() const {
+    return message_type() == chre::fbs::ChreMessage::AddServiceToEndpoint ? static_cast<const chre::fbs::AddServiceToEndpoint *>(message()) : nullptr;
+  }
+  const chre::fbs::EndpointReady *message_as_EndpointReady() const {
+    return message_type() == chre::fbs::ChreMessage::EndpointReady ? static_cast<const chre::fbs::EndpointReady *>(message()) : nullptr;
+  }
   void *mutable_message() {
     return GetPointer<void *>(VT_MESSAGE);
   }
@@ -7034,6 +7532,22 @@ template<> inline const chre::fbs::EndpointSessionMessage *MessageContainer::mes
 
 template<> inline const chre::fbs::EndpointSessionMessageDeliveryStatus *MessageContainer::message_as<chre::fbs::EndpointSessionMessageDeliveryStatus>() const {
   return message_as_EndpointSessionMessageDeliveryStatus();
+}
+
+template<> inline const chre::fbs::BtSocketCapabilitiesRequest *MessageContainer::message_as<chre::fbs::BtSocketCapabilitiesRequest>() const {
+  return message_as_BtSocketCapabilitiesRequest();
+}
+
+template<> inline const chre::fbs::BtSocketCapabilitiesResponse *MessageContainer::message_as<chre::fbs::BtSocketCapabilitiesResponse>() const {
+  return message_as_BtSocketCapabilitiesResponse();
+}
+
+template<> inline const chre::fbs::AddServiceToEndpoint *MessageContainer::message_as<chre::fbs::AddServiceToEndpoint>() const {
+  return message_as_AddServiceToEndpoint();
+}
+
+template<> inline const chre::fbs::EndpointReady *MessageContainer::message_as<chre::fbs::EndpointReady>() const {
+  return message_as_EndpointReady();
 }
 
 struct MessageContainerBuilder {
@@ -8268,6 +8782,116 @@ inline flatbuffers::Offset<BtSocketCloseResponse> CreateBtSocketCloseResponse(fl
       _socketId);
 }
 
+inline BtSocketCapabilitiesRequestT *BtSocketCapabilitiesRequest::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  std::unique_ptr<chre::fbs::BtSocketCapabilitiesRequestT> _o = std::unique_ptr<chre::fbs::BtSocketCapabilitiesRequestT>(new BtSocketCapabilitiesRequestT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void BtSocketCapabilitiesRequest::UnPackTo(BtSocketCapabilitiesRequestT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+}
+
+inline flatbuffers::Offset<BtSocketCapabilitiesRequest> BtSocketCapabilitiesRequest::Pack(flatbuffers::FlatBufferBuilder &_fbb, const BtSocketCapabilitiesRequestT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateBtSocketCapabilitiesRequest(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<BtSocketCapabilitiesRequest> CreateBtSocketCapabilitiesRequest(flatbuffers::FlatBufferBuilder &_fbb, const BtSocketCapabilitiesRequestT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const BtSocketCapabilitiesRequestT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  return chre::fbs::CreateBtSocketCapabilitiesRequest(
+      _fbb);
+}
+
+inline BtSocketLeCocCapabilitiesT *BtSocketLeCocCapabilities::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  std::unique_ptr<chre::fbs::BtSocketLeCocCapabilitiesT> _o = std::unique_ptr<chre::fbs::BtSocketLeCocCapabilitiesT>(new BtSocketLeCocCapabilitiesT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void BtSocketLeCocCapabilities::UnPackTo(BtSocketLeCocCapabilitiesT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = numberOfSupportedSockets(); _o->numberOfSupportedSockets = _e; }
+  { auto _e = mtu(); _o->mtu = _e; }
+}
+
+inline flatbuffers::Offset<BtSocketLeCocCapabilities> BtSocketLeCocCapabilities::Pack(flatbuffers::FlatBufferBuilder &_fbb, const BtSocketLeCocCapabilitiesT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateBtSocketLeCocCapabilities(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<BtSocketLeCocCapabilities> CreateBtSocketLeCocCapabilities(flatbuffers::FlatBufferBuilder &_fbb, const BtSocketLeCocCapabilitiesT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const BtSocketLeCocCapabilitiesT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _numberOfSupportedSockets = _o->numberOfSupportedSockets;
+  auto _mtu = _o->mtu;
+  return chre::fbs::CreateBtSocketLeCocCapabilities(
+      _fbb,
+      _numberOfSupportedSockets,
+      _mtu);
+}
+
+inline BtSocketRfcommCapabilitiesT *BtSocketRfcommCapabilities::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  std::unique_ptr<chre::fbs::BtSocketRfcommCapabilitiesT> _o = std::unique_ptr<chre::fbs::BtSocketRfcommCapabilitiesT>(new BtSocketRfcommCapabilitiesT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void BtSocketRfcommCapabilities::UnPackTo(BtSocketRfcommCapabilitiesT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = numberOfSupportedSockets(); _o->numberOfSupportedSockets = _e; }
+  { auto _e = maxFrameSize(); _o->maxFrameSize = _e; }
+}
+
+inline flatbuffers::Offset<BtSocketRfcommCapabilities> BtSocketRfcommCapabilities::Pack(flatbuffers::FlatBufferBuilder &_fbb, const BtSocketRfcommCapabilitiesT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateBtSocketRfcommCapabilities(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<BtSocketRfcommCapabilities> CreateBtSocketRfcommCapabilities(flatbuffers::FlatBufferBuilder &_fbb, const BtSocketRfcommCapabilitiesT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const BtSocketRfcommCapabilitiesT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _numberOfSupportedSockets = _o->numberOfSupportedSockets;
+  auto _maxFrameSize = _o->maxFrameSize;
+  return chre::fbs::CreateBtSocketRfcommCapabilities(
+      _fbb,
+      _numberOfSupportedSockets,
+      _maxFrameSize);
+}
+
+inline BtSocketCapabilitiesResponseT *BtSocketCapabilitiesResponse::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  std::unique_ptr<chre::fbs::BtSocketCapabilitiesResponseT> _o = std::unique_ptr<chre::fbs::BtSocketCapabilitiesResponseT>(new BtSocketCapabilitiesResponseT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void BtSocketCapabilitiesResponse::UnPackTo(BtSocketCapabilitiesResponseT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = leCocCapabilities(); if (_e) _o->leCocCapabilities = std::unique_ptr<chre::fbs::BtSocketLeCocCapabilitiesT>(_e->UnPack(_resolver)); }
+  { auto _e = rfcommCapabilities(); if (_e) _o->rfcommCapabilities = std::unique_ptr<chre::fbs::BtSocketRfcommCapabilitiesT>(_e->UnPack(_resolver)); }
+}
+
+inline flatbuffers::Offset<BtSocketCapabilitiesResponse> BtSocketCapabilitiesResponse::Pack(flatbuffers::FlatBufferBuilder &_fbb, const BtSocketCapabilitiesResponseT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateBtSocketCapabilitiesResponse(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<BtSocketCapabilitiesResponse> CreateBtSocketCapabilitiesResponse(flatbuffers::FlatBufferBuilder &_fbb, const BtSocketCapabilitiesResponseT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const BtSocketCapabilitiesResponseT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _leCocCapabilities = _o->leCocCapabilities ? CreateBtSocketLeCocCapabilities(_fbb, _o->leCocCapabilities.get(), _rehasher) : 0;
+  auto _rfcommCapabilities = _o->rfcommCapabilities ? CreateBtSocketRfcommCapabilities(_fbb, _o->rfcommCapabilities.get(), _rehasher) : 0;
+  return chre::fbs::CreateBtSocketCapabilitiesResponse(
+      _fbb,
+      _leCocCapabilities,
+      _rfcommCapabilities);
+}
+
 inline VendorHubInfoT *VendorHubInfo::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
   std::unique_ptr<chre::fbs::VendorHubInfoT> _o = std::unique_ptr<chre::fbs::VendorHubInfoT>(new VendorHubInfoT());
   UnPackTo(_o.get(), _resolver);
@@ -8511,6 +9135,61 @@ inline flatbuffers::Offset<RegisterEndpoint> CreateRegisterEndpoint(flatbuffers:
   struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const RegisterEndpointT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
   auto _endpoint = _o->endpoint ? CreateEndpointInfo(_fbb, _o->endpoint.get(), _rehasher) : 0;
   return chre::fbs::CreateRegisterEndpoint(
+      _fbb,
+      _endpoint);
+}
+
+inline AddServiceToEndpointT *AddServiceToEndpoint::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  std::unique_ptr<chre::fbs::AddServiceToEndpointT> _o = std::unique_ptr<chre::fbs::AddServiceToEndpointT>(new AddServiceToEndpointT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void AddServiceToEndpoint::UnPackTo(AddServiceToEndpointT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = endpoint(); if (_e) _o->endpoint = std::unique_ptr<chre::fbs::EndpointIdT>(_e->UnPack(_resolver)); }
+  { auto _e = service(); if (_e) _o->service = std::unique_ptr<chre::fbs::ServiceT>(_e->UnPack(_resolver)); }
+}
+
+inline flatbuffers::Offset<AddServiceToEndpoint> AddServiceToEndpoint::Pack(flatbuffers::FlatBufferBuilder &_fbb, const AddServiceToEndpointT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateAddServiceToEndpoint(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<AddServiceToEndpoint> CreateAddServiceToEndpoint(flatbuffers::FlatBufferBuilder &_fbb, const AddServiceToEndpointT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const AddServiceToEndpointT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _endpoint = _o->endpoint ? CreateEndpointId(_fbb, _o->endpoint.get(), _rehasher) : 0;
+  auto _service = _o->service ? CreateService(_fbb, _o->service.get(), _rehasher) : 0;
+  return chre::fbs::CreateAddServiceToEndpoint(
+      _fbb,
+      _endpoint,
+      _service);
+}
+
+inline EndpointReadyT *EndpointReady::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  std::unique_ptr<chre::fbs::EndpointReadyT> _o = std::unique_ptr<chre::fbs::EndpointReadyT>(new EndpointReadyT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void EndpointReady::UnPackTo(EndpointReadyT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = endpoint(); if (_e) _o->endpoint = std::unique_ptr<chre::fbs::EndpointIdT>(_e->UnPack(_resolver)); }
+}
+
+inline flatbuffers::Offset<EndpointReady> EndpointReady::Pack(flatbuffers::FlatBufferBuilder &_fbb, const EndpointReadyT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateEndpointReady(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<EndpointReady> CreateEndpointReady(flatbuffers::FlatBufferBuilder &_fbb, const EndpointReadyT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const EndpointReadyT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _endpoint = _o->endpoint ? CreateEndpointId(_fbb, _o->endpoint.get(), _rehasher) : 0;
+  return chre::fbs::CreateEndpointReady(
       _fbb,
       _endpoint);
 }
@@ -9152,6 +9831,22 @@ inline bool VerifyChreMessage(flatbuffers::Verifier &verifier, const void *obj, 
       auto ptr = reinterpret_cast<const chre::fbs::EndpointSessionMessageDeliveryStatus *>(obj);
       return verifier.VerifyTable(ptr);
     }
+    case ChreMessage::BtSocketCapabilitiesRequest: {
+      auto ptr = reinterpret_cast<const chre::fbs::BtSocketCapabilitiesRequest *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case ChreMessage::BtSocketCapabilitiesResponse: {
+      auto ptr = reinterpret_cast<const chre::fbs::BtSocketCapabilitiesResponse *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case ChreMessage::AddServiceToEndpoint: {
+      auto ptr = reinterpret_cast<const chre::fbs::AddServiceToEndpoint *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case ChreMessage::EndpointReady: {
+      auto ptr = reinterpret_cast<const chre::fbs::EndpointReady *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
     default: return true;
   }
 }
@@ -9358,6 +10053,22 @@ inline void *ChreMessageUnion::UnPack(const void *obj, ChreMessage type, const f
       auto ptr = reinterpret_cast<const chre::fbs::EndpointSessionMessageDeliveryStatus *>(obj);
       return ptr->UnPack(resolver);
     }
+    case ChreMessage::BtSocketCapabilitiesRequest: {
+      auto ptr = reinterpret_cast<const chre::fbs::BtSocketCapabilitiesRequest *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case ChreMessage::BtSocketCapabilitiesResponse: {
+      auto ptr = reinterpret_cast<const chre::fbs::BtSocketCapabilitiesResponse *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case ChreMessage::AddServiceToEndpoint: {
+      auto ptr = reinterpret_cast<const chre::fbs::AddServiceToEndpoint *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case ChreMessage::EndpointReady: {
+      auto ptr = reinterpret_cast<const chre::fbs::EndpointReady *>(obj);
+      return ptr->UnPack(resolver);
+    }
     default: return nullptr;
   }
 }
@@ -9552,6 +10263,22 @@ inline flatbuffers::Offset<void> ChreMessageUnion::Pack(flatbuffers::FlatBufferB
       auto ptr = reinterpret_cast<const chre::fbs::EndpointSessionMessageDeliveryStatusT *>(value);
       return CreateEndpointSessionMessageDeliveryStatus(_fbb, ptr, _rehasher).Union();
     }
+    case ChreMessage::BtSocketCapabilitiesRequest: {
+      auto ptr = reinterpret_cast<const chre::fbs::BtSocketCapabilitiesRequestT *>(value);
+      return CreateBtSocketCapabilitiesRequest(_fbb, ptr, _rehasher).Union();
+    }
+    case ChreMessage::BtSocketCapabilitiesResponse: {
+      auto ptr = reinterpret_cast<const chre::fbs::BtSocketCapabilitiesResponseT *>(value);
+      return CreateBtSocketCapabilitiesResponse(_fbb, ptr, _rehasher).Union();
+    }
+    case ChreMessage::AddServiceToEndpoint: {
+      auto ptr = reinterpret_cast<const chre::fbs::AddServiceToEndpointT *>(value);
+      return CreateAddServiceToEndpoint(_fbb, ptr, _rehasher).Union();
+    }
+    case ChreMessage::EndpointReady: {
+      auto ptr = reinterpret_cast<const chre::fbs::EndpointReadyT *>(value);
+      return CreateEndpointReady(_fbb, ptr, _rehasher).Union();
+    }
     default: return 0;
   }
 }
@@ -9744,6 +10471,22 @@ inline ChreMessageUnion::ChreMessageUnion(const ChreMessageUnion &u) : type(u.ty
     }
     case ChreMessage::EndpointSessionMessageDeliveryStatus: {
       FLATBUFFERS_ASSERT(false);  // chre::fbs::EndpointSessionMessageDeliveryStatusT not copyable.
+      break;
+    }
+    case ChreMessage::BtSocketCapabilitiesRequest: {
+      value = new chre::fbs::BtSocketCapabilitiesRequestT(*reinterpret_cast<chre::fbs::BtSocketCapabilitiesRequestT *>(u.value));
+      break;
+    }
+    case ChreMessage::BtSocketCapabilitiesResponse: {
+      FLATBUFFERS_ASSERT(false);  // chre::fbs::BtSocketCapabilitiesResponseT not copyable.
+      break;
+    }
+    case ChreMessage::AddServiceToEndpoint: {
+      FLATBUFFERS_ASSERT(false);  // chre::fbs::AddServiceToEndpointT not copyable.
+      break;
+    }
+    case ChreMessage::EndpointReady: {
+      FLATBUFFERS_ASSERT(false);  // chre::fbs::EndpointReadyT not copyable.
       break;
     }
     default:
@@ -9985,6 +10728,26 @@ inline void ChreMessageUnion::Reset() {
     }
     case ChreMessage::EndpointSessionMessageDeliveryStatus: {
       auto ptr = reinterpret_cast<chre::fbs::EndpointSessionMessageDeliveryStatusT *>(value);
+      delete ptr;
+      break;
+    }
+    case ChreMessage::BtSocketCapabilitiesRequest: {
+      auto ptr = reinterpret_cast<chre::fbs::BtSocketCapabilitiesRequestT *>(value);
+      delete ptr;
+      break;
+    }
+    case ChreMessage::BtSocketCapabilitiesResponse: {
+      auto ptr = reinterpret_cast<chre::fbs::BtSocketCapabilitiesResponseT *>(value);
+      delete ptr;
+      break;
+    }
+    case ChreMessage::AddServiceToEndpoint: {
+      auto ptr = reinterpret_cast<chre::fbs::AddServiceToEndpointT *>(value);
+      delete ptr;
+      break;
+    }
+    case ChreMessage::EndpointReady: {
+      auto ptr = reinterpret_cast<chre::fbs::EndpointReadyT *>(value);
       delete ptr;
       break;
     }

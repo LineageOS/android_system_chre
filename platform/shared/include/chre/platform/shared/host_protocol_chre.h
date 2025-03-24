@@ -23,7 +23,7 @@
 #include "chre/core/ble_l2cap_coc_socket_data.h"
 #include "chre/core/nanoapp.h"
 #include "chre/core/settings.h"
-#include "chre/platform/shared/generated/host_messages_generated.h"
+#include "chre/platform/shared/fbs/host_messages_generated.h"
 #include "chre/platform/shared/host_protocol_common.h"
 #include "chre/util/dynamic_vector.h"
 #include "chre/util/flatbuffers/helpers.h"
@@ -108,6 +108,8 @@ class HostMessageHandlers {
   static void handleBtSocketOpen(uint64_t hubId,
                                  const BleL2capCocSocketData &socketData,
                                  const char *name, uint32_t psm);
+
+  static void handleBtSocketCapabilitiesRequest();
 
  private:
   static void sendFragmentResponse(uint16_t hostClientId,
@@ -362,6 +364,20 @@ class HostProtocolChre : public HostProtocolCommon {
                                   const char *reason);
 
   /**
+   * Encodes a BT socket capabilities response.
+   *
+   * @param builder An instance of the CHRE Flatbuffer builder.
+   * @param leCocNumberOfSupportedSockets Number of LE CoC sockets supported.
+   * @param leCocMtu Max local MTU of LE CoC sockets.
+   * @param rfcommNumberOfSupportedSockets Number of RFCOMM sockets supported.
+   * @param rfcommMaxFrameSize Max frame size of RFCOMM sockets.
+   */
+  static void encodeBtSocketGetCapabilitiesResponse(
+      ChreFlatBufferBuilder &builder, uint32_t leCocNumberOfSupportedSockets,
+      uint32_t leCocMtu, uint32_t rfcommNumberOfSupportedSockets,
+      uint32_t rfcommMaxFrameSize);
+
+  /**
    * Encodes the response acking a GetMessageHubsAndEndpointsRequest.
    *
    * @param builder Builder which assembles and stores the message.
@@ -397,6 +413,30 @@ class HostProtocolChre : public HostProtocolCommon {
   static void encodeRegisterEndpoint(ChreFlatBufferBuilder &builder,
                                      message::MessageHubId hub,
                                      const message::EndpointInfo &endpoint);
+
+  /**
+   * Encodes a notification to add a service hosted by a new embedded endpoint.
+   *
+   * @param builder Builder which assembles and stores the message.
+   * @param hub Id of the hub hosting the new endpoint.
+   * @param endpoint Id of the new endpoint.
+   * @param service The service being added.
+   */
+  static void encodeAddServiceToEndpoint(ChreFlatBufferBuilder &builder,
+                                         message::MessageHubId hub,
+                                         message::EndpointId endpoint,
+                                         const message::ServiceInfo &service);
+
+  /**
+   * Encodes an embedded endpoint ready notification.
+   *
+   * @param builder Builder which assembles and stores the message.
+   * @param hub Id of the hub hosting the new endpoint.
+   * @param endpoint Id of the new endpoint.
+   */
+  static void encodeEndpointReady(ChreFlatBufferBuilder &builder,
+                                  message::MessageHubId hub,
+                                  message::EndpointId endpoint);
 
   /**
    * Encodes an embedded endpoint removal notification.
