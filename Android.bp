@@ -585,7 +585,7 @@ cc_library_static {
 }
 
 cc_test_host {
-    name: "hal_unit_tests",
+    name: "chre_hal_unit_tests",
     vendor: true,
     srcs: [
         "host/common/fragmented_load_transaction.cc",
