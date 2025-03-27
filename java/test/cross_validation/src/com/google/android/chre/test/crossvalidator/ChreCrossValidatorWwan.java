@@ -197,8 +197,10 @@ public class ChreCrossValidatorWwan extends ChreCrossValidatorBase implements Ex
         Assert.assertNotNull("Timed out for cell info for AP", result);
 
         if (result.getErrorCode() != 0 || result.getErrorDetail() != null) {
-            Log.e(TAG, "AP requestCellInfoUpdate failed with detail="
-                    + result.getErrorDetail().getMessage());
+            Log.e(
+                    TAG,
+                    "AP requestCellInfoUpdate failed with detail="
+                            + result.getErrorDetail().getMessage());
             Assert.fail("AP requestCellInfoUpdate failed with errorCode=" + result.getErrorCode());
         }
 
@@ -528,6 +530,13 @@ public class ChreCrossValidatorWwan extends ChreCrossValidatorBase implements Ex
         return false;
     }
 
+    boolean compareMxc(int chreMxc, String apMxcStr) {
+        if (apMxcStr == null) {
+            return chreMxc == Integer.MAX_VALUE;
+        }
+        return chreMxc == Integer.parseInt(apMxcStr);
+    }
+
     boolean compareCellIdentityNr(
             ChreCrossValidationWwan.WwanCellInfo chreCellInfoNr, CellInfoNr apCellInfoNr) {
 
@@ -562,14 +571,16 @@ public class ChreCrossValidatorWwan extends ChreCrossValidatorBase implements Ex
                 chreCellInfoLte.getLte().getCellIdentity();
 
         if (chreCellInfoLte.getIsRegistered() != apCellInfoLte.isRegistered()
-                || chreCellIdentityLte.getMcc()
-                        != parseCellIdentityString(apCellIdentityLte.getMccString())
-                || chreCellIdentityLte.getMnc()
-                        != parseCellIdentityString(apCellIdentityLte.getMncString())
                 || chreCellIdentityLte.getCi() != apCellIdentityLte.getCi()
                 || chreCellIdentityLte.getPci() != apCellIdentityLte.getPci()
                 || chreCellIdentityLte.getTac() != apCellIdentityLte.getTac()
                 || chreCellIdentityLte.getEarfcn() != apCellIdentityLte.getEarfcn()) {
+            return false;
+        }
+
+        // Mcc and Mnc will be null strings if they are invalid. Handle this case specially.
+        if (!compareMxc(chreCellIdentityLte.getMcc(), apCellIdentityLte.getMccString())
+                || !compareMxc(chreCellIdentityLte.getMnc(), apCellIdentityLte.getMncString())) {
             return false;
         }
 
@@ -582,14 +593,16 @@ public class ChreCrossValidatorWwan extends ChreCrossValidatorBase implements Ex
         ChreCrossValidationWwan.CellIdentityGsm chreCellIdentityGsm =
                 chreCellInfoGsm.getGsm().getCellIdentity();
         if (chreCellInfoGsm.getIsRegistered() != apCellInfoGsm.isRegistered()
-                || chreCellIdentityGsm.getMcc()
-                        != parseCellIdentityString(apCellIdentityGsm.getMccString())
-                || chreCellIdentityGsm.getMnc()
-                        != parseCellIdentityString(apCellIdentityGsm.getMncString())
                 || chreCellIdentityGsm.getLac() != apCellIdentityGsm.getLac()
                 || chreCellIdentityGsm.getCid() != apCellIdentityGsm.getCid()
                 || chreCellIdentityGsm.getArfcn() != apCellIdentityGsm.getArfcn()
                 || chreCellIdentityGsm.getBsic() != apCellIdentityGsm.getBsic()) {
+            return false;
+        }
+
+        // Mcc and Mnc will be null strings if they are invalid. Handle this case specially.
+        if (!compareMxc(chreCellIdentityGsm.getMcc(), apCellIdentityGsm.getMccString())
+                || !compareMxc(chreCellIdentityGsm.getMnc(), apCellIdentityGsm.getMncString())) {
             return false;
         }
 
@@ -603,14 +616,17 @@ public class ChreCrossValidatorWwan extends ChreCrossValidatorBase implements Ex
         ChreCrossValidationWwan.CellIdentityWcdma chreCellIdentityWcdma =
                 chreCellInfoWcdma.getWcdma().getCellIdentity();
         if (chreCellInfoWcdma.getIsRegistered() != apCellInfoWcdma.isRegistered()
-                || chreCellIdentityWcdma.getMcc()
-                        != parseCellIdentityString(apCellIdentityWcdma.getMccString())
-                || chreCellIdentityWcdma.getMnc()
-                        != parseCellIdentityString(apCellIdentityWcdma.getMncString())
                 || chreCellIdentityWcdma.getLac() != apCellIdentityWcdma.getLac()
                 || chreCellIdentityWcdma.getCid() != apCellIdentityWcdma.getCid()
                 || chreCellIdentityWcdma.getPsc() != apCellIdentityWcdma.getPsc()
                 || chreCellIdentityWcdma.getUarfcn() != apCellIdentityWcdma.getUarfcn()) {
+            return false;
+        }
+
+        // Mcc and Mnc will be null strings if they are invalid. Handle this case specially.
+        if (!compareMxc(chreCellIdentityWcdma.getMcc(), apCellIdentityWcdma.getMccString())
+                || !compareMxc(
+                        chreCellIdentityWcdma.getMnc(), apCellIdentityWcdma.getMncString())) {
             return false;
         }
 
@@ -702,7 +718,7 @@ public class ChreCrossValidatorWwan extends ChreCrossValidatorBase implements Ex
         public Throwable getErrorDetail() {
             return mDetail;
         }
-    };
+    }
 
     void requestCellInfoRefresh() {
         CellInfoCallback callback =
