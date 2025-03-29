@@ -55,8 +55,8 @@ TaskHandle_t gChreTaskHandle;
 
 TaskHandle_t gChreFlushTaskHandle;
 
-#ifdef CHRE_HIGH_POWER_TEXT_ATTRIBUTE
-CHRE_HIGH_POWER_TEXT_ATTRIBUTE
+#ifdef CHRE_HIGH_POWER_BSS_ATTRIBUTE
+CHRE_HIGH_POWER_BSS_ATTRIBUTE
 #endif
 uint8_t gSecondaryLogBufferData[CHRE_LOG_BUFFER_DATA_SIZE];
 
