@@ -119,6 +119,21 @@ class HostMessageHubManager : public NonCopyable {
                                    message::SessionId session,
                                    pw::UniquePtr<std::byte[]> &&data,
                                    uint32_t type, uint32_t permissions) = 0;
+
+    /**
+     * Sends a notification that a message has been delivered to the host.
+     *
+     * Invoked within MessageHubCallback::onMessageDeliveryStatus().
+     *
+     * @param hub The destination hub id
+     * @param session The session id
+     * @param messageSequenceNumber The sequence number of the message
+     * @param errorCode The error code of the delivery status
+     */
+    virtual bool onMessageDeliveryStatus(message::MessageHubId hub,
+                                         message::SessionId session,
+                                         uint32_t messageSequenceNumber,
+                                         uint8_t errorCode) = 0;
     /**
      * Sends a request to open a session with a host endpoint
      *
@@ -249,10 +264,13 @@ class HostMessageHubManager : public NonCopyable {
    * @param data Message data
    * @param type Message type
    * @param permissions Message permissions
+   * @param isReliable Whether the message is reliable
+   * @param sequenceNumber The sequence number of the message
    */
   void sendMessage(message::MessageHubId hubId, message::SessionId sessionId,
                    pw::span<const std::byte> data, uint32_t type,
-                   uint32_t permissions);
+                   uint32_t permissions, bool isReliable = false,
+                   uint32_t sequenceNumber = 0);
 
  private:
   /**

@@ -38,8 +38,7 @@ ScopedAStatus BluetoothSocketFbsHal::registerCallback(
 
 ScopedAStatus BluetoothSocketFbsHal::getSocketCapabilities(
     SocketCapabilities *result) {
-  std::future<SocketCapabilities> future = mCapabilitiesPromise.get_future();
-
+  LOGI("Received getSocketCapabilities request");
   flatbuffers::FlatBufferBuilder builder(64);
   auto socketCapabilitiesRequest =
       ::chre::fbs::CreateBtSocketCapabilitiesRequest(builder);
@@ -62,8 +61,14 @@ ScopedAStatus BluetoothSocketFbsHal::getSocketCapabilities(
         "Failed to send BT socket message");
   }
 
-  std::future_status status = future.wait_for(std::chrono::seconds(5));
-  if (status != std::future_status::ready) {
+  std::future<SocketCapabilities> future = mCapabilitiesPromise.get_future();
+  if (!future.valid()) {
+    LOGE("BT socket capabilities future is not valid");
+    return ScopedAStatus::fromServiceSpecificErrorWithMessage(
+        static_cast<int32_t>(STATUS_UNKNOWN_ERROR),
+        "BT socket capabilities future is not valid");
+  }
+  if (future.wait_for(std::chrono::seconds(5)) != std::future_status::ready) {
     LOGE("BT Socket capabilities request timed out");
     return ScopedAStatus::fromServiceSpecificErrorWithMessage(
         static_cast<int32_t>(STATUS_UNKNOWN_ERROR),

@@ -25,6 +25,7 @@
 #include "chre_host/fragmented_load_transaction.h"
 #include "chre_host/hal_error.h"
 #include "chre_host/host_protocol_host.h"
+#include "error_util.h"
 #include "hal_client_id.h"
 #include "permissions_util.h"
 
@@ -112,41 +113,6 @@ inline ScopedAStatus fromServiceError(HalError errorCode) {
 inline ScopedAStatus fromResult(bool result) {
   return result ? ScopedAStatus::ok()
                 : fromServiceError(HalError::OPERATION_FAILED);
-}
-
-uint8_t toChreErrorCode(ErrorCode errorCode) {
-  switch (errorCode) {
-    case ErrorCode::OK:
-      return CHRE_ERROR_NONE;
-    case ErrorCode::TRANSIENT_ERROR:
-      return CHRE_ERROR_TRANSIENT;
-    case ErrorCode::PERMANENT_ERROR:
-      return CHRE_ERROR;
-    case ErrorCode::PERMISSION_DENIED:
-      return CHRE_ERROR_PERMISSION_DENIED;
-    case ErrorCode::DESTINATION_NOT_FOUND:
-      return CHRE_ERROR_DESTINATION_NOT_FOUND;
-  }
-
-  return CHRE_ERROR;
-}
-
-ErrorCode toErrorCode(uint32_t chreErrorCode) {
-  switch (chreErrorCode) {
-    case CHRE_ERROR_NONE:
-      return ErrorCode::OK;
-    case CHRE_ERROR_BUSY: // fallthrough
-    case CHRE_ERROR_TRANSIENT:
-      return ErrorCode::TRANSIENT_ERROR;
-    case CHRE_ERROR:
-      return ErrorCode::PERMANENT_ERROR;
-    case CHRE_ERROR_PERMISSION_DENIED:
-      return ErrorCode::PERMISSION_DENIED;
-    case CHRE_ERROR_DESTINATION_NOT_FOUND:
-      return ErrorCode::DESTINATION_NOT_FOUND;
-  }
-
-  return ErrorCode::PERMANENT_ERROR;
 }
 
 }  // anonymous namespace

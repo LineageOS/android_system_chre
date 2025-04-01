@@ -391,7 +391,9 @@ bool HostProtocolChre::decodeMessageFromHost(const void *message,
             reinterpret_cast<const std::byte *>(msg->data()->data()),
             msg->data()->size()};
         getHostHubManager().sendMessage(msg->host_hub_id(), msg->session_id(),
-                                        data, msg->type(), msg->permissions());
+                                        data, msg->type(), msg->permissions(),
+                                        (msg->flags() & 0x1) != 0,
+                                        msg->sequence_number());
         break;
       }
 
@@ -760,6 +762,17 @@ void HostProtocolChre::encodeEndpointSessionMessage(
   auto msg = fbs::CreateEndpointSessionMessage(builder, hub, session, type,
                                                permissions, dataVec);
   finalize(builder, fbs::ChreMessage::EndpointSessionMessage, msg.Union());
+}
+
+void HostProtocolChre::encodeEndpointSessionMessageDeliveryStatus(
+    ChreFlatBufferBuilder &builder, message::MessageHubId hub,
+    message::SessionId session, uint32_t messageId, uint8_t status) {
+  auto messageDeliveryStatus =
+      fbs::CreateMessageDeliveryStatus(builder, messageId, status);
+  auto msg = fbs::CreateEndpointSessionMessageDeliveryStatus(
+      builder, hub, session, messageDeliveryStatus);
+  finalize(builder, fbs::ChreMessage::EndpointSessionMessageDeliveryStatus,
+           msg.Union());
 }
 
 }  // namespace chre

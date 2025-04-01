@@ -74,6 +74,8 @@ class MockHostCallback : public HostMessageHubManager::HostCallback {
               (MessageHubId, SessionId, pw::UniquePtr<std::byte[]> &&, uint32_t,
                uint32_t),
               (override));
+  MOCK_METHOD(bool, onMessageDeliveryStatus,
+              (MessageHubId, SessionId, uint32_t, uint8_t), (override));
   MOCK_METHOD(void, onSessionOpenRequest, (const Session &), (override));
   MOCK_METHOD(void, onSessionOpened, (MessageHubId, SessionId), (override));
   MOCK_METHOD(void, onSessionClosed, (MessageHubId, SessionId, Reason),

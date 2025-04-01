@@ -497,6 +497,19 @@ class HostProtocolChre : public HostProtocolCommon {
                                            message::SessionId session,
                                            pw::UniquePtr<std::byte[]> &&data,
                                            uint32_t type, uint32_t permissions);
+
+  /**
+   * Encodes a message delivery status notification.
+   *
+   * @param builder Builder which assembles and stores the message.
+   * @param hub Id of the destination host hub.
+   * @param session Id of the session.
+   * @param messageId The message sequence number.
+   * @param status The delivery status.
+   */
+  static void encodeEndpointSessionMessageDeliveryStatus(
+      ChreFlatBufferBuilder &builder, message::MessageHubId hub,
+      message::SessionId session, uint32_t messageId, uint8_t status);
 };
 
 }  // namespace chre
