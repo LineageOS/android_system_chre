@@ -61,7 +61,8 @@ ScopedAStatus BluetoothSocketFbsHal::getSocketCapabilities(
         "Failed to send BT socket message");
   }
 
-  std::future<SocketCapabilities> future = mCapabilitiesPromise.get_future();
+  mCapabilitiesPromise = std::make_optional<std::promise<SocketCapabilities>>();
+  std::future<SocketCapabilities> future = mCapabilitiesPromise->get_future();
   if (!future.valid()) {
     LOGE("BT socket capabilities future is not valid");
     return ScopedAStatus::fromServiceSpecificErrorWithMessage(
@@ -209,6 +210,10 @@ void BluetoothSocketFbsHal::handleBtSocketClose(
 void BluetoothSocketFbsHal::handleBtSocketCapabilitiesResponse(
     const ::chre::fbs::BtSocketCapabilitiesResponseT &response) {
   LOGD("Got BT Socket capabilities response");
+  if (!mCapabilitiesPromise.has_value()) {
+    LOGE("Received BT Socket capabilities response with no pending request");
+    return;
+  }
   SocketCapabilities capabilities = {
       .leCocCapabilities =
           {
@@ -223,7 +228,8 @@ void BluetoothSocketFbsHal::handleBtSocketCapabilitiesResponse(
               .maxFrameSize = response.rfcommCapabilities->maxFrameSize,
           },
   };
-  mCapabilitiesPromise.set_value(capabilities);
+  mCapabilitiesPromise->set_value(capabilities);
+  mCapabilitiesPromise = std::nullopt;
 }
 
 void BluetoothSocketFbsHal::sendOpenedCompleteMessage(int64_t socketId,

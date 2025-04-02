@@ -17,6 +17,7 @@
 #ifndef CHRE_PLATFORM_TINYSYS_LOG_H_
 #define CHRE_PLATFORM_TINYSYS_LOG_H_
 
+#include "chre/platform/shared/log_common.h"
 #include "chre_api/chre.h"
 
 #ifdef __cplusplus
@@ -30,17 +31,6 @@ extern "C" {
 #endif
 
 #ifdef CHRE_USE_BUFFERED_LOGGING
-
-/**
- * Log via the LogBufferManagerSingleton vaLog method.
- *
- * Defined in system/chre/platform/shared/log_buffer_manager.cc
- *
- * @param level The log level.
- * @param format The format string.
- * @param ... The arguments to print into the final log.
- */
-void chrePlatformLogToBuffer(enum chreLogLevel level, const char *format, ...);
 
 // Print logs to host logcat
 #define CHRE_BUFFER_LOG(level, fmt, arg...)     \

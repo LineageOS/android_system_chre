@@ -18,6 +18,8 @@ pw_add_facade(chre.platform.shared.bt_snoop_log INTERFACE
     include/chre/platform/shared/bt_snoop_log.h
   PUBLIC_INCLUDES
     include
+  PUBLIC_DEPS
+    chre.platform.shared.log_common
 )
 
 # Implements chre_api/chre/audio.h's:
@@ -378,6 +380,20 @@ pw_add_library(chre.platform.shared.log_buffer STATIC
   PRIVATE_DEPS
     chre.platform.assert
     chre.util
+)
+
+pw_add_library(chre.platform.shared.log_common STATIC
+  HEADERS
+    include/chre/platform/shared/log_common.h
+  PUBLIC_INCLUDES
+    include
+  PUBLIC_DEPS
+    chre.platform.shared.log_buffer_manager
+  SOURCES
+    log_common.cc
+  PRIVATE_DEPS
+    pw_log_tokenized.config
+    pw_tokenizer
 )
 
 # This requires the backend to provide an implementation for:

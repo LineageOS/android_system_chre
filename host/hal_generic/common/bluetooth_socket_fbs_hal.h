@@ -19,6 +19,8 @@
 #include <atomic>
 #include <cstdint>
 #include <future>
+#include <optional>
+#include <string>
 
 #include "aidl/android/hardware/bluetooth/socket/BnBluetoothSocket.h"
 #include "bluetooth_socket_offload_link.h"
@@ -69,7 +71,8 @@ class BluetoothSocketFbsHal : public BnBluetoothSocket,
 
   // A promise that is set when getSocketCapabilities is called and is fulfilled
   // when a response is received from the offload stack.
-  std::promise<SocketCapabilities> mCapabilitiesPromise;
+  std::optional<std::promise<SocketCapabilities>> mCapabilitiesPromise =
+      std::nullopt;
 
   void sendOpenedCompleteMessage(int64_t socketId, Status status,
                                  std::string reason);

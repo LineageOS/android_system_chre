@@ -500,6 +500,7 @@ TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/host_protocol_chre.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/host_protocol_common.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/log_buffer.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/log_buffer_manager.cc
+TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/log_common.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/memory_manager.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/nanoapp_abort.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/nanoapp_load_manager.cc
