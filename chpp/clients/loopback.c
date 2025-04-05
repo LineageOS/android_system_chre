@@ -26,6 +26,7 @@
 #include "chpp/clients/discovery.h"
 #include "chpp/log.h"
 #include "chpp/memory.h"
+#include "chpp/time.h"
 #include "chpp/transport.h"
 
 /************************************************
@@ -44,6 +45,7 @@ struct ChppLoopbackClientState {
   struct ChppEndpointState client;                  // CHPP client state
   struct ChppOutgoingRequestState runLoopbackTest;  // Loopback test state
 
+  uint64_t lastLoopbackTestTimeNs;           // Last loopback test time
   struct ChppLoopbackTestResult testResult;  // Last test result
   const uint8_t *loopbackData;               // Pointer to loopback data
 };
@@ -170,6 +172,7 @@ static bool chppRunLoopbackTestInternal(struct ChppAppState *appState,
                                         const uint8_t *buf, size_t len,
                                         bool sync,
                                         struct ChppLoopbackTestResult *out) {
+  const uint64_t kTimeoutNs = 5 * CHPP_NSEC_PER_SEC;
   CHPP_NOT_NULL(out);
   bool success = false;
   CHPP_LOGD("Loopback client TX len=%" PRIuSIZE,
@@ -187,10 +190,16 @@ static bool chppRunLoopbackTestInternal(struct ChppAppState *appState,
     chppMutexLock(&state->client.syncResponse.mutex);
     struct ChppLoopbackTestResult *result = &state->testResult;
 
-    if (result->error == CHPP_APP_ERROR_BLOCKED) {
+    uint64_t nowNs = chppGetCurrentTimeNs();
+    if (result->error == CHPP_APP_ERROR_BLOCKED &&
+        nowNs < state->lastLoopbackTestTimeNs + kTimeoutNs) {
       CHPP_DEBUG_ASSERT_LOG(false, "Another loopback in progress");
       out->error = CHPP_APP_ERROR_BLOCKED;
     } else {
+      if (result->error == CHPP_APP_ERROR_BLOCKED) {
+        CHPP_LOGW("Previous loopback (%" PRIu64 " ms ago) timed out",
+                  (nowNs - state->lastLoopbackTestTimeNs) / CHPP_NSEC_PER_MSEC);
+      }
       memset(result, 0, sizeof(struct ChppLoopbackTestResult));
       result->error = CHPP_APP_ERROR_BLOCKED;
       result->requestLen = len + CHPP_LOOPBACK_HEADER_LEN;
@@ -204,20 +213,24 @@ static bool chppRunLoopbackTestInternal(struct ChppAppState *appState,
       } else {
         state->loopbackData = buf;
         memcpy(&loopbackRequest[CHPP_LOOPBACK_HEADER_LEN], buf, len);
+        state->lastLoopbackTestTimeNs = nowNs;
 
         chppMutexUnlock(&state->client.syncResponse.mutex);
         if (sync) {
           if (!chppClientSendTimestampedRequestAndWaitTimeout(
                   &state->client, &state->runLoopbackTest, loopbackRequest,
-                  result->requestLen, 5 * CHPP_NSEC_PER_SEC)) {
+                  result->requestLen, kTimeoutNs)) {
             result->error = CHPP_APP_ERROR_UNSPECIFIED;
           } else {
             success = true;
           }
         } else {
+          // We use infinite timeout here since timeouts for predefined clients
+          // are not well-supported by CHPP today. Timeout for this case is
+          // handled opportunistically using lastLoopbackTestTimeNs check above.
           if (!chppClientSendTimestampedRequestOrFail(
                   &state->client, &state->runLoopbackTest, loopbackRequest,
-                  result->requestLen, 5 * CHPP_NSEC_PER_SEC)) {
+                  result->requestLen, CHPP_REQUEST_TIMEOUT_INFINITE)) {
             result->error = CHPP_APP_ERROR_UNSPECIFIED;
           } else {
             success = true;
