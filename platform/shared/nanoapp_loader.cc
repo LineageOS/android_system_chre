@@ -166,7 +166,6 @@ const ExportedData kExportedData[] = {
     ADD_EXPORTED_SYMBOL(frexpOverride, "frexp"),
     ADD_EXPORTED_SYMBOL(roundOverride, "round"),
     ADD_EXPORTED_SYMBOL(sinOverride, "sin"),
-    ADD_EXPORTED_SYMBOL(sinOverride, "_Sinx"),
     ADD_EXPORTED_SYMBOL(sqrtOverride, "sqrt"),
     ADD_EXPORTED_C_SYMBOL(acosf),
     ADD_EXPORTED_C_SYMBOL(asinf),

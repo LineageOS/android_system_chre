@@ -20,6 +20,7 @@
 
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/settings.h"
+#include "chre/platform/system_time.h"
 
 namespace chre {
 
@@ -71,6 +72,8 @@ void DebugDumpManager::appendNanoappLog(const Nanoapp &nanoapp,
 
 void DebugDumpManager::collectFrameworkDebugDumps() {
   auto *eventLoopManager = EventLoopManagerSingleton::get();
+  mDebugDump.print("CHRE debug dump started @ ts=%" PRIu64 "\n",
+                   SystemTime::getMonotonicTime().toRawNanoseconds());
   eventLoopManager->getMemoryManager().logStateToBuffer(mDebugDump);
   eventLoopManager->getEventLoop().logStateToBuffer(mDebugDump);
 #ifdef CHRE_SENSORS_SUPPORT_ENABLED

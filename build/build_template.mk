@@ -23,29 +23,40 @@
 # (for instance, it can be used to override common flags in COMMON_CFLAGS).
 #
 # Argument List:
-#     $1  - TARGET_NAME          - The name of the target being built.
-#     $2  - TARGET_CFLAGS        - The compiler flags to use for this target.
-#     $3  - TARGET_CC            - The C/C++ compiler for the target variant.
-#     $4  - TARGET_SO_LDFLAGS    - The linker flags to use for this target.
-#     $5  - TARGET_LD            - The linker for the target variant.
-#     $6  - TARGET_ARFLAGS       - The archival flags to use for this target.
-#     $7  - TARGET_AR            - The archival tool for the targer variant.
-#     $8  - TARGET_VARIANT_SRCS  - Source files specific to this variant.
-#     $9  - TARGET_BUILD_BIN     - Build a binary. Typically this means that the
-#                                  source files provided include an entry point.
-#     $10 - TARGET_BIN_LDFLAGS   - Linker flags that are passed to the linker
-#                                  when building an executable binary.
-#     $11 - TARGET_SO_EARLY_LIBS - Link against a set of libraries when building
-#                                  a shared object or binary. These are placed
-#                                  before the objects produced by this build.
-#     $12 - TARGET_SO_LATE_LIBS  - Link against a set of libraries when building
-#                                  a shared object or binary. These are placed
-#                                  after the objects produced by this build.
-#     $13 - TARGET_PLATFORM_ID   - The ID of the platform that this nanoapp
-#                                  build targets.
-#     $14 - TARGET_ACONFIGFLAGS  - The list of aconfig flag value files specific
-#                                  to this build target
-#     $15 - TARGET_ADDITIONAL_LD - Additional linker for this target variant.
+#     $1  - TARGET_NAME            - The name of the target being built.
+#     $2  - TARGET_CFLAGS          - The compiler flags to use for this target.
+#     $3  - TARGET_CC              - The C/C++ compiler for the target variant.
+#     $4  - TARGET_SO_LDFLAGS      - The linker flags to use for this target.
+#     $5  - TARGET_LD              - The linker for the target variant.
+#     $6  - TARGET_ARFLAGS         - The archival flags to use for this target.
+#     $7  - TARGET_AR              - The archival tool for the targer variant.
+#     $8  - TARGET_VARIANT_SRCS    - Source files specific to this variant.
+#     $9  - TARGET_BUILD_BIN       - Build a binary. Typically this means that
+#                                    the source files provided include an entry
+#                                    point.
+#     $10 - TARGET_BIN_LDFLAGS     - Linker flags that are passed to the linker
+#                                    when building an executable binary.
+#     $11 - TARGET_SO_EARLY_LIBS   - Link against a set of libraries when
+#                                    building a shared object or binary. These
+#                                    are placed before the objects produced by
+#                                    this build.
+#     $12 - TARGET_SO_LATE_LIBS    - Link against a set of libraries when
+#                                    building a shared object or binary. These
+#                                    are placed after the objects produced by
+#                                    this build.
+#     $13 - TARGET_PLATFORM_ID     - The ID of the platform that this nanoapp
+#                                    build targets.
+#     $14 - TARGET_ACONFIGFLAGS    - The list of aconfig flag value files
+#                                    specific to this build target
+#     $15 - TARGET_ADDITIONAL_LD   - Additional linker for this target variant.
+#     $16 - TARGET_VARIANT_HP_SRCS - High power source files specific to this
+#                                    variant. The sections of the .o files
+#                                    generated from these sources are all
+#                                    prepended with the .high_power prefix so
+#                                    they can be put into a different memory
+#                                    region based on target-specific linker
+#                                    script. As of now, only cc source files
+#                                    are supported.
 #
 ################################################################################
 
@@ -63,6 +74,8 @@ $(1)_CPP_SRCS = $$(filter %.cpp, $(COMMON_SRCS) $(8))
 $(1)_C_SRCS = $$(filter %.c, $(COMMON_SRCS) $(8))
 $(1)_S_SRCS = $$(filter %.S, $(COMMON_SRCS) $(8))
 
+$(1)_HP_CC_SRCS = $$(filter %.cc, $(16))
+
 # Object files.
 $(1)_OBJS_DIR = $(1)_objs
 $(1)_CC_OBJS = $$(patsubst %.cc, $(OUT)/$$($(1)_OBJS_DIR)/%.o, \
@@ -73,6 +86,8 @@ $(1)_C_OBJS = $$(patsubst %.c, $(OUT)/$$($(1)_OBJS_DIR)/%.o, \
                           $$($(1)_C_SRCS))
 $(1)_S_OBJS = $$(patsubst %.S, $(OUT)/$$($(1)_OBJS_DIR)/%.o, \
                           $$($(1)_S_SRCS))
+$(1)_HP_CC_OBJS = $$(patsubst %.cc, $(OUT)/$$($(1)_OBJS_DIR)/%.o, \
+                           $$($(1)_HP_CC_SRCS))
 
 # Automatic dependency resolution Makefiles.
 $(1)_CC_DEPS = $$(patsubst %.cc, $(OUT)/$$($(1)_OBJS_DIR)/%.d, \
@@ -83,12 +98,15 @@ $(1)_C_DEPS = $$(patsubst %.c, $(OUT)/$$($(1)_OBJS_DIR)/%.d, \
                           $$($(1)_C_SRCS))
 $(1)_S_DEPS = $$(patsubst %.S, $(OUT)/$$($(1)_OBJS_DIR)/%.d, \
                           $$($(1)_S_SRCS))
+$(1)_HP_CC_DEPS = $$(patsubst %.cc, $(OUT)/$$($(1)_OBJS_DIR)/%.d, \
+                           $$($(1)_HP_CC_SRCS))
 
 # Add object file directories.
 $(1)_DIRS = $$(sort $$(dir $$($(1)_CC_OBJS) \
                            $$($(1)_CPP_OBJS) \
                            $$($(1)_C_OBJS) \
-                           $$($(1)_S_OBJS)))
+                           $$($(1)_S_OBJS) \
+                           $$($(1)_HP_CC_OBJS)))
 
 # Outputs ######################################################################
 
@@ -214,6 +232,12 @@ $$($(1)_CC_OBJS): $(OUT)/$$($(1)_OBJS_DIR)/%.o: %.cc $(MAKEFILE_LIST)
 	$(V)$(3) $(COMMON_CXX_CFLAGS) -DCHRE_FILENAME=\"$$(notdir $$<)\" $(2) -c \
 		$$< -o $$@
 
+$$($(1)_HP_CC_OBJS): $(OUT)/$$($(1)_OBJS_DIR)/%.o: %.cc $(MAKEFILE_LIST)
+	@echo " [CC] $$<"
+	$(V)$(3) $(COMMON_CXX_CFLAGS) -DCHRE_FILENAME=\"$$(notdir $$<)\" $(2) -c \
+		$$< -o $$@
+	$(V)$(OBJCOPY) $$@ --prefix-alloc-sections .high_power
+
 $$($(1)_C_OBJS): $(OUT)/$$($(1)_OBJS_DIR)/%.o: %.c $(MAKEFILE_LIST)
 	@echo " [C] $$<"
 	$(V)$(3) $(COMMON_C_CFLAGS) -DCHRE_FILENAME=\"$$(notdir $$<)\" $(2) -c $$< \
@@ -231,7 +255,7 @@ $(1)_ARFLAGS = $(COMMON_ARFLAGS) \
     $(6)
 
 $$($(1)_AR): $$($(1)_CC_OBJS) $$($(1)_CPP_OBJS) $$($(1)_C_OBJS) \
-              $$($(1)_S_OBJS) | $$(OUT)/$(1) $$($(1)_DIRS)
+              $$($(1)_S_OBJS) $$($(1)_HP_CC_OBJS) | $$(OUT)/$(1) $$($(1)_DIRS)
 	@echo " [AR] $$@"
 	$(V)$(7) $$($(1)_ARFLAGS) $$@ $$(filter %.o, $$^)
 
@@ -279,16 +303,17 @@ flagging_library_$(1):
 
 # Link #########################################################################
 
-$$($(1)_SO): $$($(1)_CC_DEPS) \
-              $$($(1)_CPP_DEPS) $$($(1)_C_DEPS) $$($(1)_S_DEPS) \
+$$($(1)_SO): $$($(1)_CC_DEPS) $$($(1)_CPP_DEPS) \
+              $$($(1)_C_DEPS) $$($(1)_S_DEPS) $$($(1)_HP_CC_DEPS) \
               $$($(1)_CC_OBJS) $$($(1)_CPP_OBJS) $$($(1)_C_OBJS) \
-              $$($(1)_S_OBJS) $(RUST_DEPENDENCIES) | $$(OUT)/$(1) $$($(1)_DIRS)
+              $$($(1)_S_OBJS) $$($(1)_HP_CC_OBJS) $(RUST_DEPENDENCIES) \
+              | $$(OUT)/$(1) $$($(1)_DIRS)
 	$(5) $(4) -o $$@ $(11) $$(filter %.o, $$^) $(12) $(15)
 
-$$($(1)_BIN): $$($(1)_CC_DEPS) \
-               $$($(1)_CPP_DEPS) $$($(1)_C_DEPS) $$($(1)_S_DEPS) \
+$$($(1)_BIN): $$($(1)_CC_DEPS) $$($(1)_CPP_DEPS) \
+               $$($(1)_C_DEPS) $$($(1)_S_DEPS) $$($(1)_HP_CC_DEPS) \
                $$($(1)_CC_OBJS) $$($(1)_CPP_OBJS) $$($(1)_C_OBJS) \
-               $$($(1)_S_OBJS) | $$(OUT)/$(1) $$($(1)_DIRS)
+               $$($(1)_S_OBJS) $$($(1)_HP_CC_OBJS) | $$(OUT)/$(1) $$($(1)_DIRS)
 	$(V)$(3) -o $$@ $(11) $$(filter %.o, $$^) $(12) $(10)
 
 # Output Directories ###########################################################
@@ -321,6 +346,11 @@ $$($(1)_S_DEPS): $(OUT)/$$($(1)_OBJS_DIR)/%.d: %.S
 	$(V)$(3) $(DEP_CFLAGS) \
 		-DCHRE_FILENAME=\"$$(notdir $$<)\" $(2) $$< -o $$@
 
+$$($(1)_HP_CC_DEPS): $(OUT)/$$($(1)_OBJS_DIR)/%.d: %.cc
+	$(V)mkdir -p $$(dir $$@)
+	$(V)$(3) $(DEP_CFLAGS) $(COMMON_CXX_CFLAGS) \
+		-DCHRE_FILENAME=\"$$(notdir $$<)\" $(2) $$< -o $$@
+
 # Include generated dependency files if they are in the requested build target.
 # This avoids dependency generation from occuring for a debug target when a
 # non-debug target is requested.
@@ -329,6 +359,7 @@ ifneq ($(filter $(1) all, $(MAKECMDGOALS)),)
 -include $$(patsubst %.o, %.d, $$($(1)_CPP_DEPS))
 -include $$(patsubst %.o, %.d, $$($(1)_C_DEPS))
 -include $$(patsubst %.o, %.d, $$($(1)_S_DEPS))
+-include $$(patsubst %.o, %.d, $$($(1)_HP_CC_DEPS))
 endif
 
 endef
@@ -356,7 +387,8 @@ $(eval $(call BUILD_TEMPLATE,$(TARGET_NAME), \
                              $(TARGET_SO_LATE_LIBS), \
                              $(TARGET_PLATFORM_ID), \
                              $(TARGET_ACONFIGFLAGS), \
-                             $(TARGET_ADDITIONAL_LD)))
+                             $(TARGET_ADDITIONAL_LD), \
+                             $(TARGET_VARIANT_HP_SRCS)))
 
 # Debug Template Invocation ####################################################
 
@@ -376,4 +408,5 @@ $(eval $(call BUILD_TEMPLATE,$(TARGET_NAME)_debug, \
                              $(TARGET_SO_LATE_LIBS), \
                              $(TARGET_PLATFORM_ID), \
                              $(TARGET_ACONFIGFLAGS), \
-                             $(TARGET_ADDITIONAL_LD)))
+                             $(TARGET_ADDITIONAL_LD), \
+                             $(TARGET_VARIANT_HP_SRCS)))
