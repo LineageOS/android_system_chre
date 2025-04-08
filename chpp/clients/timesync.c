@@ -23,12 +23,13 @@
 
 #include "chpp/app.h"
 #include "chpp/clients.h"
-#include "chpp/clients/discovery.h"
 #include "chpp/common/timesync.h"
 #include "chpp/log.h"
 #include "chpp/memory.h"
 #include "chpp/time.h"
 #include "chpp/transport.h"
+
+#include "chpp/clients/discovery.h"
 
 /************************************************
  *  Private Definitions
@@ -41,8 +42,8 @@
 struct ChppTimesyncClientState {
   struct ChppEndpointState client;                // CHPP client state
   struct ChppOutgoingRequestState measureOffset;  // Request response state
+
   struct ChppTimesyncResult timesyncResult;  // Result of measureOffset
-  uint64_t lastMeasurementTimeNs;  // The last time a timesync was started
 };
 
 /************************************************
@@ -85,7 +86,6 @@ void chppTimesyncClientReset(struct ChppAppState *appState) {
   state->timesyncResult.offsetNs = 0;
   state->timesyncResult.rttNs = 0;
   state->timesyncResult.measurementTimeNs = 0;
-  state->lastMeasurementTimeNs = 0;
 }
 
 bool chppDispatchTimesyncServiceResponse(struct ChppAppState *appState,
@@ -146,23 +146,12 @@ bool chppDispatchTimesyncServiceResponse(struct ChppAppState *appState,
 }
 
 bool chppTimesyncMeasureOffset(struct ChppAppState *appState) {
-  const uint64_t kTimeoutNs = 5 * CHPP_NSEC_PER_SEC;
   bool result = false;
   CHPP_LOGD("Measuring timesync t=%" PRIu64,
             chppGetCurrentTimeNs() / CHPP_NSEC_PER_MSEC);
   CHPP_DEBUG_NOT_NULL(appState);
   struct ChppTimesyncClientState *state = appState->timesyncClientContext;
   CHPP_NOT_NULL(state);
-  uint64_t nowNs = chppGetCurrentTimeNs();
-  if (state->timesyncResult.error == CHPP_APP_ERROR_BUSY) {
-    if (nowNs < state->lastMeasurementTimeNs + kTimeoutNs) {
-      CHPP_LOGE("Rejecting timesync request: in progress");
-      return false;
-    } else {
-      CHPP_LOGW("Last timesync (%" PRIu64 " ms ago) timed out",
-                (nowNs - state->lastMeasurementTimeNs) / CHPP_NSEC_PER_MSEC);
-    }
-  }
 
   state->timesyncResult.error =
       CHPP_APP_ERROR_BUSY;  // A measurement is in progress
@@ -175,16 +164,12 @@ bool chppTimesyncMeasureOffset(struct ChppAppState *appState) {
     state->timesyncResult.error = CHPP_APP_ERROR_OOM;
     CHPP_LOG_OOM();
 
-  // We use an infinite timeout here because timeouts are not well-supported for
-  // predefined clients in CHPP today. An opportunistic timeout will be used
-  // using the lastMeasurementTimeNs check above.
   } else if (!chppClientSendTimestampedRequestOrFail(
                  &state->client, &state->measureOffset, request, requestLen,
                  CHPP_REQUEST_TIMEOUT_INFINITE)) {
     state->timesyncResult.error = CHPP_APP_ERROR_UNSPECIFIED;
 
   } else {
-    state->lastMeasurementTimeNs = nowNs;
     result = true;
   }
 
