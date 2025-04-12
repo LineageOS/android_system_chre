@@ -218,14 +218,6 @@ void HalClient::tryReconnectEndpoints(HalClient *halClient) {
   }
 }
 
-ScopedAStatus HalClient::registerEndpointHub(
-    const std::shared_ptr<IEndpointCallback> &callback, const HubInfo &hubInfo,
-    std::shared_ptr<IEndpointCommunication> *communication) {
-  return callIfConnected([&](const std::shared_ptr<IContextHub> &hub) {
-    return hub->registerEndpointHub(callback, hubInfo, communication);
-  });
-}
-
 HalClient::~HalClient() {
   std::lock_guard lock(mBackgroundConnectionFuturesLock);
   for (const auto &future : mBackgroundConnectionFutures) {

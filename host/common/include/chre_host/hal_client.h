@@ -39,6 +39,7 @@ using aidl::android::hardware::contexthub::AsyncEventType;
 using aidl::android::hardware::contexthub::BnContextHubCallback;
 using aidl::android::hardware::contexthub::ContextHubInfo;
 using aidl::android::hardware::contexthub::ContextHubMessage;
+using aidl::android::hardware::contexthub::EndpointInfo;
 using aidl::android::hardware::contexthub::HostEndpointInfo;
 using aidl::android::hardware::contexthub::HubInfo;
 using aidl::android::hardware::contexthub::IContextHub;
@@ -141,7 +142,30 @@ class HalClient {
   ScopedAStatus registerEndpointHub(
       const std::shared_ptr<IEndpointCallback> &callback,
       const HubInfo &hubInfo,
-      std::shared_ptr<IEndpointCommunication> *communication);
+      std::shared_ptr<IEndpointCommunication> *communication) {
+    return callIfConnected(
+        [&](const std::shared_ptr<IContextHub> &contextHubHal) {
+          return contextHubHal->registerEndpointHub(callback, hubInfo,
+                                                    communication);
+        });
+  }
+
+  /** Lists all the hubs, including the Context Hub and generic hubs. */
+  ScopedAStatus getHubs(std::vector<HubInfo> *hubs) {
+    return callIfConnected(
+        [&](const std::shared_ptr<IContextHub> &contextHubHal) {
+          return contextHubHal->getHubs(hubs);
+        });
+  }
+
+  /** Lists all the endpoints, including the Context Hub nanoapps and generic
+   * endpoints. */
+  ScopedAStatus getEndpoints(std::vector<EndpointInfo> *endpoints) {
+    return callIfConnected(
+        [&](const std::shared_ptr<IContextHub> &contextHubHal) {
+          return contextHubHal->getEndpoints(endpoints);
+        });
+  }
 
  protected:
   class HalClientCallback : public BnContextHubCallback {
