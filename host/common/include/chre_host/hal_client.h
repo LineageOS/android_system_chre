@@ -17,9 +17,7 @@
 #ifndef CHRE_HOST_HAL_CLIENT_H_
 #define CHRE_HOST_HAL_CLIENT_H_
 
-#include <cinttypes>
 #include <future>
-#include <memory>
 #include <shared_mutex>
 #include <thread>
 #include <unordered_map>
@@ -31,27 +29,29 @@
 #include <aidl/android/hardware/contexthub/IContextHub.h>
 #include <aidl/android/hardware/contexthub/IContextHubCallback.h>
 #include <aidl/android/hardware/contexthub/NanoappBinary.h>
-#include <android/binder_manager.h>
 #include <android/binder_process.h>
 
 #include "hal_error.h"
 
 namespace android::chre {
 
-using ::aidl::android::hardware::contexthub::AsyncEventType;
-using ::aidl::android::hardware::contexthub::BnContextHubCallback;
-using ::aidl::android::hardware::contexthub::ContextHubInfo;
-using ::aidl::android::hardware::contexthub::ContextHubMessage;
-using ::aidl::android::hardware::contexthub::HostEndpointInfo;
-using ::aidl::android::hardware::contexthub::IContextHub;
-using ::aidl::android::hardware::contexthub::IContextHubCallback;
-using ::aidl::android::hardware::contexthub::IContextHubDefault;
-using ::aidl::android::hardware::contexthub::MessageDeliveryStatus;
-using ::aidl::android::hardware::contexthub::NanoappBinary;
-using ::aidl::android::hardware::contexthub::NanoappInfo;
-using ::aidl::android::hardware::contexthub::NanSessionRequest;
-using ::aidl::android::hardware::contexthub::Setting;
-using ::ndk::ScopedAStatus;
+using aidl::android::hardware::contexthub::AsyncEventType;
+using aidl::android::hardware::contexthub::BnContextHubCallback;
+using aidl::android::hardware::contexthub::ContextHubInfo;
+using aidl::android::hardware::contexthub::ContextHubMessage;
+using aidl::android::hardware::contexthub::HostEndpointInfo;
+using aidl::android::hardware::contexthub::HubInfo;
+using aidl::android::hardware::contexthub::IContextHub;
+using aidl::android::hardware::contexthub::IContextHubCallback;
+using aidl::android::hardware::contexthub::IContextHubDefault;
+using aidl::android::hardware::contexthub::IEndpointCallback;
+using aidl::android::hardware::contexthub::IEndpointCommunication;
+using aidl::android::hardware::contexthub::MessageDeliveryStatus;
+using aidl::android::hardware::contexthub::NanoappBinary;
+using aidl::android::hardware::contexthub::NanoappInfo;
+using aidl::android::hardware::contexthub::NanSessionRequest;
+using aidl::android::hardware::contexthub::Setting;
+using ndk::ScopedAStatus;
 
 /**
  * A class connecting to CHRE Multiclient HAL via binder and taking care of
@@ -100,15 +100,6 @@ class HalClient {
       const std::shared_ptr<IContextHubCallback> &callback,
       int32_t contextHubId = kDefaultContextHubId);
 
-  /**
-   * Returns true if the multiclient HAL is available.
-   *
-   * <p>Multicleint HAL may not be available on a device that has CHRE enabled.
-   * In this situation, clients are expected to still use SocketClient to
-   * communicate with CHRE.
-   */
-  static bool isServiceAvailable();
-
   /** Returns true if this HalClient instance is connected to the HAL. */
   bool isConnected() {
     return mIsHalConnected;
@@ -121,7 +112,7 @@ class HalClient {
 
   /** Connects to CHRE HAL in background. */
   void connectInBackground(BackgroundConnectionCallback &callback) {
-    std::lock_guard<std::mutex> lock(mBackgroundConnectionFuturesLock);
+    std::lock_guard lock(mBackgroundConnectionFuturesLock);
     // Policy std::launch::async is required to avoid lazy evaluation which can
     // postpone the execution until get() of the future returned by std::async
     // is called.
@@ -145,6 +136,12 @@ class HalClient {
 
   /** Disconnects a host endpoint from CHRE. */
   ScopedAStatus disconnectEndpoint(char16_t hostEndpointId);
+
+  /** Registers a new hub for endpoint communication. */
+  ScopedAStatus registerEndpointHub(
+      const std::shared_ptr<IEndpointCallback> &callback,
+      const HubInfo &hubInfo,
+      std::shared_ptr<IEndpointCommunication> *communication);
 
  protected:
   class HalClientCallback : public BnContextHubCallback {
@@ -236,7 +233,7 @@ class HalClient {
       // Make a copy of mContextHub so that even if HAL is disconnected and
       // mContextHub is set to null the copy is kept as non-null to avoid crash.
       // Still guard the copy by a shared lock to avoid torn writes.
-      std::shared_lock<std::shared_mutex> sharedLock(mConnectionLock);
+      std::shared_lock sharedLock(mConnectionLock);
       hub = mContextHub;
     }
     if (hub == nullptr) {
@@ -246,18 +243,18 @@ class HalClient {
   }
 
   bool isEndpointConnected(HostEndpointId hostEndpointId) {
-    std::shared_lock<std::shared_mutex> sharedLock(mConnectedEndpointsLock);
+    std::shared_lock sharedLock(mConnectedEndpointsLock);
     return mConnectedEndpoints.find(hostEndpointId) !=
            mConnectedEndpoints.end();
   }
 
   void insertConnectedEndpoint(const HostEndpointInfo &hostEndpointInfo) {
-    std::lock_guard<std::shared_mutex> lockGuard(mConnectedEndpointsLock);
+    std::lock_guard lockGuard(mConnectedEndpointsLock);
     mConnectedEndpoints[hostEndpointInfo.hostEndpointId] = hostEndpointInfo;
   }
 
   void removeConnectedEndpoint(HostEndpointId hostEndpointId) {
-    std::lock_guard<std::shared_mutex> lockGuard(mConnectedEndpointsLock);
+    std::lock_guard lockGuard(mConnectedEndpointsLock);
     mConnectedEndpoints.erase(hostEndpointId);
   }
 

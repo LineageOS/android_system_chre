@@ -25,8 +25,6 @@
 #include "chre/platform/shared/host_protocol_chre.h"
 #include "chre/platform/shared/log_buffer_manager.h"
 #include "chre/platform/shared/nanoapp_load_manager.h"
-#include "chre/platform/system_time.h"
-#include "chre/platform/system_timer.h"
 #include "chre/util/flatbuffers/helpers.h"
 #include "chre/util/nested_data_ptr.h"
 #include "chre_api/chre.h"
@@ -123,7 +121,6 @@ struct NanoappListData {
 };
 
 enum class PendingMessageType {
-  Shutdown,
   NanoappMessageToHost,
   HubInfoResponse,
   NanoappListResponse,
@@ -131,14 +128,9 @@ enum class PendingMessageType {
   UnloadNanoappResponse,
   DebugDumpData,
   DebugDumpResponse,
-  TimeSyncRequest,
   LowPowerMicAccessRequest,
   LowPowerMicAccessRelease,
   EncodedLogMessage,
-  SelfTestResponse,
-  MetricLog,
-  NanConfigurationRequest,
-  PulseRequest,
   PulseResponse,
   NanoappTokenDatabaseInfo,
   MessageDeliveryStatus,
@@ -288,7 +280,7 @@ DRAM_REGION_FUNCTION bool enqueueMessage(PendingMessage pendingMsg) {
  */
 DRAM_REGION_FUNCTION bool buildAndEnqueueMessage(
     PendingMessageType msgType, size_t initialBufferSize,
-    MessageBuilderFunction *msgBuilder, void *cookie) {
+    MessageBuilderFunction *buildMsgFunc, void *cookie) {
   LOGV("%s: message type %d, size %zu", __func__, msgType, initialBufferSize);
   bool pushed = false;
 
@@ -297,7 +289,7 @@ DRAM_REGION_FUNCTION bool buildAndEnqueueMessage(
     LOGE("Couldn't allocate memory for message type %d",
          static_cast<int>(msgType));
   } else {
-    msgBuilder(*builder, cookie);
+    buildMsgFunc(*builder, cookie);
 
     if (!enqueueMessage(PendingMessage(msgType, builder.get()))) {
       LOGE("Couldn't push message type %d to outbound queue",
@@ -451,8 +443,7 @@ DRAM_REGION_FUNCTION void HostLinkBase::vChreReceiveTask(void *pvParameters) {
   LOGV("%s", __func__);
   while (true) {
     LOGV("%s calling ipi_recv_reply(), Cnt=%d", __func__, i++);
-    ret = ipi_recv_reply(IPI_IN_C_HOST_SCP_CHRE, (void *)&gChreIpiAckToHost[0],
-                         1);
+    ret = ipi_recv_reply(IPI_IN_C_HOST_SCP_CHRE, gChreIpiAckToHost, 1);
     if (ret != IPI_ACTION_DONE)
       LOGE("%s ipi_recv_reply() ret = %d", __func__, ret);
     LOGV("%s reply_end", __func__);
@@ -461,7 +452,7 @@ DRAM_REGION_FUNCTION void HostLinkBase::vChreReceiveTask(void *pvParameters) {
 
 DRAM_REGION_FUNCTION void HostLinkBase::vChreSendTask(void *pvParameters) {
   while (true) {
-    auto msg = gOutboundQueue.pop();
+    const auto msg = gOutboundQueue.pop();
     dequeueMessage(msg);
   }
 }
@@ -470,7 +461,7 @@ DRAM_REGION_FUNCTION void HostLinkBase::chreIpiHandler(unsigned int id,
                                                        void *prdata, void *data,
                                                        unsigned int len) {
   /* receive magic and cmd */
-  struct ScpChreIpiMsg msg = *(struct ScpChreIpiMsg *)data;
+  ScpChreIpiMsg msg = *static_cast<struct ScpChreIpiMsg *>(data);
 
   // check the magic number and payload size need to be copy(if need) */
   LOGD("%s: Received a message from AP. Size=%u", __func__, msg.size);
@@ -511,8 +502,7 @@ DRAM_REGION_FUNCTION void HostLinkBase::chreIpiHandler(unsigned int id,
 #else  // SCP_CHRE_USE_DMA
 
   dvfs_enable_DRAM_resource(CHRE_MEM_ID);
-  memcpy(static_cast<void *>(gChreRecvBuffer),
-         reinterpret_cast<void *>(srcAddr), msg.size);
+  memcpy(gChreRecvBuffer, reinterpret_cast<void *>(srcAddr), msg.size);
   dvfs_disable_DRAM_resource(CHRE_MEM_ID);
 
 #endif  // SCP_CHRE_USE_DMA
@@ -525,7 +515,7 @@ DRAM_REGION_FUNCTION void HostLinkBase::chreIpiHandler(unsigned int id,
   gChreIpiAckToHost[1] = msg.size;
 }
 
-DRAM_REGION_FUNCTION void HostLinkBase::initializeIpi(void) {
+DRAM_REGION_FUNCTION void HostLinkBase::initializeIpi() {
   bool success = false;
   int ret;
   constexpr size_t kBackgroundTaskStackSize = 1024;
@@ -537,28 +527,27 @@ DRAM_REGION_FUNCTION void HostLinkBase::initializeIpi(void) {
 #endif
 
   // prepared share memory information and register the callback functions
-  if (!(ret = scp_get_reserve_mem_by_id(SCP_CHRE_FROM_MEM_ID,
-                                        &gChreSubregionRecvAddr,
-                                        &gChreSubregionRecvSize))) {
+  if (!scp_get_reserve_mem_by_id(SCP_CHRE_FROM_MEM_ID, &gChreSubregionRecvAddr,
+                                 &gChreSubregionRecvSize)) {
     LOGE("%s: get SCP_CHRE_FROM_MEM_ID memory fail", __func__);
-  } else if (!(ret = scp_get_reserve_mem_by_id(SCP_CHRE_TO_MEM_ID,
-                                               &gChreSubregionSendAddr,
-                                               &gChreSubregionSendSize))) {
+  } else if (!scp_get_reserve_mem_by_id(SCP_CHRE_TO_MEM_ID,
+                                        &gChreSubregionSendAddr,
+                                        &gChreSubregionSendSize)) {
     LOGE("%s: get SCP_CHRE_TO_MEM_ID memory fail", __func__);
   } else if (pdPASS != xTaskCreate(vChreReceiveTask, "CHRE_RECEIVE",
-                                   kBackgroundTaskStackSize, (void *)0,
-                                   kBackgroundTaskPriority, NULL)) {
+                                   kBackgroundTaskStackSize, nullptr,
+                                   kBackgroundTaskPriority, nullptr)) {
     LOGE("%s failed to create ipi receiver task", __func__);
   } else if (pdPASS != xTaskCreate(vChreSendTask, "CHRE_SEND",
-                                   kBackgroundTaskStackSize, (void *)0,
-                                   kBackgroundTaskPriority, NULL)) {
+                                   kBackgroundTaskStackSize, nullptr,
+                                   kBackgroundTaskPriority, nullptr)) {
     LOGE("%s failed to create ipi outbound message queue task", __func__);
   } else if (IPI_ACTION_DONE !=
              (ret = ipi_register(IPI_IN_C_HOST_SCP_CHRE, (void *)chreIpiHandler,
                                  (void *)this, (void *)&gChreIpiRecvData[0]))) {
     LOGE("ipi_register IPI_IN_C_HOST_SCP_CHRE failed, %d", ret);
   } else if (IPI_ACTION_DONE !=
-             (ret = ipi_register(IPI_OUT_C_SCP_HOST_CHRE, NULL, (void *)this,
+             (ret = ipi_register(IPI_OUT_C_SCP_HOST_CHRE, nullptr, (void *)this,
                                  (void *)&gChreIpiAckFromHost[0]))) {
     LOGE("ipi_register IPI_OUT_C_SCP_HOST_CHRE failed, %d", ret);
   } else {
@@ -592,7 +581,7 @@ DRAM_REGION_FUNCTION bool HostLinkBase::send(uint8_t *data, size_t dataLen) {
 #define HOST_LINK_IPI_RESPONSE_TIMEOUT_MS 100
 #endif
   LOGV("HostLinkBase::%s: %zu, %p", __func__, dataLen, data);
-  struct ScpChreIpiMsg msg;
+  ScpChreIpiMsg msg{};
   msg.magic = SCP_CHRE_MAGIC;
   msg.size = dataLen;
 
@@ -877,7 +866,7 @@ DRAM_REGION_FUNCTION void HostLinkBase::sendNanoappTokenDatabaseInfo(
   } args{appId, tokenDatabaseOffset, tokenDatabaseSize};
 
   auto msgBuilder = [](ChreFlatBufferBuilder &builder, void *cookie) {
-    DatabaseInfoArgs *args = static_cast<DatabaseInfoArgs *>(cookie);
+    auto *args = static_cast<DatabaseInfoArgs *>(cookie);
     uint16_t instanceId;
     EventLoopManagerSingleton::get()
         ->getEventLoop()

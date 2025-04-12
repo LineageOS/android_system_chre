@@ -156,7 +156,7 @@ cc_library_static {
     header_libs: ["chre_flatbuffers"],
     export_header_lib_headers: ["chre_flatbuffers"],
     shared_libs: [
-        "android.hardware.contexthub-V3-ndk",
+        "android.hardware.contexthub-V4-ndk",
         "libaconfig_storage_read_api_cc",
         "libbase",
         "libbinder_ndk",
