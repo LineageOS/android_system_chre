@@ -35,13 +35,13 @@
 
 namespace android::hardware::contexthub::common::implementation {
 
-using ::android::base::WriteStringToFd;
-using ::android::chre::FragmentedLoadTransaction;
-using ::android::chre::getStringFromByteVector;
-using ::android::chre::Atoms::ChreHalNanoappLoadFailed;
-using ::android::chre::flags::abort_if_no_context_hub_found;
-using ::android::chre::flags::bug_fix_hal_reliable_message_record;
-using ::ndk::ScopedAStatus;
+using Atoms::ChreHalNanoappLoadFailed;
+using base::WriteStringToFd;
+using chre::FragmentedLoadTransaction;
+using chre::getStringFromByteVector;
+using flags::abort_if_no_context_hub_found;
+using flags::bug_fix_hal_reliable_message_record;
+using ndk::ScopedAStatus;
 namespace fbs = ::chre::fbs;
 
 namespace {
@@ -89,7 +89,7 @@ bool getFbsSetting(const Setting &setting, fbs::Setting *fbsSetting) {
   return foundSetting;
 }
 
-chre::fbs::SettingState toFbsSettingState(bool enabled) {
+fbs::SettingState toFbsSettingState(bool enabled) {
   return enabled ? chre::fbs::SettingState::ENABLED
                  : chre::fbs::SettingState::DISABLED;
 }
@@ -537,21 +537,26 @@ ScopedAStatus MultiClientContextHubBase::sendMessageDeliveryStatusToHub(
 }
 
 ScopedAStatus MultiClientContextHubBase::getHubs(std::vector<HubInfo> *hubs) {
-  if (mV4Impl) return mV4Impl->getHubs(hubs);
+  if (mV4Impl) {
+    return mV4Impl->getHubs(hubs);
+  }
   return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
 }
 
 ScopedAStatus MultiClientContextHubBase::getEndpoints(
     std::vector<EndpointInfo> *endpoints) {
-  if (mV4Impl) return mV4Impl->getEndpoints(endpoints);
+  if (mV4Impl) {
+    return mV4Impl->getEndpoints(endpoints);
+  }
   return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
 }
 
 ScopedAStatus MultiClientContextHubBase::registerEndpointHub(
     const std::shared_ptr<IEndpointCallback> &callback, const HubInfo &hubInfo,
     std::shared_ptr<IEndpointCommunication> *hubInterface) {
-  if (mV4Impl)
+  if (mV4Impl) {
     return mV4Impl->registerEndpointHub(callback, hubInfo, hubInterface);
+  }
   return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
 }
 
@@ -1045,14 +1050,18 @@ void MultiClientContextHubBase::handleClientDeath(pid_t clientPid) {
 void MultiClientContextHubBase::onChreDisconnected() {
   mIsChreReady = false;
   LOGW("HAL APIs will be failed because CHRE is disconnected");
-  if (mV4Impl) mV4Impl->onChreDisconnected();
+  if (mV4Impl) {
+    mV4Impl->onChreDisconnected();
+  }
 }
 
 void MultiClientContextHubBase::onChreRestarted() {
   mIsWifiAvailable.reset();
   mEventLogger.logContextHubRestart();
   mHalClientManager->handleChreRestart();
-  if (mV4Impl) mV4Impl->onChreRestarted();
+  if (mV4Impl) {
+    mV4Impl->onChreRestarted();
+  }
 
   // Unblock APIs BEFORE informing the clients that CHRE has restarted so that
   // any API call triggered by handleContextHubAsyncEvent() can come through.
