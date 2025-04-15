@@ -426,9 +426,12 @@ class WifiRequestManager : public NonCopyable {
   ArrayQueue<PendingScanMonitorRequest, kMaxScanMonitorStateTransitions>
       mPendingScanMonitorRequests;
 
-  //! The queue of scan request. Only one asynchronous scan monitor state
-  //! transition can be in flight at one time. Any further requests are queued
-  //! here.
+  //! The queue of scan requests. Only one scan can be in flight at a time,
+  //! and any further requests are queued here. This allows serialization of
+  //! requests to the platform layer to help simplify their implementation.
+  //! Nanoapps are limited to one request at a time to save power and limit
+  //! strain on the queue. For these reasons, we have taken special care to
+  //! allow a nanoapp receiving its final scan event to request a new scan.
   ArrayQueue<PendingScanRequest, kMaxPendingScanRequest> mPendingScanRequests;
 
   //! The list of nanoapps who have enabled scan monitoring. This list is
@@ -445,6 +448,7 @@ class WifiRequestManager : public NonCopyable {
   DynamicVector<NanoappNanSubscriptions> mNanoappSubscriptions;
 
   //! This is set to true if the results of an active scan request are pending.
+  //! While true, prevents additional scan requests from being dispatched.
   bool mScanRequestResultsArePending = false;
 
   //! Accumulates the number of scan event results to determine when the last
@@ -610,24 +614,42 @@ class WifiRequestManager : public NonCopyable {
                                        uint8_t errorCode, const void *cookie);
 
   /**
-   * Calls through to postScanRequestAsyncResultEvent but invokes the
-   * FATAL_ERROR macro if the event is not posted successfully. This is used in
-   * asynchronous contexts where a nanoapp could be stuck waiting for a response
-   * but CHRE failed to enqueue one. For parameter details,
-   * @see postScanRequestAsyncResultEvent
+   * Synchronously distributes an event to a nanoapp indicating the result of a
+   * request for an active wifi scan.
+   *
+   * @param nanoappInstanceId The nanoapp instance ID to direct the event to.
+   * @param success If the request for a wifi resource was successful.
+   * @param errorCode The error code when success is set to false.
+   * @param cookie The cookie to be provided to the nanoapp. This is
+   *        round-tripped from the nanoapp to provide context.
+   *
+   * @return true if the event was successfully delivered.
    */
-  void postScanRequestAsyncResultEventFatal(uint16_t nanoappInstanceId,
+  bool distributeScanRequestAsyncResultSync(uint16_t nanoappInstanceId,
                                             bool success, uint8_t errorCode,
                                             const void *cookie);
 
   /**
-   * Posts a broadcast event containing the results of a wifi scan. Failure to
-   * post this event is a FATAL_ERROR. This is unrecoverable as the nanoapp will
-   * be stuck waiting for wifi scan results but there may be a gap.
+   * Determines if the current WifiScanEvent was requested by a nanoapp that is
+   * not registered to receive broadcast events of CHRE_EVENT_WIFI_SCAN_RESULT.
+   *
+   * For use in conjunction with distributeScanEventSync so that the nanoapp can
+   * be temporarily registered for broadcast delievery of the event.
+   *
+   * @return A pointer to the nanoapp which needs to be temporarily registered,
+   *         if any. Otherwise nullptr.
+   */
+  Nanoapp *getUnregisteredNanoappRequestingScan() const;
+
+  /**
+   * Synchronously distributes a chreWifiScanEvent to the requesting nanoapp as
+   * well as any nanoapps registered for broadcast. This allows for pre- and
+   * post-processing of the event to neatly manage broadcast registrations.
+   * This method must be invoked on the CHRE event loop thread.
    *
    * @param event the wifi scan event.
    */
-  void postScanEventFatal(chreWifiScanEvent *event);
+  void distributeScanEventSync(chreWifiScanEvent *event);
 
   /**
    * Posts an event to a nanoapp indicating the async result of a NAN operation.
@@ -753,12 +775,12 @@ class WifiRequestManager : public NonCopyable {
 
   /**
    * Issues the pending scan requests to the platform in queued order until one
-   * dispatched successfully or the queue is empty.
+   * dispatched successfully or the queue is empty. An async response will
+   * always be provided.
    *
-   * @param postAsyncResult if a dispatch failure should post a async result.
    * @return true if successfully dispatched one request.
    */
-  bool dispatchQueuedScanRequests(bool postAsyncResult);
+  bool dispatchQueuedScanRequests();
 
   /**
    * Issues the next pending ranging request to the platform.
@@ -789,22 +811,12 @@ class WifiRequestManager : public NonCopyable {
                               struct chreWifiRangingEvent *event);
 
   /**
-   * Handles the releasing of a WiFi scan event and unsubscribes a nanoapp who
-   * has made an active request for a wifi scan from WiFi scan events in the
-   * future (if it has not subscribed to passive events).
-   *
-   * @param scanEvent The scan event to release.
-   */
-  void handleFreeWifiScanEvent(chreWifiScanEvent *scanEvent);
-
-  /**
-   * Releases a wifi event (scan, ranging, NAN discovery) after nanoapps have
+   * Releases a wifi event (ranging, NAN discovery) after nanoapps have
    * consumed it.
    *
    * @param eventType the type of event being freed.
    * @param eventData a pointer to the scan event to release.
    */
-  static void freeWifiScanEventCallback(uint16_t eventType, void *eventData);
   static void freeWifiRangingEventCallback(uint16_t eventType, void *eventData);
   static void freeNanDiscoveryEventCallback(uint16_t eventType,
                                             void *eventData);

@@ -19,6 +19,8 @@
 #include "chre/util/nanoapp/log.h"
 #include "chre_api/chre.h"
 
+#include <cstring>
+
 bool EndpointEchoTestManager::start() {
   bool endpointSupported = (chreGetCapabilities() &
                             CHRE_CAPABILITIES_GENERIC_ENDPOINT_MESSAGES) != 0;
@@ -35,7 +37,6 @@ bool EndpointEchoTestManager::start() {
 
 void EndpointEchoTestManager::end() {}
 
-// TODO: Helper functions
 void EndpointEchoTestManager::handleEvent(uint32_t /* senderInstanceId */,
                                           uint16_t eventType,
                                           const void *eventData) {
@@ -90,7 +91,7 @@ void EndpointEchoTestManager::handleEvent(uint32_t /* senderInstanceId */,
       break;
     }
     default: {
-      LOGE("Unexpected event type %" PRIu32, eventType);
+      LOGE("Unexpected event type %" PRIu16, eventType);
       break;
     }
   }
