@@ -39,6 +39,7 @@ using aidl::android::hardware::contexthub::AsyncEventType;
 using aidl::android::hardware::contexthub::BnContextHubCallback;
 using aidl::android::hardware::contexthub::ContextHubInfo;
 using aidl::android::hardware::contexthub::ContextHubMessage;
+using aidl::android::hardware::contexthub::EndpointId;
 using aidl::android::hardware::contexthub::EndpointInfo;
 using aidl::android::hardware::contexthub::HostEndpointInfo;
 using aidl::android::hardware::contexthub::HubInfo;
@@ -51,6 +52,7 @@ using aidl::android::hardware::contexthub::MessageDeliveryStatus;
 using aidl::android::hardware::contexthub::NanoappBinary;
 using aidl::android::hardware::contexthub::NanoappInfo;
 using aidl::android::hardware::contexthub::NanSessionRequest;
+using aidl::android::hardware::contexthub::Service;
 using aidl::android::hardware::contexthub::Setting;
 using ndk::ScopedAStatus;
 
@@ -85,6 +87,65 @@ class HalClient {
      */
     virtual void onInitialization(bool isConnected) = 0;
     virtual ~BackgroundConnectionCallback() = default;
+  };
+
+  /**
+   * A builder class to facilitate the creation of EndpointInfo objects.
+   *
+   * This class provides a fluent interface for constructing an EndpointInfo
+   * object step-by-step. It simplifies the process by setting default values
+   * for optional fields and allowing method chaining.
+   *
+   * Usage:
+   * 1. Construct an EndpointInfoBuilder with the mandatory EndpointId and
+   * name. Please refer to EndpointId.aidl for details about endpoint ids.
+   *    - The `hubId` within the EndpointId is expected to be statically
+   *      defined and globally unique, identifying a specific session-based
+   *      messaging hub.
+   *    - The `endpointId` within the EndpointId is expected to be statically
+   *      defined and unique *within the scope of its hub*, identifying a
+   *      specific endpoint (e.g., a nanoapp, a specific host client, etc.).
+   * 2. Optionally call setter methods like `setVersion()`, `setTag()`, etc., to
+   * configure the optional details. These methods return a reference to the
+   * builder, allowing chaining.
+   * 3. Call `build()` to obtain the final, configured EndpointInfo object.
+   */
+  class EndpointInfoBuilder {
+   public:
+    EndpointInfoBuilder(const EndpointId &id, const std::string &name) {
+      mEndpointInfo.id = id;
+      mEndpointInfo.name = name;
+      mEndpointInfo.type = EndpointInfo::EndpointType::NATIVE;
+      mEndpointInfo.version = 0;
+      mEndpointInfo.tag = std::nullopt;
+    }
+
+    EndpointInfoBuilder &setVersion(const int32_t &version) {
+      mEndpointInfo.version = version;
+      return *this;
+    }
+
+    EndpointInfoBuilder &setTag(const std::string &tag) {
+      mEndpointInfo.tag = tag;
+      return *this;
+    }
+
+    EndpointInfoBuilder &addRequiredPermission(const std::string &permission) {
+      mEndpointInfo.requiredPermissions.push_back(permission);
+      return *this;
+    }
+
+    EndpointInfoBuilder &addService(const Service &service) {
+      mEndpointInfo.services.push_back(service);
+      return *this;
+    }
+
+    [[nodiscard]] EndpointInfo build() const {
+      return mEndpointInfo;
+    }
+
+   private:
+    EndpointInfo mEndpointInfo;
   };
 
   ~HalClient();
