@@ -35,7 +35,9 @@ enum Command {
   disconnectEndpoint,
   enableSetting,
   enableTestMode,
+  getEndpoints,
   getContextHubs,
+  getHubs,
   getPreloadedNanoappIds,
   list,
   load,
@@ -120,11 +122,23 @@ const std::map<std::string, CommandInfo> kAllCommands{
       .argsFormat = "",
       .usage = "enable test mode."}},
 
+    {"getEndpoints",
+     {.cmd = getEndpoints,
+      .numOfArgs = 1,
+      .argsFormat = "",
+      .usage = "get all the endpoints used for session-based messaging."}},
+
     {"getContextHubs",
      {.cmd = getContextHubs,
       .numOfArgs = 1,
       .argsFormat = "",
       .usage = "get all the context hubs."}},
+
+    {"getHubs",
+     {.cmd = getHubs,
+      .numOfArgs = 1,
+      .argsFormat = "",
+      .usage = "get all the hubs for session-based messaging."}},
 
     {"getPreloadedNanoappIds",
      {.cmd = getPreloadedNanoappIds,

@@ -966,34 +966,36 @@ bool WifiRequestManager::postScanMonitorAsyncResultEvent(
     const void *cookie) {
   // Allocate and post an event to the nanoapp requesting wifi.
   bool eventPosted = false;
+  // Reserve the memory for the AsyncResult first so that if we run out of
+  // memory during updateNanoappScanMonitoringList we can still post the event.
+  chreAsyncResult *event = memoryAlloc<chreAsyncResult>();
   // If we failed to enable, don't add the nanoapp to the list, but always
   // remove it if it was trying to disable. This keeps us from getting stuck in
   // a state where we think the scan monitor is enabled (because the list is
   // non-empty) when we actually aren't sure (e.g. the scan monitor disablement
   // may have been handled but delivering the result ran into an error).
-  if ((!success && enable) ||
-      updateNanoappScanMonitoringList(enable, nanoappInstanceId)) {
-    chreAsyncResult *event = memoryAlloc<chreAsyncResult>();
-    if (event == nullptr) {
-      LOG_OOM();
+  if (event == nullptr) {
+    LOG_OOM();
+  } else if ((!success && enable) ||
+             updateNanoappScanMonitoringList(enable, nanoappInstanceId)) {
+    event->requestType = CHRE_WIFI_REQUEST_TYPE_CONFIGURE_SCAN_MONITOR;
+    event->success = success;
+    event->errorCode = errorCode;
+    event->reserved = 0;
+    event->cookie = cookie;
+
+    if (errorCode < CHRE_ERROR_SIZE) {
+      mScanMonitorErrorHistogram[errorCode]++;
     } else {
-      event->requestType = CHRE_WIFI_REQUEST_TYPE_CONFIGURE_SCAN_MONITOR;
-      event->success = success;
-      event->errorCode = errorCode;
-      event->reserved = 0;
-      event->cookie = cookie;
-
-      if (errorCode < CHRE_ERROR_SIZE) {
-        mScanMonitorErrorHistogram[errorCode]++;
-      } else {
-        LOGE("Undefined error in ScanMonitorAsyncResult: %" PRIu8, errorCode);
-      }
-
-      EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
-          CHRE_EVENT_WIFI_ASYNC_RESULT, event, freeEventDataCallback,
-          nanoappInstanceId);
-      eventPosted = true;
+      LOGE("Undefined error in ScanMonitorAsyncResult: %" PRIu8, errorCode);
     }
+
+    EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+        CHRE_EVENT_WIFI_ASYNC_RESULT, event, freeEventDataCallback,
+        nanoappInstanceId);
+    eventPosted = true;
+  } else {
+    memoryFree(event);
   }
 
   return eventPosted;

@@ -112,6 +112,75 @@ void verifyStatusAndSignal(const std::string &operation,
   }
 }
 
+void getAllHubs() {
+  std::vector<HubInfo> hubs{};
+  if (const auto status = getContextHub()->getHubs(&hubs); !status.isOk()) {
+    std::cerr << "Failed to get hubs: " << status.getMessage() << std::endl;
+    return;
+  }
+  if (hubs.empty()) {
+    std::cerr << "No hubs found" << std::endl;
+    return;
+  }
+  for (const auto &[hubId, hubDetails] : hubs) {
+    std::cout << "Hub id: 0x" << std::hex << hubId << " "
+              << hubDetails.toString() << std::endl;
+  }
+}
+
+void getAllEndpoints() {
+  std::vector<EndpointInfo> endpoints{};
+  if (const auto status = getContextHub()->getEndpoints(&endpoints);
+      !status.isOk()) {
+    std::cerr << "Failed to get endpoints: " << status.getMessage()
+              << std::endl;
+    return;
+  }
+
+  if (endpoints.empty()) {
+    std::cout << "No endpoints found" << std::endl;
+    return;
+  }
+  std::cout << "Found " << endpoints.size() << " endpoint(s):" << std::endl;
+  for (const auto &[endpoint, type, name, version, tag, requiredPermissions,
+                    services] : endpoints) {
+    const std::string versionString =
+        type == EndpointInfo::EndpointType::NANOAPP
+            ? NanoappHelper::parseAppVersion(version)
+            : std::to_string(version);
+    std::cout << "----------------------------------------" << std::endl;
+    std::cout << "  Hub ID:      0x" << std::hex << endpoint.hubId << std::endl;
+    std::cout << "  Endpoint ID: 0x" << std::hex << endpoint.id << std::dec
+              << std::endl;
+    std::cout << "  Name:        " << name << std::endl;
+    std::cout << "  Type:        " << toString(type) << std::endl;
+    std::cout << "  Version:     " << versionString << std::endl;
+    std::cout << "  Tag:         " << (tag.has_value() ? tag.value() : "<none>")
+              << std::endl;
+
+    std::cout << "  Permissions: ";
+    if (requiredPermissions.empty()) {
+      std::cout << "<none>" << std::endl;
+    } else {
+      std::cout << std::endl;
+      for (const auto &perm : requiredPermissions) {
+        std::cout << "    - " << perm << std::endl;
+      }
+    }
+
+    std::cout << "  Services:    ";
+    if (services.empty()) {
+      std::cout << "<none>" << std::endl;
+    } else {
+      std::cout << std::endl;
+      for (const auto &service : services) {
+        std::cout << "    - " << service.toString() << std::endl;
+      }
+    }
+  }
+  std::cout << "----------------------------------------" << std::endl;
+}
+
 void getAllContextHubs() {
   std::vector<ContextHubInfo> hubs{};
   getContextHub()->getContextHubs(&hubs);
@@ -329,8 +398,16 @@ void executeCommand(std::vector<std::string> cmdLine) {
       enableTestModeOnContextHub();
       break;
     }
+    case getEndpoints: {
+      getAllEndpoints();
+      break;
+    }
     case getContextHubs: {
       getAllContextHubs();
+      break;
+    }
+    case getHubs: {
+      getAllHubs();
       break;
     }
     case getPreloadedNanoappIds: {
