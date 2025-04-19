@@ -66,6 +66,7 @@ const chrePalSystemApi gChrePalSystemApi = {
     palSystemApiLog,                     /* log */
     palSystemApiMemoryAlloc,             /* memoryAlloc */
     palSystemApiMemoryFree,              /* memoryFree */
+    palSystemApiForceDramAccess,         /* forceDramAccess */
 };
 
 }  // namespace chre

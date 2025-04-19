@@ -76,6 +76,12 @@ $(1)_S_SRCS = $$(filter %.S, $(COMMON_SRCS) $(8))
 
 $(1)_HP_CC_SRCS = $$(filter %.cc, $(16))
 
+# If there are duplicate files in TARGET_VARIANT_HP_SRCS and COMMON_SRCS,
+# remove the duplicates from COMMON_SRCS and only include them as part of the
+# TARGET_VARIANT_HP_SRCS. This enables platforms to move common sources to high
+# power regions of memory.
+$(1)_CC_SRCS := $$(filter-out $$($(1)_HP_CC_SRCS), $$($(1)_CC_SRCS))
+
 # Object files.
 $(1)_OBJS_DIR = $(1)_objs
 $(1)_CC_OBJS = $$(patsubst %.cc, $(OUT)/$$($(1)_OBJS_DIR)/%.o, \

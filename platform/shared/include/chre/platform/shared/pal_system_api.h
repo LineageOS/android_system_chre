@@ -32,6 +32,12 @@ void *palSystemApiMemoryAlloc(size_t size);
  */
 void palSystemApiMemoryFree(void *pointer);
 
+/**
+ * DRAM access coming from the PAL. This function needs to be implemented by the
+ * platform and is not provided by the shared code.
+ */
+void palSystemApiForceDramAccess();
+
 //! Provides a global instance of the PAL system API for all PAL subsystems to
 //! leverage.
 extern const chrePalSystemApi gChrePalSystemApi;

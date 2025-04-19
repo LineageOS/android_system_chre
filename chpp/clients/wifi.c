@@ -140,6 +140,11 @@ static const struct ChppClient kWifiClientConfig = {
     .minLength = sizeof(struct ChppAppHeader),
 };
 
+static const struct chrePalWifiCallbacks *getPalCallbacks(void) {
+  gSystemApi->forceDramAccess();
+  return gCallbacks;
+}
+
 /************************************************
  *  Prototypes
  ***********************************************/
@@ -526,7 +531,7 @@ static void chppWifiConfigureScanMonitorResult(
     // Short response length indicates an error
     uint8_t error = chppAppShortResponseErrorHandler(buf, len, "ScanMonitor");
     if (!gWifiClientContext.scanMonitorSilenceCallback) {
-      gCallbacks->scanMonitorStatusChangeCallback(false, error);
+      getPalCallbacks()->scanMonitorStatusChangeCallback(false, error);
     }
   } else {
     struct ChppWifiConfigureScanMonitorAsyncResponseParameters *result =
@@ -543,8 +548,8 @@ static void chppWifiConfigureScanMonitorResult(
       // calls to scanMonitorStatusChangeCallback must not be made, and it
       // should only be invoked as the direct result of an earlier call to
       // configureScanMonitor.
-      gCallbacks->scanMonitorStatusChangeCallback(result->enabled,
-                                                  result->errorCode);
+      getPalCallbacks()->scanMonitorStatusChangeCallback(result->enabled,
+                                                         result->errorCode);
     }  // Else, the WiFi subsystem has been reset and we are required to
        // silently reenable the scan monitor.
 
@@ -567,7 +572,7 @@ static void chppWifiRequestScanResult(struct ChppWifiClientState *clientContext,
 
   if (len < sizeof(struct ChppWifiRequestScanResponse)) {
     // Short response length indicates an error
-    gCallbacks->scanResponseCallback(
+    getPalCallbacks()->scanResponseCallback(
         false, chppAppShortResponseErrorHandler(buf, len, "ScanRequest"));
 
   } else {
@@ -582,7 +587,7 @@ static void chppWifiRequestScanResult(struct ChppWifiClientState *clientContext,
         clientContext->scanTimeoutPending = true;
       }
     }
-    gCallbacks->scanResponseCallback(result->pending, result->errorCode);
+    getPalCallbacks()->scanResponseCallback(result->pending, result->errorCode);
   }
 }
 
@@ -603,8 +608,8 @@ static void chppWifiRequestRangingResult(
   struct ChppAppHeader *rxHeader = (struct ChppAppHeader *)buf;
 
   if (rxHeader->error != CHPP_APP_ERROR_NONE) {
-    gCallbacks->rangingEventCallback(chppAppErrorToChreError(rxHeader->error),
-                                     NULL);
+    getPalCallbacks()->rangingEventCallback(
+        chppAppErrorToChreError(rxHeader->error), NULL);
 
   } else {
     CHPP_LOGD("Ranging request accepted at service");
@@ -625,7 +630,7 @@ static void chppWifiRequestNanSubscribeResult(uint8_t *buf, size_t len) {
   struct ChppAppHeader *rxHeader = (struct ChppAppHeader *)buf;
 
   if (rxHeader->error != CHPP_APP_ERROR_NONE) {
-    gCallbacks->nanServiceIdentifierCallback(
+    getPalCallbacks()->nanServiceIdentifierCallback(
         chppAppErrorToChreError(rxHeader->error), 0 /* subscriptionId */);
 
   } else {
@@ -647,7 +652,7 @@ static void chppWifiNanSubscriptionCanceledResult(uint8_t *buf, size_t len) {
   struct ChppAppHeader *rxHeader = (struct ChppAppHeader *)buf;
 
   if (rxHeader->error != CHPP_APP_ERROR_NONE) {
-    gCallbacks->nanSubscriptionCanceledCallback(
+    getPalCallbacks()->nanSubscriptionCanceledCallback(
         chppAppErrorToChreError(rxHeader->error), 0 /* subscriptionId */);
 
   } else {
@@ -702,7 +707,7 @@ static void chppWifiScanEventNotification(
       clientContext->scanTimeoutPending = false;
     }
 
-    gCallbacks->scanEventCallback(chre);
+    getPalCallbacks()->scanEventCallback(chre);
   }
 }
 
@@ -760,7 +765,7 @@ static void chppWifiRangingEventNotification(
     CHPP_LOGE("Ranging event conversion failed len=%" PRIuSIZE, len);
   }
 
-  gCallbacks->rangingEventCallback(error, chre);
+  getPalCallbacks()->rangingEventCallback(error, chre);
 }
 
 /**
@@ -785,7 +790,7 @@ static void chppWifiDiscoveryEventNotification(uint8_t *buf, size_t len) {
   if (event == NULL) {
     CHPP_LOGE("Discovery event CHPP -> CHRE conversion failed");
   } else {
-    gCallbacks->nanServiceDiscoveryCallback(event);
+    getPalCallbacks()->nanServiceDiscoveryCallback(event);
   }
 }
 
@@ -809,7 +814,7 @@ static void chppWifiNanServiceLostEventNotification(uint8_t *buf, size_t len) {
   if (event == NULL) {
     CHPP_LOGE("Session lost event CHPP -> CHRE conversion failed");
   } else {
-    gCallbacks->nanServiceLostCallback(event->id, event->peerId);
+    getPalCallbacks()->nanServiceLostCallback(event->id, event->peerId);
   }
 }
 
@@ -834,7 +839,7 @@ static void chppWifiNanServiceTerminatedEventNotification(uint8_t *buf,
   if (event == NULL) {
     CHPP_LOGE("Session terminated event CHPP -> CHRE conversion failed");
   } else {
-    gCallbacks->nanServiceTerminatedCallback(event->reason, event->id);
+    getPalCallbacks()->nanServiceTerminatedCallback(event->reason, event->id);
   }
 }
 
@@ -858,7 +863,7 @@ static void chppWifiRequestNanSubscribeNotification(uint8_t *buf, size_t len) {
     errorCode = id->errorCode;
     subscriptionId = id->subscriptionId;
   }
-  gCallbacks->nanServiceIdentifierCallback(errorCode, subscriptionId);
+  getPalCallbacks()->nanServiceIdentifierCallback(errorCode, subscriptionId);
 }
 
 /**
@@ -881,7 +886,7 @@ static void chppWifiNanSubscriptionCanceledNotification(uint8_t *buf,
     errorCode = chppNotif->errorCode;
     subscriptionId = chppNotif->subscriptionId;
   }
-  gCallbacks->nanSubscriptionCanceledCallback(errorCode, subscriptionId);
+  getPalCallbacks()->nanSubscriptionCanceledCallback(errorCode, subscriptionId);
 }
 
 /**

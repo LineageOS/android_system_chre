@@ -43,6 +43,7 @@ struct ChppTimesyncClientState {
   struct ChppOutgoingRequestState measureOffset;  // Request response state
   struct ChppTimesyncResult timesyncResult;  // Result of measureOffset
   uint64_t lastMeasurementTimeNs;  // The last time a timesync was started
+  bool isOffsetClipping;  // If the offset was clipped on previous check
 };
 
 /************************************************
@@ -76,7 +77,7 @@ void chppTimesyncClientDeinit(struct ChppAppState *appState) {
 }
 
 void chppTimesyncClientReset(struct ChppAppState *appState) {
-  CHPP_LOGD("Timesync client reset");
+  CHPP_LOGI("Timesync client reset");
   CHPP_DEBUG_NOT_NULL(appState);
   struct ChppTimesyncClientState *state = appState->timesyncClientContext;
   CHPP_NOT_NULL(state);
@@ -118,28 +119,45 @@ bool chppDispatchTimesyncServiceResponse(struct ChppAppState *appState,
                                   (int64_t)CHPP_CLIENT_TIMESYNC_MAX_CHANGE_NS);
       clippedOffsetChangeNs = MAX(clippedOffsetChangeNs,
                                   -(int64_t)CHPP_CLIENT_TIMESYNC_MAX_CHANGE_NS);
+    } else {
+      CHPP_LOGI("First timesync offset=%" PRId64 "ms at t=%" PRIu64,
+                offsetNs / (int64_t)CHPP_NSEC_PER_MSEC,
+                state->measureOffset.responseTimeNs / CHPP_NSEC_PER_MSEC);
     }
 
+    bool clippingStatusChanged = false;
     state->timesyncResult.offsetNs += clippedOffsetChangeNs;
 
     if (offsetChangeNs != clippedOffsetChangeNs) {
+      if (!state->isOffsetClipping) {
+        CHPP_LOGI("Timesync offset newly required clipping");
+        state->isOffsetClipping = true;
+        clippingStatusChanged = true;
+      }
       CHPP_LOGW("Drift=%" PRId64 " clipped to %" PRId64 " at t=%" PRIu64,
                 offsetChangeNs / (int64_t)CHPP_NSEC_PER_MSEC,
                 clippedOffsetChangeNs / (int64_t)CHPP_NSEC_PER_MSEC,
                 state->measureOffset.responseTimeNs / CHPP_NSEC_PER_MSEC);
     } else {
+      if (state->isOffsetClipping) {
+        CHPP_LOGI("Timesync offset no longer requires clipping");
+        state->isOffsetClipping = false;
+        clippingStatusChanged = true;
+      }
       state->timesyncResult.measurementTimeNs =
           state->measureOffset.responseTimeNs;
     }
 
     state->timesyncResult.error = CHPP_APP_ERROR_NONE;
 
-    CHPP_LOGD("Timesync RTT=%" PRIu64 " correction=%" PRId64 " offset=%" PRId64
-              " t=%" PRIu64,
-              state->timesyncResult.rttNs / CHPP_NSEC_PER_MSEC,
-              clippedOffsetChangeNs / (int64_t)CHPP_NSEC_PER_MSEC,
-              offsetNs / (int64_t)CHPP_NSEC_PER_MSEC,
-              state->timesyncResult.measurementTimeNs / CHPP_NSEC_PER_MSEC);
+    if (clippingStatusChanged) {
+      CHPP_LOGI("Timesync RTT=%" PRIu64 " correction=%" PRId64
+                " offset=%" PRId64 " t=%" PRIu64,
+                state->timesyncResult.rttNs / CHPP_NSEC_PER_MSEC,
+                clippedOffsetChangeNs / (int64_t)CHPP_NSEC_PER_MSEC,
+                offsetNs / (int64_t)CHPP_NSEC_PER_MSEC,
+                state->timesyncResult.measurementTimeNs / CHPP_NSEC_PER_MSEC);
+    }
   }
 
   return true;

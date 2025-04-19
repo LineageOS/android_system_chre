@@ -38,4 +38,8 @@ void palSystemApiMemoryFree(void *pointer) {
 
 void forceDramAccess() {}
 
+void palSystemApiForceDramAccess() {
+  forceDramAccess();
+}
+
 }  // namespace chre
