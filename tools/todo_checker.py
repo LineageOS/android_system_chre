@@ -96,7 +96,7 @@ def grep_for_todos(bug_id : str) -> int:
                                             encoding='UTF-8')
 
   grep_base_cmd = 'grep -nri '
-  grep_file_filters = '--include \*.h --include \*.cc --include \*.cpp --include \*.c '
+  grep_file_filters = r'--include \*.h --include \*.cc --include \*.cpp --include \*.c '
   grep_shell_cmd = grep_base_cmd + grep_file_filters + bug_id + repo_path
   try:
     grep_result = subprocess.check_output(grep_shell_cmd, shell=True,

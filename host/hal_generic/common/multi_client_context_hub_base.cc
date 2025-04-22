@@ -40,7 +40,6 @@ using base::WriteStringToFd;
 using chre::FragmentedLoadTransaction;
 using chre::getStringFromByteVector;
 using flags::abort_if_no_context_hub_found;
-using flags::bug_fix_hal_reliable_message_record;
 using ndk::ScopedAStatus;
 namespace fbs = ::chre::fbs;
 
@@ -401,25 +400,21 @@ ScopedAStatus MultiClientContextHubBase::sendMessageToHub(
   }
 
   if (message.isReliable) {
-    if (bug_fix_hal_reliable_message_record()) {
-      std::lock_guard<std::mutex> lock(mReliableMessageMutex);
-      auto iter = std::find_if(
-          mReliableMessageQueue.begin(), mReliableMessageQueue.end(),
-          [&message](const ReliableMessageRecord &record) {
-            return record.messageSequenceNumber == message.messageSequenceNumber;
-          });
-      if (iter == mReliableMessageQueue.end()) {
-        mReliableMessageQueue.push_back(ReliableMessageRecord{
-            .timestamp = std::chrono::steady_clock::now(),
-            .messageSequenceNumber = message.messageSequenceNumber,
-            .hostEndpointId = hostEndpointId});
-        std::push_heap(mReliableMessageQueue.begin(), mReliableMessageQueue.end(),
-                      std::greater<ReliableMessageRecord>());
-      }
-      cleanupReliableMessageQueueLocked();
-    } else {
-      mReliableMessageMap.insert({message.messageSequenceNumber, hostEndpointId});
+    std::lock_guard<std::mutex> lock(mReliableMessageMutex);
+    auto iter = std::find_if(
+        mReliableMessageQueue.begin(), mReliableMessageQueue.end(),
+        [&message](const ReliableMessageRecord &record) {
+          return record.messageSequenceNumber == message.messageSequenceNumber;
+        });
+    if (iter == mReliableMessageQueue.end()) {
+      mReliableMessageQueue.push_back(ReliableMessageRecord{
+          .timestamp = std::chrono::steady_clock::now(),
+          .messageSequenceNumber = message.messageSequenceNumber,
+          .hostEndpointId = hostEndpointId});
+      std::push_heap(mReliableMessageQueue.begin(), mReliableMessageQueue.end(),
+                     std::greater<ReliableMessageRecord>());
     }
+    cleanupReliableMessageQueueLocked();
   }
 
   flatbuffers::FlatBufferBuilder builder(1024);
@@ -976,38 +971,24 @@ void MultiClientContextHubBase::onNanoappMessage(
 void MultiClientContextHubBase::onMessageDeliveryStatus(
     const ::chre::fbs::MessageDeliveryStatusT &status) {
   HostEndpointId hostEndpointId;
-  if (bug_fix_hal_reliable_message_record()) {
-    {
-      std::lock_guard<std::mutex> lock(mReliableMessageMutex);
-      auto iter = std::find_if(
-          mReliableMessageQueue.begin(), mReliableMessageQueue.end(),
-          [&status](const ReliableMessageRecord &record) {
-            return record.messageSequenceNumber == status.message_sequence_number;
-          });
-      if (iter == mReliableMessageQueue.end()) {
-        LOGE(
-            "Unable to get the host endpoint ID for message "
-            "sequence number: %" PRIu32,
-            status.message_sequence_number);
-        return;
-      }
 
-      hostEndpointId = iter->hostEndpointId;
-      cleanupReliableMessageQueueLocked();
-    }
-  } else {
-    auto hostEndpointIdIter =
-        mReliableMessageMap.find(status.message_sequence_number);
-    if (hostEndpointIdIter == mReliableMessageMap.end()) {
+  {
+    std::lock_guard<std::mutex> lock(mReliableMessageMutex);
+    auto iter = std::find_if(
+        mReliableMessageQueue.begin(), mReliableMessageQueue.end(),
+        [&status](const ReliableMessageRecord &record) {
+          return record.messageSequenceNumber == status.message_sequence_number;
+        });
+    if (iter == mReliableMessageQueue.end()) {
       LOGE(
-          "Unable to get the host endpoint ID for message sequence "
-          "number: %" PRIu32,
+          "Unable to get the host endpoint ID for message "
+          "sequence number: %" PRIu32,
           status.message_sequence_number);
       return;
     }
 
-    hostEndpointId = hostEndpointIdIter->second;
-    mReliableMessageMap.erase(hostEndpointIdIter);
+    hostEndpointId = iter->hostEndpointId;
+    cleanupReliableMessageQueueLocked();
   }
 
   std::shared_ptr<IContextHubCallback> callback =
