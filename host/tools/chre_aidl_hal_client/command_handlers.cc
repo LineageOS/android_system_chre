@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "commands.h"
+#include "command_handlers.h"
 #include "context_hub_callback.h"
 #include "nanoapp_helper.h"
 #include "utils.h"
@@ -25,22 +25,19 @@
 #include <android/binder_manager.h>
 #include <android/binder_process.h>
 
-#include <cctype>
-#include <filesystem>
 #include <future>
-#include <map>
 #include <stdexcept>
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 #include "chre_host/file_stream.h"
 #include "chre_host/hal_client.h"
 #include "chre_host/log.h"
 #include "chre_host/napp_header.h"
+#include "endpoint_callback.h"
 
 namespace android::chre::chre_aidl_hal_client {
-namespace {
+
 using chre::HalClient;
 using chre::NanoAppBinaryHeader;
 using chre::readFileContents;
@@ -61,6 +58,10 @@ using ndk::ScopedAStatus;
 
 std::shared_ptr<IContextHub> gContextHub = nullptr;
 std::shared_ptr<ContextHubCallback> gCallback = nullptr;
+
+// Session based messaging related variables.
+std::shared_ptr<IEndpointCallback> gEndpointCallback = nullptr;
+std::shared_ptr<IEndpointCommunication> gCommunication = nullptr;
 
 void registerHostCallback() {
   if (gCallback != nullptr) {
@@ -136,49 +137,7 @@ void getAllEndpoints() {
               << std::endl;
     return;
   }
-
-  if (endpoints.empty()) {
-    std::cout << "No endpoints found" << std::endl;
-    return;
-  }
-  std::cout << "Found " << endpoints.size() << " endpoint(s):" << std::endl;
-  for (const auto &[endpoint, type, name, version, tag, requiredPermissions,
-                    services] : endpoints) {
-    const std::string versionString =
-        type == EndpointInfo::EndpointType::NANOAPP
-            ? NanoappHelper::parseAppVersion(version)
-            : std::to_string(version);
-    std::cout << "----------------------------------------" << std::endl;
-    std::cout << "  Hub ID:      0x" << std::hex << endpoint.hubId << std::endl;
-    std::cout << "  Endpoint ID: 0x" << std::hex << endpoint.id << std::dec
-              << std::endl;
-    std::cout << "  Name:        " << name << std::endl;
-    std::cout << "  Type:        " << toString(type) << std::endl;
-    std::cout << "  Version:     " << versionString << std::endl;
-    std::cout << "  Tag:         " << (tag.has_value() ? tag.value() : "<none>")
-              << std::endl;
-
-    std::cout << "  Permissions: ";
-    if (requiredPermissions.empty()) {
-      std::cout << "<none>" << std::endl;
-    } else {
-      std::cout << std::endl;
-      for (const auto &perm : requiredPermissions) {
-        std::cout << "    - " << perm << std::endl;
-      }
-    }
-
-    std::cout << "  Services:    ";
-    if (services.empty()) {
-      std::cout << "<none>" << std::endl;
-    } else {
-      std::cout << std::endl;
-      for (const auto &service : services) {
-        std::cout << "    - " << service.toString() << std::endl;
-      }
-    }
-  }
-  std::cout << "----------------------------------------" << std::endl;
+  EndpointHelper::printEndpoints(endpoints);
 }
 
 void getAllContextHubs() {
@@ -337,118 +296,98 @@ void getAllPreloadedNanoappIds() {
   }
 }
 
-void fillSupportedCommandMap(
-    const std::unordered_set<std::string> &supportedCommands,
-    std::map<std::string, CommandInfo> &supportedCommandMap) {
-  std::ranges::copy_if(
-      kAllCommands,
-      std::inserter(supportedCommandMap, supportedCommandMap.begin()),
-      [&](auto const &kv_pair) {
-        return supportedCommands.contains(kv_pair.first);
-      });
-}
-
-void printUsage(const std::map<std::string, CommandInfo> &supportedCommands) {
-  constexpr uint32_t kCommandLength = 40;
-  std::cout << std::left << "Usage: COMMAND [ARGUMENTS]" << std::endl;
-  for (auto const &kv_pair : supportedCommands) {
-    std::string cmdLine = kv_pair.first + " " + kv_pair.second.argsFormat;
-    std::cout << std::setw(kCommandLength) << cmdLine;
-    if (cmdLine.size() > kCommandLength) {
-      std::cout << std::endl << std::string(kCommandLength, ' ');
+void executeHalClientCommand(HalClient *halClient,
+                             const std::vector<std::string> &cmdLine) {
+  if (auto func = CommandHelper::parseCommand(cmdLine, kHalClientCommands)) {
+    try {
+      func(halClient, cmdLine);
+    } catch (std::system_error &e) {
+      std::cerr << e.what() << std::endl;
     }
-    std::cout << " - " + kv_pair.second.usage << std::endl;
-  }
-  std::cout << std::endl;
-}
-
-Command parseCommand(
-    const std::vector<std::string> &cmdLine,
-    const std::map<std::string, CommandInfo> &supportedCommandMap) {
-  if (cmdLine.empty() || !supportedCommandMap.contains(cmdLine[0])) {
-    return unsupported;
-  }
-  const auto &cmdInfo = supportedCommandMap.at(cmdLine[0]);
-  return cmdLine.size() == cmdInfo.numOfArgs ? cmdInfo.cmd : unsupported;
-}
-
-void executeCommand(std::vector<std::string> cmdLine) {
-  switch (parseCommand(cmdLine, kAllCommands)) {
-    case connectEndpoint: {
-      onEndpointConnected(cmdLine[1]);
-      break;
-    }
-    case disableSetting: {
-      changeSetting(cmdLine[1], false);
-      break;
-    }
-    case disableTestMode: {
-      disableTestModeOnContextHub();
-      break;
-    }
-    case disconnectEndpoint: {
-      onEndpointDisconnected(cmdLine[1]);
-      break;
-    }
-    case enableSetting: {
-      changeSetting(cmdLine[1], true);
-      break;
-    }
-    case enableTestMode: {
-      enableTestModeOnContextHub();
-      break;
-    }
-    case getEndpoints: {
-      getAllEndpoints();
-      break;
-    }
-    case getContextHubs: {
-      getAllContextHubs();
-      break;
-    }
-    case getHubs: {
-      getAllHubs();
-      break;
-    }
-    case getPreloadedNanoappIds: {
-      getAllPreloadedNanoappIds();
-      break;
-    }
-    case list: {
-      std::map<std::string, NanoAppBinaryHeader> nanoapps{};
-      NanoappHelper::readNanoappHeaders(nanoapps, cmdLine[1]);
-      for (const auto &entity : nanoapps) {
-        std::cout << entity.first;
-        NanoappHelper::printNanoappHeader(entity.second);
-      }
-      break;
-    }
-    case load: {
-      loadNanoapp(cmdLine[1]);
-      break;
-    }
-    case query: {
-      queryNanoapps();
-      break;
-    }
-    case registerCallback: {
-      registerHostCallback();
-      break;
-    }
-    case sendMessage: {
-      sendMessageToNanoapp(cmdLine[1], cmdLine[2], cmdLine[3]);
-      break;
-    }
-    case unload: {
-      unloadNanoapp(cmdLine[1]);
-      break;
-    }
-    default:
-      printUsage(kAllCommands);
+  } else {
+    CommandHelper::printUsage(kHalClientCommands);
   }
 }
 
-std::vector<std::string> getCommandLine() {
+void connectToHal() {
+  if (gCallback == nullptr) {
+    gCallback = ContextHubCallback::make<ContextHubCallback>();
+  }
+  std::unique_ptr<HalClient> halClient = HalClient::create(gCallback);
+  if (halClient == nullptr || !halClient->connect()) {
+    LOGE("Failed to init the connection to HAL.");
+    return;
+  }
+
+  while (true) {
+    auto cmdLine = CommandHelper::getCommandLine();
+    if (cmdLine.empty()) {
+      continue;
+    }
+    executeHalClientCommand(halClient.get(), cmdLine);
+  }
+}
+
+void halClientConnectEndpoint(HalClient *halClient,
+                              const std::string &hexEndpointId) {
+  HostEndpointInfo info = createHostEndpointInfo(hexEndpointId);
+  verifyStatus(/* operation= */ "connect endpoint",
+               halClient->connectEndpoint(info));
+}
+
+void halClientDisconnectEndpoint(HalClient *halClient,
+                                 const std::string &hexEndpointId) {
+  uint16_t hostEndpointId = verifyAndConvertEndpointHexId(hexEndpointId);
+  verifyStatus(/* operation= */ "disconnect endpoint",
+               halClient->disconnectEndpoint(hostEndpointId));
+}
+
+void halClientGetEndpoints(HalClient *halClient) {
+  std::vector<EndpointInfo> endpoints{};
+  verifyStatus(/* operation= */ "get session-based endpoints",
+               halClient->getEndpoints(&endpoints));
+  EndpointHelper::printEndpoints(endpoints);
+}
+
+void halClientGetHubs(HalClient *halClient) {
+  std::vector<HubInfo> hubs{};
+  verifyStatus(/*operation= */ "Get session-based hubs",
+               halClient->getHubs(&hubs));
+  if (hubs.empty()) {
+    std::cerr << "No hubs found" << std::endl;
+    return;
+  }
+  for (const auto &[hubId, hubDetails] : hubs) {
+    std::cout << "Hub id: 0x" << std::hex << hubId << " "
+              << hubDetails.toString() << std::endl;
+  }
+}
+
+void halClientQuery(HalClient *halClient) {
+  verifyStatusAndSignal(/* operation= */ "querying nanoapps",
+                        halClient->queryNanoapps(),
+                        gCallback->promise.get_future());
+}
+
+void halClientSendMessage(HalClient *halClient,
+                          const std::vector<std::string> &cmdLine) {
+  std::string appIdOrName = cmdLine[2];
+  ContextHubMessage message = createContextHubMessage(
+      /* hexHostEndpointId= */ cmdLine[1], appIdOrName,
+      /* hexPayload= */ cmdLine[3]);
+  verifyStatusAndSignal(
+      /* operation= */ "sending a message to " + cmdLine[2],
+      halClient->sendMessage(message), gCallback->promise.get_future());
+}
+
+void halClientRegisterHub(HalClient *halClient) {
+  gEndpointCallback = EndpointCallback::make<EndpointCallback>();
+  verifyStatus(/* operation= */ "register an endpoint hub",
+               halClient->registerEndpointHub(gEndpointCallback, kHubInfo,
+                                              &gCommunication));
+}
+
+std::vector<std::string> CommandHelper::getCommandLine() {
   std::string input;
   std::cout << "> ";
   std::getline(std::cin, input);
@@ -468,91 +407,4 @@ std::vector<std::string> getCommandLine() {
   }
   return result;
 }
-
-void connectToHal() {
-  if (gCallback == nullptr) {
-    gCallback = ContextHubCallback::make<ContextHubCallback>();
-  }
-  std::unique_ptr<HalClient> halClient = HalClient::create(gCallback);
-  if (halClient == nullptr || !halClient->connect()) {
-    LOGE("Failed to init the connection to HAL.");
-    return;
-  }
-  std::unordered_set<std::string> supportedCommands = {
-      "connectEndpoint", "disconnectEndpoint", "query", "sendMessage"};
-  std::map<std::string, CommandInfo> supportedCommandMap{};
-  fillSupportedCommandMap(supportedCommands, supportedCommandMap);
-
-  while (true) {
-    auto cmdLine = getCommandLine();
-    if (cmdLine.empty()) {
-      continue;
-    }
-    if (cmdLine.size() == 1 && cmdLine[0] == "exit") {
-      break;
-    }
-    try {
-      switch (parseCommand(cmdLine, supportedCommandMap)) {
-        case connectEndpoint: {
-          HostEndpointInfo info =
-              createHostEndpointInfo(/* hexEndpointId= */ cmdLine[1]);
-          verifyStatus(/* operation= */ "connect endpoint",
-                       halClient->connectEndpoint(info));
-          break;
-        }
-
-        case query: {
-          verifyStatusAndSignal(/* operation= */ "querying nanoapps",
-                                halClient->queryNanoapps(),
-                                gCallback->promise.get_future());
-          break;
-        }
-
-        case disconnectEndpoint: {
-          uint16_t hostEndpointId =
-              verifyAndConvertEndpointHexId(/* number= */ cmdLine[1]);
-          verifyStatus(/* operation= */ "disconnect endpoint",
-                       halClient->disconnectEndpoint(hostEndpointId));
-          break;
-        }
-        case sendMessage: {
-          ContextHubMessage message = createContextHubMessage(
-              /* hexHostEndpointId= */ cmdLine[1],
-              /* appIdOrName= */ cmdLine[2], /* hexPayload= */ cmdLine[3]);
-          verifyStatusAndSignal(
-              /* operation= */ "sending a message to " + cmdLine[2],
-              halClient->sendMessage(message), gCallback->promise.get_future());
-          break;
-        }
-        default:
-          printUsage(supportedCommandMap);
-      }
-    } catch (std::system_error &e) {
-      std::cerr << e.what() << std::endl;
-    }
-  }
-}
-}  // anonymous namespace
 }  // namespace android::chre::chre_aidl_hal_client
-
-int main(int argc, char *argv[]) {
-  using namespace android::chre::chre_aidl_hal_client;
-  // Start binder thread pool to enable callbacks.
-  ABinderProcess_startThreadPool();
-
-  std::vector<std::string> cmdLine{};
-  for (int i = 1; i < argc; i++) {
-    cmdLine.emplace_back(argv[i]);
-  }
-  try {
-    if (cmdLine.size() == 1 && cmdLine[0] == "connect") {
-      connectToHal();
-      return 0;
-    }
-    executeCommand(cmdLine);
-  } catch (std::system_error &e) {
-    std::cerr << e.what() << std::endl;
-    return -1;
-  }
-  return 0;
-}

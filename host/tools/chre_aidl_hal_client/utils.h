@@ -55,7 +55,6 @@ bool isValidHexNumber(const std::string &number);
  * @throws std::system_error if the input is invalid.
  */
 char16_t verifyAndConvertEndpointHexId(const std::string &number);
-
 }  // namespace android::chre::chre_aidl_hal_client
 
 #endif  // ANDROID_CHRE_AIDL_HAL_CLIENT_UTILS_H

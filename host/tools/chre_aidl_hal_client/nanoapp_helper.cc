@@ -174,4 +174,18 @@ int64_t NanoappHelper::getNanoappIdFrom(std::string &appIdOrName) {
   return appId;
 }
 
+void NanoappHelper::listNanoappsInPath(const std::string &path) {
+  std::map<std::string, NanoAppBinaryHeader> nanoapps{};
+  NanoappHelper::readNanoappHeaders(nanoapps, path);
+  if (nanoapps.empty()) {
+    std::cout << "No nanoapp headers found in " << path << std::endl;
+    return;
+  }
+  std::cout << "Nanoapps found in " << path << ":" << std::endl;
+  for (const auto &[appName, appHeader] : nanoapps) {
+    std::cout << appName;
+    NanoappHelper::printNanoappHeader(appHeader);
+  }
+}
+
 }  // namespace android::chre::chre_aidl_hal_client

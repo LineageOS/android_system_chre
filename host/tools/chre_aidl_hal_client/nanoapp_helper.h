@@ -137,6 +137,18 @@ class NanoappHelper {
    * resolvable nanoapp name.
    */
   static int64_t getNanoappIdFrom(std::string &appIdOrName);
+
+  /**
+   * Reads all nanoapp headers from the specified path and prints their details.
+   *
+   * Scans the given directory for files ending in ".napp_header", reads each
+   * header, and prints the extracted nanoapp name along with its header
+   * information (using `printNanoappHeader`) to standard output. If no headers
+   * are found, it prints a message indicating that.
+   *
+   * @param path The directory path to scan for nanoapp header files.
+   */
+  static void listNanoappsInPath(const std::string &path);
 };
 }  // namespace android::chre::chre_aidl_hal_client
 
