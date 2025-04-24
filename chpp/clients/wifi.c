@@ -579,6 +579,8 @@ static void chppWifiRequestScanResult(struct ChppWifiClientState *clientContext,
     struct ChppWifiRequestScanResponseParameters *result =
         &((struct ChppWifiRequestScanResponse *)buf)->params;
     CHPP_LOGI("Scan request success=%d at service", result->pending);
+    clientContext->scanTimeoutPending = false;
+    chppAppCancelTimerTimeout(&gWifiClientContext.client);
     if (result->pending) {
       if (!chppAppRequestTimerTimeout(&clientContext->client,
                                       CHRE_NSEC_PER_SEC)) {
@@ -1047,6 +1049,16 @@ static bool chppWifiClientRequestScan(const struct chreWifiScanParams *params) {
         &gWifiClientContext.client,
         &gWifiClientContext.outReqStates[CHPP_WIFI_REQUEST_SCAN_ASYNC], request,
         requestLen, CHPP_WIFI_SCAN_RESULT_TIMEOUT_NS);
+    gWifiClientContext.scanTimeoutPending = false;
+    chppAppCancelTimerTimeout(&gWifiClientContext.client);
+    if (result) {
+      if (!chppAppRequestTimerTimeout(&gWifiClientContext.client,
+                                      10 * CHRE_NSEC_PER_SEC)) {
+        CHPP_LOGE("Failed to schedule scan timeout");
+      } else {
+        gWifiClientContext.scanTimeoutPending = true;
+      }
+    }
   }
 
   return result;

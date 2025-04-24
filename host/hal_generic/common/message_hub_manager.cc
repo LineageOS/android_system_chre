@@ -67,10 +67,12 @@ pw::Status HostHub::addEndpoint(const EndpointInfo &info) {
     return pw::Status::PermissionDenied();
   }
   int64_t id = info.id.id;
-  if (auto it = mIdToEndpoint.find(id); it != mIdToEndpoint.end()) {
-    LOGE("Endpoint %" PRId64 " already exists in hub %" PRId64, id,
-         kInfo.hubId);
-    return pw::Status::AlreadyExists();
+  for (const auto &[existId, existInfo] : mIdToEndpoint) {
+    if (id == existId || (!info.name.empty() && info.name == existInfo.name)) {
+      LOGE("Endpoint %" PRId64 " (%s) already exists in hub %" PRId64, id,
+           info.name.c_str(), kInfo.hubId);
+      return pw::Status::AlreadyExists();
+    }
   }
   mIdToEndpoint.insert({id, info});
   return pw::OkStatus();
