@@ -21,7 +21,7 @@
 #include <cstdlib>
 
 #include "chre/platform/shared/loader_util.h"
-
+#include "chre/platform/shared/memory.h"
 #include "chre/util/dynamic_vector.h"
 #include "chre/util/optional.h"
 
@@ -69,6 +69,41 @@ struct AtExitCallback {
  */
 class NanoappLoader {
  public:
+  using DynamicHeader = ElfW(Dyn);
+  using ElfAddr = ElfW(Addr);
+  using ElfHeader = ElfW(Ehdr);
+  using ElfRel = ElfW(Rel);  // Relocation table entry,
+  // in section of type SHT_REL
+  using ElfRela = ElfW(Rela);
+  using ElfSym = ElfW(Sym);
+  using ElfWord = ElfW(Word);
+  using ElfOff = ElfW(Off);
+  using ProgramHeader = ElfW(Phdr);
+  using SectionHeader = ElfW(Shdr);
+
+  /**
+   * A struct representing a loadable segment in the ELF binary.
+   */
+  struct LoadableSegment {
+    /** The virtual address of the segment. */
+    ElfAddr vAddr;
+
+    /** The physical address of the segment mapped into the memory. */
+    ElfAddr pAddr;
+
+    /** The memory size of the segment. */
+    ElfWord memSize;
+
+    /**
+     * The permissions of the segment, a bitwise combination of read (4), write
+     * (2), and execute (1).
+     */
+    ElfWord permission;
+
+    LoadableSegment(ElfAddr vAddr, ElfAddr pAddr, ElfWord size,
+                    ElfWord permission)
+        : vAddr(vAddr), pAddr(pAddr), memSize(size), permission(permission) {};
+  };
   NanoappLoader() = delete;
 
   /**
@@ -146,7 +181,99 @@ class NanoappLoader {
    */
   void getTokenDatabaseSectionInfo(uint32_t *offset, size_t *size);
 
+  const DynamicVector<LoadableSegment> &getLoadableSegments() {
+    return mMapping.getLoadableSegments();
+  }
+
  private:
+  /**
+   * A class that handles the allocation, mapping, and management of memory
+   * segments for a nanoapp.
+   */
+  class MemoryMapping {
+   public:
+    MemoryMapping() = default;
+
+    ~MemoryMapping() {
+      LOGV("Freeing nanoapp memory mapping for size: %zu", mMemorySpan);
+      if (mIsInTcm) {
+        nanoappBinaryFree(mAddr);
+      } else {
+        nanoappBinaryDramFree(mAddr);
+      }
+    }
+
+    /**
+     * Gets the physical address corresponding to a virtual address.
+     *
+     * @param vAddr The virtual address to translate.
+     * @return The corresponding physical address, or 0 if the virtual address
+     * is not found.
+     */
+    [[nodiscard]] ElfAddr getPhyAddrOf(ElfAddr vAddr) const {
+      return reinterpret_cast<ElfAddr>(mAddr) - mStartingVa + vAddr;
+    }
+
+    /**
+     * Replaces the value at a given virtual address.
+     *
+     * @param vAddr The virtual address to modify.
+     * @param value The new value to write.
+     */
+    void replace(ElfAddr vAddr, ElfAddr value) const {
+      auto phyAddr = reinterpret_cast<ElfAddr *>(getPhyAddrOf(vAddr));
+      *phyAddr = value;
+    }
+
+    /** Gets a const reference to the vector of loadable segments. */
+    const DynamicVector<LoadableSegment> &getLoadableSegments() {
+      return mSegments;
+    }
+
+    /**
+     * Returns true if the virtual address is within the valid range, false
+     * otherwise.
+     */
+    [[nodiscard]] bool isValidVa(ElfAddr vAddr) const {
+      return vAddr >= mStartingVa && vAddr < mStartingVa + mMemorySpan;
+    }
+
+    /**
+     * Constructs the memory mapping from program headers.
+     *
+     * Allocates memory and copies loadable segments from the ELF binary.
+     *
+     * @param first Pointer to the first program header.
+     * @param last Pointer to the last program header.
+     * @param isInTcm True if the binary should be mapped into TCM, false
+     *     otherwise.
+     * @param binary Pointer to the start of the ELF binary.
+     * @return True on success, false otherwise.
+     */
+    bool construct(const ProgramHeader *first, const ProgramHeader *last,
+                   bool isInTcm, uint8_t *binary);
+
+    /** Wipes the system caches for the mapped memory. */
+    void wipeCache() const;
+
+   private:
+    /** Vector of loadable segments. */
+    DynamicVector<LoadableSegment> mSegments{};
+
+    /** Pointer to the allocated memory. */
+    uint8_t *mAddr = nullptr;
+
+    /** The virtual address of the first loadable segment's starting page
+     * boundary. */
+    ElfAddr mStartingVa = 0;
+
+    /** The total memory span of the mapped memory. */
+    size_t mMemorySpan = 0;
+
+    /** True if the binary is mapped into TCM, false otherwise. */
+    bool mIsInTcm = false;
+  };
+
   explicit NanoappLoader(void *elfInput, bool mapIntoTcm) {
     mBinary = static_cast<uint8_t *>(elfInput);
     mIsTcmBinary = mapIntoTcm;
@@ -169,52 +296,46 @@ class NanoappLoader {
    */
   void close();
 
-  using DynamicHeader = ElfW(Dyn);
-  using ElfAddr = ElfW(Addr);
-  using ElfHeader = ElfW(Ehdr);
-  using ElfRel = ElfW(Rel);  // Relocation table entry,
-                             // in section of type SHT_REL
-  using ElfRela = ElfW(Rela);
-  using ElfSym = ElfW(Sym);
-  using ElfWord = ElfW(Word);
-  using ProgramHeader = ElfW(Phdr);
-  using SectionHeader = ElfW(Shdr);
-
-  //! Name of various segments in the ELF that need to be looked up
+  /** Name of various segments in the ELF that need to be looked up. */
   static constexpr const char *kDynsymTableName = ".dynsym";
   static constexpr const char *kDynstrTableName = ".dynstr";
   static constexpr const char *kInitArrayName = ".init_array";
   static constexpr const char *kFiniArrayName = ".fini_array";
   static constexpr const char *kTokenTableName = ".pw_tokenizer.entries";
 
-  //! Pointer to the table of all the section names.
+  /** Pointer to the table of all the section names. */
   char *mSectionNamesPtr = nullptr;
-  //! Pointer to the table of dynamic symbol names for defined symbols.
+
+  /** Pointer to the table of dynamic symbol names for defined symbols. */
   char *mDynamicStringTablePtr = nullptr;
-  //! Pointer to the table of dynamic symbol information for defined symbols.
+
+  /** Pointer to the table of dynamic symbol information for defined symbols. */
   uint8_t *mDynamicSymbolTablePtr = nullptr;
-  //! Pointer to the array of section header entries.
+
+  /** Pointer to the array of section header entries. */
   SectionHeader *mSectionHeadersPtr = nullptr;
-  //! Number of SectionHeaders pointed to by mSectionHeadersPtr.
+
+  /** Number of SectionHeaders pointed to by mSectionHeadersPtr. */
   size_t mNumSectionHeaders = 0;
-  //! Size of the data pointed to by mDynamicSymbolTablePtr.
+
+  /** Size of the data pointed to by mDynamicSymbolTablePtr. */
   size_t mDynamicSymbolTableSize = 0;
 
-  //! The ELF that is being mapped into the system. This pointer will be invalid
-  //! after open returns.
+  /** The ELF that is being mapped into the system which will be invalid after
+   * open returns. */
   uint8_t *mBinary = nullptr;
-  //! The starting location of the memory that has been mapped into the system.
-  uint8_t *mMapping = nullptr;
-  //! The span of memory that has been mapped into the system.
-  size_t mMemorySpan = 0;
-  //! The difference between where the first load segment was mapped into
-  //! virtual memory and what the virtual load offset was of that segment.
-  ElfAddr mLoadBias = 0;
-  //! Dynamic vector containing functions that should be invoked prior to
-  //! unloading this nanoapp. Note that functions are stored in the order they
-  //! were added and should be called in reverse.
-  DynamicVector<struct AtExitCallback> mAtexitFunctions;
-  //! Whether this loader instance is managing a TCM nanoapp binary.
+
+  /** Loadable segments that are mapped into the memory. */
+  MemoryMapping mMapping;
+
+  /**
+   * Dynamic vector containing functions that should be invoked prior to
+   * unloading this nanoapp. Note that functions are stored in the order they
+   * were added and should be called in reverse.
+   */
+  DynamicVector<AtExitCallback> mAtexitFunctions;
+
+  /** Whether this loader instance is managing a TCM nanoapp binary. */
   bool mIsTcmBinary = false;
 
   /**
@@ -326,15 +447,6 @@ class NanoappLoader {
    * Frees any data that was allocated as part of loading the ELF into memory.
    */
   void freeAllocatedData();
-
-  /**
-   * Ensures the BSS section is properly mapped into memory. If there is a
-   * difference between the size of the BSS section in the ELF binary and the
-   * size it needs to be in memory, the rest of the section is zeroed out.
-   *
-   * @param header The ProgramHeader of the BSS section that is being mapped in.
-   */
-  void mapBss(const ProgramHeader *header);
 
   /**
    * Resolves the address of an undefined symbol located at the given position

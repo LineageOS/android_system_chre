@@ -758,6 +758,7 @@ void EventLoop::unloadNanoappAtIndex(size_t index, bool nanoappStarted) {
 }
 
 void EventLoop::setCycleWakeupBucketsTimer() {
+#ifndef CHRE_IS_SIMULATOR_BUILD
   if (mCycleWakeupBucketsHandle != CHRE_TIMER_INVALID) {
     EventLoopManagerSingleton::get()->cancelDelayedCallback(
         mCycleWakeupBucketsHandle);
@@ -772,6 +773,7 @@ void EventLoop::setCycleWakeupBucketsTimer() {
       EventLoopManagerSingleton::get()->setDelayedCallback(
           SystemCallbackType::CycleNanoappWakeupBucket, nullptr /*data*/,
           callback, kIntervalWakeupBucket);
+#endif  // CHRE_IS_SIMULATOR_BUILD
 }
 
 void EventLoop::handleNanoappWakeupBuckets() {

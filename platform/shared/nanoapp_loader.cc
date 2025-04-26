@@ -42,7 +42,6 @@
 namespace chre {
 namespace {
 
-using ElfHeader = ElfW(Ehdr);
 using ProgramHeader = ElfW(Phdr);
 
 struct ExportedData {
@@ -300,6 +299,65 @@ CHRE_DEPRECATED_EPILOGUE
 
 }  // namespace
 
+bool NanoappLoader::MemoryMapping::construct(const ProgramHeader *first,
+                                             const ProgramHeader *last,
+                                             bool isInTcm, uint8_t *binary) {
+  ElfAddr alignment = first->p_align;
+  mStartingVa = roundDownToAlign(first->p_vaddr, alignment);
+  mMemorySpan = last->p_vaddr + last->p_memsz - mStartingVa;
+  mIsInTcm = isInTcm;
+
+  // Allocate memory.
+  if (isInTcm) {
+    mAddr = static_cast<uint8_t *>(nanoappBinaryAlloc(mMemorySpan, alignment));
+  } else {
+    mAddr =
+        static_cast<uint8_t *>(nanoappBinaryDramAlloc(mMemorySpan, alignment));
+  }
+  if (mAddr == nullptr) {
+    LOGE("Failed to allocate memory for nanoapp of size %zu", mMemorySpan);
+    return false;
+  }
+
+  // Map the segments.
+  for (const ProgramHeader *ph = first; ph <= last; ++ph) {
+    if (ph->p_type == PT_LOAD) {
+      ElfAddr startPage = getPhyAddrOf(ph->p_vaddr);
+      mSegments.emplace_back(ph->p_vaddr, startPage, ph->p_memsz, ph->p_flags);
+
+      // Copy the content.
+      memcpy(reinterpret_cast<void *>(startPage), binary + ph->p_offset,
+             ph->p_filesz);
+      // If the memory size of this segment exceeds the file size fill the gap
+      // with zeros.
+      if (ph->p_memsz > ph->p_filesz) {
+        memset(reinterpret_cast<void *>(startPage + ph->p_filesz), 0,
+               ph->p_memsz - ph->p_filesz);
+      }
+
+      LOGV("vAddr: 0x%" PRIx64 ", pAddr: 0x%" PRIx64 ", memSize: 0x%" PRIx32
+           ", permission: 0x%" PRIx32,
+           static_cast<uint64_t>(mSegments.back().vAddr),
+           static_cast<uint64_t>(mSegments.back().pAddr),
+           mSegments.back().memSize, mSegments.back().permission);
+    } else {
+      LOGE("Non-loadable segment found between loadable segments");
+      return false;
+    }
+  }
+
+  LOGD("Totally %zu loadable Segments. Starting vAddr: 0x%" PRIx64
+       ", memory span: %zu, binary base addr: %p",
+       mSegments.size(), static_cast<uint64_t>(mStartingVa), mMemorySpan,
+       mAddr);
+
+  return true;
+}
+
+void NanoappLoader::MemoryMapping::wipeCache() const {
+  wipeSystemCaches(reinterpret_cast<uintptr_t>(mAddr), mMemorySpan);
+}
+
 NanoappLoader *NanoappLoader::create(void *elfInput, bool mapIntoTcm) {
   if (elfInput == nullptr) {
     LOGE("Elf header must not be null");
@@ -365,7 +423,7 @@ bool NanoappLoader::open() {
   } else {
     // Wipe caches before calling init array to ensure initializers are not in
     // the data cache.
-    wipeSystemCaches(reinterpret_cast<uintptr_t>(mMapping), mMemorySpan);
+    mMapping.wipeCache();
     if (!callInitArray()) {
       LOGE("Failed to perform static init");
     } else {
@@ -403,21 +461,6 @@ void NanoappLoader::registerAtexitFunction(struct AtExitCallback &cb) {
   }
 }
 
-void NanoappLoader::mapBss(const ProgramHeader *hdr) {
-  // if the memory size of this segment exceeds the file size zero fill the
-  // difference.
-  LOGV("Program Hdr mem sz: %u file size: %u", hdr->p_memsz, hdr->p_filesz);
-  if (hdr->p_memsz > hdr->p_filesz) {
-    ElfAddr endOfFile = hdr->p_vaddr + hdr->p_filesz + mLoadBias;
-    ElfAddr endOfMem = hdr->p_vaddr + hdr->p_memsz + mLoadBias;
-    if (endOfMem > endOfFile) {
-      auto deltaMem = endOfMem - endOfFile;
-      LOGV("Zeroing out %u from page %x", deltaMem, endOfFile);
-      memset(reinterpret_cast<void *>(endOfFile), 0, deltaMem);
-    }
-  }
-}
-
 bool NanoappLoader::callInitArray() {
   bool success = true;
   // Sets global variable used by atexit in case it's invoked as part of
@@ -430,13 +473,15 @@ bool NanoappLoader::callInitArray() {
   for (size_t i = 0; i < mNumSectionHeaders; ++i) {
     const char *name = getSectionHeaderName(mSectionHeadersPtr[i].sh_name);
     if (strncmp(name, kInitArrayName, strlen(kInitArrayName)) == 0) {
-      LOGV("Invoking init function");
-      uintptr_t initArray =
-          static_cast<uintptr_t>(mLoadBias + mSectionHeadersPtr[i].sh_addr);
+      LOGV("Parsing %zu init functions",
+           static_cast<size_t>(mSectionHeadersPtr[i].sh_size) /
+               sizeof(uintptr_t));
+      auto initArray = mMapping.getPhyAddrOf(mSectionHeadersPtr[i].sh_addr);
       uintptr_t offset = 0;
       while (offset < mSectionHeadersPtr[i].sh_size) {
-        ElfAddr *funcPtr = reinterpret_cast<ElfAddr *>(initArray + offset);
-        uintptr_t initFunction = static_cast<uintptr_t>(*funcPtr);
+        auto *funcPtr = reinterpret_cast<ElfAddr *>(initArray + offset);
+        auto initFunction = static_cast<uintptr_t>(*funcPtr);
+        LOGV("Invoking init function at 0x%p", funcPtr);
         ((void (*)())initFunction)();
         offset += sizeof(initFunction);
         if (gStaticInitFailure) {
@@ -460,11 +505,6 @@ uintptr_t NanoappLoader::roundDownToAlign(uintptr_t virtualAddr,
 }
 
 void NanoappLoader::freeAllocatedData() {
-  if (mIsTcmBinary) {
-    nanoappBinaryFree(mMapping);
-  } else {
-    nanoappBinaryDramFree(mMapping);
-  }
   memoryFreeDram(mSectionHeadersPtr);
   memoryFreeDram(mSectionNamesPtr);
   mDynamicSymbolTablePtr = nullptr;
@@ -608,76 +648,27 @@ bool NanoappLoader::createMappings() {
   while (first->p_type != PT_LOAD && first <= last) {
     ++first;
   }
-
-  bool success = false;
   if (first->p_type != PT_LOAD) {
     LOGE("Unable to find any load segments in the binary");
-  } else {
-    // Verify that the first load segment has a program header
-    // first byte of a valid load segment can't be greater than the
-    // program header offset
-    bool valid =
-        (first->p_offset < getElfHeader()->e_phoff) &&
-        (first->p_filesz >= (getElfHeader()->e_phoff +
-                             (numProgramHeaders * sizeof(ProgramHeader))));
-    if (!valid) {
-      LOGE("Load segment program header validation failed");
-    } else {
-      // Get the last load segment
-      while (last > first && last->p_type != PT_LOAD) --last;
-
-      size_t alignment = first->p_align;
-      size_t memorySpan = last->p_vaddr + last->p_memsz - first->p_vaddr;
-      LOGV("Nanoapp image Memory Span: %zu", memorySpan);
-
-      if (mIsTcmBinary) {
-        mMapping =
-            static_cast<uint8_t *>(nanoappBinaryAlloc(memorySpan, alignment));
-      } else {
-        mMapping = static_cast<uint8_t *>(
-            nanoappBinaryDramAlloc(memorySpan, alignment));
-      }
-
-      if (mMapping == nullptr) {
-        LOG_OOM();
-      } else {
-        LOGV("Starting location of mappings %p", mMapping);
-        mMemorySpan = memorySpan;
-
-        // Calculate the load bias using the first load segment.
-        uintptr_t adjustedFirstLoadSegAddr =
-            roundDownToAlign(first->p_vaddr, alignment);
-        mLoadBias =
-            reinterpret_cast<uintptr_t>(mMapping) - adjustedFirstLoadSegAddr;
-        LOGV("Load bias is %lu", static_cast<long unsigned int>(mLoadBias));
-
-        success = true;
-      }
-    }
+    return false;
   }
 
-  if (success) {
-    // Map the remaining segments
-    for (const ProgramHeader *ph = first; ph <= last; ++ph) {
-      if (ph->p_type == PT_LOAD) {
-        ElfAddr segStart = ph->p_vaddr + mLoadBias;
-        void *startPage = reinterpret_cast<void *>(segStart);
-        void *binaryStartPage = mBinary + ph->p_offset;
-        size_t segmentLen = ph->p_filesz;
-
-        LOGV("Mapping start page %p from %p with length %zu", startPage,
-             binaryStartPage, segmentLen);
-        memcpy(startPage, binaryStartPage, segmentLen);
-        mapBss(ph);
-      } else {
-        LOGE("Non-load segment found between load segments");
-        success = false;
-        break;
-      }
-    }
+  // Verify that the first load segment has a program header
+  // first byte of a valid load segment can't be greater than the
+  // program header offset
+  bool valid =
+      (first->p_offset < getElfHeader()->e_phoff) &&
+      (first->p_filesz >=
+       (getElfHeader()->e_phoff + (numProgramHeaders * sizeof(ProgramHeader))));
+  if (!valid) {
+    LOGE("Load segment program header validation failed");
+    return false;
   }
 
-  return success;
+  // Get the last load segment
+  while (last > first && last->p_type != PT_LOAD) --last;
+
+  return mMapping.construct(first, last, mIsTcmBinary, mBinary);
 }
 
 NanoappLoader::ElfSym *NanoappLoader::getDynamicSymbol(
@@ -700,25 +691,25 @@ void *NanoappLoader::getSymbolTarget(const ElfSym *symbol) {
   if (symbol == nullptr || symbol->st_shndx == SHN_UNDEF) {
     return nullptr;
   }
-  return mMapping + symbol->st_value;
+  return reinterpret_cast<void *>(mMapping.getPhyAddrOf(symbol->st_value));
 }
 
 void *NanoappLoader::resolveData(size_t posInSymbolTable) {
   const ElfSym *symbol = getDynamicSymbol(posInSymbolTable);
   const char *dataName = getDataName(symbol);
-  void *target = nullptr;
-
-  if (dataName != nullptr) {
-    LOGV("Resolving %s", dataName);
-    target = findExportedSymbol(dataName);
-    if (target == nullptr) {
-      target = getSymbolTarget(symbol);
-    }
-    if (target == nullptr) {
-      LOGE("Unable to find %s", dataName);
-    }
+  if (dataName == nullptr) {
+    LOGV("Resolving %s failed", dataName);
+    return nullptr;
   }
-
+  void *target = findExportedSymbol(dataName);
+  if (target == nullptr) {
+    target = getSymbolTarget(symbol);
+  }
+  if (target == nullptr) {
+    LOGE("Unable to find symbol %s", dataName);
+  } else {
+    LOGV("Symbol %s is found at 0x%p", dataName, target);
+  }
   return target;
 }
 
@@ -793,12 +784,14 @@ void NanoappLoader::callTerminatorArray() {
   for (size_t i = 0; i < mNumSectionHeaders; ++i) {
     const char *name = getSectionHeaderName(mSectionHeadersPtr[i].sh_name);
     if (strncmp(name, kFiniArrayName, strlen(kFiniArrayName)) == 0) {
-      uintptr_t finiArray =
-          static_cast<uintptr_t>(mLoadBias + mSectionHeadersPtr[i].sh_addr);
+      LOGV("Parsing %zu fini_array functions",
+           static_cast<size_t>(mSectionHeadersPtr[i].sh_size));
+      auto finiArray = mMapping.getPhyAddrOf(mSectionHeadersPtr[i].sh_addr);
       uintptr_t offset = 0;
       while (offset < mSectionHeadersPtr[i].sh_size) {
-        ElfAddr *funcPtr = reinterpret_cast<ElfAddr *>(finiArray + offset);
-        uintptr_t finiFunction = static_cast<uintptr_t>(*funcPtr);
+        auto *funcPtr = reinterpret_cast<ElfAddr *>(finiArray + offset);
+        auto finiFunction = static_cast<uintptr_t>(*funcPtr);
+        LOGV("Invoking fini function at 0x%p", funcPtr);
         ((void (*)())finiFunction)();
         offset += sizeof(finiFunction);
       }

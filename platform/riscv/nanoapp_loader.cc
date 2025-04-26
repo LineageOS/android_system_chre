@@ -19,7 +19,6 @@
 namespace chre {
 
 bool NanoappLoader::relocateTable(DynamicHeader *dyn, int tag) {
-  bool success = false;
   if (dyn == nullptr) {
     return false;
   }
@@ -28,7 +27,7 @@ bool NanoappLoader::relocateTable(DynamicHeader *dyn, int tag) {
     case DT_RELA: {
       if (getDynEntry(dyn, tag) == 0) {
         LOGE("RISC-V Elf binaries must have DT_RELA dynamic entry");
-        break;
+        return false;
       }
 
       // The value of the RELA entry in dynamic table is the sh_addr field
@@ -36,7 +35,7 @@ bool NanoappLoader::relocateTable(DynamicHeader *dyn, int tag) {
       // which is usually the same, but on occasions can be different.
       SectionHeader *dynamicRelaTablePtr = getSectionHeader(".rela.dyn");
       CHRE_ASSERT(dynamicRelaTablePtr != nullptr);
-      ElfRela *reloc =
+      auto *reloc =
           reinterpret_cast<ElfRela *>(mBinary + dynamicRelaTablePtr->sh_offset);
       size_t relocSize = dynamicRelaTablePtr->sh_size;
       size_t nRelocs = relocSize / sizeof(ElfRela);
@@ -45,7 +44,6 @@ bool NanoappLoader::relocateTable(DynamicHeader *dyn, int tag) {
       for (size_t i = 0; i < nRelocs; ++i) {
         ElfRela *curr = &reloc[i];
         int relocType = ELFW_R_TYPE(curr->r_info);
-        ElfAddr *addr = reinterpret_cast<ElfAddr *>(mMapping + curr->r_offset);
 
         switch (relocType) {
           case R_RISCV_RELATIVE:
@@ -54,7 +52,8 @@ bool NanoappLoader::relocateTable(DynamicHeader *dyn, int tag) {
             // TODO(b/155512914): When we move to DRAM allocations, we need to
             // check if the above address is in a Read-Only section of memory,
             // and give it temporary write permission if that is the case.
-            *addr = reinterpret_cast<uintptr_t>(mMapping + curr->r_addend);
+            mMapping.replace(curr->r_offset,
+                             mMapping.getPhyAddrOf(curr->r_addend));
             break;
 
           case R_RISCV_32: {
@@ -64,7 +63,8 @@ bool NanoappLoader::relocateTable(DynamicHeader *dyn, int tag) {
             auto *dynamicSymbolTable =
                 reinterpret_cast<ElfSym *>(mDynamicSymbolTablePtr);
             ElfSym *sym = &dynamicSymbolTable[posInSymbolTable];
-            *addr = reinterpret_cast<uintptr_t>(mMapping + sym->st_value);
+            mMapping.replace(curr->r_offset,
+                             mMapping.getPhyAddrOf(sym->st_value));
             break;
           }
 
@@ -73,24 +73,25 @@ bool NanoappLoader::relocateTable(DynamicHeader *dyn, int tag) {
             break;
         }
       }
-      success = true;
-      break;
+      return true;
     }
     case DT_REL:
       // Not required for RISC-V
-      success = true;
-      break;
-    default:
+      return true;
+    default: {
       LOGE("Unsupported table tag %d", tag);
+      return false;
+    }
   }
-
-  return success;
 }
 
 bool NanoappLoader::resolveGot() {
-  ElfAddr *addr;
-  ElfRela *reloc = reinterpret_cast<ElfRela *>(
-      mMapping + getDynEntry(getDynamicHeader(), DT_JMPREL));
+  auto *reloc = reinterpret_cast<ElfRela *>(
+      mMapping.getPhyAddrOf(getDynEntry(getDynamicHeader(), DT_JMPREL)));
+  if (reloc == nullptr) {
+    LOGE("Unable to find the JMPREL relocation section");
+    return false;
+  }
   size_t relocSize = getDynEntry(getDynamicHeader(), DT_PLTRELSZ);
   size_t nRelocs = relocSize / sizeof(ElfRela);
   LOGV("Resolving GOT with %zu relocations", nRelocs);
@@ -105,7 +106,6 @@ bool NanoappLoader::resolveGot() {
       case R_RISCV_JUMP_SLOT: {
         LOGV("Resolving RISCV_JUMP_SLOT at offset %lx, %d",
              static_cast<long unsigned int>(curr->r_offset), curr->r_addend);
-        addr = reinterpret_cast<ElfAddr *>(mMapping + curr->r_offset);
         size_t posInSymbolTable = ELFW_R_SYM(curr->r_info);
         void *resolved = resolveData(posInSymbolTable);
         if (resolved == nullptr) {
@@ -113,7 +113,8 @@ bool NanoappLoader::resolveGot() {
                curr->r_offset);
           success = false;
         }
-        *addr = reinterpret_cast<ElfAddr>(resolved) + curr->r_addend;
+        mMapping.replace(curr->r_offset,
+                         reinterpret_cast<ElfAddr>(resolved) + curr->r_addend);
         break;
       }
 
