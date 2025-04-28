@@ -35,3 +35,6 @@ COMMON_CFLAGS += -I$(NANOAPP_PATH)/inc
 # Permission declarations ######################################################
 
 # PW RPC protos ################################################################
+
+PW_RPC_SRCS = $(NANOAPP_PATH)/rpc/endpoint_echo_test.proto
+PW_RPC_SRCS += $(ANDROID_BUILD_TOP)/external/protobuf/src/google/protobuf/empty.proto

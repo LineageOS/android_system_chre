@@ -29,7 +29,10 @@ java_library {
 
     static_libs: [
         "androidx.test.rules",
+        "chre_pigweed_utils",
         "chre-test-utils",
+        "endpoint_echo_test_proto_java_lite",
+        "pw_rpc_java_client",
     ],
 
     sdk_version: "test_current",

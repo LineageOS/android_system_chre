@@ -1209,6 +1209,20 @@ java_library_static {
     sdk_version: "current",
 }
 
+java_library_static {
+    name: "endpoint_echo_test_proto_java_lite",
+    host_supported: true,
+    proto: {
+        type: "lite",
+        include_dirs: ["external/protobuf/src"],
+    },
+    srcs: [
+        ":libprotobuf-internal-protos",
+        "apps/test/common/endpoint_echo_test/rpc/endpoint_echo_test.proto",
+    ],
+    sdk_version: "current",
+}
+
 cc_library_static {
     name: "chre_host_util",
     vendor_available: true,

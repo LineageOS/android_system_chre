@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package chre.rpc;
+
+import "google/protobuf/empty.proto";
+
+option java_package = "dev.chre.rpc.proto";
+
+// RPC for the endpoint echo test
+service EndpointEchoTestService {
+  // Check if the test is supported
+  rpc IsTestSupported(google.protobuf.Empty) returns (Status) {}
+
+  // Run the nanoapp-to-host test
+  rpc RunNanoappToHostTest(google.protobuf.Empty)
+      returns (stream ReturnStatus) {}
+}
+
+// Received in response to IsTestSupported
+message Status {
+  bool status = 1;
+}
+
+// Received in response to a test pass or fail
+message ReturnStatus {
+  bool status = 1;
+  string error_message = 2;
+}
