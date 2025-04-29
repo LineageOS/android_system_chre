@@ -82,13 +82,6 @@ flag {
 }
 
 flag {
-  name: "bt_socket_hal_supported"
-  namespace: "context_hub"
-  description: "Flag guarding whether a working implementation of the BT socket HAL is supported in the ContextHub HAL process or a stub version"
-  bug: "380946927"
-}
-
-flag {
   name: "gnss_hal_use_endpoint_messaging"
   namespace: "context_hub"
   description: "Flag guarding the use of endpoint messaging for the GNSS HAL"
