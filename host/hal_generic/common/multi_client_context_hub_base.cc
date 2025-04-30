@@ -49,7 +49,7 @@ constexpr uint32_t kDefaultHubId = 0;
 // timeout for calling getContextHubs(), which is synchronous
 constexpr auto kHubInfoQueryTimeout = std::chrono::seconds(5);
 // timeout for enable/disable test mode, which is synchronous
-constexpr std::chrono::duration ktestModeTimeOut = std::chrono::seconds(5);
+constexpr std::chrono::duration kTestModeTimeout = std::chrono::seconds(5);
 
 // The transaction id for synchronously load/unload a nanoapp in test mode.
 constexpr int32_t kTestModeTransactionId{static_cast<int32_t>(0x80000000)};
@@ -564,13 +564,13 @@ bool MultiClientContextHubBase::enableTestModeLocked(
     LOGE("Failed to get a list of loaded nanoapps to enable test mode");
     return false;
   }
-  if (!mEnableTestModeCv.wait_for(lock, ktestModeTimeOut, [&]() {
+  if (!mEnableTestModeCv.wait_for(lock, kTestModeTimeout, [&]() {
         return mTestModeNanoapps.has_value() &&
                mTestModeSystemNanoapps.has_value();
       })) {
     LOGE("Failed to get a list of loaded nanoapps within %" PRIu64
          " seconds to enable test mode",
-         ktestModeTimeOut.count());
+         kTestModeTimeout.count());
     return false;
   }
 
@@ -594,7 +594,7 @@ bool MultiClientContextHubBase::enableTestModeLocked(
 
     // Wait for the unloading result.
     mTestModeSyncUnloadResult.reset();
-    mEnableTestModeCv.wait_for(lock, ktestModeTimeOut, [&]() {
+    mEnableTestModeCv.wait_for(lock, kTestModeTimeout, [&]() {
       return mTestModeSyncUnloadResult.has_value();
     });
     bool success =
@@ -1030,7 +1030,7 @@ void MultiClientContextHubBase::handleClientDeath(pid_t clientPid) {
 
 void MultiClientContextHubBase::onChreDisconnected() {
   mIsChreReady = false;
-  LOGW("HAL APIs will be failed because CHRE is disconnected");
+  LOGW("HAL APIs will fail because CHRE is disconnected");
   if (mV4Impl) {
     mV4Impl->onChreDisconnected();
   }
