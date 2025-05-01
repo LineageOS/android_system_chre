@@ -323,7 +323,8 @@ bool NanoappLoader::MemoryMapping::construct(const ProgramHeader *first,
   for (const ProgramHeader *ph = first; ph <= last; ++ph) {
     if (ph->p_type == PT_LOAD) {
       ElfAddr startPage = getPhyAddrOf(ph->p_vaddr);
-      mSegments.emplace_back(ph->p_vaddr, startPage, ph->p_memsz, ph->p_flags);
+      mSegments.emplace_back(/* pAddr= */ startPage, /* memSize= */ ph->p_memsz,
+                             /* permission= */ ph->p_flags);
 
       // Copy the content.
       memcpy(reinterpret_cast<void *>(startPage), binary + ph->p_offset,
@@ -337,7 +338,7 @@ bool NanoappLoader::MemoryMapping::construct(const ProgramHeader *first,
 
       LOGV("vAddr: 0x%" PRIx64 ", pAddr: 0x%" PRIx64 ", memSize: 0x%" PRIx32
            ", permission: 0x%" PRIx32,
-           static_cast<uint64_t>(mSegments.back().vAddr),
+           static_cast<uint64_t>(ph->p_vaddr),
            static_cast<uint64_t>(mSegments.back().pAddr),
            mSegments.back().memSize, mSegments.back().permission);
     } else {

@@ -72,8 +72,8 @@ import dev.pigweed.pw_rpc.UnaryResult;
  * tested in this class is expected to register a test echo service, which must behave as a loopback
  * service which echoes back a message sent to it with identical payload.
  */
-public class ContextHubEchoEndpointExecutor {
-    private static final String TAG = "ContextHubEchoEndpointExecutor";
+public class ContextHubEndpointEchoExecutor {
+    private static final String TAG = "ContextHubEndpointEchoExecutor";
 
     /** The service descriptor for an echo service. */
     private static final String ECHO_SERVICE_DESCRIPTOR =
@@ -217,11 +217,11 @@ public class ContextHubEchoEndpointExecutor {
         }
     }
 
-    public ContextHubEchoEndpointExecutor(ContextHubManager manager) {
+    public ContextHubEndpointEchoExecutor(ContextHubManager manager) {
         this(manager, /* info= */ null, /* EchoNanoappBinary= */ null);
     }
 
-    public ContextHubEchoEndpointExecutor(
+    public ContextHubEndpointEchoExecutor(
             ContextHubManager manager, ContextHubInfo info, NanoAppBinary EchoNanoappBinary) {
         if (EchoNanoappBinary != null) {
             Assert.assertEquals(EchoNanoappBinary.getNanoAppId(), ECHO_SERVICE_NANOAPP_ID);

@@ -22,6 +22,31 @@
 namespace chre {
 
 /**
+ * A tag dispatch type to indicate an empty Optional state, similar to
+ * std::nullopt_t.
+ *
+ * This type is used in constructors and assignment operators of Optional
+ * to explicitly create or assign an empty (disengaged) state.
+ */
+struct nullopt_t {
+  // The constructor is explicit to prevent conversions from arbitrary integer
+  // types (like 0 or NULL/nullptr).
+  constexpr explicit nullopt_t(int /*dummy*/) {}
+};
+
+/**
+ * nullopt definition used to indicate an empty Optional, allows easier porting
+ * from std::optional and std::nullopt.
+ *
+ * This can be used to construct or assign an empty Optional.
+ * For example:
+ * chre::Optional<int> o = chre::nullopt;
+ * o = chre::nullopt;
+ * return chree::nullopt;
+ */
+inline constexpr nullopt_t nullopt{/*dummy*/ 0};
+
+/**
  * This container keeps track of an optional object. The container is similar to
  * std::optional introduced in C++17.
  */
@@ -37,6 +62,11 @@ class Optional {
    * Default constructs the optional object with no initial value.
    */
   constexpr Optional() : mObject() {}
+
+  /**
+   * Constructs an optional object with no initial value (from chre::nullopt).
+   */
+  constexpr Optional(nullopt_t) noexcept : mObject() {}
 
   /**
    * Default copy constructor.

@@ -54,6 +54,11 @@ TEST(Optional, NoValueByDefault) {
   EXPECT_FALSE(myInt.has_value());
 }
 
+TEST(Optional, NoValueByDefaultNullopt) {
+  Optional<int> myInt = chre::nullopt;
+  EXPECT_FALSE(myInt.has_value());
+}
+
 TEST(Optional, NonDefaultValueByDefault) {
   Optional<int> myInt(0x1337);
   EXPECT_TRUE(myInt.has_value());
@@ -117,6 +122,12 @@ TEST(Optional, OptionalCopyAssignAndRead) {
   EXPECT_TRUE(myCopiedInt.has_value());
   EXPECT_EQ(*myInt, 0x1337);
   EXPECT_EQ(*myCopiedInt, 0x1337);
+}
+
+TEST(Optional, OptionalCopyAssignNullopt) {
+  Optional<int> myInt(0x1337);
+  myInt = chre::nullopt;
+  EXPECT_FALSE(myInt.has_value());
 }
 
 static constexpr int kInvalidValue = -1;

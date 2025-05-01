@@ -85,9 +85,6 @@ class NanoappLoader {
    * A struct representing a loadable segment in the ELF binary.
    */
   struct LoadableSegment {
-    /** The virtual address of the segment. */
-    ElfAddr vAddr;
-
     /** The physical address of the segment mapped into the memory. */
     ElfAddr pAddr;
 
@@ -100,10 +97,10 @@ class NanoappLoader {
      */
     ElfWord permission;
 
-    LoadableSegment(ElfAddr vAddr, ElfAddr pAddr, ElfWord size,
-                    ElfWord permission)
-        : vAddr(vAddr), pAddr(pAddr), memSize(size), permission(permission) {};
+    LoadableSegment(ElfAddr pAddr, ElfWord size, ElfWord permission)
+        : pAddr(pAddr), memSize(size), permission(permission) {};
   };
+
   NanoappLoader() = delete;
 
   /**
