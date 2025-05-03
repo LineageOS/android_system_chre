@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.google.android.chre.utils.pigweed;
+package com.google.android.utils.chre.pigweed;
 
 import android.hardware.location.ContextHubClient;
 import android.hardware.location.ContextHubTransaction;
@@ -29,9 +29,7 @@ import dev.pigweed.pw_rpc.ChannelOutputException;
  * of Pigweed RPC to make it more friendly to use with CHRE APIs.
  */
 public class ChreChannelOutput implements Channel.Output {
-    /**
-     * Message type to use for RPC messages.
-     */
+    /** Message type to use for RPC messages. */
     public static final int CHRE_MESSAGE_TYPE_RPC = 0x7FFFFFF5;
 
     // 1 denotes that a host endpoint is the client that created the channel.
@@ -48,13 +46,11 @@ public class ChreChannelOutput implements Channel.Output {
         mNanoappId = nanoappId;
     }
 
-    /**
-     * This method MUST NOT be called directly from users of this class.
-     */
+    /** This method MUST NOT be called directly from users of this class. */
     @Override
     public void send(byte[] packet) throws ChannelOutputException {
-        NanoAppMessage message = NanoAppMessage.createMessageToNanoApp(mNanoappId,
-                CHRE_MESSAGE_TYPE_RPC, packet);
+        NanoAppMessage message =
+                NanoAppMessage.createMessageToNanoApp(mNanoappId, CHRE_MESSAGE_TYPE_RPC, packet);
         if (mAuthDenied.get()
                 || ContextHubTransaction.RESULT_SUCCESS != mClient.sendMessageToNanoApp(message)) {
             throw new ChannelOutputException();
@@ -62,16 +58,16 @@ public class ChreChannelOutput implements Channel.Output {
     }
 
     /**
-     * @return Channel ID to use for all Channels that use this output to send
-     * messages to a nanoapp.
+     * @return Channel ID to use for all Channels that use this output to send messages to a
+     *     nanoapp.
      */
     public int getChannelId() {
         return (CHANNEL_ID_HOST_CLIENT | mClient.getId());
     }
 
     /**
-     * Used to indicate whether the particular nanoapp cannot be communicated
-     * with any more (e.g. due to permissions loss).
+     * Used to indicate whether the particular nanoapp cannot be communicated with any more (e.g.
+     * due to permissions loss).
      */
     void setAuthDenied(boolean denied) {
         mAuthDenied.set(denied);

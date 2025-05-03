@@ -1301,9 +1301,10 @@ void WifiRequestManager::dispatchQueuedNanSubscribeRequestWithRetry() {
 }
 
 bool WifiRequestManager::dispatchQueuedScanRequests() {
-  while (!mPendingScanRequests.empty()) {
+  while (!mPendingScanRequests.empty() &&
+         !mPendingScanRequests.front().dispatched) {
     uint8_t asyncError = CHRE_ERROR_NONE;
-    const PendingScanRequest &currentScanRequest = mPendingScanRequests.front();
+    PendingScanRequest &currentScanRequest = mPendingScanRequests.front();
 
     if (!EventLoopManagerSingleton::get()
              ->getSettingManager()
@@ -1318,6 +1319,7 @@ bool WifiRequestManager::dispatchQueuedScanRequests() {
       if (!syncResult) {
         asyncError = CHRE_ERROR;
       } else {
+        currentScanRequest.dispatched = true;
         mScanRequestTimeoutHandle = setScanRequestTimer();
         return true;
       }

@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.google.android.chre.utils.pigweed;
+package com.google.android.utils.chre.pigweed;
 
 import static android.hardware.location.ContextHubManager.AUTHORIZATION_DENIED;
 import static android.hardware.location.ContextHubManager.AUTHORIZATION_GRANTED;
@@ -39,8 +39,8 @@ public class ChreCallbackHandler extends ContextHubClientCallback {
 
     /**
      * @param nanoappId ID of the RPC Server nanoapp
-     * @param callback  The callbacks receiving messages and life-cycle events from nanoapps,
-     *                  nullable.
+     * @param callback The callbacks receiving messages and life-cycle events from nanoapps,
+     *     nullable.
      */
     public ChreCallbackHandler(long nanoappId, ContextHubClientCallback callback) {
         mNanoappId = nanoappId;
@@ -50,7 +50,7 @@ public class ChreCallbackHandler extends ContextHubClientCallback {
     /**
      * Completes the initialization.
      *
-     * @param rpcClient     The Pigweed RPC client, non null
+     * @param rpcClient The Pigweed RPC client, non null
      * @param channelOutput The ChannelOutput used by Pigweed, non null
      */
     public void lateInit(Client rpcClient, ChreChannelOutput channelOutput) {
@@ -58,9 +58,7 @@ public class ChreCallbackHandler extends ContextHubClientCallback {
         mChannelOutput = Objects.requireNonNull(channelOutput);
     }
 
-    /**
-     * This method passes the message to pigweed RPC for decoding.
-     */
+    /** This method passes the message to pigweed RPC for decoding. */
     @Override
     public void onMessageFromNanoApp(ContextHubClient client, NanoAppMessage message) {
         if (mRpcClient != null && message.getNanoAppId() == mNanoappId) {
@@ -71,9 +69,7 @@ public class ChreCallbackHandler extends ContextHubClientCallback {
         }
     }
 
-    /**
-     * This method ensures all outstanding RPCs are canceled.
-     */
+    /** This method ensures all outstanding RPCs are canceled. */
     @Override
     public void onHubReset(ContextHubClient client) {
         closeChannel();
@@ -82,9 +78,7 @@ public class ChreCallbackHandler extends ContextHubClientCallback {
         }
     }
 
-    /**
-     * This method ensures all outstanding RPCs are canceled.
-     */
+    /** This method ensures all outstanding RPCs are canceled. */
     @Override
     public void onNanoAppAborted(ContextHubClient client, long nanoappId, int abortCode) {
         if (nanoappId == mNanoappId) {
@@ -102,9 +96,7 @@ public class ChreCallbackHandler extends ContextHubClientCallback {
         }
     }
 
-    /**
-     * This method ensures all outstanding RPCs are canceled.
-     */
+    /** This method ensures all outstanding RPCs are canceled. */
     @Override
     public void onNanoAppUnloaded(ContextHubClient client, long nanoappId) {
         if (nanoappId == mNanoappId) {
@@ -122,9 +114,7 @@ public class ChreCallbackHandler extends ContextHubClientCallback {
         }
     }
 
-    /**
-     * This method ensures all outstanding RPCs are canceled.
-     */
+    /** This method ensures all outstanding RPCs are canceled. */
     @Override
     public void onNanoAppDisabled(ContextHubClient client, long nanoappId) {
         if (nanoappId == mNanoappId) {
@@ -140,8 +130,8 @@ public class ChreCallbackHandler extends ContextHubClientCallback {
      * will fail until the client becomes authorized again.
      */
     @Override
-    public void onClientAuthorizationChanged(ContextHubClient client, long nanoappId,
-            int authorization) {
+    public void onClientAuthorizationChanged(
+            ContextHubClient client, long nanoappId, int authorization) {
         if (mChannelOutput != null && nanoappId == mNanoappId) {
             if (authorization == AUTHORIZATION_DENIED) {
                 mChannelOutput.setAuthDenied(true /* denied */);

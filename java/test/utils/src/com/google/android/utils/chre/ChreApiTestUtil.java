@@ -20,7 +20,7 @@ import android.content.Context;
 
 import androidx.annotation.NonNull;
 
-import com.google.android.chre.utils.pigweed.ChreRpcClient;
+import com.google.android.utils.chre.pigweed.ChreRpcClient;
 import com.google.common.io.ByteSink;
 import com.google.common.io.Files;
 import com.google.protobuf.ByteString;

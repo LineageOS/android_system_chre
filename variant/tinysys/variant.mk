@@ -19,7 +19,7 @@ VARIANT_PREFIX = $(ANDROID_BUILD_TOP)/system/chre/variant
 COMMIT_HASH_COMMAND = git describe --always --long --dirty
 COMMIT_HASH = $(shell $(COMMIT_HASH_COMMAND))
 
-COMMON_CFLAGS += -DCHRE_VERSION_STRING="\"chre=tinysys@$(COMMIT_HASH)\""
+COMMON_CFLAGS += -DCHRE_VERSION_STRING='"chre=tinysys@$(COMMIT_HASH)"'
 
 # Platform-specific Settings ###################################################
 

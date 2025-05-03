@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.google.android.chre.utils.pigweed;
+package com.google.android.utils.chre.pigweed;
 
 import static android.hardware.location.ContextHubManager.AUTHORIZATION_DENIED;
 import static android.hardware.location.ContextHubManager.AUTHORIZATION_GRANTED;
@@ -27,22 +27,20 @@ import java.util.Objects;
 
 import dev.pigweed.pw_rpc.Client;
 
-/**
- * Handles RPC events in CHRE intent.
- */
+/** Handles RPC events in CHRE intent. */
 public class ChreIntentHandler {
     private static final String TAG = "ChreIntentHandler";
 
     /**
      * Handles CHRE intents.
      *
-     * @param intent        the intent, non null
-     * @param nanoappId     ID of the RPC Server nanoapp
-     * @param rpcClient     The Pigweed RPC client, non null
+     * @param intent the intent, non null
+     * @param nanoappId ID of the RPC Server nanoapp
+     * @param rpcClient The Pigweed RPC client, non null
      * @param channelOutput The ChannelOutput used by Pigweed, non null
      */
-    public static void handle(Intent intent, long nanoappId, Client rpcClient,
-            ChreChannelOutput channelOutput) {
+    public static void handle(
+            Intent intent, long nanoappId, Client rpcClient, ChreChannelOutput channelOutput) {
         Objects.requireNonNull(intent);
         Objects.requireNonNull(rpcClient);
         Objects.requireNonNull(channelOutput);

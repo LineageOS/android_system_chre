@@ -295,6 +295,8 @@ class WifiRequestManager : public NonCopyable {
  private:
   struct PendingRequestBase {
     uint16_t nanoappInstanceId;  //!< ID of the Nanoapp issuing this request
+    // TODO(b/415309376): Set dispatched=true for all pending request types
+    bool dispatched = false;     //!< true if the request was sent to the PAL
     const void *cookie;          //!< User data supplied by the nanoapp
 
     PendingRequestBase() = default;
