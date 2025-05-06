@@ -620,7 +620,7 @@ bool chreMsgSessionCloseAsync(uint16_t sessionId);
  * @param messagePermissions Bitmask of permissions that must be held to receive
  *     this message, and will be attributed to the recipient. Primarily relevant
  *     when the destination endpoint is an Android application. Refer to
- *     CHRE_MESSAGE_PERMISSIONS.
+ *     CHRE_MESSAGE_PERMISSION_* values.
  * @param freeCallback Invoked when the system no longer needs the memory
  *     holding the message. Note that this does not necessarily mean that the
  *     message has been delivered. If message is non-NULL, this must be
