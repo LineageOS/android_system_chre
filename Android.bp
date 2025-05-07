@@ -931,6 +931,7 @@ cc_test_host {
     ],
     local_include_dirs: [
         "platform/shared",
+        "platform/shared/nanoapp_memory_guard_no_op/include",
         "platform/shared/public_platform_ble_pal",
         "platform/shared/public_platform_debug_dump_manager",
         "platform/shared/public_platform_gnss_pal",
@@ -1051,6 +1052,7 @@ cc_library_static {
         "platform/shared/audio_pal/include",
         "platform/shared/fbs/include",
         "platform/shared/include",
+        "platform/shared/nanoapp_memory_guard_no_op/include",
         "platform/shared/public_platform_ble_pal",
         "platform/shared/public_platform_debug_dump_manager",
         "platform/shared/public_platform_gnss_pal",
@@ -1107,6 +1109,8 @@ cc_defaults {
         "-DGTEST",
         "-Wextra-semi",
         "-Wvla-extension",
+        "-Wall",
+        "-Werror",
     ],
 }
 

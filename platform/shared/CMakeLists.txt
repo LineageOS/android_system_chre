@@ -533,6 +533,14 @@ pw_add_library(chre.platform.shared.nanoapp_tokenized_log STATIC
     pw_tokenizer
 )
 
+# Note that this is only for building purpose. In the future it can be changed to a facade if needed
+pw_add_library(chre.platform.shared.nanoapp_memory_guard_no_op INTERFACE
+  HEADERS
+    nanoapp_memory_guard_no_op/include/chre/target_platform/nanoapp_memory_guard_base.h
+  PUBLIC_INCLUDES
+    nanoapp_memory_guard_no_op/include
+)
+
 pw_add_library(chre.platform.shared.pal_audio_stub STATIC
   SOURCES
     pal_audio_stub.cc

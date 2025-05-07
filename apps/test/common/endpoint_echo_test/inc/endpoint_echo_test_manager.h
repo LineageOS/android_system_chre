@@ -31,9 +31,6 @@ class EndpointEchoTestService final
     : public chre::rpc::pw_rpc::nanopb::EndpointEchoTestService::Service<
           EndpointEchoTestService> {
  public:
-  pw::Status IsTestSupported(const google_protobuf_Empty &request,
-                             chre_rpc_Status &response);
-
   void RunNanoappToHostTest(const google_protobuf_Empty &request,
                             ServerWriter<chre_rpc_ReturnStatus> &writer);
 };

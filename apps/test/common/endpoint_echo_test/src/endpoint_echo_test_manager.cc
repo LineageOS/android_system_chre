@@ -24,15 +24,6 @@
 
 #include <cstring>
 
-pw::Status EndpointEchoTestService::IsTestSupported(
-    const google_protobuf_Empty & /* request */, chre_rpc_Status &response) {
-  response.status = (chreGetCapabilities() &
-                     CHRE_CAPABILITIES_GENERIC_ENDPOINT_MESSAGES) != 0;
-  EndpointEchoTestManagerSingleton::get()->setPermissionForNextMessage(
-      CHRE_MESSAGE_PERMISSION_NONE);
-  return pw::OkStatus();
-}
-
 void EndpointEchoTestService::RunNanoappToHostTest(
     const google_protobuf_Empty & /* request */,
     EndpointEchoTestService::ServerWriter<chre_rpc_ReturnStatus> &writer) {

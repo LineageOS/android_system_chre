@@ -29,6 +29,7 @@ SLPI_CFLAGS += -I$(SLPI_PREFIX)/platform/rtld/inc
 
 SLPI_CFLAGS += -Iplatform/shared/aligned_alloc_unsupported/include
 SLPI_CFLAGS += -Iplatform/shared/include
+SLPI_CFLAGS += -Iplatform/shared/nanoapp_memory_guard_no_op/include
 SLPI_CFLAGS += -Iplatform/shared/fbs/include
 SLPI_CFLAGS += -Iplatform/slpi/include
 
@@ -196,6 +197,7 @@ endif
 # Simulator-specific Compiler Flags ############################################
 
 SIM_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/include
+SIM_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/nanoapp_memory_guard_no_op/include
 SIM_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/public_platform_ble_pal
 SIM_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/public_platform_debug_dump_manager
 SIM_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/public_platform_gnss_pal
@@ -381,6 +383,7 @@ endif
 EMBOS_CFLAGS += -I$(CHRE_PREFIX)/platform/embos/include
 EMBOS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/aligned_alloc_unsupported/include
 EMBOS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/include
+EMBOS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/nanoapp_memory_guard_no_op/include
 EMBOS_CFLAGS += $(FLATBUFFERS_CFLAGS)
 
 # The IAR flavor of EmbOS's RTOS.h includes an intrinsics.h header for
@@ -421,8 +424,9 @@ EMBOS_SRCS += $(CHRE_PREFIX)/platform/shared/nanoapp_loader.cc
 
 # Exynos specific compiler flags
 EXYNOS_CFLAGS += -I$(CHRE_PREFIX)/platform/exynos/include
-EXYNOS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/fbs/include
 EXYNOS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/audio_pal/include
+EXYNOS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/fbs/include
+EXYNOS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/nanoapp_memory_guard_no_op/include
 
 EXYNOS_SRCS += $(CHRE_PREFIX)/platform/exynos/chre_api_re.cc
 EXYNOS_SRCS += $(CHRE_PREFIX)/platform/shared/host_link.cc
@@ -552,6 +556,7 @@ TINYSYS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/aligned_alloc_unsupported/inc
 TINYSYS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/include
 TINYSYS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/fbs/include
 TINYSYS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/nanoapp/include
+TINYSYS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/nanoapp_memory_guard_no_op/include
 TINYSYS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/public_platform_ble_pal
 TINYSYS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/public_platform_debug_dump_manager
 TINYSYS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/public_platform_gnss_pal

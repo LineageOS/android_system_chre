@@ -25,6 +25,7 @@
 #include "chre/platform/shared/authentication.h"
 #include "chre/platform/shared/nanoapp_dso_util.h"
 #include "chre/platform/shared/nanoapp_loader.h"
+#include "chre/platform/shared/nanoapp_memory_guard.h"
 #include "chre/util/macros.h"
 #include "chre/util/system/napp_header_utils.h"
 #include "chre/util/system/napp_permissions.h"
@@ -61,6 +62,7 @@ bool PlatformNanoapp::start() {
   } else if (mAppInfo == nullptr) {
     LOGE("Null app info!");
   } else {
+    NanoappMemoryGuard guard(*this);
     success = mAppInfo->entryPoints.start();
   }
 
@@ -70,12 +72,18 @@ bool PlatformNanoapp::start() {
 void PlatformNanoapp::handleEvent(uint32_t senderInstanceId, uint16_t eventType,
                                   const void *eventData) {
   enableDramAccessIfRequired();
-  mAppInfo->entryPoints.handleEvent(senderInstanceId, eventType, eventData);
+  {
+    NanoappMemoryGuard guard(*this);
+    mAppInfo->entryPoints.handleEvent(senderInstanceId, eventType, eventData);
+  }
 }
 
 void PlatformNanoapp::end() {
   enableDramAccessIfRequired();
-  mAppInfo->entryPoints.end();
+  {
+    NanoappMemoryGuard guard(*this);
+    mAppInfo->entryPoints.end();
+  }
   closeNanoapp();
 }
 
@@ -127,6 +135,20 @@ void PlatformNanoapp::logStateToBuffer(DebugDumpWrapper &debugDump) const {
     debugDump.print("%s (%s) @ build: %.*s", mAppInfo->name, mAppInfo->vendor,
                     static_cast<int>(versionLen), version);
   }
+}
+
+void PlatformNanoapp::invokeEventFreeCallback(
+    chreEventCompleteFunction *function, const uint16_t eventType,
+    void *const eventData) const {
+  const NanoappMemoryGuard guard(*this);
+  function(eventType, eventData);
+}
+
+void PlatformNanoapp::invokeMessageFreeCallback(
+    chreMessageFreeFunction *function, void *message,
+    const size_t messageSize) const {
+  const NanoappMemoryGuard guard(*this);
+  function(message, messageSize);
 }
 
 const char *PlatformNanoappBase::getAppVersionString(size_t *length) const {

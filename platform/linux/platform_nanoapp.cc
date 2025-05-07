@@ -80,6 +80,18 @@ bool PlatformNanoapp::isSystemNanoapp() const {
 void PlatformNanoapp::logStateToBuffer(
     DebugDumpWrapper & /* debugDump */) const {}
 
+void PlatformNanoapp::invokeEventFreeCallback(
+    chreEventCompleteFunction *function, const uint16_t eventType,
+    void *const eventData) const {
+  function(eventType, eventData);
+}
+
+void PlatformNanoapp::invokeMessageFreeCallback(
+    chreMessageFreeFunction *function, void *message,
+    const size_t messageSize) const {
+  function(message, messageSize);
+}
+
 void PlatformNanoappBase::loadFromFile(const std::string &filename) {
   CHRE_ASSERT(!isLoaded());
   mFilename = filename;

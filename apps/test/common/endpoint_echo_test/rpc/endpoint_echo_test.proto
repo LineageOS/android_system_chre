@@ -8,9 +8,6 @@ option java_package = "dev.chre.rpc.proto";
 
 // RPC for the endpoint echo test
 service EndpointEchoTestService {
-  // Check if the test is supported
-  rpc IsTestSupported(google.protobuf.Empty) returns (Status) {}
-
   // Run the nanoapp-to-host test
   rpc RunNanoappToHostTest(google.protobuf.Empty)
       returns (stream ReturnStatus) {}

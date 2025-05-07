@@ -144,12 +144,12 @@ void EventLoop::invokeMessageFreeFunction(uint64_t appId,
   Nanoapp *nanoapp = lookupAppByAppId(appId);
   if (nanoapp == nullptr) {
     LOGE("Couldn't find app 0x%016" PRIx64 " for message free callback", appId);
-  } else {
-    auto prevCurrentApp = mCurrentApp;
-    mCurrentApp = nanoapp;
-    freeFunction(message, messageSize);
-    mCurrentApp = prevCurrentApp;
+    return;
   }
+  auto prevCurrentApp = mCurrentApp;
+  mCurrentApp = nanoapp;
+  mCurrentApp->invokeMessageFreeCallback(freeFunction, message, messageSize);
+  mCurrentApp = prevCurrentApp;
 }
 
 void EventLoop::run() {
@@ -632,13 +632,25 @@ void EventLoop::flushInboundEventQueue() {
 }
 
 void EventLoop::freeEvent(Event *event) {
-  if (event->hasFreeCallback()) {
-    // TODO: find a better way to set the context to the creator of the event
-    mCurrentApp = lookupAppByInstanceId(event->senderInstanceId);
-    event->invokeFreeCallback();
-    mCurrentApp = nullptr;
+  if (event->targetInstanceId == kSystemInstanceId) {
+    event->invokeSystemEventCallback();
+  } else if (event->freeCallback != nullptr) {
+    if (event->senderInstanceId == kSystemInstanceId) {
+      event->invokeEventFreeCallback();
+    } else {
+      mCurrentApp = lookupAppByInstanceId(event->senderInstanceId);
+      if (mCurrentApp != nullptr) {
+        mCurrentApp->invokeEventFreeCallback(
+            event->freeCallback, event->eventType, event->eventData);
+      } else {
+        LOGE("No app found (senderIId=%" PRIu16 ", targetIId=%" PRIu16
+             ", type=0x%" PRIx16 ") for free event callback",
+             event->senderInstanceId, event->targetInstanceId,
+             event->eventType);
+      }
+      mCurrentApp = nullptr;
+    }
   }
-
   mEventPool.deallocate(event);
 }
 
