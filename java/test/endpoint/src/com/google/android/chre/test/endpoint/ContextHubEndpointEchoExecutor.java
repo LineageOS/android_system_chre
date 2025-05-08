@@ -279,10 +279,6 @@ public class ContextHubEndpointEchoExecutor {
 
     /** Validates that a local endpoint can be registered/unregistered. */
     public void testDefaultEndpointRegistration() throws Exception {
-        if (!isTestSupported()) {
-            return;
-        }
-
         mRegisteredEndpoint = registerDefaultEndpoint();
         unregisterRegisteredEndpoint();
     }
@@ -292,10 +288,6 @@ public class ContextHubEndpointEchoExecutor {
      * endpoint.
      */
     public void testOpenEndpointSession() throws Exception {
-        if (!isTestSupported()) {
-            return;
-        }
-
         List<HubDiscoveryInfo> infoList = getEchoServiceList();
         for (HubDiscoveryInfo info : infoList) {
             HubEndpointInfo targetEndpointInfo = info.getHubEndpointInfo();
@@ -311,10 +303,6 @@ public class ContextHubEndpointEchoExecutor {
      * endpoint, receives an onSessionOpened callback, and the session can be closed.
      */
     public void testOpenCloseEndpointSession() throws Exception {
-        if (!isTestSupported()) {
-            return;
-        }
-
         List<HubDiscoveryInfo> infoList = getEchoServiceList();
         for (HubDiscoveryInfo info : infoList) {
             HubEndpointInfo targetEndpointInfo = info.getHubEndpointInfo();
@@ -332,18 +320,10 @@ public class ContextHubEndpointEchoExecutor {
     }
 
     public void testEndpointMessaging() throws Exception {
-        if (!isTestSupported()) {
-            return;
-        }
-
         doTestEndpointMessaging(/* executor= */ null);
     }
 
     public void testEndpointThreadedMessaging() throws Exception {
-        if (!isTestSupported()) {
-            return;
-        }
-
         ScheduledThreadPoolExecutor executor =
                 new ScheduledThreadPoolExecutor(/* corePoolSize= */ 1);
         doTestEndpointMessaging(executor);
@@ -399,18 +379,10 @@ public class ContextHubEndpointEchoExecutor {
     }
 
     public void testEndpointDiscovery() throws Exception {
-        if (!isTestSupported()) {
-            return;
-        }
-
         doTestEndpointDiscovery(/* executor= */ null);
     }
 
     public void testThreadedEndpointDiscovery() throws Exception {
-        if (!isTestSupported()) {
-            return;
-        }
-
         ScheduledThreadPoolExecutor executor =
                 new ScheduledThreadPoolExecutor(/* corePoolSize= */ 1);
         doTestEndpointDiscovery(executor);
@@ -445,18 +417,10 @@ public class ContextHubEndpointEchoExecutor {
     }
 
     public void testEndpointIdDiscovery() throws Exception {
-        if (!isTestSupported()) {
-            return;
-        }
-
         doTestEndpointIdDiscovery(/* executor= */ null);
     }
 
     public void testThreadedEndpointIdDiscovery() throws Exception {
-        if (!isTestSupported()) {
-            return;
-        }
-
         ScheduledThreadPoolExecutor executor =
                 new ScheduledThreadPoolExecutor(/* corePoolSize= */ 1);
         doTestEndpointIdDiscovery(executor);
@@ -499,10 +463,6 @@ public class ContextHubEndpointEchoExecutor {
      * the nanoapp once the session is opened.
      */
     public void testApplicationEchoService() throws Exception {
-        if (!isTestSupported()) {
-            return;
-        }
-
         TestLifecycleCallback callback = new TestLifecycleCallback(/* acceptSession= */ true);
         TestEchoMessageCallback messageCallback = new TestEchoMessageCallback();
         mRegisteredEndpoint =
@@ -679,25 +639,6 @@ public class ContextHubEndpointEchoExecutor {
         return serviceList;
     }
 
-    private boolean isTestSupported() throws Exception {
-        if (mEchoNanoappBinary == null) {
-            // Supported on all devices where a nanoapp is not provided.
-            // The API may not be available, but the test will skip at that
-            // point.
-            return true;
-        }
-
-        loadEchoNanoapp();
-        ChreRpcClient rpcClient = getRpcClientForEchoNanoapp();
-        EndpointEchoTest.Status status =
-                ChreApiTestUtil.callUnaryRpcMethodSync(
-                        rpcClient,
-                        "chre.rpc.EndpointEchoTestService.IsTestSupported",
-                        Empty.getDefaultInstance());
-        Assert.assertNotNull(status);
-        return status.getStatus();
-    }
-
     /** Loads the echo service nanoapp if it is not already loaded. */
     private void loadEchoNanoapp() {
         if (!mIsEchoNanoappLoaded && mContextHubInfo != null && mEchoNanoappBinary != null) {
@@ -720,10 +661,6 @@ public class ContextHubEndpointEchoExecutor {
         Service endpointEchoTestRpcService =
                 new Service(
                         "chre.rpc.EndpointEchoTestService",
-                        Service.unaryMethod(
-                                "IsTestSupported",
-                                Empty.parser(),
-                                EndpointEchoTest.Status.parser()),
                         Service.serverStreamingMethod(
                                 "RunNanoappToHostTest",
                                 Empty.parser(),
