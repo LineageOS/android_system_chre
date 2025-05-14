@@ -180,15 +180,6 @@ extern "C" {
 #define CHRE_API_VERSION_1_11 UINT32_C(0x010b0000)
 
 /**
- * Value for version 1.12 of the Context Hub Runtime Environment API interface.
- *
- * This version of the CHRE API is shipped with Android 16.1.
- *
- * @see CHRE_API_VERSION
- */
-#define CHRE_API_VERSION_1_12 UINT32_C(0x010c0000)
-
-/**
  * Major and Minor Version of this Context Hub Runtime Environment API.
  *
  * The major version changes when there is an incompatible API change.
@@ -205,7 +196,7 @@ extern "C" {
  * Note that version numbers can always be numerically compared with
  * expected results, so 1.0.0 < 1.0.4 < 1.1.0 < 2.0.300 < 3.5.0.
  */
-#define CHRE_API_VERSION CHRE_API_VERSION_1_12
+#define CHRE_API_VERSION CHRE_API_VERSION_1_11
 
 /**
  * Utility macro to extract only the API major version of a composite CHRE
