@@ -45,8 +45,8 @@ public class ContextHubBleConcurrencyTestExecutor extends ContextHubBleTestExecu
      * Tests with the host starting scanning first.
      */
     private void testHostScanFirst() throws Exception {
-        startBleScanOnHost();
-        chreBleStartScanSync(getServiceDataScanFilterChre());
+        startBleScanOnHost(getGoogleServiceDataScanFilterHost());
+        chreBleStartScanSync(getGoogleServiceDataScanFilterChre());
         Thread.sleep(1000);
         chreBleStopScanSync();
         stopBleScanOnHost();
@@ -56,8 +56,8 @@ public class ContextHubBleConcurrencyTestExecutor extends ContextHubBleTestExecu
      * Tests with CHRE starting scanning first.
      */
     private void testChreScanFirst() throws Exception {
-        chreBleStartScanSync(getServiceDataScanFilterChre());
-        startBleScanOnHost();
+        chreBleStartScanSync(getGoogleServiceDataScanFilterChre());
+        startBleScanOnHost(getGoogleServiceDataScanFilterHost());
         Thread.sleep(1000);
         stopBleScanOnHost();
         chreBleStopScanSync();

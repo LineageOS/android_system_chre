@@ -82,8 +82,10 @@ bool TinysysChreConnection::init() {
   }
   // launch the tasks
   mMessageListener = std::thread(messageListenerTask, this);
+  mMessageHandler = std::thread(messageHandlerTask, this);
   mMessageSender = std::thread(messageSenderTask, this);
   mStateListener = std::thread(chreStateMonitorTask, this);
+
   mLpmaHandler.init();
   return true;
 }
@@ -107,9 +109,20 @@ bool TinysysChreConnection::init() {
              payloadSize, errno);
         continue;
       }
-      handleMessageFromChre(chreConnection, chreConnection->mPayload.get(),
-                            payloadSize);
+      chreConnection->mReceivingQueue.emplace(chreConnection->mPayload.get(),
+                                              payloadSize);
     }
+  }
+}
+
+void TinysysChreConnection::messageHandlerTask(
+    TinysysChreConnection *chreConnection) {
+  while (true) {
+    chreConnection->mReceivingQueue.waitForMessage();
+    MessageFromChre &message = chreConnection->mReceivingQueue.front();
+    chreConnection->mCallback->handleMessageFromChre(message.buffer.get(),
+                                                     message.size);
+    chreConnection->mReceivingQueue.pop();
   }
 }
 
@@ -138,7 +151,7 @@ bool TinysysChreConnection::init() {
           /* timeoutMs= */ std::chrono::milliseconds(10000));
       LOGW("SCP restarted! CHRE recover time: %" PRIu64 "ms.",
            ::android::elapsedRealtime() - startTime);
-      chreConnection->getCallback()->onChreRestarted();
+      chreConnection->mCallback->onChreRestarted();
     }
     chreCurrentState = chreNextState;
   }
@@ -149,14 +162,14 @@ bool TinysysChreConnection::init() {
   LOGI("Message sender task is launched.");
   int chreFd = chreConnection->getChreFileDescriptor();
   while (true) {
-    chreConnection->mQueue.waitForMessage();
-    ChreConnectionMessage &message = chreConnection->mQueue.front();
+    chreConnection->mSendingQueue.waitForMessage();
+    MessageToChre &message = chreConnection->mSendingQueue.front();
     auto size =
         TEMP_FAILURE_RETRY(write(chreFd, &message, message.getMessageSize()));
     if (size < 0) {
       LOGE("Failed to write to chre file descriptor. errno=%d\n", errno);
     }
-    chreConnection->mQueue.pop();
+    chreConnection->mSendingQueue.pop();
   }
 }
 
@@ -165,7 +178,7 @@ bool TinysysChreConnection::sendMessage(void *data, size_t length) {
     LOGE("length %zu is not within the accepted range.", length);
     return false;
   }
-  return mQueue.emplace(data, length);
+  return mSendingQueue.emplace(data, length);
 }
 
 void TinysysChreConnection::handleMessageFromChre(
@@ -185,18 +198,18 @@ void TinysysChreConnection::handleMessageFromChre(
   if (!HostProtocolHost::extractHostClientIdAndType(
           messageBuffer, messageLen, &hostClientId, &messageType)) {
     LOGW("Failed to extract host client ID from message - sending broadcast");
-    hostClientId = ::chre::kHostClientIdUnspecified;
+    hostClientId = chre::kHostClientIdUnspecified;
   }
   LOGV("Received a message (type: %hhu, len: %zu) from CHRE for client %d",
        messageType, messageLen, hostClientId);
 
   switch (messageType) {
     case fbs::ChreMessage::LowPowerMicAccessRequest: {
-      chreConnection->getLpmaHandler()->enable(/* enabled= */ true);
+      chreConnection->mLpmaHandler.enable(/* enabled= */ true);
       break;
     }
     case fbs::ChreMessage::LowPowerMicAccessRelease: {
-      chreConnection->getLpmaHandler()->enable(/* enabled= */ false);
+      chreConnection->mLpmaHandler.enable(/* enabled= */ false);
       break;
     }
     case fbs::ChreMessage::PulseResponse: {
@@ -211,8 +224,8 @@ void TinysysChreConnection::handleMessageFromChre(
       break;
     }
     default: {
-      chreConnection->getCallback()->handleMessageFromChre(messageBuffer,
-                                                           messageLen);
+      chreConnection->mCallback->handleMessageFromChre(messageBuffer,
+                                                       messageLen);
       break;
     }
   }

@@ -182,7 +182,8 @@ extern "C" {
 /**
  * Value for version 1.12 of the Context Hub Runtime Environment API interface.
  *
- * This version of the CHRE API is shipped with Android 16.1.
+ * @note This version of the CHRE API has not been finalized yet, and is
+ * currently considered a preview that is subject to change.
  *
  * @see CHRE_API_VERSION
  */

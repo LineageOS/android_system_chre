@@ -19,7 +19,6 @@
 
 #include "chre_connection.h"
 #include "chre_connection_callback.h"
-#include "chre_host/fragmented_load_transaction.h"
 #include "chre_host/host_protocol_host.h"
 #include "chre_host/log.h"
 #include "chre_host/log_message_parser.h"
@@ -31,7 +30,7 @@
 #include <queue>
 #include <thread>
 
-using ::android::chre::StHalLpmaHandler;
+using android::chre::StHalLpmaHandler;
 
 namespace aidl::android::hardware::contexthub {
 
@@ -42,16 +41,19 @@ using ::android::chre::HostProtocolHost;
 // TODO(b/267188769): We should add comments explaining how IPI works.
 class TinysysChreConnection : public ChreConnection {
  public:
-  TinysysChreConnection(ChreConnectionCallback *callback)
+  explicit TinysysChreConnection(ChreConnectionCallback *callback)
       : mCallback(callback), mLpmaHandler(/* allowed= */ true) {
     mPayload = std::make_unique<uint8_t[]>(kMaxReceivingPayloadBytes);
-  };
+  }
 
   ~TinysysChreConnection() override {
     // TODO(b/264308286): Need a decent way to terminate the listener thread.
     close(mChreFileDescriptor);
     if (mMessageListener.joinable()) {
       mMessageListener.join();
+    }
+    if (mMessageHandler.joinable()) {
+      mMessageHandler.join();
     }
     if (mMessageSender.joinable()) {
       mMessageSender.join();
@@ -73,7 +75,7 @@ class TinysysChreConnection : public ChreConnection {
     flatbuffers::FlatBufferBuilder builder(48);
     HostProtocolHost::encodePulseRequest(builder);
 
-    std::unique_lock<std::mutex> lock(mChrePulseMutex);
+    std::unique_lock lock(mChrePulseMutex);
     // reset mIsChreRecovered before sending a PulseRequest message
     mIsChreBackOnline = false;
     sendMessage(builder.GetBufferPointer(), builder.GetSize());
@@ -84,18 +86,10 @@ class TinysysChreConnection : public ChreConnection {
 
   void notifyChreBackOnline() {
     {
-      std::unique_lock<std::mutex> lock(mChrePulseMutex);
+      std::unique_lock lock(mChrePulseMutex);
       mIsChreBackOnline = true;
     }
     mChrePulseCondition.notify_all();
-  }
-
-  inline ChreConnectionCallback *getCallback() {
-    return mCallback;
-  }
-
-  inline StHalLpmaHandler *getLpmaHandler() {
-    return &mLpmaHandler;
   }
 
  private:
@@ -115,36 +109,48 @@ class TinysysChreConnection : public ChreConnection {
   // The path to CHRE file descriptor
   static constexpr char kChreFileDescriptorPath[] = "/dev/scp_chre_manager";
 
-  // Max queue size for sending messages to CHRE
-  static constexpr size_t kMaxSynchronousMessageQueueSize = 64;
-
   // Wrapper for a message sent to CHRE
-  struct ChreConnectionMessage {
+  struct MessageToChre {
     // This magic number is the SCP_CHRE_MAGIC constant defined by kernel
     // scp_chre_manager service. The value is embedded in the payload as a
     // security check for proper use of the device node.
     uint32_t magic = 0x67728269;
     uint32_t payloadSize = 0;
-    uint8_t payload[kMaxSendingPayloadBytes];
+    uint8_t payload[kMaxSendingPayloadBytes]{};
 
-    ChreConnectionMessage(void *data, size_t length) {
+    MessageToChre(void *data, size_t length) {
       assert(length <= kMaxSendingPayloadBytes);
       memcpy(payload, data, length);
       payloadSize = static_cast<uint32_t>(length);
     }
 
-    uint32_t getMessageSize() {
+    [[nodiscard]] uint32_t getMessageSize() const {
       return sizeof(magic) + sizeof(payloadSize) + payloadSize;
     }
   };
 
+  // Wrapper for a message from CHRE
+  struct MessageFromChre {
+    std::unique_ptr<uint8_t[]> buffer;
+    size_t size;
+
+    MessageFromChre(void *data, ssize_t length) {
+      buffer = std::make_unique<uint8_t[]>(length);
+      memcpy(buffer.get(), data, length);
+      size = length;
+    }
+  };
+
   // A queue suitable for multiple producers and a single consumer.
+  template <typename ElementType>
   class SynchronousMessageQueue {
    public:
+    explicit SynchronousMessageQueue(size_t capacity) : mCapacity(capacity) {}
+
     bool emplace(void *data, size_t length) {
-      std::unique_lock<std::mutex> lock(mMutex);
-      if (mQueue.size() >= kMaxSynchronousMessageQueueSize) {
-        LOGE("Message queue from HAL to CHRE is full!");
+      std::unique_lock lock(mMutex);
+      if (mQueue.size() >= mCapacity) {
+        LOGE("Message queue is full!");
         return false;
       }
       mQueue.emplace(data, length);
@@ -153,28 +159,37 @@ class TinysysChreConnection : public ChreConnection {
     }
 
     void pop() {
-      std::unique_lock<std::mutex> lock(mMutex);
+      std::unique_lock lock(mMutex);
       mQueue.pop();
     }
 
-    ChreConnectionMessage &front() {
-      std::unique_lock<std::mutex> lock(mMutex);
+    ElementType &front() {
+      std::unique_lock lock(mMutex);
       return mQueue.front();
     }
 
     void waitForMessage() {
-      std::unique_lock<std::mutex> lock(mMutex);
-      mCv.wait(lock, [&]() { return !mQueue.empty(); });
+      std::unique_lock lock(mMutex);
+      mCv.wait(lock, [&] { return !mQueue.empty(); });
+    }
+
+    size_t size() {
+      return mQueue.size();
     }
 
    private:
+    const size_t mCapacity;
     std::mutex mMutex;
     std::condition_variable mCv;
-    std::queue<ChreConnectionMessage> mQueue;
+    std::queue<ElementType> mQueue;
   };
 
   // The task receiving message from CHRE
   [[noreturn]] static void messageListenerTask(
+      TinysysChreConnection *chreConnection);
+
+  // The task handling message from CHRE
+  [[noreturn]] static void messageHandlerTask(
       TinysysChreConnection *chreConnection);
 
   // The task sending message to CHRE
@@ -185,18 +200,20 @@ class TinysysChreConnection : public ChreConnection {
   [[noreturn]] static void chreStateMonitorTask(
       TinysysChreConnection *chreConnection);
 
-  [[nodiscard]] inline int getChreFileDescriptor() const {
+  [[nodiscard]] int getChreFileDescriptor() const {
     return mChreFileDescriptor;
   }
 
   // The file descriptor for communication with CHRE
-  int mChreFileDescriptor;
+  int mChreFileDescriptor = 0;
 
   // The calback function that should be implemented by HAL
   ChreConnectionCallback *mCallback;
 
   // the message listener thread that receives messages from CHRE
   std::thread mMessageListener;
+  // the message handling thread that handles messages from CHRE
+  std::thread mMessageHandler;
   // the message sender thread that sends messages to CHRE
   std::thread mMessageSender;
   // the status listener thread that hosts chreStateMonitorTask
@@ -208,8 +225,10 @@ class TinysysChreConnection : public ChreConnection {
   // The LPMA handler to talk to the ST HAL
   StHalLpmaHandler mLpmaHandler;
 
-  // For messages sent to CHRE
-  SynchronousMessageQueue mQueue;
+  // Queues for sending to and receiving messages from CHRE, with heuristic
+  // capacity size.
+  SynchronousMessageQueue<MessageToChre> mSendingQueue{/* capacity= */ 64};
+  SynchronousMessageQueue<MessageFromChre> mReceivingQueue{/* capacity= */ 256};
 
   // Mutex and CV are used to get PulseResponse from CHRE synchronously.
   std::mutex mChrePulseMutex;
