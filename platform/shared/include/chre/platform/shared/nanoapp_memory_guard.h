@@ -42,6 +42,7 @@
 #define CHRE_PLATFORM_NANOAPP_MEMORY_GUARD_H_
 
 #include "chre/platform/platform_nanoapp.h"
+#include "chre/platform/shared/nanoapp_loader.h"
 #include "chre/target_platform/nanoapp_memory_guard_base.h"
 
 namespace chre {
@@ -65,9 +66,15 @@ class NanoappMemoryGuard : public NanoappMemoryGuardBase {
       : NanoappMemoryGuardBase(nanoapp) {}
 
   /**
-   * Destructs the guard and revokes memory permissions for the nanoapp.
+   * Constructs the guard and grants memory permissions based on the permission
+   * settings in the loadable segments.
+   *
+   * @param loadableSegments The loadable segments of the nanoapp binary
+   * @param numSegments The number of loadable segments
    */
-  ~NanoappMemoryGuard() = default;
+  NanoappMemoryGuard(const NanoappLoader::LoadableSegment *loadableSegments,
+                     size_t numSegments)
+      : NanoappMemoryGuardBase(loadableSegments, numSegments) {}
 };
 }  // namespace chre
 

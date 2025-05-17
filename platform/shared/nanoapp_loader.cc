@@ -27,6 +27,7 @@
 #include "chre/platform/shared/debug_dump.h"
 #include "chre/platform/shared/memory.h"
 #include "chre/platform/shared/nanoapp/tokenized_log.h"
+#include "chre/platform/shared/nanoapp_memory_guard.h"
 #include "chre/platform/shared/platform_cache_management.h"
 #include "chre/util/dynamic_vector.h"
 #include "chre/util/macros.h"
@@ -436,8 +437,12 @@ bool NanoappLoader::open() {
 }
 
 void NanoappLoader::close() {
-  callAtexitFunctions();
-  callTerminatorArray();
+  {
+    NanoappMemoryGuard guard(mMapping.getLoadableSegments().data(),
+                             mMapping.getLoadableSegments().size());
+    callAtexitFunctions();
+    callTerminatorArray();
+  }
   freeAllocatedData();
 }
 
@@ -471,6 +476,8 @@ bool NanoappLoader::callInitArray() {
   // TODO(b/151847750): ELF can have other sections like .init, .preinit, .fini
   // etc. Be sure to look for those if they end up being something that should
   // be supported for nanoapps.
+  NanoappMemoryGuard guard(mMapping.getLoadableSegments().data(),
+                           mMapping.getLoadableSegments().size());
   for (size_t i = 0; i < mNumSectionHeaders; ++i) {
     const char *name = getSectionHeaderName(mSectionHeadersPtr[i].sh_name);
     if (strncmp(name, kInitArrayName, strlen(kInitArrayName)) == 0) {

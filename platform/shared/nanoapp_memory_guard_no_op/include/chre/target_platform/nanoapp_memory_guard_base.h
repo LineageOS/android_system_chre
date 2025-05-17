@@ -18,6 +18,7 @@
 #define CHRE_PLATFORM_NANOAPP_MEMORY_GUARD_BASE_H_
 
 #include "chre/platform/platform_nanoapp.h"
+#include "chre/platform/shared/nanoapp_loader.h"
 #include "chre/util/non_copyable.h"
 
 namespace chre {
@@ -25,6 +26,9 @@ namespace chre {
 class NanoappMemoryGuardBase : public NonCopyable {
  public:
   explicit NanoappMemoryGuardBase(const PlatformNanoapp & /*nanoapp*/) {}
+  NanoappMemoryGuardBase(
+      const NanoappLoader::LoadableSegment * /*loadable_segment*/,
+      size_t /*size*/) {}
   ~NanoappMemoryGuardBase() = default;
 };
 }  // namespace chre
