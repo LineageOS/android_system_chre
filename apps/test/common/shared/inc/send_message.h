@@ -35,7 +35,7 @@ chre_test_common_TestResult makeTestResultProtoMessage(
  * uses the free callback specified in chre/util/nanoapp/callbacks.h
  */
 void sendTestResultToHost(uint16_t hostEndpointId, uint32_t messageType,
-                          bool success, bool abortOnFailure = true);
+                          bool success, bool abortOnFailure = false);
 
 /**
  * Sends a test result to the host using the chre_test_common.TestResult
@@ -52,7 +52,7 @@ void sendTestResultToHost(uint16_t hostEndpointId, uint32_t messageType,
  */
 void sendTestResultWithMsgToHost(uint16_t hostEndpointId, uint32_t messageType,
                                  bool success, const char *errMessage,
-                                 bool abortOnFailure = true);
+                                 bool abortOnFailure = false);
 
 /**
  * Sends a message to the host with an empty payload.
