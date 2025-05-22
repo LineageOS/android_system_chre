@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "chre_api/chre.h"
+#include "location/lbs/contexthub/nanoapps/nearby/hw_filter.h"
 #include "third_party/contexthub/chre/util/include/chre/util/nanoapp/log.h"
 #include "third_party/contexthub/chre/util/include/chre/util/time.h"
 #include "third_party/contexthub/chre/util/include/chre/util/unique_ptr.h"
@@ -14,6 +15,24 @@
 #define LOG_TAG "[NEARBY][TRACKER_STORAGE]"
 
 namespace nearby {
+namespace {
+constexpr chreBleGenericFilter kDultTagGenericFilter = {
+    .type = CHRE_BLE_AD_TYPE_SERVICE_DATA_WITH_UUID_16_LE,
+    .len = 2,
+    .data = {0xb2, 0xfc},
+    .dataMask = {0xff, 0xff},
+};
+
+inline bool IsDultTagAdvertisingData(const uint8_t *data, uint16_t length) {
+  if (data == nullptr) {
+    return false;
+  }
+  chreBleAdvertisingReport report = {};
+  report.dataLength = length;
+  report.data = data;
+  return HwFilter::Match(kDultTagGenericFilter, report);
+}
+}  // namespace
 
 void TrackerStorage::Push(const chreBleAdvertisingReport &report,
                           const TrackerBatchConfig &config) {
@@ -126,9 +145,17 @@ void TrackerStorage::AddOrUpdateAdvertisingData(
     LOGW("Empty advertising data found in advertising report");
     return;
   }
+  // If the advertising data is the same as the previous one or exempt from
+  // updating advertising data, it will not do anything.
+  if (tracker_report.data != nullptr &&
+      ((tracker_report.header.dataLength == dataLength &&
+        memcmp(tracker_report.data.get(), report.data,
+               tracker_report.header.dataLength) == 0) ||
+       IsExemptFromUpdateAdvertisingData(tracker_report, report))) {
+    return;
+  }
   if (tracker_report.data == nullptr ||
       tracker_report.header.dataLength != dataLength) {
-    tracker_report.header = report;
     // Allocates advertise data and copy it as well.
     chre::UniquePtr<uint8_t[]> data =
         chre::MakeUniqueArray<uint8_t[]>(dataLength);
@@ -136,17 +163,26 @@ void TrackerStorage::AddOrUpdateAdvertisingData(
       LOGE("Memory allocation failed!");
       return;
     }
-    memcpy(data.get(), report.data, dataLength);
     tracker_report.data = std::move(data);
-    tracker_report.header.data = tracker_report.data.get();
-  } else if (tracker_report.header.dataLength == dataLength &&
-             memcmp(tracker_report.data.get(), report.data,
-                    tracker_report.header.dataLength) != 0) {
-    tracker_report.header = report;
-    memcpy(tracker_report.data.get(), report.data,
-           tracker_report.header.dataLength);
-    tracker_report.header.data = tracker_report.data.get();
   }
+  tracker_report.header = report;
+  memcpy(tracker_report.data.get(), report.data,
+         tracker_report.header.dataLength);
+  tracker_report.header.data = tracker_report.data.get();
+}
+
+bool TrackerStorage::IsExemptFromUpdateAdvertisingData(
+    const TrackerReport &tracker_report,
+    const chreBleAdvertisingReport &report) {
+  // For some tag devices, which alternate between legacy and DULT advertising
+  // formats using the same mac address, we want to prioritize and retain the
+  // DULT advertising data. If the existing tracker report contains DULT
+  // advertising data and the new report doesn't, we keep the existing DULT
+  // advertising data and ignore the new report by returning true so that
+  // exempting from updating advertising data.
+  return IsDultTagAdvertisingData(tracker_report.data.get(),
+                                  tracker_report.header.dataLength) &&
+         !IsDultTagAdvertisingData(report.data, report.dataLength);
 }
 
 bool TrackerStorage::IsEqualAddress(

@@ -29,7 +29,7 @@
 #include "chre/util/macros.h"
 #include "chre/util/system/napp_header_utils.h"
 #include "chre/util/system/napp_permissions.h"
-#include "chre/util/system/string_util.h"
+#include "chre_api/chre/version.h"
 
 namespace chre {
 namespace {
@@ -41,103 +41,6 @@ namespace {
 const char kDefaultAppVersionString[] = "<undefined>";
 size_t kDefaultAppVersionStringSize = ARRAY_SIZE(kDefaultAppVersionString);
 
-template <typename ObjectType>
-class DramAllocator {
- public:
-  void *allocate(size_t n) {
-    return memoryAllocDram(sizeof(ObjectType) * n);
-  }
-  void deallocate(ObjectType *p, size_t /*n*/) {
-    deallocate(p);
-  }
-  void deallocate(ObjectType *p) {
-    memoryFreeDram(p);
-  }
-};
-
-const char *strdupDram(const char *source) {
-  static DramAllocator<char> dramAllocator;
-  return strdup(source, dramAllocator);
-}
-
-// TODO(b/417791623) - This is a temperory solution and should be updated once
-//  we have memoryAlignedAlloc ready for use.
-template <typename T>
-T roundUpToNanoappLoadAlignment(T size) {
-  if (CHRE_NANOAPP_LOAD_ALIGNMENT == 0 || CHRE_NANOAPP_LOAD_ALIGNMENT == 1) {
-    return size;
-  }
-
-  static_assert(
-      (CHRE_NANOAPP_LOAD_ALIGNMENT & (CHRE_NANOAPP_LOAD_ALIGNMENT - 1)) == 0,
-      "CHRE_NANOAPP_LOAD_ALIGNMENT must be a power of 2");
-
-  return (size + CHRE_NANOAPP_LOAD_ALIGNMENT - 1) &
-         ~(CHRE_NANOAPP_LOAD_ALIGNMENT - 1);
-}
-
-void cleanUpAppInfo(const chreNslNanoappInfo *appInfo) {
-  if (appInfo == nullptr) {
-    return;
-  }
-
-  // Cast out the const here should be safe given these memories are all
-  // dynamically allocated via memoryAllocDram().
-  if (appInfo->vendor != nullptr) {
-    memoryFreeDram(const_cast<char *>(appInfo->vendor));
-  }
-  if (appInfo->name != nullptr) {
-    memoryFreeDram(const_cast<char *>(appInfo->name));
-  }
-  if (appInfo->appVersionString != nullptr) {
-    memoryFreeDram(const_cast<char *>(appInfo->appVersionString));
-  }
-  memoryFreeDram(const_cast<chreNslNanoappInfo *>(appInfo));
-}
-
-/**
- * Allocates memory in DRAM for a copy of the nanoapp's info structure and
- * duplicates key string fields.
- *
- * @param dsoHandle Handle to the loaded nanoapp dynamic shared object (DSO).
- * @return A pointer to the newly allocated chreNslNanoappInfo struct in DRAM
- *         on success. The caller is responsible for freeing this struct and its
- *         associated strings (e.g., using cleanUpAppInfo) when no longer
- *         needed. Returns nullptr if the symbol cannot be found, memory
- *         allocation fails, or string duplication fails.
- */
-chreNslNanoappInfo *allocateAndCopyAppInfo(void *dsoHandle) {
-  auto *appInfoAddr = static_cast<const chreNslNanoappInfo *>(
-      dlsym(dsoHandle, CHRE_NSL_DSO_NANOAPP_INFO_SYMBOL_NAME));
-  if (appInfoAddr == nullptr) {
-    LOGE("Failed to find app info symbol '%s'",
-         CHRE_NSL_DSO_NANOAPP_INFO_SYMBOL_NAME);
-    return nullptr;
-  }
-
-  // Allocate memory in DRAM for our copy of the app info struct.
-  auto *newAppInfo = static_cast<chreNslNanoappInfo *>(
-      memoryAllocDram(sizeof(chreNslNanoappInfo)));
-  if (newAppInfo == nullptr) {
-    LOG_OOM();
-    return nullptr;
-  }
-
-  // Copy the content from the DSO's const location to our allocated buffer.
-  memcpy(newAppInfo, appInfoAddr, sizeof(chreNslNanoappInfo));
-  newAppInfo->vendor = strdupDram(appInfoAddr->vendor);
-  newAppInfo->name = strdupDram(appInfoAddr->name);
-  newAppInfo->appVersionString = strdupDram(appInfoAddr->appVersionString);
-
-  if (newAppInfo->vendor == nullptr || newAppInfo->name == nullptr ||
-      newAppInfo->appVersionString == nullptr) {
-    LOGE("Failed to copy app info strings");
-    cleanUpAppInfo(newAppInfo);
-    return nullptr;
-  }
-  return newAppInfo;
-}
-
 }  // namespace
 
 PlatformNanoapp::~PlatformNanoapp() {
@@ -145,7 +48,7 @@ PlatformNanoapp::~PlatformNanoapp() {
 
   if (mAppBinary != nullptr) {
     forceDramAccess();
-    memoryFreeDram(mAppBinaryAllocatedMemory);
+    nanoappBinaryDramFree(mAppBinary);
   }
 }
 
@@ -253,8 +156,8 @@ const char *PlatformNanoappBase::getAppVersionString(size_t *length) const {
   *length = kDefaultAppVersionStringSize;
   enableDramAccessIfRequired();
 
-  if (mAppVersionString != nullptr) {
-    size_t appVersionStringLength = strlen(mAppVersionString);
+  if (mAppUnstableId != nullptr) {
+    size_t appVersionStringLength = strlen(mAppUnstableId);
 
     //! The unstable ID is expected to be in the format of
     //! <descriptor>=<nanoapp_name>@<build_id>. Use this expected layout
@@ -263,14 +166,13 @@ const char *PlatformNanoappBase::getAppVersionString(size_t *length) const {
     size_t startOffset = appVersionStringLength;
     for (size_t i = 0; i < appVersionStringLength; i++) {
       size_t offset = i + 1;
-      if (startOffset == appVersionStringLength &&
-          mAppVersionString[i] == '@') {
+      if (startOffset == appVersionStringLength && mAppUnstableId[i] == '@') {
         startOffset = offset;
       }
     }
 
     if (startOffset < appVersionStringLength) {
-      versionString = &mAppVersionString[startOffset];
+      versionString = &mAppUnstableId[startOffset];
       *length = appVersionStringLength - startOffset;
     }
   }
@@ -302,10 +204,8 @@ bool PlatformNanoappBase::reserveBuffer(uint64_t appId, uint32_t appVersion,
   forceDramAccess();
 
   bool success = false;
-  mAppBinaryAllocatedMemory = memoryAllocDram(roundUpToNanoappLoadAlignment(
-      CHRE_NANOAPP_LOAD_ALIGNMENT - 1 + appBinaryLen));
-  mAppBinary = reinterpret_cast<void *>(roundUpToNanoappLoadAlignment(
-      reinterpret_cast<uintptr_t>(mAppBinaryAllocatedMemory)));
+  mAppBinary =
+      nanoappBinaryDramAlloc(appBinaryLen, CHRE_NANOAPP_LOAD_ALIGNMENT);
 
   bool isSigned = IS_BIT_SET(appFlags, CHRE_NAPP_HEADER_SIGNED);
   if (!isSigned) {
@@ -347,37 +247,42 @@ bool PlatformNanoappBase::copyNanoappFragment(const void *buffer,
 }
 
 bool PlatformNanoappBase::verifyNanoappInfo() {
+  bool success = false;
+
   if (mDsoHandle == nullptr) {
     LOGE("No nanoapp info to verify");
-    return false;
-  }
-
-  mAppInfo = allocateAndCopyAppInfo(mDsoHandle);
-  if (mAppInfo == nullptr) {
-    LOGE("Failed to find app info symbol");
-    return false;
-  }
-
-  bool success = validateAppInfo(mExpectedAppId, mExpectedAppVersion,
-                                 mExpectedTargetApiVersion, mAppInfo);
-  if (success && mAppInfo->isTcmNanoapp != mExpectedTcmCapable) {
-    success = false;
-    LOGE("Expected TCM nanoapp %d found %d", mExpectedTcmCapable,
-         mAppInfo->isTcmNanoapp);
-  }
-
-  if (!success) {
-    cleanUpAppInfo(mAppInfo);
-    mAppInfo = nullptr;
   } else {
-    LOGI("Nanoapp loaded: %s (0x%016" PRIx64 ") version 0x%" PRIx32
-         " (%s) uimg %d system %d",
-         mAppInfo->name, mAppInfo->appId, mAppInfo->appVersion,
-         mAppInfo->appVersionString, mAppInfo->isTcmNanoapp,
-         mAppInfo->isSystemNanoapp);
-    if (mAppInfo->structMinorVersion >=
-        CHRE_NSL_NANOAPP_INFO_STRUCT_MINOR_VERSION_3) {
-      LOGI("Nanoapp permissions: 0x%" PRIx32, mAppInfo->appPermissions);
+    mAppInfo = static_cast<const struct chreNslNanoappInfo *>(
+        dlsym(mDsoHandle, CHRE_NSL_DSO_NANOAPP_INFO_SYMBOL_NAME));
+    if (mAppInfo == nullptr) {
+      LOGE("Failed to find app info symbol");
+    } else {
+      mAppUnstableId = mAppInfo->appVersionString;
+      if (mAppUnstableId == nullptr) {
+        LOGE("Failed to find unstable ID symbol");
+      } else {
+        success = validateAppInfo(mExpectedAppId, mExpectedAppVersion,
+                                  mExpectedTargetApiVersion, mAppInfo);
+        if (success && mAppInfo->isTcmNanoapp != mExpectedTcmCapable) {
+          success = false;
+          LOGE("Expected TCM nanoapp %d found %d", mExpectedTcmCapable,
+               mAppInfo->isTcmNanoapp);
+        }
+
+        if (!success) {
+          mAppInfo = nullptr;
+        } else {
+          LOGI("Nanoapp loaded: %s (0x%016" PRIx64 ") version 0x%" PRIx32
+               " (%s) uimg %d system %d",
+               mAppInfo->name, mAppInfo->appId, mAppInfo->appVersion,
+               mAppInfo->appVersionString, mAppInfo->isTcmNanoapp,
+               mAppInfo->isSystemNanoapp);
+          if (mAppInfo->structMinorVersion >=
+              CHRE_NSL_NANOAPP_INFO_STRUCT_MINOR_VERSION_3) {
+            LOGI("Nanoapp permissions: 0x%" PRIx32, mAppInfo->appPermissions);
+          }
+        }
+      }
     }
   }
   return success;
@@ -420,9 +325,8 @@ bool PlatformNanoappBase::openNanoapp() {
   }
 
   if (mAppBinary != nullptr) {
-    memoryFreeDram(mAppBinaryAllocatedMemory);
+    nanoappBinaryDramFree(mAppBinary);
     mAppBinary = nullptr;
-    mAppBinaryAllocatedMemory = nullptr;
   }
 
   // Save this flag locally since it may be referenced while the system is in
@@ -439,7 +343,6 @@ void PlatformNanoappBase::closeNanoapp() {
     // Force DRAM access since dl* functions are only safe to call with DRAM
     // available.
     forceDramAccess();
-    cleanUpAppInfo(mAppInfo);
     mAppInfo = nullptr;
     if (dlclose(mDsoHandle) != 0) {
       LOGE("dlclose failed");

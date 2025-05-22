@@ -251,7 +251,7 @@ void aesEncr(struct AesContext *ctx, const uint32_t *src, uint32_t *dst) {
 int aesCtrInit(struct AesCtrContext *ctx, const void *k, const void *iv,
                enum AesKeyType key_type) {
   const uint32_t *p_k;
-  uint32_t aligned_k[AES_BLOCK_WORDS];
+  uint32_t aligned_k[AES_KEY_MAX_WORDS];
 
   if (AES_128_KEY_TYPE == key_type) {
     ctx->aes.aes_key_words = AES_128_KEY_WORDS;

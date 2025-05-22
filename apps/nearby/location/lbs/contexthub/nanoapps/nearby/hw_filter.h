@@ -9,7 +9,13 @@ namespace nearby {
 
 class HwFilter {
  public:
-  // Matches BLE advertisement with hardware filter and returns the result.
+  // Matches BLE advertisement with a single hardware filter and returns the
+  // result.
+  static bool Match(const chreBleGenericFilter &hardware_filter,
+                    const chreBleAdvertisingReport &report);
+
+  // Matches BLE advertisement with multiple hardware filters and returns the
+  // result.
   static bool Match(
       const chre::DynamicVector<chreBleGenericFilter> &hardware_filters,
       const chreBleAdvertisingReport &report);

@@ -9,42 +9,50 @@
 
 namespace nearby {
 
+bool HwFilter::Match(const chreBleGenericFilter &hardware_filter,
+                     const chreBleAdvertisingReport &report) {
+  // Scans through data and parses each advertisement structure.
+  for (int i = 0; i < report.dataLength;) {
+    // First byte has the advertisement data length including type and data.
+    uint8_t ad_type_data_length = report.data[i];
+    // Early termination with zero length advertisement.
+    if (ad_type_data_length == 0) break;
+    // Terminates when advertisement length passes over the end of data
+    // buffer.
+    if (ad_type_data_length >= report.dataLength - i) break;
+    // Second byte has advertisement data type.
+    ++i;
+    // Moves to the next data structure if advertisement data length is less
+    // than filter length regardless of data mask or advertisement data
+    // type is different from filter type.
+    if (ad_type_data_length - 1 >= hardware_filter.len &&
+        report.data[i] == hardware_filter.type) {
+      // Assumes advertisement data structure is matched.
+      bool matched = true;
+      // Data should match through data filter mask within filter length.
+      for (int j = 0; j < hardware_filter.len; ++j) {
+        if ((report.data[i + 1 + j] & hardware_filter.dataMask[j]) !=
+            (hardware_filter.data[j] & hardware_filter.dataMask[j])) {
+          matched = false;
+          break;
+        }
+      }
+      if (matched) {
+        return true;
+      }
+    }
+    // Moves to next advertisement structure.
+    i += ad_type_data_length;
+  }
+  return false;
+}
+
 bool HwFilter::Match(
     const chre::DynamicVector<chreBleGenericFilter> &hardware_filters,
     const chreBleAdvertisingReport &report) {
-  for (const auto filter : hardware_filters) {
-    // Scans through data and parses each advertisement structure.
-    for (int i = 0; i < report.dataLength;) {
-      // First byte has the advertisement data length including type and data.
-      uint8_t ad_type_data_length = report.data[i];
-      // Early termination with zero length advertisement.
-      if (ad_type_data_length == 0) break;
-      // Terminates when advertisement length passes over the end of data
-      // buffer.
-      if (ad_type_data_length >= report.dataLength - i) break;
-      // Second byte has advertisement data type.
-      ++i;
-      // Moves to the next data structure if advertisement data length is less
-      // than filter length regardless of data mask or advertisement data
-      // type is different from filter type.
-      if (ad_type_data_length - 1 >= filter.len &&
-          report.data[i] == filter.type) {
-        // Assumes advertisement data structure is matched.
-        bool matched = true;
-        // Data should match through data filter mask within filter length.
-        for (int j = 0; j < filter.len; ++j) {
-          if ((report.data[i + 1 + j] & filter.dataMask[j]) !=
-              (filter.data[j] & filter.dataMask[j])) {
-            matched = false;
-            break;
-          }
-        }
-        if (matched) {
-          return true;
-        }
-      }
-      // Moves to next advertisement structure.
-      i += ad_type_data_length;
+  for (const auto hardware_filter : hardware_filters) {
+    if (Match(hardware_filter, report)) {
+      return true;
     }
   }
   return false;

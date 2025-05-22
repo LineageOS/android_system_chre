@@ -117,8 +117,6 @@ class PlatformNanoappBase {
   //! Buffer containing the complete DSO binary - only populated if
   //! copyNanoappFragment() was used to load this nanoapp
   void *mAppBinary = nullptr;
-  //! The raw buffer allocated, used to guarantee the alignment requirements
-  void *mAppBinaryAllocatedMemory = nullptr;
   size_t mAppBinaryLen = 0;
 
   //! Null-terminated ASCII string containing the file name that contains the
@@ -132,8 +130,8 @@ class PlatformNanoappBase {
   //! Pointer to the app info structure within this nanoapp
   const struct chreNslNanoappInfo *mAppInfo = nullptr;
 
-  //! Pointer containing the app version string for this nanoapp
-  const char *mAppVersionString = nullptr;
+  //! Pointer containing the unstable ID section for this nanoapp
+  const char *mAppUnstableId = nullptr;
 
   //! Set to true if this app is built into the CHRE binary, and was loaded via
   //! loadStatic(). In this case, the member variables above are not valid or
