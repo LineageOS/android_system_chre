@@ -18,7 +18,12 @@
 
 #ifdef CHRE_ENABLE_CHPP
 #include "chpp/platform/chpp_init.h"
-#endif
+#endif  // CHRE_ENABLE_CHPP
+
+#ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
+#include "chre/core/ble_socket_manager.h"
+#endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
+
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/static_nanoapps.h"
 #include "chre/platform/shared/dram_vote_client.h"
@@ -27,7 +32,7 @@
 #ifdef CHRE_USE_BUFFERED_LOGGING
 #include "chre/platform/shared/log_buffer_manager.h"
 #include "chre/target_platform/macros.h"
-#endif
+#endif  // CHRE_USE_BUFFERED_LOGGING
 
 #include "task.h"
 
@@ -40,29 +45,34 @@ constexpr UBaseType_t kChreTaskPriority =
     tskIDLE_PRIORITY + CHRE_FREERTOS_TASK_PRIORITY;
 #else
 constexpr UBaseType_t kChreTaskPriority = tskIDLE_PRIORITY + 1;
-#endif
+#endif  // CHRE_FREERTOS_TASK_PRIORITY
 
 #ifdef CHRE_FREERTOS_STACK_DEPTH_IN_WORDS
 constexpr configSTACK_DEPTH_TYPE kChreTaskStackDepthWords =
     CHRE_FREERTOS_STACK_DEPTH_IN_WORDS;
 #else
 constexpr configSTACK_DEPTH_TYPE kChreTaskStackDepthWords = 0x800;
-#endif
+#endif  // CHRE_FREERTOS_STACK_DEPTH_IN_WORDS
 
 TaskHandle_t gChreTaskHandle;
 
-#ifdef CHRE_USE_BUFFERED_LOGGING
+#ifndef CHRE_HIGH_POWER_BSS_ATTRIBUTE
+#define CHRE_HIGH_POWER_BSS_ATTRIBUTE
+#endif  // CHRE_HIGH_POWER_BSS_ATTRIBUTE
 
+#ifdef CHRE_USE_BUFFERED_LOGGING
 TaskHandle_t gChreFlushTaskHandle;
 
-#ifdef CHRE_HIGH_POWER_BSS_ATTRIBUTE
 CHRE_HIGH_POWER_BSS_ATTRIBUTE
-#endif
 uint8_t gSecondaryLogBufferData[CHRE_LOG_BUFFER_DATA_SIZE];
 
 uint8_t gPrimaryLogBufferData[CHRE_LOG_BUFFER_DATA_SIZE];
+#endif  // CHRE_USE_BUFFERED_LOGGING
 
-#endif
+#ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
+CHRE_HIGH_POWER_BSS_ATTRIBUTE
+BleSocketManager gBleSocketManager;
+#endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
 
 // This function is intended to be the task action function for FreeRTOS.
 // It Initializes CHRE, runs the event loop, and only exits if it receives
@@ -74,6 +84,11 @@ void chreThreadEntry(void *context) {
 
   chre::init();
   chre::EventLoopManagerSingleton::get()->lateInit();
+#ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
+  forceDramAccess();
+  chre::EventLoopManagerSingleton::get()->setBleSocketManager(
+      gBleSocketManager);
+#endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
   chre::loadStaticNanoapps();
 
   chre::EventLoopManagerSingleton::get()->getEventLoop().run();
@@ -94,13 +109,13 @@ void chreFlushLogsToHostThreadEntry(void *context) {
   // Never exits
   chre::LogBufferManagerSingleton::get()->startSendLogsToHostLoop();
 }
-#endif
+#endif  // CHRE_USE_BUFFERED_LOGGING
 
 }  // namespace
 
 #ifdef CHRE_USE_BUFFERED_LOGGING
 const char *getChreFlushTaskName();
-#endif
+#endif  // CHRE_USE_BUFFERED_LOGGING
 
 BaseType_t init() {
   BaseType_t rc =
@@ -110,7 +125,7 @@ BaseType_t init() {
 
 #ifdef CHRE_ENABLE_CHPP
   chpp::init();
-#endif
+#endif  // CHRE_ENABLE_CHPP
 
   return rc;
 }
@@ -127,7 +142,7 @@ BaseType_t initLogger() {
                      kChreTaskStackDepthWords, nullptr /* args */,
                      kChreTaskPriority, &gChreFlushTaskHandle);
   }
-#endif
+#endif  // CHRE_USE_BUFFERED_LOGGING
   return rc;
 }
 
@@ -140,7 +155,7 @@ void deinit() {
 
 #ifdef CHRE_ENABLE_CHPP
   chpp::deinit();
-#endif
+#endif  // CHRE_ENABLE_CHPP
 }
 
 const char *getChreTaskName() {
@@ -153,7 +168,7 @@ const char *getChreFlushTaskName() {
   static constexpr char kChreFlushTaskName[] = "CHRELogs";
   return kChreFlushTaskName;
 }
-#endif
+#endif  // CHRE_USE_BUFFERED_LOGGING
 
 }  // namespace freertos
 

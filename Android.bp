@@ -579,6 +579,7 @@ cc_test_host {
         "chre_host_common",
         "event_logger",
         "libgmock",
+        "pw_base64",
         "pw_detokenizer",
     ],
     shared_libs: [
@@ -1186,6 +1187,7 @@ cc_binary {
         "host/exynos/main.cc",
     ],
     static_libs: [
+        "pw_base64",
         "pw_detokenizer",
         "pw_polyfill",
         "pw_span",

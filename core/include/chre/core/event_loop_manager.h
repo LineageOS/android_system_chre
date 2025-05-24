@@ -225,8 +225,25 @@ class EventLoopManager : public NonCopyable {
   }
 
 #ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
+  /**
+   * Sets the BLE socket manager. This method must be called once and should be
+   * called prior to executing any nanoapps.
+   */
+  void setBleSocketManager(BleSocketManager &bleSocketManager) {
+    CHRE_ASSERT(mBleSocketManager == nullptr);
+    mBleSocketManager = &bleSocketManager;
+  }
+
+  /**
+   * @return A reference to the BLE socket manager. This allows interacting
+   *         with the BLE socket subsystem and manages requests from various
+   *         nanoapps.
+   *
+   * NOTE: Must call setBleSocketManager before using this function.
+   */
   BleSocketManager &getBleSocketManager() {
-    return mBleSocketManager;
+    CHRE_ASSERT(mBleSocketManager != nullptr);
+    return *mBleSocketManager;
   }
 #endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
 
@@ -366,7 +383,7 @@ class EventLoopManager : public NonCopyable {
 #ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
   //! The BLE socket manager tracks offloaded sockets and handles sending
   //! packets between nanoapps and offloaded sockets.
-  BleSocketManager mBleSocketManager;
+  BleSocketManager *mBleSocketManager = nullptr;
 #endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
 
 #endif  // CHRE_BLE_SUPPORT_ENABLED

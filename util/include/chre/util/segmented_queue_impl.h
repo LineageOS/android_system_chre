@@ -14,8 +14,7 @@
  * limitations under the License.
  */
 
-#ifndef CHRE_UTIL_SEGMENTED_QUEUE_IMPL_H
-#define CHRE_UTIL_SEGMENTED_QUEUE_IMPL_H
+#pragma once
 
 // IWYU pragma: private
 #include <algorithm>
@@ -31,13 +30,15 @@ namespace chre {
 template <typename ElementType, size_t kBlockSize>
 SegmentedQueue<ElementType, kBlockSize>::SegmentedQueue(size_t maxBlockCount,
                                                         size_t staticBlockCount)
-    : kMaxBlockCount(maxBlockCount), kStaticBlockCount(staticBlockCount) {
-  CHRE_ASSERT(kMaxBlockCount >= kStaticBlockCount);
-  CHRE_ASSERT(kStaticBlockCount > 0);
-  CHRE_ASSERT(kMaxBlockCount * kBlockSize < SIZE_MAX);
-  mRawStoragePtrs.reserve(kMaxBlockCount);
-  for (size_t i = 0; i < kStaticBlockCount; i++) {
+    : mTail(kBlockSize * staticBlockCount - 1) {
+  CHRE_ASSERT(maxBlockCount >= staticBlockCount);
+  CHRE_ASSERT(staticBlockCount > 0);
+  CHRE_ASSERT(maxBlockCount * kBlockSize < SIZE_MAX);
+  mRawStoragePtrs.reserve(maxBlockCount);
+  mStaticBlocks.reserve(staticBlockCount);
+  for (size_t i = 0; i < staticBlockCount; i++) {
     pushOneBlock();
+    mStaticBlocks.push_back(mRawStoragePtrs.back().get());
   }
 }
 
@@ -300,7 +301,7 @@ bool SegmentedQueue<ElementType, kBlockSize>::insertBlock(size_t blockIndex) {
   // Supporting inserting at any index since we started this data structure as
   // std::deque and would like to support push_front() in the future. This
   // function should not be needed once b/258771255 is implemented.
-  CHRE_ASSERT(mRawStoragePtrs.size() != kMaxBlockCount);
+  CHRE_ASSERT(mRawStoragePtrs.size() != mRawStoragePtrs.capacity());
   bool success = false;
 
   Block *newBlockPtr = static_cast<Block *>(memoryAlloc(sizeof(Block)));
@@ -470,13 +471,23 @@ template <typename ElementType, size_t kBlockSize>
 void SegmentedQueue<ElementType, kBlockSize>::resetEmptyQueue() {
   CHRE_ASSERT(empty());
 
-  while (mRawStoragePtrs.size() != kStaticBlockCount) {
-    mRawStoragePtrs.pop_back();
+  // Remove all blocks other than static
+  for (size_t i = 0; i < mRawStoragePtrs.size(); ++i) {
+    bool isStatic = false;
+    for (size_t j = 0; j < mStaticBlocks.size(); ++j) {
+      if (mRawStoragePtrs[i].get() == mStaticBlocks[j]) {
+        isStatic = true;
+        break;
+      }
+    }
+    if (!isStatic) {
+      mRawStoragePtrs.erase(i);
+      i--;
+    }
   }
+
   mHead = 0;
   mTail = capacity() - 1;
 }
 
 }  // namespace chre
-
-#endif  // CHRE_UTIL_SEGMENTED_QUEUE_IMPL_H

@@ -105,10 +105,6 @@ bool isNonNanoappLowPriorityEvent(Event *event, void * /* data */,
   CHRE_ASSERT_NOT_NULL(event);
   return event->isLowPriority && event->senderInstanceId == kSystemInstanceId;
 }
-
-void deallocateFromMemoryPool(Event *event, void *memoryPool) {
-  static_cast<DynamicMemoryPool *>(memoryPool)->deallocate(event);
-}
 #endif
 
 }  // anonymous namespace
@@ -300,16 +296,21 @@ bool EventLoop::removeNonNanoappLowPriorityEventsFromBack(
     return true;
   }
 
-  size_t numRemovedEvent = mEvents.removeMatchedFromBack(
+  auto freeEventCallback = [](Event *event, void *data) {
+    EventLoop *eventLoop = static_cast<EventLoop *>(data);
+    eventLoop->freeEvent(event);
+  };
+  size_t numRemovedEvents = mEvents.removeMatchedFromBack(
       isNonNanoappLowPriorityEvent, /* data= */ nullptr,
-      /* extraData= */ nullptr, removeNum, deallocateFromMemoryPool,
-      &mEventPool);
-  if (numRemovedEvent == 0 || numRemovedEvent == SIZE_MAX) {
+      /* extraData= */ nullptr, removeNum, freeEventCallback,
+      /* extraDataForFreeFunction= */ this);
+  if (numRemovedEvents == 0 || numRemovedEvents == SIZE_MAX) {
     LOGW("Cannot remove any low priority event");
   } else {
-    mNumDroppedLowPriEvents += numRemovedEvent;
+    mNumDroppedLowPriEvents += numRemovedEvents;
+    LOGW("Dropped %zu low priority events", numRemovedEvents);
   }
-  return numRemovedEvent > 0;
+  return numRemovedEvents > 0;
 #endif
 }
 

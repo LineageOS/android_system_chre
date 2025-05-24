@@ -14,8 +14,7 @@
  * limitations under the License.
  */
 
-#ifndef CHRE_UTIL_SEGMENTED_QUEUE_H_
-#define CHRE_UTIL_SEGMENTED_QUEUE_H_
+#pragma once
 
 #include <type_traits>
 #include <utility>
@@ -83,7 +82,7 @@ class SegmentedQueue : public NonCopyable {
    * @return true: Return true if the segmented queue cannot accept new element.
    */
   bool full() const {
-    return mSize == kMaxBlockCount * kBlockSize;
+    return mSize == maxBlockCount() * kBlockSize;
   }
 
   /**
@@ -223,9 +222,11 @@ class SegmentedQueue : public NonCopyable {
                                void *extraDataForFreeFunction = nullptr);
 
  private:
+  size_t maxBlockCount() const { return mRawStoragePtrs.capacity(); }
+
   /**
    * Push a new block to the end of storage to add storage space.
-   * The total block count after push cannot exceed kMaxBlockCount.
+   * The total block count after push cannot exceed maxBlockCount().
    *
    * @return true: Return true if a new block can be added.
    */
@@ -233,7 +234,7 @@ class SegmentedQueue : public NonCopyable {
 
   /**
    * Insert one block to the underlying storage.
-   * The total block count after push cannot exceed kMaxBlockCount.
+   * The total block count after push cannot exceed maxBlockCount().
    *
    * @param blockIndex: The index to insert a block at.
    * @return true: Return true if a new block can be added.
@@ -400,14 +401,12 @@ class SegmentedQueue : public NonCopyable {
   //! The data storage of this segmented queue.
   DynamicVector<UniquePtr<Block>> mRawStoragePtrs;
 
+  //! Non-owning list of blocks that we allocated in the constructor and
+  //! therefore shouldn't deallocate in resetEmptyQueue().
+  DynamicVector<Block *> mStaticBlocks;
+
   //! Records how many items are in this queue.
   size_t mSize = 0;
-
-  //! The maximum block count this queue can hold.
-  const size_t kMaxBlockCount;
-
-  //! How many blocks allocated in constructor.
-  const size_t kStaticBlockCount;
 
   //! The offset of the first element of the queue starting from the start of
   //! the DynamicVector.
@@ -416,13 +415,10 @@ class SegmentedQueue : public NonCopyable {
   // TODO(b/258828257): Modify initialization logic to make it work when
   // kStaticBlockCount = 0
   //! The offset of the last element of the queue starting from the start of the
-  //! DynamicVector. Initialize it to the end of container for a easier
-  //! implementation of push_back().
-  size_t mTail = kBlockSize * kStaticBlockCount - 1;
+  //! DynamicVector
+  size_t mTail;
 };
 
 }  // namespace chre
 
 #include "chre/util/segmented_queue_impl.h"  // IWYU pragma: export
-
-#endif  // CHRE_UTIL_SEGMENTED_QUEUE_H_

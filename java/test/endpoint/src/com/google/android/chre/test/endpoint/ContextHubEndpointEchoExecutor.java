@@ -230,6 +230,9 @@ public class ContextHubEndpointEchoExecutor {
         mContextHubInfo = info;
         mEchoNanoappBinary = EchoNanoappBinary;
         mIsEchoNanoappLoaded = false;
+    }
+
+    public void init() {
         loadEchoNanoapp();
     }
 

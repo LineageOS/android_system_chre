@@ -299,6 +299,52 @@ TEST(SegmentedQueue, MiddleBlockTest) {
   }
 }
 
+TEST(SegmentedQueue, KeepStaticBlocks) {
+  // This test confirms that even if a block is inserted in the middle of the
+  // block list and then the queue is emptied, the static blocks will be kept.
+  // To force the queue to allocate a new block between the two static blocks,
+  // we follow a process outlined below, where A and B are static blocks, H is
+  // head, T is tail, x is a populated slot, and - is an empty slot:
+  //  1. A[ H x x ] B[ x x T ]
+  //  2. A[ - - - ] B[ H x T ]
+  //  3. A[ x x T ] B[ H x x ]
+  //  4. A[ x x x ] C[ T - - ] B[ H x x ]
+  constexpr uint8_t blockSize = 3;
+  constexpr uint8_t maxBlockCount = 3;
+  constexpr uint8_t staticBlockCount = 2;
+  SegmentedQueue<int, blockSize> segmentedQueue(maxBlockCount,
+                                                staticBlockCount);
+  // 1. Fill static blocks
+  for (uint32_t i = 0; i < blockSize * staticBlockCount; i++) {
+    EXPECT_TRUE(segmentedQueue.push_back(i));
+  }
+  EXPECT_EQ(segmentedQueue.size(), segmentedQueue.capacity());
+  int *firstBlock = &segmentedQueue[0];
+  int *secondBlock = &segmentedQueue[blockSize];
+  // 2. Empty first block
+  for (uint32_t i = 0; i < blockSize; i++) {
+    segmentedQueue.pop_front();
+  }
+  // 3. Fill first block (it now holds the tail)
+  for (uint32_t i = 0; i < blockSize; i++) {
+    EXPECT_TRUE(segmentedQueue.push_back(i + blockSize * staticBlockCount));
+  }
+  EXPECT_EQ(&segmentedQueue[blockSize], firstBlock);
+  // 4. Push again to trigger allocation of a new block in the middle
+  EXPECT_TRUE(segmentedQueue.push_back(blockSize * staticBlockCount + 1));
+  // 5. Empty the queue to deallocate the dynamic block
+  for (uint32_t i = 0; i < blockSize * staticBlockCount + 1; i++) {
+    segmentedQueue.pop_front();
+  }
+  EXPECT_TRUE(segmentedQueue.empty());
+  // 6. Confirm that the original static blocks are the ones that remain
+  for (int i = 0; i < blockSize + 1; i++) {
+    segmentedQueue.push_back(i);
+  }
+  EXPECT_EQ(&segmentedQueue[0], firstBlock);
+  EXPECT_EQ(&segmentedQueue[blockSize], secondBlock);
+}
+
 TEST(SegmentedQueue, RemoveMatchesEnoughItem) {
   constexpr uint8_t blockSize = 3;
   constexpr uint8_t maxBlockCount = 2;
