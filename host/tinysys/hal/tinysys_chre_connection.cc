@@ -66,6 +66,8 @@ unsigned getRequestCode(ChreState chreState) {
       assert(false);
   }
 }
+
+constexpr std::chrono::milliseconds kMessageHandlingTimeThreshold{1000};
 }  // namespace
 
 bool TinysysChreConnection::init() {
@@ -120,8 +122,7 @@ void TinysysChreConnection::messageHandlerTask(
   while (true) {
     chreConnection->mReceivingQueue.waitForMessage();
     MessageFromChre &message = chreConnection->mReceivingQueue.front();
-    chreConnection->mCallback->handleMessageFromChre(message.buffer.get(),
-                                                     message.size);
+    handleMessageFromChre(chreConnection, message.buffer.get(), message.size);
     chreConnection->mReceivingQueue.pop();
   }
 }
@@ -186,6 +187,7 @@ void TinysysChreConnection::handleMessageFromChre(
     size_t messageLen) {
   // TODO(b/267188769): Move the wake lock acquisition/release to RAII
   // pattern.
+  int64_t startTime = ::android::elapsedRealtime();
   bool isWakelockAcquired =
       acquire_wake_lock(PARTIAL_WAKE_LOCK, kWakeLock) == 0;
   if (!isWakelockAcquired) {
@@ -235,6 +237,12 @@ void TinysysChreConnection::handleMessageFromChre(
     } else {
       LOGV("The wake lock is released after handling a message.");
     }
+  }
+  int64_t durationMs = ::android::elapsedRealtime() - startTime;
+  if (durationMs > kMessageHandlingTimeThreshold.count()) {
+    LOGW("It takes %" PRIu64 "ms to handle a message with ClientId=%" PRIu16
+         " Type=%" PRIu8,
+         durationMs, hostClientId, static_cast<uint8_t>(messageType));
   }
 }
 }  // namespace aidl::android::hardware::contexthub

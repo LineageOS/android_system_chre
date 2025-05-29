@@ -83,7 +83,7 @@ class BasicSensorTestBase : public Test {
   virtual void confirmDataIsSane(const void *eventData) = 0;
 
  private:
-  enum State {
+  enum class State {
     kPreStart,
     kPreConfigure,
     kExpectingInitialDataEvent,

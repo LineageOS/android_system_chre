@@ -19,6 +19,7 @@
 #include <atomic>
 #include <cstdint>
 #include <future>
+#include <mutex>
 #include <optional>
 #include <string>
 
@@ -74,6 +75,9 @@ class BluetoothSocketFbsHal : public BnBluetoothSocket,
   std::optional<std::promise<SocketCapabilities>> mCapabilitiesPromise =
       std::nullopt;
 
+  // A mutex to guard the mCapabilitiesPromise.
+  std::mutex mMutex;
+
   void sendOpenedCompleteMessage(int64_t socketId, Status status,
                                  std::string reason);
 
@@ -84,6 +88,10 @@ class BluetoothSocketFbsHal : public BnBluetoothSocket,
 
   void handleBtSocketCapabilitiesResponse(
       const ::chre::fbs::BtSocketCapabilitiesResponseT &response);
+
+  // Sends a socket capabilities request to the offload stack and returns a
+  // future that is fulfilled with the capabilities response.
+  std::future<SocketCapabilities> sendSocketCapabilitiesRequest();
 };
 
 }  // namespace aidl::android::hardware::bluetooth::socket::impl
