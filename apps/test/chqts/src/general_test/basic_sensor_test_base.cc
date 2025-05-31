@@ -327,7 +327,11 @@ void BasicSensorTestBase::finishTest() {
   LOGI("Final sampling status interval=%" PRIu64 " latency=%" PRIu64
        " enabled %d",
        status.interval, status.latency, status.enabled);
-  if (!mExternalSamplingStatusChange) {
+  if (mExternalSamplingStatusChange) {
+    LOGI(
+        "Interval and/or latency have been changed by others. Skip the "
+        "verification of chreSensorSamplingStatus");
+  } else {
     // No one else changed this, so it should be what we had before.
     if (status.enabled != mOriginalStatus.enabled) {
       EXPECT_FAIL_RETURN("SensorInfo.enabled not back to original");
@@ -474,6 +478,7 @@ void BasicSensorTestBase::handleSamplingChangeEvent(
       mPrevSensorHandle.value() == eventData->sensorHandle) {
     // We can get a "DONE" event from the previous sensor for multi-sensor
     // devices, so we ignore these events.
+    LOGI("Ignore the 'Done' event from previous sensor");
     return;
   }
 
