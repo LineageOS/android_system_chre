@@ -183,7 +183,7 @@ void WifiRequestManager::dispatchQueuedConfigureScanMonitorRequests() {
 
 void WifiRequestManager::handleConfigureScanMonitorTimeout() {
   if (mPendingScanMonitorRequests.empty()) {
-    LOGE("Configure Scan Monitor timer timedout with no pending request.");
+    LOGE("Configure Scan Monitor timer timed out with no pending request.");
   } else {
     EventLoopManagerSingleton::get()->getSystemHealthMonitor().onFailure(
         HealthCheckId::WifiConfigureScanMonitorTimeout);
@@ -322,7 +322,7 @@ bool WifiRequestManager::sendRangingRequest(PendingRangingRequest &request) {
 
 void WifiRequestManager::handleRangingRequestTimeout() {
   if (mPendingRangingRequests.empty()) {
-    LOGE("Request ranging timer timedout with no pending request.");
+    LOGE("Request ranging timer timed out with no pending request.");
   } else {
     EventLoopManagerSingleton::get()->getSystemHealthMonitor().onFailure(
         HealthCheckId::WifiRequestRangingTimeout);
@@ -386,7 +386,7 @@ bool WifiRequestManager::requestRanging(RangingType rangingType,
 void WifiRequestManager::handleScanRequestTimeout() {
   mScanRequestTimeoutHandle = CHRE_TIMER_INVALID;
   if (mPendingScanRequests.empty()) {
-    LOGE("Scan Request timer timedout with no pending request.");
+    LOGE("Scan Request timer timed out with no pending request.");
   } else {
     EventLoopManagerSingleton::get()->getSystemHealthMonitor().onFailure(
         HealthCheckId::WifiScanResponseTimeout);

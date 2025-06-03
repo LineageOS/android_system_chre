@@ -119,8 +119,7 @@ bool EndpointEchoTestManager::handleEventNanoappToHostTest(
         if (mSessionId == CHRE_MSG_SESSION_ID_INVALID) {
           failTest(
               "Received a corrupted session opened event with an invalid "
-              "session "
-              "ID");
+              "session ID");
         } else {
           runNanoappToHostTest(TestPhase::kSendMessage);
         }
