@@ -220,6 +220,28 @@ public class ContextHubHostTestUtil {
     }
 
     /**
+     * Determines if the device under test should run the aoc v2 asset directory.
+     *
+     * @return true if the device is in the aoc v2 device list.
+     */
+    private static boolean deviceInAocV2List() {
+        DynamicConfigDeviceSide deviceDynamicConfig = getDynamicConfig();
+        List<String> configValues = deviceDynamicConfig.getValues("chre_aoc_v2_list");
+        Assert.assertTrue("Could not find aoc v2 device list from dynamic config",
+                configValues != null);
+
+        String deviceName = Build.DEVICE;
+        for (String element : configValues) {
+            String[] delimited = element.split(",");
+            if (delimited.length != 0 && delimited[0].equals(deviceName)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Returns the path of the nanoapps for a CHRE implementation using the platform ID.
      *
      * The dynamic configuration file for GtsGmscoreHostTestCases defines the key
@@ -243,6 +265,9 @@ public class ContextHubHostTestUtil {
             String[] delimited = element.split(",");
             if (delimited.length == 2 && delimited[0].equals(platformIdHexString)) {
                 path = delimited[1];
+                if (path.equals("CHRE_on_AOCGoogle") && deviceInAocV2List()) {
+                    path = "CHRE_on_AOCv2Google";
+                }
                 break;
             }
         }
