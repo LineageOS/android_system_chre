@@ -97,9 +97,12 @@ bool chppDispatchLoopbackServiceResponse(struct ChppAppState *appState,
   CHPP_NOT_NULL(state);
   CHPP_NOT_NULL(state->loopbackData);
 
-  CHPP_ASSERT(chppTimestampIncomingResponse(
+  if (!(chppTimestampIncomingResponse(
       state->client.appContext, &state->runLoopbackTest,
-      (const struct ChppAppHeader *)response));
+      (const struct ChppAppHeader *)response))) {
+    CHPP_LOGE("Invalid loopback response - dropping");
+    return false;
+  }
 
   struct ChppLoopbackTestResult *result = &state->testResult;
 
