@@ -214,8 +214,6 @@ void initCommon() {
 }
 
 void deinitCommon() {
-  EventLoopManagerSingleton::deinit();
-
   deinitBleSocketManager();
   deinitGnssManager();
   deinitWifiRequestManager();
@@ -223,6 +221,7 @@ void deinitCommon() {
   deinitChreMessageHubManager();
   deinitHostMessageHubManager();
 
+  EventLoopManagerSingleton::deinit();
   LOGD("CHRE deinit");
 }
 
