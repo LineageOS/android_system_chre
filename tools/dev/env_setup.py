@@ -26,15 +26,16 @@ default value together the action will be incurred before exporting the default 
 
 The result is printed to stdout and piped into the shell to set the environment variables.
 """
-import argparse
+
 import json
 import os
 import re
 import subprocess
 import sys
+from argparse import ArgumentParser
 from typing import Any
 
-from shell_util import log_i, log_w, fatal_error, check_dependencies
+from shell_util import log_i, log_w, log_e, init_file, fatal_error, check_dependencies
 
 
 def _print_env_var_pair(env_var: str):
@@ -44,32 +45,6 @@ def _print_env_var_pair(env_var: str):
 
 def _get_canonical_path(path: str):
   return os.path.expanduser(os.path.expandvars(path))
-
-
-def _init_file(file_path_str: str):
-  from pathlib import Path
-
-  # Define the full path to your desired file
-  file_path = Path(file_path_str)
-
-  # Create the parent directories
-  # parents=True: creates all missing parent folders (like mkdir -p)
-  # exist_ok=True: doesn't raise an error if the directory already exists
-  file_path.parent.mkdir(parents=True, exist_ok=True)
-
-  # Create the file itself
-  # This creates an empty file if it doesn't exist.
-  file_path.touch()
-
-
-class _CustomArgumentParser(argparse.ArgumentParser):
-  """A custom argument parser to override the default error handling."""
-
-  def error(self, message):
-    """Overrides the default error method to prevent printing errors to console"""
-    fatal_error(
-      f"an argument in the format of <platform_name-target_name> must be provided.\n{message}"
-    )
 
 
 def _get_input_from_shell(prompt: str, color: str = None) -> str:
@@ -197,12 +172,20 @@ def _load_config(config_file: str = None) -> Any:
 
   try:
     with open(config_file, "r") as f:
-      return json.load(f)
+      return json.load(f), config_file
   except FileNotFoundError:
     fatal_error(f"Error: Config file '{config_file}' not found")
   except json.JSONDecodeError as e:
     fatal_error(f"Error: Invalid JSON format in '{config_file}'\n{e}")
 
+
+def _get_supported_combinations(config_data: Any) -> list[str]:
+  """Returns a sorted list of supported platform-target combinations."""
+  return sorted([
+    f"{entry.get('platform')}-{target.get('name')}"
+    for entry in config_data
+    for target in entry.get("targets", [])
+  ])
 
 def _parse_platform_and_target_configs(
     config_data: Any, platform_and_target: str
@@ -218,11 +201,7 @@ def _parse_platform_and_target_configs(
       - A dictionary of predefined environment variables.
       - A list of environment variable definitions to be processed further.
   """
-  supported_combinations = [
-    f"{entry.get('platform')}-{target.get('name')}"
-    for entry in config_data
-    for target in entry.get("targets", [])
-  ]
+  supported_combinations = _get_supported_combinations(config_data)
 
   if not platform_and_target or not re.match(r"^\w+-\w+$", platform_and_target):
     fatal_error(
@@ -245,6 +224,8 @@ def _parse_platform_and_target_configs(
                    }
         if platform.get("python_version"):
           env_map["CHRE_PYTHON_VERSION"] = platform.get("python_version")
+        if platform.get("signer"):
+          env_map["CHRE_SIGNER_PATH"] = _get_canonical_path(platform.get("signer"))
         if target.get("install_location"):
           env_map["TARGET_INSTALL_LOCATION"] = target["install_location"]
         envs = platform.get("common_env_variables", []) + target.get(
@@ -322,12 +303,12 @@ def _parse_env_variable_fields(env_vars, predefined_envs):
 
 def main():
   """Parses command-line arguments and orchestrates the script's execution."""
-  check_dependencies(['cmake', 'protoc', 'pyenv', 'xxd'])
-  arg_parser = _CustomArgumentParser(
+  check_dependencies(['cmake', 'llvm-strip', 'protoc', 'pyenv', 'xxd'])
+  arg_parser = ArgumentParser(
     description="CHRE development environment setup",
   )
   arg_parser.add_argument(
-    "platform_and_target", default=None,
+    "platform_and_target", nargs='?', default=None,
     type=str
   )
   arg_parser.add_argument(
@@ -335,7 +316,15 @@ def main():
   )
 
   args = arg_parser.parse_args()
-  config_data = _load_config(args.config)
+  config_data, config_file_path = _load_config(args.config)
+  if config_file_path:
+    os.environ["CHRE_CONFIG_DIR"] = os.path.dirname(config_file_path)
+
+  if args.platform_and_target is None:
+    supported_combinations = _get_supported_combinations(config_data)
+    log_e("A platform-target combination must be provided. Usage: chre_lunch <platform-target>")
+    fatal_error(f"Supported choices are: {supported_combinations}")
+
   fixed_env_map, target_envs_configs = _parse_platform_and_target_configs(config_data,
                                                                           args.platform_and_target)
   os.environ.update(fixed_env_map)
@@ -360,7 +349,7 @@ def main():
 
   # env_vars_file is only created after parsing env variables successfully.
   if not os.path.exists(env_vars_file):
-    _init_file(env_vars_file)
+    init_file(env_vars_file)
 
   with open(env_vars_file, "w") as f:
     f.write("\n".join(env_var_pairs))

@@ -6,6 +6,32 @@ operational procedures, while the [Configuration](#configuration) section explai
 shell environment variables via `env_config.json`. Several [Python scripts](#public) are designed
 for standalone use to support specific development tasks.
 
+## Quick start
+
+Assuming `system/chre` project is checked out at `~/main/system/chre`, run
+`source ~/main/system/chre/tools/dev/env_setup.sh && chre_lunch <PLATFORM-TARGET>` and fill out the
+required environment variables, which is a one-time effort. After that you are good to go.
+
+```bash
+# build a target
+chre_make
+```
+
+```bash
+# Generate CMakeLists.txt and compile_commands.json
+chre_make -C
+```
+
+```bash
+# Flash the target onto the device
+chre_flash -R
+```
+
+```bash
+# List all the CHRE configured environment variables
+chre_envs
+```
+
 ## Usage
 
 ### Set up the environment
@@ -20,15 +46,18 @@ sourcing the `env_setup.sh` script.
   instead of the default `env_config.json`.
 - `chre_make [-C] [-s <src_path>]`: Builds the CHRE target. `-s` option allows the user to specify
   a separate source path. `-C` option generates `CMakeLists.txt` and `compile_commands.json`.
-- `chre_flash [-R]`: Build the target and flash the device with a signed binary.
+- `chre_flash [-R]`: Build the target and flash the device with a signed binary. Reboot the device
+  if `-R` is provided.
 
 Now running `chre_lunch <platform-target>` will set up environment for a specific platform and
 target combination. For example, to start development of nanoapp on tinysys platform, run
 `chre_lunch tinysys-nanoapp`. This step is required to enable `chre_make` and `chre_flash` to work.
 
-Any missing command-line tools that are required will be listed out immediately after running
-`chre_lunch`. Currently, it's left to the user to install them as different OS has different
-commands for installation.
+Note that a list of command-line tools are required. For example, `pyenv` is needed to set up python
+virtual environment, `cmake` is needed to generate `compile_commands.json` from a CMake_lists.txt.
+When running `chre_lunch`, it will abort and list out all the missing command-line tools that are
+required. Currently, it's left to the user to install them as different OS has different commands
+for installation.
 
 ### Build a target
 
@@ -91,6 +120,10 @@ Each platform configuration object has the following fields:
 
 - `platform` (string, required): A unique name identifying the platform (e.g., "qsh",
   "tinysys").
+- `signer` (string, optional): Once signer is configured, `chre_make` will incur the signer script
+  to sign the binary. All the signer scripts will be provided two arguments: input_file and
+  output_file. Two examples are included in this folder for tinysys and qsh: `sign_tinysys.sh` and
+  `sign_qsh.sh`.
 - `python_version` (string, optional): The required Python version for development on this
   platform, if not specified, the default python version will be used.
 - `common_env_variables` (array, optional): An array of objects where each defines a shell

@@ -127,34 +127,11 @@ _setup_python_virtual_env() {
   echo "Preparing to install python packages..."
 
   if [[ -n "$VIRTUAL_ENV" ]]; then
-    _check_active_venv || return 1
-  else
-    _activate_or_create_venv || return 1
+    deactivate
   fi
 
+  _activate_or_create_venv || return 1
   _install_py_pkgs || return 1
-}
-
-#######################################
-# Checks the active Python virtual environment.
-#
-# This function verifies that the active virtual environment is using the
-# required Python version. If the version is incorrect, it informs the user
-# and returns an error.
-# Globals:
-#   CHRE_PYTHON_VERSION
-# Arguments:
-#   None
-#######################################
-_check_active_venv() {
-  echo "An active virtual environment is detected at ${VIRTUAL_ENV}. Great!"
-  local current_py_version
-  current_py_version=$(python --version | awk '{print $2}')
-  if [[ -n "$CHRE_PYTHON_VERSION" && "$current_py_version" != "$CHRE_PYTHON_VERSION" ]]; then
-    echo "The virtual environment has python version $current_py_version but $CHRE_PYTHON_VERSION is required."
-    echo "Please deactivate the current virtual environment and try again."
-    return 1
-  fi
 }
 
 #######################################
@@ -170,10 +147,9 @@ _check_active_venv() {
 #   None
 #######################################
 _activate_or_create_venv() {
-  local chre_py_venv_path=$CHRE_DEV_PATH/venv
+  local chre_py_venv_path=$CHRE_DEV_PATH/$CHRE_PLATFORM-$CHRE_TARGET_TYPE
   if [[ -f "$chre_py_venv_path/bin/python" ]]; then
-    local venv_py_version
-    venv_py_version=$($chre_py_venv_path/bin/python --version | awk '{print $2}')
+    local venv_py_version=$($chre_py_venv_path/bin/python --version | awk '{print $2}')
     if [[ -z "$CHRE_PYTHON_VERSION" || "$venv_py_version" == "$CHRE_PYTHON_VERSION" ]]; then
       echo "Activating existing virtual environment under $chre_py_venv_path"
       source "$chre_py_venv_path/bin/activate"
@@ -209,7 +185,7 @@ _activate_or_create_venv() {
 #   None
 #######################################
 _create_new_venv() {
-  local chre_py_venv_path=$CHRE_DEV_PATH/venv
+  local chre_py_venv_path=$CHRE_DEV_PATH/$CHRE_PLATFORM-$CHRE_TARGET_TYPE
   echo "Setting up pyenv..."
   _setup_pyenv || return 1
   pushd $CHRE_DEV_PATH > /dev/null
@@ -224,6 +200,33 @@ _create_new_venv() {
   fi
   echo "Activating virtual environment..."
   source "$chre_py_venv_path/bin/activate"
+}
+
+print_binary_size() {
+  local TOTAL=0
+  local IFS=$'\n'
+  local SEGMENTS="$($CHRE_TARGET_ELF_READER -l $1 | grep LOAD)"
+  # Save current IFS to restore later.
+  local CURR_IFS=$IFS
+  for LINE in $SEGMENTS; do
+    # Headers: Type Offset VirtAddr PhysAddr FileSiz MemSiz Flg Align
+    IFS=" " HEADERS=(${LINE})
+    LEN=${#HEADERS[@]}
+
+    MEMSIZE=$(( HEADERS[5] ))
+    # Flg can have a space in it, 'R E', for example.
+    ALIGN=$(( HEADERS[LEN - 1] ))
+    # Rounded up to the next integral multiple of Align.
+    QUOTIENT=$(( (MEMSIZE + ALIGN - 1) / ALIGN ))
+    PADDED=$(( ALIGN * QUOTIENT ))
+    PADDING=$(( PADDED - MEMSIZE ))
+
+    printf '  MemSize:0x%x Align:0x%x Padded:0x%x Padding:%d\n' $MEMSIZE $ALIGN $PADDED $PADDING
+    TOTAL=$(( TOTAL + PADDED ))
+  done
+
+  IFS=$CURR_IFS
+  printf 'Total Padded MemSize: 0x%x (%d)\n' $TOTAL $TOTAL
 }
 
 #######################################
@@ -245,21 +248,23 @@ chre_make() {
   # CMakeLists.txt and compile_commands.json.
   if [[ $1 == "-C" ]]; then
     shift
-    make clean && \
-    python3 $CHRE_DEV_SCRIPT_PATH/cml_gen.py -c "make -n $CHRE_BUILD_TARGET" -o out "$@" && \
-    mkdir out/build && \
-    pushd out/build > /dev/null
+    rm -rf out/$CHRE_BUILD_TARGET && \
+    python3 $CHRE_DEV_SCRIPT_PATH/cml_gen.py -c "make -n $CHRE_BUILD_TARGET" -o out/$CHRE_BUILD_TARGET "$@" && \
+    mkdir out/$CHRE_BUILD_TARGET/build && \
+    pushd out/$CHRE_BUILD_TARGET/build > /dev/null
     if [[ $? -eq 0 ]]; then
       cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON ../ && \
-      mv compile_commands.json ../ && \
-      rm -rf out/build
+      mv compile_commands.json ../
     fi
-    popd > /dev/null
+    popd > /dev/null && \
+    rm -rf out/$CHRE_BUILD_TARGET/build
     return
   fi
 
+  # Making the target
   make $CHRE_BUILD_TARGET || return 1
 
+  # Getting the .so file
   local so_files=(./out/$CHRE_BUILD_TARGET/*.so)
   if [[ ${#so_files[@]} -eq 0 ]]; then
     echo "Error: No .so file found in ./out/$CHRE_BUILD_TARGET/" >&2
@@ -270,31 +275,37 @@ chre_make() {
     return 1
   fi
   local so_file="${so_files[0]}"
-  signed_path="./out/$CHRE_BUILD_TARGET/signed"
 
-  if [[ ! -f "$so_file" ]]; then
-    return 1
-  fi
-
-  if [[ ! -d $signed_path ]]; then
-    mkdir -p $signed_path
-  fi
-
-  # Signing
-  if [[ $CHRE_PLATFORM == "qsh" ]]; then
-    python3 "$HEXAGON_SDK_PREFIX/tools/elfsigner/elfsigner.py" --no_disclaimer -i "$so_file" -o "$signed_path"
-  elif [[ $CHRE_PLATFORM == "tinysys" ]]; then
-    if [[ "$CHRE_TARGET_TYPE" == "nanoapp" ]]; then
-      python3 "$CHRE_DEV_SCRIPT_PATH/tinysys_nanoapp_signer.py" "$TEST_SIGN_KEY" "$so_file" "$signed_path"
-    fi
-  else
-    echo "Unsupported platform '$CHRE_PLATFORM' for signing"
-  fi
+  # Stripping unneeded symbols
+  local so_file_stripped="${so_file}_stripped"
+  llvm-strip $so_file --strip-unneeded -o $so_file_stripped
 
   # Checking external symbols
   if [[ $CHRE_TARGET_TYPE == "nanoapp" ]]; then
-    python3 "$CHRE_DEV_SCRIPT_PATH/check_nanoapp_symbols.py" --nanoapp "$so_file"
+    python3 "$CHRE_DEV_SCRIPT_PATH/check_nanoapp_symbols.py" --nanoapp "$so_file_stripped"
   fi
+
+  # Signing
+  signed_path="./out/$CHRE_BUILD_TARGET/signed"
+  if [[ ! -d $signed_path ]]; then
+    mkdir -p $signed_path
+  fi
+  if [ -n "$CHRE_SIGNER_PATH" ]; then
+    local signed_so_file="$signed_path/$(basename "$so_file")"
+    echo "Signing $so_file_stripped -> $signed_so_file"
+    if "$CHRE_SIGNER_PATH" "$so_file_stripped" "$signed_so_file"; then
+      echo "Signing successful!"
+    else
+      echo "Error: Signing failed." >&2
+      return 1
+    fi
+  else
+    echo "Warning: No signer configured for platform '$CHRE_PLATFORM'. Skipping signing."
+  fi
+
+  # Printing the size
+  echo -e "\nPrinting binary size of ${so_file_stripped}..."
+  print_binary_size "$so_file_stripped" || return 1
 }
 
 #######################################

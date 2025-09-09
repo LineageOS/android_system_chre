@@ -1,10 +1,11 @@
 #!/usr/bin/python3
 
+import glob
 import re
+import shutil
 import sys
 import time
-
-import shutil
+import os
 
 
 def check_dependencies(required_programs: list[str]):
@@ -27,6 +28,32 @@ def check_dependencies(required_programs: list[str]):
 
   log_i("All required programs are found")
 
+
+def init_file(file_path_str: str):
+  if os.path.exists(file_path_str):
+    return
+
+  from pathlib import Path
+
+  # Define the full path to your desired file
+  file_path = Path(file_path_str)
+
+  # Create the parent directories
+  # parents=True: creates all missing parent folders (like mkdir -p)
+  # exist_ok=True: doesn't raise an error if the directory already exists
+  file_path.parent.mkdir(parents=True, exist_ok=True)
+
+  # Create the file itself
+  # This creates an empty file if it doesn't exist.
+  file_path.touch()
+
+def find_unique_file(file_pattern: str):
+  files = glob.glob(file_pattern)
+  if not files:
+    fatal_error(f"No file found matching {file_pattern}")
+  if len(files) > 1:
+    fatal_error(f"Multiple files found matching {file_pattern}: {files}")
+  return files[0]
 
 def fatal_error(message: str):
   """Prints an error message in red to stderr and exits the script."""
@@ -112,7 +139,7 @@ class ShellSession:
   def run(
       self, cmd, is_successful=None, timeout=None, show_output=False
   ) -> str:
-    print(cmd.ljust(90), end="", flush=True)
+    print(cmd.ljust(self.cmd_width), end="", flush=True)
     start_time = time.perf_counter()
     output = self._execute(cmd, timeout)
     has_result = is_successful is None or is_successful(output)
@@ -136,7 +163,7 @@ class ShellSession:
   def run_until_success(
       self, cmd, is_successful, retry_interval=1, timeout=20, show_output=False
   ):
-    print(f"{cmd:<{self.cmd_width}}", end="", flush=True)
+    print(cmd.ljust(self.cmd_width), end="", flush=True)
     start_time = time.perf_counter()
     output = self._execute(cmd, timeout=timeout)
     while not is_successful(output):

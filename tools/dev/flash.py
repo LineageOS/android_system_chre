@@ -21,8 +21,49 @@ the compiled and signed binary (.so file) and, for nanoapps, the corresponding
 .napp_header file to the device.
 """
 import argparse
+import glob
 import os
-from shell_util import ShellSession, not_have, has, fatal_error, warning
+import struct
+import time
+from shell_util import ShellSession, not_have, has, fatal_error, warning, success, find_unique_file
+
+
+def get_nanoapp_id(header_file):
+  with open(header_file, 'rb') as f:
+    # The format of the header is defined in
+    # host/common/include/chre_host/napp_header.h
+    # Define header_format corresponding to the NanoAppBinaryHeader struct.
+    header_format = '<IIQIIQBB6x'
+    data = f.read(struct.calcsize(header_format))
+    _, _, app_id, _, _, _, _, _ = struct.unpack(header_format, data)
+    return f'{app_id:016x}'
+
+
+def verify_nanoapp(session: ShellSession, header_file: str):
+  """Verifies the nanoapp installation by checking dumpsys output.
+
+  Args:
+    session: The ShellSession object to execute adb commands.
+    header_file: The path to the .napp_header file.
+  """
+  nanoapp_id = get_nanoapp_id(header_file)
+  print(f"Verifying installation of nanoapp with ID: {nanoapp_id}")
+
+  dumpsys_output = ""
+  # Retry for a few seconds as the nanoapp may take time to load
+  for i in range(5):
+    dumpsys_output = session.run(
+      "adb shell dumpsys android.hardware.contexthub.IContextHub/default",
+      show_output=False)
+    if nanoapp_id in dumpsys_output:
+      success(f"Nanoapp {nanoapp_id} found in the output of dumpsys of contexthub HAL")
+      return
+    print(f"  Verification attempt {i + 1}/5 failed, retrying...")
+    time.sleep(1)
+
+  warning(f"Verification failed: Nanoapp ID {nanoapp_id} not found in dumpsys of contexthub HAL.")
+  print("Last dumpsys output:")
+  print(dumpsys_output)
 
 
 def root(session: ShellSession):
@@ -54,28 +95,31 @@ if __name__ == '__main__':
 
   args = arg_parser.parse_args()
 
-  bash = ShellSession()
-  root(bash)
-  run = bash.run
-
   install_location = os.getenv('TARGET_INSTALL_LOCATION')
   build_target = os.getenv('CHRE_BUILD_TARGET')
   target_type = os.getenv('CHRE_TARGET_TYPE')
+  so_file = find_unique_file(f"./out/{build_target}/signed/*.so")
+  header_file = ""
+
+  bash = ShellSession(cmd_width=len(so_file) + 40)
+  root(bash)
+  run = bash.run
+
+
 
   run(f"adb shell mkdir -p {install_location}")
-  run(f"adb push ./out/{build_target}/signed/*.so {install_location}",
-      not_have("error"),
-      show_output=True)
+  run(f"adb push {so_file} {install_location}", has("1 file pushed"))
 
   if "nanoapp" == target_type:
-    run(
-      f"adb push ./out/{build_target}/*.napp_header {install_location}",
-      not_have("error"), show_output=True)
+    header_file = find_unique_file(f"./out/{build_target}/*.napp_header")
+    run(f"adb push {header_file} {install_location}", has("1 file pushed"))
 
   if args.reboot:
     run("adb reboot")
     run("adb wait-for-device")
     root(bash)
+    if "nanoapp" == target_type:
+      verify_nanoapp(bash, header_file)
     print("Installation is complete")
   else:
     warning("Please reboot the device to complete the installation")

@@ -1,6 +1,7 @@
 [
   {
     "platform": "qsh",
+    "signer": "$CHRE_DEV_SCRIPT_PATH/sign_qsh.sh",
     "python_version": "3.11.11",
     "common_env_variables": [
       {
@@ -39,42 +40,42 @@
           {
             "name": "QSH_BRANCH",
             "type": "value",
-            "description": "The branch of the QSH repository to use.\nThe available branches can be found at https://partner-android.googlesource.com/platform/vendor/google_partners/qcom-chre"
+            "description": "The branch of the QSH repository to use. The available branches can be found at https://partner-android.googlesource.com/platform/vendor/google_partners/qcom-chre"
           },
           {
             "name": "QSH_PREFIX",
             "type": "path",
-            "default": "/tmp/qsh-$QSH_BRANCH",
+            "default": "$CHRE_DEV_PATH/mirror-qsh-$QSH_BRANCH",
             "description": "The path to the QSH repository checkout, which can be automatically created in the following step.",
             "default_action": [
               "action_clone_repo",
               "https://partner-android.googlesource.com/platform/vendor/google_partners/qcom-chre",
               "$QSH_BRANCH",
-              "/tmp/qsh-$QSH_BRANCH"
+              "$CHRE_DEV_PATH/mirror-qsh-$QSH_BRANCH"
             ]
           },
           {
             "name": "SSC_PREFIX",
             "type": "path",
-            "description": "The path to the SSC (Snapdragon Sensor Core) repository.\nThis path should point down to the adsp_proc folder"
+            "description": "The path to the SSC (Snapdragon Sensor Core) repository. This path should point down to the adsp_proc folder"
           },
           {
             "name": "EXTERNAL_SYMBOL_LISTS",
             "type": "list[file]",
             "description": "The files containing the external symbols that are allowed in the target binary, each symbol is on a line.",
-            "default": ""
+            "default": "$SSC_PREFIX/platform/exports/dl_base_symbols.lst"
           },
           {
             "name": "EXTERNAL_SYMBOL_DECLARATIONS",
             "type": "list[file]",
             "description": "The header files declaring external functions (without using CHRE's macros).",
-            "default": ""
+            "default": "$QSH_PREFIX/qsh/shim/platform/ssc/include/init.h"
           },
           {
             "name": "CHRE_TARGET_EXTENSION",
             "type": "file",
-            "default": "$QSH_PREFIX/qsh/build/variant/aosp_hexagonv66_qsh.mk",
-            "description": "The path to the makefile extension for the target."
+            "description": "The path to the makefile extension for the target.",
+            "default": "$QSH_PREFIX/qsh/build/variant/aosp_hexagonv66_qsh.mk"
           }
         ]
       },
@@ -96,7 +97,7 @@
           {
             "name": "QSH_BRANCH",
             "type": "value",
-            "description": "The branch of the QSH repository to use.\nThe available branches can be found at https://partner-android.googlesource.com/platform/vendor/google_partners/qcom-chre"
+            "description": "The branch of the QSH repository to use. The available branches can be found at https://partner-android.googlesource.com/platform/vendor/google_partners/qcom-chre"
           },
           {
             "name": "SSC_PREFIX",
@@ -106,19 +107,19 @@
           {
             "name": "SLPI_PREFIX",
             "type": "path",
-            "default": "$SSC_PREFIX",
-            "description": "The path to the SLPI (Snapdragon Low Power Island) repository. Defaults to SSC_PREFIX."
+            "description": "The path to the SLPI (Snapdragon Low Power Island) repository. Defaults to SSC_PREFIX.",
+            "default": "$SSC_PREFIX"
           },
           {
             "name": "QSH_PREFIX",
             "type": "path",
-            "default": "/tmp/qsh-$QSH_BRANCH",
             "description": "The path to the QSH repository checkout, which can be automatically created in the following step.",
+            "default": "$CHRE_DEV_PATH/mirror-qsh-$QSH_BRANCH",
             "default_action": [
               "action_clone_repo",
               "https://partner-android.googlesource.com/platform/vendor/google_partners/qcom-chre",
               "$QSH_BRANCH",
-              "/tmp/qsh-$QSH_BRANCH"
+              "$CHRE_DEV_PATH/mirror-qsh-$QSH_BRANCH"
             ]
           },
           {
@@ -136,8 +137,8 @@
           {
             "name": "CHRE_VARIANT_MK_INCLUDES",
             "type": "file",
-            "default": "$QSH_PREFIX/qsh/variant/default/variant.mk",
-            "description": "The path to the variant makefile to include."
+            "description": "The path to the variant makefile to include.",
+            "default": "$QSH_PREFIX/qsh/variant/default/variant.mk"
           }
         ]
       }
@@ -145,6 +146,7 @@
   },
   {
     "platform": "tinysys",
+    "signer": "$CHRE_DEV_SCRIPT_PATH/sign_tinysys.sh",
     "common_env_variables": [
       {
         "name": "ANDROID_BUILD_TOP",
@@ -172,8 +174,8 @@
           {
             "name": "NANOPB_PREFIX",
             "type": "path",
-            "default": "$ANDROID_BUILD_TOP/external/nanopb-c",
-            "description": "The path to the nanopb installation. Defaults to the one in the Android tree."
+            "description": "The path to the nanopb installation. Defaults to the one in the Android tree.",
+            "default": "$ANDROID_BUILD_TOP/external/nanopb-c"
           },
           {
             "name": "EXPORTED_MACRO_FILES",

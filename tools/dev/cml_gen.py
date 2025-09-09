@@ -29,7 +29,7 @@ import argparse
 import os
 import re
 import subprocess
-from shell_util import fatal_error
+from shell_util import fatal_error, init_file
 
 
 def _write_header(output, project_name):
@@ -171,8 +171,10 @@ def _parse_compilation_output(args: argparse.Namespace, result: list[str]):
   inc_paths = set()
   macros = dict()
   flags = dict()
+  output_file = os.path.join(args.output_path, 'CMakeLists.txt')
 
-  with open(os.path.join(args.output_path, 'CMakeLists.txt'), 'w') as output:
+  init_file(output_file)
+  with open(output_file, 'w') as output:
     _write_header(output, args.project_name)
 
     for line in result:
