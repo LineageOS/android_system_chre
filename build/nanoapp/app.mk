@@ -139,7 +139,7 @@ COMMON_CFLAGS += -DNANOAPP_UNSTABLE_ID="\"$(NANOAPP_UNSTABLE_ID)\""
 
 # Optional tokenized logging support for nanoapps ##############################
 
-ifneq ($(CHRE_NANOAPP_TOKENIZED_LOGGING_ENABLED),)
+ifeq ($(CHRE_NANOAPP_TOKENIZED_LOGGING_ENABLED),true)
 COMMON_CFLAGS += -DCHRE_NANOAPP_TOKENIZED_LOGGING_ENABLED
 include $(CHRE_PREFIX)/external/pigweed/pw_tokenizer.mk
 endif
