@@ -15,3 +15,5 @@ chre.rpc.ChreBleAdvertisingReport.address max_size:6 # CHRE_BLE_ADDRESS_LEN
 chre.rpc.ChreBleAdvertisingReport.directAddress max_size:6 # CHRE_BLE_ADDRESS_LEN
 chre.rpc.ChreBleAdvertisingReport.data max_size:255 # extended range is [0, 255]
 chre.rpc.ChreBleAdvertisementEvent.reports max_count:10
+chre.rpc.ChreBleSocketPacket.data max_size:2048
+chre.rpc.ChreBleSocketConnectionEvent.socketName max_size:100

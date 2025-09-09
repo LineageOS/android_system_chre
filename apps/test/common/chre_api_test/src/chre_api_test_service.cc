@@ -358,6 +358,29 @@ bool ChreApiTestService::validateInputAndCallChreGetHostEndpointInfo(
   return true;
 }
 
+bool ChreApiTestService::validateInputAndCallChreBleSocketSend(
+    const chre_rpc_ChreBleSocketPacket &request,
+    chre_rpc_ChreBleSocketSendStatus &response) {
+  if (!mSocketTracker.has_value()) {
+    LOGE("Socket has not yet been opened");
+    return false;
+  }
+  if (mSocketTracker->socketInfo.socketId != request.socketId) {
+    LOGE("Expected socketId %" PRIu64 ", got %" PRIu64,
+         mSocketTracker->socketInfo.socketId, request.socketId);
+    return false;
+  }
+  if (mSocketTracker->connected == false) {
+    LOGE("Socket was disconnected");
+    return false;
+  }
+  mSocketSendPacket = request;
+  response.status = chreBleSocketSend(
+      mSocketSendPacket->socketId, mSocketSendPacket->data.bytes,
+      mSocketSendPacket->data.size, [](void *, uint16_t) {});
+  return true;
+}
+
 bool ChreApiTestService::validateBleScanFilters(
     const chre_rpc_ChreBleGenericFilter *scanFilters,
     chreBleGenericFilter *outputScanFilters, uint32_t scanFilterCount) {

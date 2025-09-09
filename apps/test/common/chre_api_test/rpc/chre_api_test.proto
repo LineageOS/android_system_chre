@@ -52,6 +52,12 @@ service ChreApiTestService {
   rpc ChreGetHostEndpointInfo(ChreGetHostEndpointInfoInput)
       returns (ChreGetHostEndpointInfoOutput) {}
 
+  /* Sends a packet over the socket to the remote device. Returns the status of
+   * the socket send operation.
+   */
+  rpc ChreBleSocketSend(ChreBleSocketPacket) returns (ChreBleSocketSendStatus) {
+  }
+
   // Start synchronous functions
 
   /* Starts a BLE scan synchronously. This will wait for the
@@ -80,6 +86,28 @@ service ChreApiTestService {
    */
   rpc ChreBleReadRssiSync(ChreBleReadRssiRequest)
       returns (stream ChreBleReadRssiEvent) {}
+
+  /* This will wait for the CHRE_EVENT_BLE_SOCKET_CONNECTION event and will
+   * return success if the event is seen. If successful, the message will also
+   * include the socketId, socketName, maxTxPacketLength, and maxRxPacketLength.
+   */
+  rpc ChreBleSocketOpenedSync(google.protobuf.Empty)
+      returns (stream ChreBleSocketConnectionEvent) {}
+
+  /* Receives a packet over the socket from the remote device synchronously.
+   * This will wait for the CHRE_EVENT_BLE_SOCKET_PACKET event and will return
+   * success if the event is seen. If successful, the message will also include
+   * the socketId and socket packet.
+   */
+  rpc ChreBleSocketReceiveSync(google.protobuf.Empty)
+      returns (stream ChreBleSocketPacketEvent) {}
+
+  /* This will wait for the CHRE_EVENT_BLE_SOCKET_DISCONNECTION event and will
+   * return success if the event is seen. If successful, the message will also
+   * include the socketId.
+   */
+  rpc ChreBleSocketClosedSync(google.protobuf.Empty)
+      returns (stream ChreBleSocketDisconnectionEvent) {}
 }
 
 // General messages
@@ -402,4 +430,43 @@ message ChreBleReadRssiEvent {
   uint32 connectionHandle = 1;
   int32 rssi = 2;
   bool status = 3;
+}
+
+// Return value for ChreBleSocketOpenedSync
+message ChreBleSocketConnectionEvent {
+  bool status = 1;
+
+  uint64 socketId = 2;
+
+  bytes socketName = 3;
+
+  uint32 maxTxPacketLength = 4;
+
+  uint32 maxRxPacketLength = 5;
+}
+
+// Input value for ChreBleSocketSendSync
+message ChreBleSocketPacket {
+  uint64 socketId = 1;
+
+  bytes data = 2;
+}
+
+// Return value for ChreBleSocketSendSync
+message ChreBleSocketSendStatus {
+  int32 status = 1;
+}
+
+// Return value for ChreBleSocketReceiveSync
+message ChreBleSocketPacketEvent {
+  bool status = 1;
+
+  ChreBleSocketPacket packet = 2;
+}
+
+// Return value for ChreBleSocketClosedSync
+message ChreBleSocketDisconnectionEvent {
+  bool status = 1;
+
+  uint64 socketId = 2;
 }
