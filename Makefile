@@ -130,12 +130,6 @@ include $(CHRE_PREFIX)/build/variant/aosp_cm4_exynos-embos.mk
 include $(CHRE_PREFIX)/build/variant/aosp_riscv55e03_tinysys.mk
 include $(CHRE_PREFIX)/build/variant/aosp_riscv55e300_tinysys.mk
 include $(CHRE_PREFIX)/build/variant/google_arm64_android.mk
-include $(CHRE_PREFIX)/build/variant/google_hexagonv62_slpi.mk
-include $(CHRE_PREFIX)/build/variant/google_hexagonv62_slpi-uimg.mk
-include $(CHRE_PREFIX)/build/variant/google_hexagonv65_adsp-see.mk
-include $(CHRE_PREFIX)/build/variant/google_hexagonv65_adsp-see-uimg.mk
-include $(CHRE_PREFIX)/build/variant/google_hexagonv65_slpi-see.mk
-include $(CHRE_PREFIX)/build/variant/google_hexagonv65_slpi-see-uimg.mk
 include $(CHRE_PREFIX)/build/variant/google_hexagonv66_adsp-see.mk
 include $(CHRE_PREFIX)/build/variant/google_hexagonv66_adsp-see-uimg.mk
 include $(CHRE_PREFIX)/build/variant/google_hexagonv66_slpi-see.mk
