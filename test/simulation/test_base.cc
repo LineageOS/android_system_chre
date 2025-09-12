@@ -179,6 +179,38 @@ TEST_F(TestBase, methods) {
   sendEventToNanoapp(appId, SOME_EVENT);
 }
 
+// Basic test to ensure getting ID works on start and end
+TEST_F(TestBase, GetIdOnStartAndEnd) {
+  constexpr uint64_t kAppId = 0x1234567890abcdef;
+  class App : public TestNanoapp {
+   public:
+    explicit App(TestNanoappInfo info) : TestNanoapp(info) {}
+    bool start() override {
+      uint64_t appId = chreGetAppId();
+      uint16_t instanceId = chreGetInstanceId();
+      LOGI("start: id=0x%" PRIx64 " instance=%" PRIu16, appId, instanceId);
+      mInstanceId = instanceId;
+      mAppId = appId;
+      return kAppId == appId;
+    }
+
+    void end() override {
+      uint64_t appId = chreGetAppId();
+      uint16_t instanceId = chreGetInstanceId();
+      LOGI("end: id=0x%" PRIx64 " instance=%" PRIu16, appId, instanceId);
+      CHRE_ASSERT(mAppId == appId);
+      CHRE_ASSERT(mInstanceId == instanceId);
+    }
+
+   private:
+    uint64_t mAppId;
+    uint16_t mInstanceId;
+  };
+
+  uint64_t appId = loadNanoapp(MakeUnique<App>(TestNanoappInfo{.id = kAppId}));
+  unloadNanoapp(appId);
+}
+
 // Explicitly instantiate the TestEventQueueSingleton to reduce codesize.
 template class Singleton<TestEventQueue>;
 
