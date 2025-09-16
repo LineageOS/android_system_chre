@@ -14,31 +14,4 @@
  * limitations under the License.
  */
 
-package {
-    default_team: "trendy_team_context_hub",
-    default_applicable_licenses: ["system_chre_license"],
-}
-
-cc_library {
-    name: "chre_subliner",
-    vendor_available: true,
-    host_supported: true,
-    cpp_std: "c++20",
-    cflags: [
-        "-Wall",
-        "-Werror",
-    ],
-    srcs: [],
-    include_dirs: [],
-    shared_libs: [],
-    static_libs: [],
-}
-
-cc_test_host {
-    name: "chre_subliner_unit_tests",
-    srcs: [],
-    shared_libs: ["chre_subliner"],
-    sanitize: {
-        address: true,
-    },
-}
+ #include "chre/shmem_spmc_queue/queue.h"
