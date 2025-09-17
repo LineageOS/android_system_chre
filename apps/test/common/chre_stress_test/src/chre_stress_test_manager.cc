@@ -407,7 +407,6 @@ void Manager::handleBleAsyncResult(const chreAsyncResult *result) {
 
 void Manager::checkTimestamp(uint64_t timestamp, uint64_t pastTimestamp) {
   if (timestamp < pastTimestamp) {
-    sendFailure("Timestamp was too old");
     LOGI("Current timestamp %" PRIu64, timestamp);
     LOGI("Past timestamp %" PRIu64, pastTimestamp);
     sendFailure("Timestamp was too old");
