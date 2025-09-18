@@ -180,11 +180,13 @@ class ChreApiTestService final
 
  private:
   /**
-   * Sets the synchronous timeout timer for the active sync message.
+   * Sets the synchronous timer for the active sync message. Sends a failure
+   * message and closes the writer if unsuccessful.
    *
-   * @return                     if the operation was successful.
+   * @param writer Writer to close if operation is unsuccessful.
    */
-  bool startSyncTimer();
+  template <typename T>
+  void startRpcSyncTimer(Optional<ChreApiTestService::ServerWriter<T>> &writer);
 
   /**
    * The following functions validate the RPC input: request, calls the

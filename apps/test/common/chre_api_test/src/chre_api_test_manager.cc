@@ -239,16 +239,17 @@ void ChreApiTestService::ChreBleStartScanSync(
   }
 
   mWriter = std::move(writer);
-  CHRE_ASSERT(mSyncTimerHandle == CHRE_TIMER_INVALID);
   mRequestType = CHRE_BLE_REQUEST_TYPE_START_SCAN;
 
   chre_rpc_Status status;
   if (!validateInputAndCallChreBleStartScanAsync(request, status) ||
-      !status.status || !startSyncTimer()) {
+      !status.status) {
+    LOGE("ChreBleStartScanSync: status: false (error)");
     sendFailureAndFinishCloseWriter(mWriter);
-    mSyncTimerHandle = CHRE_TIMER_INVALID;
-    LOGD("ChreBleStartScanSync: status: false (error)");
+    return;
   }
+
+  startRpcSyncTimer(mWriter);
 }
 
 void ChreApiTestService::ChreBleStopScanSync(
@@ -263,16 +264,17 @@ void ChreApiTestService::ChreBleStopScanSync(
   }
 
   mWriter = std::move(writer);
-  CHRE_ASSERT(mSyncTimerHandle == CHRE_TIMER_INVALID);
   mRequestType = CHRE_BLE_REQUEST_TYPE_STOP_SCAN;
 
   chre_rpc_Status status;
   if (!validateInputAndCallChreBleStopScanAsync(request, status) ||
-      !status.status || !startSyncTimer()) {
+      !status.status) {
+    LOGE("ChreBleStopScanSync: status: false (error)");
     sendFailureAndFinishCloseWriter(mWriter);
-    mSyncTimerHandle = CHRE_TIMER_INVALID;
-    LOGD("ChreBleStopScanSync: status: false (error)");
+    return;
   }
+
+  startRpcSyncTimer(mWriter);
 }
 
 void ChreApiTestService::ChreBleReadRssiSync(
@@ -287,15 +289,15 @@ void ChreApiTestService::ChreBleReadRssiSync(
   }
 
   mRssiWriter = std::move(writer);
-  CHRE_ASSERT(mSyncTimerHandle == CHRE_TIMER_INVALID);
-
   chre_rpc_Status status;
   if (!validateInputAndCallChreBleReadRssiAsync(request, status) ||
-      !status.status || !startSyncTimer()) {
+      !status.status) {
+    LOGE("ChreBleReadRssiSync: status false (error)");
     sendFailureAndFinishCloseWriter(mRssiWriter);
-    mSyncTimerHandle = CHRE_TIMER_INVALID;
-    LOGD("ChreBleReadRssiSync: status false (error)");
+    return;
   }
+
+  startRpcSyncTimer(mRssiWriter);
 }
 
 // End ChreApiTestService RPC sync functions
@@ -706,10 +708,16 @@ void ChreApiTestService::handleTimerEvent(const void *cookie) {
   }
 }
 
-bool ChreApiTestService::startSyncTimer() {
+template <typename T>
+void ChreApiTestService::startRpcSyncTimer(
+    Optional<ChreApiTestService::ServerWriter<T>> &writer) {
+  CHRE_ASSERT(mSyncTimerHandle == CHRE_TIMER_INVALID);
   mSyncTimerHandle = chreTimerSet(
       kSyncFunctionTimeout, &mSyncTimerHandle /* cookie */, true /* oneShot */);
-  return mSyncTimerHandle != CHRE_TIMER_INVALID;
+  if (mSyncTimerHandle == CHRE_TIMER_INVALID) {
+    LOGE("Cannot set the sync timer for RPC request");
+    sendFailureAndFinishCloseWriter(writer);
+  }
 }
 
 // Start ChreApiTestManager functions
