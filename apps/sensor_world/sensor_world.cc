@@ -280,6 +280,9 @@ uint16_t getNextLfsrState() {
 
 const char *getSensorName(uint32_t sensorHandle) {
   for (size_t i = 0; i < ARRAY_SIZE(sensors); i++) {
+    if (!sensors[i].isInitialized) {
+      continue;
+    }
     if (sensors[i].handle == sensorHandle) {
       return sensors[i].info.sensorName;
     }
@@ -578,5 +581,5 @@ void nanoappEnd() {
 #include "chre/util/system/napp_permissions.h"
 
 CHRE_STATIC_NANOAPP_INIT(SensorWorld, chre::kSensorWorldAppId, 0,
-                         chre::NanoappPermissions::CHRE_PERMS_NONE);
+                         chre::NanoappPermissions::CHRE_PERMS_NONE)
 #endif  // CHRE_NANOAPP_INTERNAL

@@ -27,7 +27,7 @@ const StaticNanoappInitFunction kStaticNanoappList[] = {
     //  initializeStaticNanoappGnssWorld,
     //  initializeStaticNanoappHelloWorld,
     //  initializeStaticNanoappMessageWorld,
-    //  initializeStaticNanoappSensorWorld,
+    initializeStaticNanoappSensorWorld,
     //  initializeStaticNanoappSpammer,
     //  initializeStaticNanoappTimerWorld,
     //  initializeStaticNanoappUnloadTester,
