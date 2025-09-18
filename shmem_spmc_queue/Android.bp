@@ -31,7 +31,9 @@ cc_library {
     srcs: [],
     local_include_dirs: ["include"],
     export_include_dirs: ["include"],
-    shared_libs: [],
+    shared_libs: [
+        "liblog",
+    ],
     static_libs: [
         "pw_allocator",
         "pw_function",
@@ -44,7 +46,10 @@ cc_library {
 cc_test_host {
     name: "chre_shmem_spmc_queue_unit_tests",
     srcs: ["test/queue_test.cc"],
-    shared_libs: ["chre_shmem_spmc_queue"],
+    shared_libs: [
+        "chre_shmem_spmc_queue",
+        "liblog",
+    ],
     static_libs: [
         "pw_allocator",
         "pw_function",
