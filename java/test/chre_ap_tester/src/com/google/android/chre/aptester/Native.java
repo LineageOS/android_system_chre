@@ -18,10 +18,29 @@ package com.google.android.chre.aptester;
 
 public class Native {
     static {
-        // The runtime will add "lib" on the front and ".o" on the end of
+        // The runtime will add "lib" on the front and ".so" on the end of
         // the name supplied to loadLibrary.
         System.loadLibrary("chredemojni");
     }
 
-    static native int add(int a, int b);
+    static native int init();
+
+    static native void destroy();
+
+    static native int loadNanoApp(long nanoAppId);
+
+    static native int unloadNanoApp(long nanoAppId);
+
+    static native boolean sendMessage(
+            long nanoAppId, int messageType, byte[] message, int messageSize);
+
+    /**
+     * Called by native JNI library.
+     *
+     * @param nanoAppId
+     * @param message
+     */
+    public static void onMessageReceived(long nanoAppId, byte[] message) {
+        ContextHubAPManager.getInstance().onMessageFromNanoApp(nanoAppId, message);
+    }
 }

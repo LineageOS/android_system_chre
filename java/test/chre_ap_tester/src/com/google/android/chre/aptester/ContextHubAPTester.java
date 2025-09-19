@@ -33,33 +33,43 @@ public class ContextHubAPTester extends Activity {
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // 1. Create a vertical container layout
+        // Create a vertical container layout
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setGravity(Gravity.CENTER);
 
-        // 2. Create a Button to trigger the native call on click
-        Button clickButton = new Button(this);
-        clickButton.setText("Click Me!");
-        layout.addView(clickButton); // Add the button to the layout
-
-        // 3. Create a TextView to show the result
+        // Create a TextView to show the result
         mResultTextView = new TextView(this);
         mResultTextView.setText("Result will be shown here after clicking the button.");
-        layout.addView(mResultTextView); // Add the TextView to the layout
 
-        // Set the entire container layout as the activity's content
+        // Create a Button to trigger init CHRE AP
+        Button initButton = new Button(this);
+        initButton.setText("Init CHRE AP");
+        initButton.setOnClickListener(
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        int res = Native.init();
+                        mResultTextView.setText("init returns: " + Integer.toString(res));
+                    }
+                });
+        layout.addView(initButton);
+
+        // Create a button to destroy CHRE AP
+        Button destroyButton = new Button(this);
+        destroyButton.setText("Destroy CHRE AP");
+        destroyButton.setOnClickListener(
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        Native.destroy();
+                        mResultTextView.setText("destroyed");
+                    }
+                });
+        layout.addView(destroyButton);
+
+        // Setup the rest of the things.
+        layout.addView(mResultTextView);
         setContentView(layout);
-
-        // 4. Set the click listener for the button
-        clickButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                // This code executes ONLY when the button is clicked
-                int sum = Native.add(2, 3);
-                // Update the TextView with the result
-                mResultTextView.setText("2 + 3 = " + Integer.toString(sum));
-            }
-        });
     }
 }
