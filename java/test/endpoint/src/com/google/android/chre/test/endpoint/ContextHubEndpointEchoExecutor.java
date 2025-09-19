@@ -29,6 +29,7 @@ import android.hardware.contexthub.HubServiceInfo;
 import android.hardware.location.ContextHubInfo;
 import android.hardware.location.ContextHubManager;
 import android.hardware.location.ContextHubTransaction;
+import android.hardware.location.HubInfo;
 import android.hardware.location.NanoAppBinary;
 import android.hardware.location.NanoAppState;
 import android.util.Log;
@@ -46,13 +47,18 @@ import com.google.protobuf.Empty;
 import com.google.protobuf.MessageLite;
 
 import org.junit.Assert;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.anyOf;
+import static org.hamcrest.Matchers.is;
 import org.junit.Assume;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executor;
@@ -497,6 +503,30 @@ public class ContextHubEndpointEchoExecutor {
         Assert.assertTrue(status.getErrorMessage(), status.getStatus());
 
         unregisterRegisteredEndpoint();
+    }
+
+    /**
+     * A test to see if the getHubs API returns a valid list of hubs.
+     */
+    public void testGetHubs() throws Exception {
+        List<HubInfo> hubs = mContextHubManager.getHubs();
+        Assert.assertNotNull(hubs);
+        Set<Long> hubIds = new HashSet<>();
+        for (HubInfo hub : hubs) {
+            Log.d(TAG, "Found hub: " + hub);
+            assertThat(
+                    "Hub type is invalid",
+                     hub.getType(),
+                     anyOf(is(HubInfo.TYPE_CONTEXT_HUB), is(HubInfo.TYPE_VENDOR_HUB)));
+            Assert.assertFalse("Hub ID 0x" + Long.toHexString(hub.getId())
+                                + " is not unique", hubIds.contains(hub.getId()));
+            if (hub.getType() == HubInfo.TYPE_CONTEXT_HUB) {
+                Assert.assertNotNull("ContextHubInfo is null", hub.getContextHubInfo());
+            } else if (hub.getType() == HubInfo.TYPE_VENDOR_HUB) {
+                Assert.assertNotNull("VendorHubInfo is null", hub.getVendorHubInfo());
+            }
+            hubIds.add(hub.getId());
+        }
     }
 
     private void printHubDiscoveryInfo(HubDiscoveryInfo info) {

@@ -93,3 +93,11 @@ flag {
     purpose: PURPOSE_BUGFIX
   }
 }
+
+flag {
+  name: "get_hubs_api"
+  namespace: "context_hub"
+  description: "Enables the generic getHubs APIs"
+  bug: "445766743"
+  is_exported: true
+}

@@ -32,6 +32,7 @@ java_library {
         "chre_pigweed_utils",
         "chre-test-utils",
         "endpoint_echo_test_proto_java_lite",
+        "hamcrest-library",
         "pw_rpc_java_client",
     ],
 
