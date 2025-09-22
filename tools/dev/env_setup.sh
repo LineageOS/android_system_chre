@@ -357,6 +357,7 @@ chre_lunch() {
   while read -r -u 3 command; do  # Read from fd 3 to save stdin for user input
     eval "export $command"
     if [[ $? -ne 0 ]]; then
+      echo "Error evaluating export $command" >&2
       onExit && return 1
     fi
   done 3<<< "$commands" && \

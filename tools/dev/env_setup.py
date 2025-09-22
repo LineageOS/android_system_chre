@@ -217,17 +217,21 @@ def _parse_platform_and_target_configs(
       for target in platform["targets"]:
         if target["name"] != target_name:
           continue
+        # Required configurations
         env_map = {"CHRE_PLATFORM": platform_name,
                    "CHRE_TARGET_TYPE": target_name,
                    "CHRE_BUILD_TARGET": target["build_target"],
                    "CHRE_DEV_PATH": _get_canonical_path(f"~/.chre_dev/{platform_name}-{target_name}")
                    }
+        # Optional configurations
         if platform.get("python_version"):
           env_map["CHRE_PYTHON_VERSION"] = platform.get("python_version")
         if platform.get("signer"):
           env_map["CHRE_SIGNER_PATH"] = _get_canonical_path(platform.get("signer"))
         if target.get("install_location"):
           env_map["TARGET_INSTALL_LOCATION"] = target["install_location"]
+        if target.get("quick_flash_command"):
+          env_map["QUICK_FLASH_COMMAND"] = target["quick_flash_command"]
         envs = platform.get("common_env_variables", []) + target.get(
           "env_variables", [])
         return env_map, envs
@@ -260,7 +264,7 @@ def _parse_env_variable_fields(env_vars, predefined_envs):
     A list of <name>=<value> pairs representing the environment variables.
   """
   all_env_names = set(predefined_envs)
-  env_var_pairs = [f"{k}={v}" for k, v in predefined_envs.items()]
+  env_var_pairs = [f'{k}="{v}"' for k, v in predefined_envs.items()]
   for env_var in env_vars:
     try:
       env_name = env_var["name"]
@@ -278,7 +282,7 @@ def _parse_env_variable_fields(env_vars, predefined_envs):
       if user_entered_value:
         expanded_value = _assert_and_expand_env_variable(env_name, env_var["type"],
                                                          user_entered_value)
-        env_var_pairs.append(f"{env_name}={expanded_value}")
+        env_var_pairs.append(f'{env_name}="{expanded_value}"')
         # User entered a value, skip the default action
         continue
 
@@ -291,7 +295,7 @@ def _parse_env_variable_fields(env_vars, predefined_envs):
       # Default action is supposed to have made the default value valid
       expanded_value = _assert_and_expand_env_variable(env_name, env_var["type"],
                                                        default_value)
-      env_var_pairs.append(f"{env_name}={expanded_value}")
+      env_var_pairs.append(f'{env_name}="{expanded_value}"')
     except KeyError as e:
       fatal_error(f"The environment variable doesn't have the field '{e.args[0]}'")
 

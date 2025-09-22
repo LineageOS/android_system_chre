@@ -88,7 +88,11 @@ After building the target, it can be flashed onto the device by running `chre_fl
 that the binary is copied to is determined by the setting of "install_location" in the
 `env_config.json`.
 
-If `-R` option is provided, the device will reboot.
+Typically, to effectively load the target binary additional on-device action is needed. By default,
+if `quick_flash_command` (see [Target Configuration Fields](#target-configuration-fields)
+for details) is set it will be executed. If it's not set but `chre_aidl_hal_client` exists under
+/vendor/bin while the target type is `nanoapp`, it will be used to unload and load the nanoapp. When
+`-R` option is provided, the above options will be skipped and the device will always be rebooted.
 
 ## Configuration
 
@@ -141,6 +145,8 @@ fields:
 - `install_location` (string, optional): The path where the output binary of the build will be
   installed on the connected physical device. If this is not specified, the output binary will
   not be installed.
+- `quick_flash_command` (string, optional): A command that can be used to quickly load the target
+  after copying the files onto the device.
 - `env_variables` (array, optional): An array of objects where each defines a shell environment
   variables that are specific to this target.
 

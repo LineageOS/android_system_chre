@@ -21,7 +21,8 @@ the compiled and signed binary (.so file) and, for nanoapps, the corresponding
 .napp_header file to the device.
 """
 import argparse
-import glob
+import re
+from pathlib import Path
 import os
 import struct
 import time
@@ -47,8 +48,6 @@ def verify_nanoapp(session: ShellSession, header_file: str):
     header_file: The path to the .napp_header file.
   """
   nanoapp_id = get_nanoapp_id(header_file)
-  print(f"Verifying installation of nanoapp with ID: {nanoapp_id}")
-
   dumpsys_output = ""
   # Retry for a few seconds as the nanoapp may take time to load
   for i in range(5):
@@ -110,16 +109,26 @@ if __name__ == '__main__':
   run(f"adb shell mkdir -p {install_location}")
   run(f"adb push {so_file} {install_location}", has("1 file pushed"))
 
-  if "nanoapp" == target_type:
+  if target_type == "nanoapp":
     header_file = find_unique_file(f"./out/{build_target}/*.napp_header")
     run(f"adb push {header_file} {install_location}", has("1 file pushed"))
 
+  is_flashed = True
   if args.reboot:
     run("adb reboot")
     run("adb wait-for-device")
     root(bash)
-    if "nanoapp" == target_type:
+  elif os.getenv("QUICK_FLASH_COMMAND"):
+    run(os.getenv("QUICK_FLASH_COMMAND"))
+  elif target_type == "nanoapp" and re.search("chre_aidl_hal_client\r\n",
+                                              run("adb shell ls /vendor/bin/chre_aidl_hal_client")):
+    run("adb shell /vendor/bin/chre_aidl_hal_client unload 0x{}".format(get_nanoapp_id(header_file)), show_output=True)
+    run("adb shell /vendor/bin/chre_aidl_hal_client load {}".format(Path(so_file).stem), show_output=True)
+  else:
+    is_flashed = False
+    warning("Please reboot the device to complete the installation")
+
+  if is_flashed:
+    if target_type == "nanoapp":
       verify_nanoapp(bash, header_file)
     print("Installation is complete")
-  else:
-    warning("Please reboot the device to complete the installation")
