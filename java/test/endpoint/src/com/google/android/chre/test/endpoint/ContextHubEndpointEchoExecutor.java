@@ -161,7 +161,9 @@ public class ContextHubEndpointEchoExecutor {
         @Override
         public void onMessageReceived(HubEndpointSession session, HubMessage message) {
             Log.d(TAG, "onMessageReceived: session=" + session + ", message=" + message);
-            mMessageQueue.add(message);
+            if (!mMessageQueue.offer(message)) {
+                Log.e(TAG, "Message queue is full. Dropping message from session: " + session);
+            }
         }
 
         public HubMessage waitForMessage() throws InterruptedException {
@@ -175,7 +177,9 @@ public class ContextHubEndpointEchoExecutor {
         @Override
         public void onEndpointsStarted(@NonNull List<HubDiscoveryInfo> discoveryInfoList) {
             Log.d(TAG, "onEndpointsStarted: discovery size=" + discoveryInfoList.size());
-            mEndpointStartedQueue.add(discoveryInfoList);
+            if (!mEndpointStartedQueue.offer(discoveryInfoList)) {
+                Log.e(TAG, "Endpoint 'started' queue is full! Dropping event.");
+            }
         }
 
         @Override
@@ -183,11 +187,13 @@ public class ContextHubEndpointEchoExecutor {
                 @NonNull List<HubDiscoveryInfo> discoveryInfoList, int reason) {
             Log.d(
                     TAG,
-                    "onEndpointsStarted: discovery size="
+                    "onEndpointsStopped: discovery size="
                             + discoveryInfoList.size()
                             + ", reason="
                             + reason);
-            mEndpointStoppedQueue.add(Pair.create(discoveryInfoList, reason));
+            if (!mEndpointStoppedQueue.offer(Pair.create(discoveryInfoList, reason))) {
+                Log.e(TAG, "Endpoint 'stopped' queue is full. Dropping event.");
+            }
         }
 
         public List<HubDiscoveryInfo> waitForStarted() throws InterruptedException {
@@ -413,7 +419,6 @@ public class ContextHubEndpointEchoExecutor {
                             manager.registerEndpointDiscoveryCallback(
                                     callback, ECHO_SERVICE_DESCRIPTOR));
         }
-        callback.clear();
 
         checkDynamicEndpointDiscovery(callback);
         checkApiSupport((manager) -> manager.unregisterEndpointDiscoveryCallback(callback));
@@ -596,12 +601,14 @@ public class ContextHubEndpointEchoExecutor {
             return;
         }
 
+        callback.clear();
         loadEchoNanoapp();
         List<HubDiscoveryInfo> discoveryList = callback.waitForStarted();
         Assert.assertNotNull(discoveryList);
         Assert.assertNotEquals(discoveryList.size(), 0);
         Assert.assertTrue(checkNanoappInDiscoveryList(discoveryList));
 
+        callback.clear();
         unloadEchoNanoapp();
         Pair<List<HubDiscoveryInfo>, Integer> discoveryListAndReason = callback.waitForStopped();
         Assert.assertNotNull(discoveryListAndReason);
