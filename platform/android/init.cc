@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 The Android Open Source Project
+ * Copyright (C) 2025 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,8 +18,7 @@
 #include "chre/core/event_loop.h"
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/static_nanoapps.h"
-#include "chre/platform/linux/platform_log.h"
-#include "chre/platform/linux/task_util/task_manager.h"
+#include "chre/platform/android/platform_log.h"
 #include "chre/platform/log.h"
 
 #include <csignal>
@@ -41,9 +40,6 @@ int main(int /*argc*/, char ** /*argv*/) {
   // Initialize logging.
   chre::PlatformLogSingleton::init();
 
-  // Initialize the TaskManager.
-  chre::TaskManagerSingleton::init();
-
   // Initialize the system.
   chre::initCommon();
 
@@ -61,7 +57,6 @@ int main(int /*argc*/, char ** /*argv*/) {
   });
   chreThread.join();
 
-  chre::TaskManagerSingleton::deinit();
   chre::deinitCommon();
   chre::PlatformLogSingleton::deinit();
 

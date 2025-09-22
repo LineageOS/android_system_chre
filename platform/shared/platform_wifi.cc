@@ -107,6 +107,8 @@ bool PlatformWifi::requestNanRanging(
     prePalApiCall(PalType::WIFI);
     success = mWifiApi->requestNanRanging(params);
   }
+#else
+  UNUSED_VAR(params);
 #endif
   return success;
 }

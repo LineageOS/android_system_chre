@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 The Android Open Source Project
+ * Copyright (C) 2025 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,25 +17,37 @@
 #ifndef CHRE_PLATFORM_ANDROID_LOG_H_
 #define CHRE_PLATFORM_ANDROID_LOG_H_
 
-#include <android/log.h>
-#include <cstdio>
-
-#define ANDROID_LOG_TAG "CHRE"
+#include "chre/platform/system_time.h"
+#include "chre_api/chre/re.h"
 
 #ifndef __FILENAME__
 #define __FILENAME__ __FILE__
 #endif
 
-#define CHRE_ANDROID_LOG(level, fmt, ...)                                  \
-  __android_log_print(level, ANDROID_LOG_TAG, "%s:%d\t" fmt, __FILENAME__, \
-                      __LINE__, ##__VA_ARGS__);
+#include <cinttypes>
 
-#define LOGE(fmt, ...) CHRE_ANDROID_LOG(ANDROID_LOG_ERROR, fmt, ##__VA_ARGS__)
+#include "chre/platform/android/platform_log.h"
 
-#define LOGW(fmt, ...) CHRE_ANDROID_LOG(ANDROID_LOG_WARN, fmt, ##__VA_ARGS__)
+#define CHRE_ANDROID_LOG(logLevel, levelStr, color, fmt, ...)               \
+  if (::chre::PlatformLogSingleton::isInitialized()) {                      \
+    uint64_t timeMs =                                                       \
+        chre::SystemTime::getMonotonicTime().toRawNanoseconds() / 1000000;  \
+    uint64_t secondsPart = timeMs / 1000;                                   \
+    uint64_t millisPart = timeMs % 1000;                                    \
+    ::chre::PlatformLogSingleton::get()->log(                               \
+        logLevel,                                                           \
+        "\e[" color "m%s %s:%d\t@ %" PRIu64 ".03%" PRIu64 ": " fmt "\e[0m", \
+        levelStr, __FILENAME__, __LINE__, secondsPart, millisPart,          \
+        ##__VA_ARGS__);                                                     \
+  }
 
-#define LOGI(fmt, ...) CHRE_ANDROID_LOG(ANDROID_LOG_INFO, fmt, ##__VA_ARGS__)
-
-#define LOGD(fmt, ...) CHRE_ANDROID_LOG(ANDROID_LOG_DEBUG, fmt, ##__VA_ARGS__)
+#define LOGE(fmt, ...) \
+  CHRE_ANDROID_LOG(CHRE_LOG_ERROR, "E", "91", fmt, ##__VA_ARGS__)
+#define LOGW(fmt, ...) \
+  CHRE_ANDROID_LOG(CHRE_LOG_WARN, "W", "93", fmt, ##__VA_ARGS__)
+#define LOGI(fmt, ...) \
+  CHRE_ANDROID_LOG(CHRE_LOG_INFO, "I", "96", fmt, ##__VA_ARGS__)
+#define LOGD(fmt, ...) \
+  CHRE_ANDROID_LOG(CHRE_LOG_DEBUG, "D", "97", fmt, ##__VA_ARGS__)
 
 #endif  // CHRE_PLATFORM_ANDROID_LOG_H_

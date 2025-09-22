@@ -18,8 +18,7 @@
 #include "chre/core/event_loop.h"
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/static_nanoapps.h"
-#include "chre/platform/linux/platform_log.h"
-#include "chre/platform/linux/task_util/task_manager.h"
+#include "chre/platform/android/platform_log.h"
 #include "chre/platform/shared/init.h"
 
 #include <android/log_macros.h>
@@ -39,8 +38,6 @@ static jint init(JNIEnv * /*env*/, jobject /*thiz*/) {
   }
   // Initialize logging.
   chre::PlatformLogSingleton::init();
-  // Initialize the TaskManager.
-  chre::TaskManagerSingleton::init();
   // Initialize the system.
   chre::initCommon();
 
@@ -61,7 +58,6 @@ static void destroy(JNIEnv * /*env*/, jobject /*thiz*/) {
     chreThread->join();
   }
   chreThread.reset();
-  chre::TaskManagerSingleton::deinit();
   chre::deinitCommon();
   chre::PlatformLogSingleton::deinit();
   ALOGD("CHRE AP env: destroyed");
