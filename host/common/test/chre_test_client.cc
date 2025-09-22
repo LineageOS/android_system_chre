@@ -76,6 +76,7 @@ constexpr uint32_t kDefaultApiVersion = 0x01000000;
 
 // Timeout for loading a nanoapp fragment.
 static constexpr auto kFragmentTimeout = std::chrono::milliseconds(2000);
+static constexpr auto kResponseTimeout = std::chrono::seconds(5);
 
 enum class LoadingStatus {
   kLoading,
@@ -139,13 +140,20 @@ class SocketCallbacks : public SocketClient::ICallbacks,
   void handleNanoappListResponse(
       const fbs::NanoappListResponseT &response) override {
     LOGI("Got nanoapp list response with %zu apps:", response.nanoapps.size());
-    for (const std::unique_ptr<fbs::NanoappListEntryT> &nanoapp :
-         response.nanoapps) {
-      LOGI("  App ID 0x%016" PRIx64 " version 0x%" PRIx32
-           " permissions 0x%" PRIx32 " enabled %d system %d",
-           nanoapp->app_id, nanoapp->version, nanoapp->permissions,
-           nanoapp->enabled, nanoapp->is_system);
+    {
+      std::lock_guard<std::mutex> lock(mResponseMutex);
+      mAppIdVector.clear();
+      for (const std::unique_ptr<fbs::NanoappListEntryT> &nanoapp :
+           response.nanoapps) {
+        LOGI("  App ID 0x%016" PRIx64 " version 0x%" PRIx32
+             " permissions 0x%" PRIx32 " enabled %d system %d",
+             nanoapp->app_id, nanoapp->version, nanoapp->permissions,
+             nanoapp->enabled, nanoapp->is_system);
+        mAppIdVector.push_back(nanoapp->app_id);
+      }
+      mGotResponse = true;
     }
+    mResponseCondVar.notify_all();
   }
 
   void handleLoadNanoappResponse(
@@ -155,7 +163,7 @@ class SocketCallbacks : public SocketClient::ICallbacks,
          response.transaction_id, response.fragment_id, response.success);
 
     {
-      std::lock_guard lock(gFragmentMutex);
+      std::lock_guard<std::mutex> lock(gFragmentMutex);
       if (response.fragment_id != gFragmentStatus.id) {
         gFragmentStatus.loadStatus = LoadingStatus::kError;
       } else {
@@ -171,6 +179,12 @@ class SocketCallbacks : public SocketClient::ICallbacks,
       const fbs::UnloadNanoappResponseT &response) override {
     LOGI("Got unload nanoapp response, transaction ID 0x%" PRIx32 " result %d",
          response.transaction_id, response.success);
+    {
+      std::lock_guard<std::mutex> lock(mResponseMutex);
+      mSuccess = response.success;
+      mGotResponse = true;
+    }
+    mResponseCondVar.notify_all();
   }
 
   void handleSelfTestResponse(const ::chre::fbs::SelfTestResponseT &response) {
@@ -182,9 +196,80 @@ class SocketCallbacks : public SocketClient::ICallbacks,
     return mResultPromise.get_future();
   }
 
+  const std::vector<uint64_t> &getAppIdVector() {
+    return mAppIdVector;
+  }
+
+  void resetResponseWait() {
+    std::lock_guard<std::mutex> lock(mResponseMutex);
+    mGotResponse = false;
+    mSuccess = false;
+  }
+
+  bool waitForResponse() {
+    std::unique_lock<std::mutex> lock(mResponseMutex);
+    if (!mResponseCondVar.wait_for(lock, kResponseTimeout,
+                                   [this] { return mGotResponse; })) {
+      return false;
+    }
+    return true;
+  }
+
+  bool getSuccess() {
+    std::lock_guard<std::mutex> lock(mResponseMutex);
+    return mSuccess;
+  }
+
  private:
   std::promise<bool> mResultPromise;
+  std::vector<uint64_t> mAppIdVector;
+
+  // For generic requests that expect a response.
+  std::mutex mResponseMutex;
+  std::condition_variable mResponseCondVar;
+  bool mGotResponse = false;
+  bool mSuccess = false;
 };
+
+void requestNanoappList(SocketClient &client);
+void sendUnloadNanoappRequest(SocketClient &client, uint64_t appId);
+
+bool listNanoapps(SocketClient &client, SocketCallbacks &callbacks) {
+  callbacks.resetResponseWait();
+  requestNanoappList(client);
+  if (!callbacks.waitForResponse()) {
+    LOGE("Timed out waiting for nanoapp list");
+    return false;
+  }
+  return true;
+}
+
+bool unloadNanoapp(SocketClient &client, uint64_t appId,
+                   SocketCallbacks &callbacks) {
+  callbacks.resetResponseWait();
+  sendUnloadNanoappRequest(client, appId);
+  if (!callbacks.waitForResponse()) {
+    LOGE("Timed out waiting for unload response for app 0x%" PRIx64, appId);
+    return false;
+  }
+  return callbacks.getSuccess();
+}
+
+bool unloadAllNanoapps(SocketClient &client, sp<SocketCallbacks> callbacks) {
+  if (!listNanoapps(client, *callbacks)) {
+    return false;
+  }
+
+  // The app ID vector is populated when listNanoapps returns.
+  // It is safe to access it now.
+  for (uint64_t appId : callbacks->getAppIdVector()) {
+    if (!unloadNanoapp(client, appId, *callbacks)) {
+      LOGE("Failed to unload nanoapp 0x%" PRIx64, appId);
+      return false;
+    }
+  }
+  return true;
+}
 
 void requestHubInfo(SocketClient &client) {
   FlatBufferBuilder builder(64);
@@ -234,7 +319,7 @@ void sendNanoappLoad(SocketClient &client, uint64_t appId, uint32_t appVersion,
     FlatBufferBuilder builder(request.binary.size() + 128);
     HostProtocolHost::encodeFragmentedLoadNanoappRequest(builder, request);
 
-    std::unique_lock lock(gFragmentMutex);
+    std::unique_lock<std::mutex> lock(gFragmentMutex);
     gFragmentStatus = {.id = request.fragmentId,
                        .loadStatus = LoadingStatus::kLoading};
     lock.unlock();
@@ -340,7 +425,9 @@ static void usage(const std::string &name) {
       name +
       " load <nanoapp-id> <nanoapp-so-path> [app-version] [api-version]\n  " +
       name + " load_with_header <nanoapp-header-path> <nanoapp-so-path>\n  " +
-      name + " unload <nanoapp-id>\n " + name + " self_test\n";
+      name + " unload <nanoapp-id>\n  " +
+      name + " unloadall\n  " +
+      name + " self_test\n";
 
   LOGI("%s", output.c_str());
 }
@@ -422,6 +509,8 @@ int main(int argc, char *argv[]) {
       std::istringstream(idstr) >> std::setbase(0) >> id;
       sendUnloadNanoappRequest(client, id);
     }
+  } else if (cmd == "unloadall") {
+    success = unloadAllNanoapps(client, callbacks);
   } else if (cmd == "self_test") {
     sendSelfTestRequest(client);
 
