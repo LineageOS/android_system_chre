@@ -41,6 +41,13 @@ cc_library {
         "pw_span",
         "pw_status",
     ],
+    export_static_lib_headers: [
+        "pw_allocator",
+        "pw_function",
+        "pw_result",
+        "pw_span",
+        "pw_status",
+    ],
 }
 
 cc_test_host {
@@ -49,13 +56,6 @@ cc_test_host {
     shared_libs: [
         "chre_shmem_spmc_queue",
         "liblog",
-    ],
-    static_libs: [
-        "pw_allocator",
-        "pw_function",
-        "pw_result",
-        "pw_span",
-        "pw_status",
     ],
     sanitize: {
         address: true,

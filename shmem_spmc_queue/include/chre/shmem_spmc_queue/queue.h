@@ -83,13 +83,13 @@ class DataNotifier {
    * Updates the consumer's batching period during onWrite().
    *
    * @param producer The associated producer.
-   * @param consumer_id The consumer id.
-   * @param period_ms The period to update to in milliseconds. Disables timer if
+   * @param consumerId The consumer id.
+   * @param periodMs The period to update to in milliseconds. Disables timer if
    * empty.
    */
   virtual void updatePeriod(internal::ProducerBase & /*producer*/,
-                            pw::span<const uint8_t, 16> /*consumer_id*/,
-                            std::optional<uint32_t> /*period_ms*/);
+                            pw::span<const uint8_t, 16> /*consumerId*/,
+                            std::optional<uint32_t> /*periodMs*/);
 };
 
 /** Manages the Consumers for one Queue. */
@@ -149,45 +149,46 @@ class Producer : protected internal::ProducerBase {
   /**
    * Creates a Producer instance for a local queue.
    *
-   * @param base The base address in the calling thread's memory space for
-   * offsets in queue.
-   * @param queue_offset Pointer to queue metadata in shared memory.
-   * @param num_static_consumers The number of static consumers. See below.
+   * @param shmemBase The base address in the calling thread's memory space for
+   * offsets in queue. Used to convert offsets in shared memory to pointers.
+   * @param shmemSize The size of the shared memory region. Used to validate
+   * offsets.
+   * @param queue Pointer to queue metadata in shared memory.
    * @param allocator Allocator used for element storage. Allocations are within
    * the shared memory region beginning at base. Must outlive the new instance.
-   * @param max_block_count The maximum allowed blocks of element storage. Must
-   * be >= min_block_count. This can be adjusted at runtime.
-   * @param min_block_count The minimum required blocks of element storage. Must
+   * @param maxBlockCount The maximum allowed blocks of element storage. Must
+   * be >= minBlockCount. This can be adjusted at runtime.
+   * @param minBlockCount The minimum required blocks of element storage. Must
    * be > 0.
-   * @param data_notifier DataNotifier implementation for making notification
+   * @param dataNotifier DataNotifier implementation for making notification
    * decisions on write.
-   * @param consumer_manager ConsumerManager instance for Queue.
-   * @param notify_fn Callback for notifying this Producer.
-   * @param mem_access [optional] MemoryAccess implementation for accessing
+   * @param consumerManager ConsumerManager instance for Queue.
+   * @param notifyFn Callback for notifying this Producer.
+   * @param memAccess [optional] MemoryAccess implementation for accessing
    * Queue and element storage.
    * @return An initialized Producer instance on success.
    */
   template <size_t kBlockCapacity>
   static pw::Result<Producer> createLocal(
-      uintptr_t base, void *queue, size_t num_static_consumers,
-      pw::Allocator &allocator, size_t max_block_count, size_t min_block_count,
-      DataNotifier &data_notifier, ConsumerManager &consumer_manager,
-      LocalNotifyFn notify_fn, MemoryAccess *mem_access = nullptr);
+      void *shmemBase, size_t shmemSize, void *queue,
+      pw::Allocator &allocator, size_t maxBlockCount, size_t minBlockCount,
+      DataNotifier &dataNotifier, ConsumerManager &consumerManager,
+      LocalNotifyFn notifyFn, MemoryAccess *memAccess = nullptr);
 
   /**
    * Like {@link #createLocal()} but for a remote queue.
    *
    * All parameters are the same except that notify_fn is replaced by the
    * following:
-   * @param notify_args Mechanism for notifying Consumers out-of-band and for
+   * @param notifyArgs Mechanism for notifying Consumers out-of-band and for
    * Consumers to notify this Producer.
    */
   template <size_t kBlockCapacity>
   static pw::Result<Producer> createRemote(
-    uintptr_t base, void *queue, size_t num_static_consumers,
-    pw::Allocator &allocator, size_t max_block_count, size_t min_block_count,
-    DataNotifier &data_notifier, ConsumerManager &consumer_manager,
-    RemoteNotifyArgs notify_args, MemoryAccess *mem_access = nullptr);
+      void *shmemBase, size_t shmemSize, void *queue,
+      pw::Allocator &allocator, size_t maxBlockCount, size_t minBlockCount,
+      DataNotifier &dataNotifier, ConsumerManager &consumerManager,
+      RemoteNotifyArgs notifyArgs, MemoryAccess *memAccess = nullptr);
 
   /** Marks the Producer inactive, notifies consumers, and releases element
    * storage. */
@@ -231,19 +232,19 @@ class Producer : protected internal::ProducerBase {
    * NOTE: This call will fail if there is an active reservation.
    *
    * @param elements The elements to push.
-   * @param all_or_nothing Iff true, this is an all-or-nothing operation.
+   * @param allOrNothing Iff true, this is an all-or-nothing operation.
    * @return The number of elements pushed. May be less than elements.size() if
-   * all_or_nothing is unset but is always > 0 on success.
+   * allOrNothing is unset but is always > 0 on success.
    */
   pw::Result<size_t> push(pw::span<const ElementType> elements,
-                          bool all_or_nothing = true);
+                          bool allOrNothing = true);
 
   /** @return true iff the queue is full and at max capacity. */
   bool full() const;
 
   /** @return the size of the queue based on the furthest-behind consumer. */
-  size_t size(bool include_reserved = false,
-              bool include_overwriteable = true) const;
+  size_t size(bool includeReserved = false,
+              bool includeOverwriteable = true) const;
 
   /** @return the current queue capacity. */
   size_t capacity() const;
@@ -257,39 +258,45 @@ class Consumer : protected internal::ConsumerBase {
   /**
    * Creates a Consumer instance for a local queue.
    *
-   * @param base The base address address in the calling thread's memory space
-   * for offsets in queue.
-   * @param queue Pointer to queue metadata in shared memory.
-   * @param desc_offset The offset of the consumer's descriptor in shared
-   * memory.
-   * @param notify_fn Callback for notifying this Consumer.
+   * @param shmemBase The base address in the calling thread's memory space for
+   * offsets in queue. Used to convert offsets in shared memory to pointers.
+   * @param shmemSize The size of the shared memory region. Used to validate
+   * offsets.
+   * @param queueOffset The offset of the queue metadata in shared memory.
+   * Allocated and shared by the producer endpoint. It should only be
+   * deallocated after all consumers have marked themselves inactive.
+   * Regardless, even if the producer endpoint crashes, the region [shmemBase,
+   * shmemSize) is valid to access for the lifetime of the Consumer instance.
+   * @param descOffset The offset of the consumer's descriptor in shared
+   * memory. Allocated and shared by the producer endpoint.
+   * @param notifyFn Callback for notifying this Consumer.
    * @param policy The policy for receiving notifications / overwriting data.
-   * @param mem_access [optional] MemoryAccess implementation for accessing
+   * @param memAccess [optional] MemoryAccess implementation for accessing
    * Queue and element storage.
-   * @param overwrite_reset_offset [optional] Offset before the Producer's write
+   * @param overwriteResetOffset [optional] Offset before the Producer's write
    * index to which to attempt to restore this Consumer's read index after an
    * overwrite event. Defaults to the queue block capacity / 2.
    * @return An initialized Consumer instance.
    */
   static pw::Result<Consumer> createLocal(
-      uintptr_t base, void *queue, uint32_t desc_offset,
-      LocalNotifyFn notify_fn, ConsumerPolicy policy,
-      MemoryAccess *mem_access = nullptr,
-      std::optional<size_t> overwrite_reset_offset = std::nullopt);
+      void *shmemBase, size_t shmemSize, uint32_t queueOffset,
+      uint32_t descOffset, LocalNotifyFn notifyFn, ConsumerPolicy policy,
+      MemoryAccess *memAccess = nullptr,
+      std::optional<size_t> overwriteResetOffset = std::nullopt);
 
   /**
    * Like {@link #createLocal()} but for a remote queue.
    *
    * All parameters are the same except that notify_fn is replaced by the
    * following:
-   * @param notify_args Mechanism for notifying the Producer out-of-band and
+   * @param notifyArgs Mechanism for notifying the Producer out-of-band and
    * for the Producer to notify this Consumer.
    */
   static pw::Result<Consumer> createRemote(
-      uintptr_t base, void *queue, uint32_t desc_offset,
-      RemoteNotifyArgs notify_args, ConsumerPolicy policy,
-      MemoryAccess *mem_access = nullptr,
-      std::optional<size_t> overwrite_reset_offset = std::nullopt);
+      void *shmemBase, size_t shmemSize, uint32_t queueOffset,
+      uint32_t descOffset, RemoteNotifyArgs notifyArgs, ConsumerPolicy policy,
+      MemoryAccess *memAccess = nullptr,
+      std::optional<size_t> overwriteResetOffset = std::nullopt);
 
   /** TODO(b/445479433) Support static consumers. */
 

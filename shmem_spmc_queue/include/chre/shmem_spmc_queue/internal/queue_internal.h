@@ -22,8 +22,124 @@
 #include "pw_status/status.h"
 
 namespace chre::shmem_spmc_queue {
+
+/** Consumer notification and overwrite policy. */
+struct ConsumerPolicy {
+  uint8_t policy;   // { 0-3: NotificationPolicy | 4-7: OverwritePolicy }
+  uint8_t data[3];  // Interpreted based on NotificationPolicy.
+};
+
 namespace internal {
 
+// TODO(b/444261568): Replace std::atomic<uint32_t> with chre::AtomicUint32 to
+// allow for platforms that don't have <atomic> support. This will require a way
+// to report something like is_always_lock_free for a given platform's
+// implementation.
+static_assert(std::atomic<uint32_t>::is_always_lock_free);
+
+//! Endpoint id for remote notifications or local callback.
+// NOTE: 16-byte aligned to ensure the same padding across platforms.
+union alignas(16) IdOrNotifyFn {
+  LocalNotifyFn fn;
+  uint8_t id[16];
+};
+static_assert(sizeof(IdOrNotifyFn) == 16);
+
+/** Producer metadata in shared memory. */
+struct ProducerDesc {
+  // Id for remote notification or local callback.
+  IdOrNotifyFn idOrNotifyFn;
+  // Current write index. Updated by the producer.
+  std::atomic<uint32_t> writeIndex;
+  // Correction to index for calculating index within Block::data.
+  uint32_t indexCorrection;
+  // Offset of the block containing the current write index in shared memory.
+  uint32_t tailBlockOffset;
+  // Counter incremented by the producer before any change to the block list.
+  std::atomic<uint32_t> epoch;  // { 0-15: epoch counter | 16-31: block count }
+};
+
+/**
+ * Flags used by the Producer to indicate exceptional state.
+ *
+ * Flags are mutually exclusive and the latest value takes precedence over
+ * previous ones.
+ */
+enum class ProducerFlags : uint16_t {
+  kNone = 0,
+  kPendingInit,  // Consumer state allocated, pending Consumer().
+  kBlocking,     // Producer cannot write until this Consumer reads.
+  kOverwrite,    // Producer overwrote this Consumer.
+  kReset,        // Producer torn down.
+};
+
+/** Flags used by the Consumer to acknowledge ProducerFlags or tear down. */
+enum class ConsumerFlags : uint16_t {
+  kFlagsCleared = 0,  // Producer flags have been handled.
+  kFinished,          // Consumer torn down and ready for deallocation.
+};
+
+/** Consumer metadata in shared memory. */
+struct ConsumerDesc {
+  // Id for remote notification or local callback.
+  IdOrNotifyFn idOrNotifyFn;
+  // Offset of the next dynamic consumer in shared memory.
+  uint32_t nextConsumerOffset;
+  // Current read index. Updated by the consumer.
+  std::atomic<uint32_t> readIndex;
+  // Correction to index for calculating index within Block::data.
+  uint32_t indexCorrection;
+  // The following two fields are a way to emulate a single flag set by
+  // the producer and atomically read and cleared by the consumer. The producer
+  // only writes to producerFlags while the consumer only writes to
+  // consumerFlags. The producer maintains a local counter whose value is
+  // incremented on every write and included in producerFlags. The consumer
+  // copies the latest read counter value into consumerFlags to indicate that it
+  // has handled the producer flags up to that counter value, effectively
+  // clearing it.
+  // { 0-15: ProducerFlags | 16-31: counter incremented on write }
+  std::atomic<uint32_t> producerFlags;
+  // { 0-15: ConsumerFlags | 16-31: latest value of producerFlags counter }
+  std::atomic<uint32_t> consumerFlags;
+  // Consumer policy.
+  ConsumerPolicy policy;
+  // Padding bytes.
+  uint8_t padding[8];
+};
+
+/** Queue metadata in shared memory. */
+struct Queue {
+  // Offset of the ProducerDesc in shared memory. Updated by the producer.
+  std::atomic<uint32_t> producerOffset;
+  // List of dynamic consumers.
+  uint32_t dynamicConsumersHeadOffset;
+  // Block capacity (in elements).
+  uint32_t blockCapacity;
+  // Element alignment. Used to check Consumer compatibility.
+  uint8_t elementAlignment;
+  // True iff notifications are done using IdOrNotifyFn.fn
+  uint8_t localNotify;
+  // Number of static consumers.
+  uint8_t numStaticConsumers;
+  // Padding bytes.
+  uint8_t padding[1];
+};
+
+/** Header that precedes the aligned array of elements. */
+struct BlockHeader {
+  // Storage for the ProducerDesc in the current tail block.
+  ProducerDesc producerDesc;
+  // Offset of the next block in shared memory. May refer back to this block.
+  std::atomic<uint32_t> nextBlockOffset;  // Updated by the producer.
+  // Base index for reading/writing this block. Initialized to 0.
+  std::atomic<uint32_t> baseIndex;  // Updated by the producer.
+  // Index at which to jump to the next block. Initialized to kCapacity.
+  std::atomic<uint32_t> skipIndex;  // Updated by the producer.
+  // Padding bytes.
+  uint8_t padding[4];
+};
+
+/** Base class for Producers of any ElementType. */
 class ProducerBase {
  public:
   virtual ~ProducerBase();
@@ -66,6 +182,7 @@ class ProducerBase {
   size_t getBlockCount() const;
 };
 
+/** Base class for Consumers of any ElementType. */
 class ConsumerBase {
  public:
   virtual ~ConsumerBase();

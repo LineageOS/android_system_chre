@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include "pw_function/function.h"
@@ -55,13 +56,12 @@ enum class OverwritePolicy : uint8_t {
 /** Opaque struct representing a Consumer's policies. */
 // TODO(b/445495673): Make nicer user-facing Consumer policy class.
 struct ConsumerPolicy;
-ConsumerPolicy getNoNotifyPolicy(OverwritePolicy overwrite_policy);
-ConsumerPolicy getOpportunisticPolicy(size_t low_watermark,
-                                      OverwritePolicy overwrite_policy);
-ConsumerPolicy getHighWaterMark(size_t high_watermark,
-                                OverwritePolicy overwrite_policy);
-ConsumerPolicy getPeriodic(uint32_t period_ms,
-                           OverwritePolicy overwrite_policy);
-ConsumerPolicy getStreaming(OverwritePolicy overwrite_policy);
+ConsumerPolicy getNoNotifyPolicy(OverwritePolicy overwritePolicy);
+ConsumerPolicy getOpportunisticPolicy(size_t lowWatermark,
+                                      OverwritePolicy overwritePolicy);
+ConsumerPolicy getHighWaterMark(size_t highWatermark,
+                                OverwritePolicy overwritePolicy);
+ConsumerPolicy getPeriodic(uint32_t periodMs, OverwritePolicy overwritePolicy);
+ConsumerPolicy getStreaming(OverwritePolicy overwritePolicy);
 
 }  // namespace chre::shmem_spmc_queue
