@@ -336,15 +336,13 @@ void EventLoop::postEventOrDie(uint16_t eventType, void *eventData,
                                uint16_t targetInstanceId,
                                uint16_t targetGroupMask) {
   if (mRunning) {
-    if (hasNoSpaceForHighPriorityEvent() ||
-        !allocateAndPostEvent(eventType, eventData, freeCallback,
-                              /* isLowPriority= */ false, kSystemInstanceId,
-                              targetInstanceId, targetGroupMask)) {
-      CHRE_HANDLE_FAILED_SYSTEM_EVENT_ENQUEUE(
-          this, eventType, eventData, freeCallback, kSystemInstanceId,
-          targetInstanceId, targetGroupMask);
-      FATAL_ERROR("Failed to post critical system event 0x%" PRIx16, eventType);
+    Event *event = mEventPool.allocate(
+        eventType, eventData, freeCallback, /* isLowPriority= */ false,
+        kSystemInstanceId, targetInstanceId, targetGroupMask);
+    if (!postEvent(event) && event != nullptr) {
+      mEventPool.deallocate(event);
     }
+
   } else if (freeCallback != nullptr) {
     freeCallback(eventType, eventData);
   }
@@ -353,30 +351,12 @@ void EventLoop::postEventOrDie(uint16_t eventType, void *eventData,
 bool EventLoop::postSystemEvent(uint16_t eventType, void *eventData,
                                 SystemEventCallbackFunction *callback,
                                 void *extraData) {
-  if (!mRunning) {
-    return false;
-  }
-
-  if (hasNoSpaceForHighPriorityEvent()) {
-    CHRE_HANDLE_EVENT_QUEUE_FULL_DURING_SYSTEM_POST(this, eventType, eventData,
-                                                    callback, extraData);
-    FATAL_ERROR("Failed to post critical system event 0x%" PRIx16
-                ": Full of high priority "
-                "events",
-                eventType);
-  }
-
   Event *event = mEventPool.allocate(eventType, eventData, callback, extraData);
-  if (event == nullptr || !mEvents.push(event)) {
-    CHRE_HANDLE_FAILED_SYSTEM_EVENT_ENQUEUE(
-        this, eventType, eventData, callback, kSystemInstanceId,
-        kBroadcastInstanceId, kDefaultTargetGroupMask);
-    FATAL_ERROR("Failed to post critical system event 0x%" PRIx16
-                ": out of memory",
-                eventType);
+  bool success = postEvent(event);
+  if (!success && event != nullptr) {
+    mEventPool.deallocate(event);
   }
-
-  return true;
+  return success;
 }
 
 bool EventLoop::postLowPriorityEventOrFree(
@@ -386,17 +366,12 @@ bool EventLoop::postLowPriorityEventOrFree(
   bool eventPosted = false;
 
   if (mRunning) {
-    eventPosted =
-        allocateAndPostEvent(eventType, eventData, freeCallback,
-                             /* isLowPriority= */ true, senderInstanceId,
-                             targetInstanceId, targetGroupMask);
-    if (!eventPosted) {
-      LOGE("Failed to allocate event 0x%" PRIx16 " to instanceId %" PRIu16,
-           eventType, targetInstanceId);
-      CHRE_HANDLE_LOW_PRIORITY_ENQUEUE_FAILURE(
-          this, eventType, eventData, freeCallback, senderInstanceId,
-          targetInstanceId, targetGroupMask);
-      ++mNumDroppedLowPriEvents;
+    Event *event = mEventPool.allocate(
+        eventType, eventData, freeCallback, /* isLowPriority= */ true,
+        senderInstanceId, targetInstanceId, targetGroupMask);
+    eventPosted = postEvent(event);
+    if (!eventPosted && event != nullptr) {
+      mEventPool.deallocate(event);
     }
   }
 
@@ -405,6 +380,43 @@ bool EventLoop::postLowPriorityEventOrFree(
   }
 
   return eventPosted;
+}
+
+bool EventLoop::postEvent(Event *event) {
+  if (!mRunning) {
+    return false;
+  }
+
+  if (event != nullptr && !event->isLowPriority &&
+      hasNoSpaceForHighPriorityEvent()) {
+    CHRE_HANDLE_EVENT_QUEUE_FULL_DURING_SYSTEM_POST(
+        this, event->eventType, event->eventData, event->callback,
+        event->extraData);
+    FATAL_ERROR("Failed to post critical system event 0x%" PRIx16
+                ": Full of high priority "
+                "events",
+                event->eventType);
+  }
+
+  bool success = (event != nullptr) && mEvents.push(event);
+  if (!success) {
+    if (!event->isLowPriority) {
+      CHRE_HANDLE_FAILED_SYSTEM_EVENT_ENQUEUE(
+          this, event->eventType, event->eventData, event->callback,
+          event->senderInstanceId, event->targetInstanceId,
+          event->targetGroupMask);
+      FATAL_ERROR("Failed to post critical system event 0x%" PRIx16
+                  ": out of memory",
+                  event->eventType);
+    } else {
+      CHRE_HANDLE_LOW_PRIORITY_ENQUEUE_FAILURE(
+          this, event->eventType, event->eventData, event->freeCallback,
+          event->senderInstanceId, event->targetInstanceId,
+          event->targetGroupMask);
+      ++mNumDroppedLowPriEvents;
+    }
+  }
+  return success;
 }
 
 void EventLoop::stop() {
@@ -543,30 +555,6 @@ void EventLoop::loadStaticNanoapps(
     UniquePtr<Nanoapp> nanoapp = initFunc();
     startNanoapp(std::move(nanoapp));
   }
-}
-
-bool EventLoop::allocateAndPostEvent(uint16_t eventType, void *eventData,
-                                     chreEventCompleteFunction *freeCallback,
-                                     bool isLowPriority,
-                                     uint16_t senderInstanceId,
-                                     uint16_t targetInstanceId,
-                                     uint16_t targetGroupMask) {
-  bool success = false;
-
-  Event *event =
-      mEventPool.allocate(eventType, eventData, freeCallback, isLowPriority,
-                          senderInstanceId, targetInstanceId, targetGroupMask);
-  if (event != nullptr) {
-    success = mEvents.push(event);
-  }
-  if (!success) {
-    LOG_OOM();
-    if (event != nullptr) {
-      mEventPool.deallocate(event);
-    }
-  }
-
-  return success;
 }
 
 void EventLoop::deliverNextEvent(const UniquePtr<Nanoapp> &app, Event *event) {

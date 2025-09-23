@@ -286,6 +286,15 @@ class EventLoop : public NonCopyable {
                        SystemEventCallbackFunction *callback, void *extraData);
 
   /**
+   * Posts a pre-allocated Event to the event loop.
+   *
+   * @param event A pre-allocated Event pointer.
+   *
+   * @return true if the event was successfully posted to the event queue.
+   */
+  bool postEvent(Event *event);
+
+  /**
    * Returns a pointer to the currently executing Nanoapp, or nullptr if none is
    * currently executing. Must only be called from within the thread context
    * associated with this EventLoop.
@@ -509,18 +518,6 @@ class EventLoop : public NonCopyable {
    */
   void onStopComplete();
 
-  /**
-   * Allocates an event from the event pool and post it.
-   *
-   * @return true if the event has been successfully allocated and posted.
-   *
-   * @see postEventOrDie and postLowPriorityEventOrFree
-   */
-  bool allocateAndPostEvent(uint16_t eventType, void *eventData,
-                            chreEventCompleteFunction *freeCallback,
-                            bool isLowPriority, uint16_t senderInstanceId,
-                            uint16_t targetInstanceId,
-                            uint16_t targetGroupMask);
   /**
    * Remove some non nanoapp and low priority events from back of the queue.
    *
