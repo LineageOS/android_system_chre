@@ -431,8 +431,12 @@ bool nanoappStart() {
     SensorState &sensor = sensors[i];
     sensor.isInitialized =
         chreSensorFind(sensor.type, sensor.sensorIndex, &sensor.handle);
-    LOGI("Sensor %zu initialized: %s with handle %" PRIu32, i,
-         sensor.isInitialized ? "true" : "false", sensor.handle);
+    if (sensor.isInitialized) {
+      LOGI("Sensor %zu initialized with handle %" PRIu32, i, sensor.handle);
+    } else {
+      LOGW("Sensor %zu (type 0x%x, index %" PRIu8 ") init failed",
+           i, sensor.type, sensor.sensorIndex);
+    }
 
     if (sensor.type == CHRE_SENSOR_TYPE_INSTANT_MOTION_DETECT) {
       motionSensorIndices[static_cast<size_t>(MotionMode::Instant)] = i;
