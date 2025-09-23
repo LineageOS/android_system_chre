@@ -16,18 +16,31 @@
 
 #pragma once
 
+#include <array>
 #include <cstddef>
+#include <cstdint>
 
 #include "chre/shmem_spmc_queue/queue_defs.h"
+#include "pw_allocator/allocator.h"
+#include "pw_allocator/layout.h"
+#include "pw_bytes/span.h"
+#include "pw_result/result.h"
+#include "pw_span/span.h"
 #include "pw_status/status.h"
 
 namespace chre::shmem_spmc_queue {
 
 /** Consumer notification and overwrite policy. */
 struct ConsumerPolicy {
-  uint8_t policy;   // { 0-3: NotificationPolicy | 4-7: OverwritePolicy }
+  //! { 0-3: {@link #NotificationPolicy} | 4-7: {@link #OverwritePolicy} }
+  uint8_t policy;
   uint8_t data[3];  // Interpreted based on NotificationPolicy.
 };
+
+// Forward declarations.
+class ConsumerManager;
+class DataNotifier;
+class MemoryAccess;
 
 namespace internal {
 
@@ -41,7 +54,7 @@ static_assert(std::atomic<uint32_t>::is_always_lock_free);
 // NOTE: 16-byte aligned to ensure the same padding across platforms.
 union alignas(16) IdOrNotifyFn {
   LocalNotifyFn fn;
-  uint8_t id[16];
+  std::array<std::byte, 16> id;
 };
 static_assert(sizeof(IdOrNotifyFn) == 16);
 
@@ -139,6 +152,23 @@ struct BlockHeader {
   uint8_t padding[4];
 };
 
+/**
+ * Block of element storage.
+ *
+ * Block<ElementType, 0> is used for determining the offset of data where
+ * kBlockCapacity is not available at compile time, e.g. in Consumer.
+ */
+template <typename ElementType, size_t kBlockCapacity = 0>
+struct Block : public BlockHeader {
+  ElementType data[kBlockCapacity];
+};
+
+/** @return Layout for allocating Blocks using pw::Allocator. */
+template <typename ElementType, size_t kBlockCapacity>
+pw::allocator::Layout blockLayout() {
+  return pw::allocator::Layout::Of<Block<ElementType, kBlockCapacity>>();
+}
+
 /** Base class for Producers of any ElementType. */
 class ProducerBase {
  public:
@@ -180,6 +210,88 @@ class ProducerBase {
 
   /** @return The current block count. */
   size_t getBlockCount() const;
+
+  /**
+   * Reserve up-to-count contiguous bytes for writing if there is space.
+   *
+   * @param count The number of bytes to reserve.
+   * @return If available, a span over the next up-to-count bytes.
+   */
+  pw::Result<pw::ByteSpan> reserve(size_t count);
+
+  /**
+   * Release the first count bytes reserved for writing.
+   *
+   * @param count The number of bytes to release.
+   * @return pw::OkStatus() on success.
+   */
+  pw::Status commit(size_t count);
+
+  /**
+   * Push the given data to the queue if space is available.
+   *
+   * @param elements The elements to push.
+   * @param allOrNothing Iff true, this is an all-or-nothing operation.
+   * @return The number of bytes pushed. May be less than data.size() if
+   * allOrNothing is unset but is always > 0 on success.
+   */
+  pw::Result<size_t> push(pw::ConstByteSpan data, bool allOrNothing);
+
+  /** Push the given data to the queue if space is available. */
+
+  /** @return true iff the queue is full and at max capacity. */
+  bool full() const;
+
+  /**
+   * Returns the number of bytes available to the furthest-behind Consumer.
+   *
+   * @param includeReserved Iff true, includes reserved space in the size.
+   * @param includeOverwriteable Iff true, includes overwriteable space in the
+   * size.
+   * @return the size of the queue in bytes.
+   */
+  size_t size(bool includeReserved = false,
+              bool includeOverwriteable = true) const;
+
+  /** @return the current queue capacity. */
+  size_t capacity() const;
+
+ protected:
+  /**
+   * Allocates an initial ring of blocks and initializes producer metadata.
+   *
+   * @param shmemBase The base address of the shared memory region.
+   * @param shmemSize The size of the shared memory region.
+   * @param queue The queue metadata in shared memory.
+   * @param allocator Allocator used for element storage.
+   * @param layout Layout for allocating Blocks.
+   * @param count The number of blocks to allocate.
+   * @param blockCapacity The capacity of each Block in bytes.
+   * @param notifyFn Present only when id is not present.
+   * @param id Present only when notifyFn is empty.
+   * @return pw::OkStatus() on success.
+   */
+  static pw::Status initialize(uintptr_t shmemBase, uint32_t shmemSize,
+                               Queue &queue, pw::Allocator &allocator,
+                               pw::allocator::Layout layout, size_t count,
+                               size_t blockCapacity,
+                               LocalNotifyFn localNotifyFn,
+                               std::optional<pw::ConstByteSpan> id);
+
+  /**
+   * See {@link Producer::create()} for a description of most parameters.
+   *
+   * @param queue The queue metadata in shared memory.
+   * @param blockLayout Layout for allocating Blocks.
+   * @param dataOffset The offset of the data from the start of BlockHeader.
+   * @param remoteNotifyFn Non-empty iff the queue uses out-of-band
+   * notifications.
+   */
+  ProducerBase(uintptr_t shmemBase, uint32_t shmemSize, Queue &queue,
+               pw::Allocator &allocator, pw::allocator::Layout blockLayout,
+               size_t maxBlockCount, size_t minBlockCount, uint32_t dataOffset,
+               DataNotifier &dataNotifier, ConsumerManager &consumerManager,
+               RemoteNotifyFn remoteNotifyFn, MemoryAccess *memAccess);
 };
 
 /** Base class for Consumers of any ElementType. */

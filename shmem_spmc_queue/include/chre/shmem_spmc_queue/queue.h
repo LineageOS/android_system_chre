@@ -20,15 +20,25 @@
 #include <cstdint>
 #include <optional>
 #include <type_traits>
+#include <utility>
 
-#include "chre/shmem_spmc_queue/queue_defs.h"
 #include "chre/shmem_spmc_queue/internal/queue_internal.h"
+#include "chre/shmem_spmc_queue/queue_defs.h"
 #include "pw_allocator/allocator.h"
+#include "pw_allocator/layout.h"
+#include "pw_bytes/span.h"
 #include "pw_result/result.h"
+#include "pw_span/cast.h"
 #include "pw_span/span.h"
 #include "pw_status/status.h"
+#include "pw_status/try.h"
 
 namespace chre::shmem_spmc_queue {
+
+/** Layout used to allocate queue metadata in shared memory. */
+pw::allocator::Layout queueLayout() {
+  return pw::allocator::Layout::Of<internal::Queue>();
+}
 
 /**
  * Interface for accessing shared memory.
@@ -144,10 +154,11 @@ class ConsumerManager {
 template <typename ElementType>
 class Producer : protected internal::ProducerBase {
   static_assert(std::is_standard_layout_v<ElementType>);
+  using Base = internal::ProducerBase;
 
  public:
   /**
-   * Creates a Producer instance for a local queue.
+   * Creates a Producer instance for the given local Queue.
    *
    * @param shmemBase The base address in the calling thread's memory space for
    * offsets in queue. Used to convert offsets in shared memory to pointers.
@@ -173,7 +184,17 @@ class Producer : protected internal::ProducerBase {
       void *shmemBase, size_t shmemSize, void *queue,
       pw::Allocator &allocator, size_t maxBlockCount, size_t minBlockCount,
       DataNotifier &dataNotifier, ConsumerManager &consumerManager,
-      LocalNotifyFn notifyFn, MemoryAccess *memAccess = nullptr);
+      LocalNotifyFn notifyFn, MemoryAccess *memAccess = nullptr) {
+    auto base = reinterpret_cast<uintptr_t>(shmemBase);
+    auto blockLayout = internal::blockLayout<ElementType, kBlockCapacity>();
+    auto &queueRef = *static_cast<internal::Queue *>(queue);
+    PW_TRY(Base::initialize(base, shmemSize, queueRef, allocator, blockLayout,
+                            minBlockCount, kBlockCapacity * sizeof(ElementType),
+                            std::move(notifyFn), /*id=*/std::nullopt));
+    return Producer(base, shmemSize, queueRef, allocator, blockLayout,
+                    maxBlockCount, minBlockCount, dataNotifier, consumerManager,
+                    /*remoteNotifyFn=*/{}, memAccess);
+  }
 
   /**
    * Like {@link #createLocal()} but for a remote queue.
@@ -188,18 +209,28 @@ class Producer : protected internal::ProducerBase {
       void *shmemBase, size_t shmemSize, void *queue,
       pw::Allocator &allocator, size_t maxBlockCount, size_t minBlockCount,
       DataNotifier &dataNotifier, ConsumerManager &consumerManager,
-      RemoteNotifyArgs notifyArgs, MemoryAccess *memAccess = nullptr);
+      RemoteNotifyArgs notifyArgs, MemoryAccess *memAccess = nullptr) {
+    auto base = reinterpret_cast<uintptr_t>(shmemBase);
+    auto blockLayout = internal::blockLayout<ElementType, kBlockCapacity>();
+    auto &queueRef = *static_cast<internal::Queue *>(queue);
+    PW_TRY(Base::initialize(base, shmemSize, queueRef, allocator, blockLayout,
+                            minBlockCount, kBlockCapacity * sizeof(ElementType),
+                            /*notifyFn=*/{}, pw::ConstByteSpan(notifyArgs.id)));
+    return Producer(base, shmemSize, queueRef, allocator, blockLayout,
+                    maxBlockCount, minBlockCount, dataNotifier, consumerManager,
+                    std::move(notifyArgs.fn), memAccess);
+  }
 
   /** Marks the Producer inactive, notifies consumers, and releases element
    * storage. */
-  virtual ~Producer();
+  virtual ~Producer() = default;
 
-  // Queue capacity management API.
-  using internal::ProducerBase::getBlockCount;
-  using internal::ProducerBase::getMaxBlockCountTarget;
-  using internal::ProducerBase::getMinBlockCountTarget;
-  using internal::ProducerBase::setMaxBlockCountTarget;
-  using internal::ProducerBase::setMinBlockCountTarget;
+  // See {@link internal::ProducerBase} for documentation.
+  using Base::getBlockCount;
+  using Base::getMaxBlockCountTarget;
+  using Base::getMinBlockCountTarget;
+  using Base::setMaxBlockCountTarget;
+  using Base::setMinBlockCountTarget;
 
   /**
    * Reserve up-to-count contiguous elements for writing if there is space.
@@ -216,7 +247,11 @@ class Producer : protected internal::ProducerBase {
    * @param count The number of elements to reserve.
    * @return If available, a span over the next up-to-count elements.
    */
-  pw::Result<pw::span<ElementType>> reserve(size_t count);
+  pw::Result<pw::span<ElementType>> reserve(size_t count) {
+    PW_TRY_ASSIGN(pw::ByteSpan reservation,
+                  Base::reserve(count * sizeof(ElementType)));
+    return pw::span_cast<ElementType>(reservation);
+  }
 
   /**
    * Release the first count elements reserved for writing.
@@ -224,7 +259,9 @@ class Producer : protected internal::ProducerBase {
    * @param count The number of elements to release.
    * @return pw::OkStatus() on success.
    */
-  pw::Status commit(size_t count);
+  pw::Status commit(size_t count) {
+    return Base::commit(count * sizeof(ElementType));
+  }
 
   /**
    * Push the given elements to the queue if space is available.
@@ -237,17 +274,44 @@ class Producer : protected internal::ProducerBase {
    * allOrNothing is unset but is always > 0 on success.
    */
   pw::Result<size_t> push(pw::span<const ElementType> elements,
-                          bool allOrNothing = true);
+                          bool allOrNothing = true) {
+    PW_TRY_ASSIGN(size_t numBytes,
+                  Base::push(pw::as_bytes(elements), allOrNothing));
+    return numBytes / sizeof(ElementType);
+  }
 
-  /** @return true iff the queue is full and at max capacity. */
-  bool full() const;
+  /** @return true if full. See {@link internal::ProducerBase::full()}. */
+  using Base::full;
 
-  /** @return the size of the queue based on the furthest-behind consumer. */
+  /**
+   * Returns the size of the queue based on the furthest-behind consumer.
+   *
+   * @param includeReserved Iff true, includes reserved space in the size.
+   * @param includeOverwriteable Iff true, includes overwriteable space in the
+   * size.
+   * @return the size of the queue.
+   */
   size_t size(bool includeReserved = false,
-              bool includeOverwriteable = true) const;
+              bool includeOverwriteable = true) const {
+    return Base::size(includeReserved, includeOverwriteable) /
+           sizeof(ElementType);
+  }
 
   /** @return the current queue capacity. */
-  size_t capacity() const;
+  size_t capacity() const {
+    return Base::capacity() / sizeof(ElementType);
+  }
+
+ protected:
+  Producer(uintptr_t shmemBase, uint32_t shmemSize, internal::Queue &queue,
+           pw::Allocator &allocator, pw::allocator::Layout blockLayout,
+           size_t maxBlockCount, size_t minBlockCount,
+           DataNotifier &dataNotifier, ConsumerManager &consumerManager,
+           RemoteNotifyFn remoteNotifyFn, MemoryAccess *memAccess)
+      : Base(shmemBase, shmemSize, queue, allocator, blockLayout, maxBlockCount,
+             minBlockCount, offsetof(internal::Block<ElementType>, data),
+             dataNotifier, consumerManager, std::move(remoteNotifyFn),
+             memAccess) {}
 };
 
 template <typename ElementType>

@@ -16,9 +16,11 @@
 
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
+#include "pw_bytes/span.h"
 #include "pw_function/function.h"
 #include "pw_span/span.h"
 
@@ -28,12 +30,12 @@ namespace chre::shmem_spmc_queue {
 using LocalNotifyFn = pw::InlineFunction<void(void), 8>;
 
 /** Sends an out-of-band notification to an endpoint described by id. */
-using RemoteNotifyFn = pw::Function<void(pw::span<const uint8_t, 16> id)>;
+using RemoteNotifyFn = pw::Function<void(pw::ConstByteSpan id)>;
 
 /** Arguments passed to endpoints on a queue using out-of-band notifications. */
 struct RemoteNotifyArgs {
   RemoteNotifyFn fn;
-  uint8_t id[16];  // Used to route notifications to this endpoint.
+  std::array<std::byte, 16> id;
 };
 
 /** Notification policies a consumer can set. */
