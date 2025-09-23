@@ -1004,13 +1004,11 @@ cc_binary {
         "pw_span",
     ],
     shared_libs: [
+        "libandroid",
         "liblog",
     ],
     defaults: [
         "chre_android_common_cflags",
-    ],
-    cflags: [
-        "-DCHRE_AP_ALSO_LOG_TO_STDERR",
     ],
 }
 
@@ -1047,16 +1045,11 @@ cc_library_static {
         "platform/android/host_link.cc",
         "platform/android/memory.cc",
         "platform/android/memory_manager.cc",
-        "platform/android/pal_audio.cc",
-        "platform/android/pal_ble.cc",
-        "platform/android/pal_gnss.cc",
-        "platform/android/pal_sensor.cc",
-        "platform/android/pal_wifi.cc",
-        "platform/android/pal_wwan.cc",
+        "platform/android/platform_sensor.cc",
+        "platform/android/platform_sensor_manager.cc",
         "platform/android/platform_debug_dump_manager.cc",
         "platform/android/platform_log.cc",
         "platform/android/platform_nanoapp.cc",
-        "platform/android/platform_pal.cc",
         "platform/android/power_control_manager.cc",
         "platform/android/system_time.cc",
         "platform/android/system_timer.cc",
@@ -1078,13 +1071,6 @@ cc_library_static {
         "platform/shared/log_buffer.cc",
         "platform/shared/memory_manager.cc",
         "platform/shared/nanoapp_abort.cc",
-        "platform/shared/pal_system_api.cc",
-        "platform/shared/platform_ble.cc",
-        "platform/shared/platform_gnss.cc",
-        "platform/shared/platform_wifi.cc",
-        "platform/shared/platform_wwan.cc",
-        "platform/shared/sensor_pal/platform_sensor.cc",
-        "platform/shared/sensor_pal/platform_sensor_manager.cc",
         "platform/shared/sensor_pal/platform_sensor_type_helpers.cc",
         "platform/shared/system_time.cc",
         "platform/shared/version.cc",
@@ -1104,13 +1090,7 @@ cc_library_static {
         "platform/shared/fbs/include",
         "platform/shared/include",
         "platform/shared/nanoapp_memory_guard_no_op/include",
-        "platform/shared/public_platform_ble_pal",
-        "platform/shared/public_platform_bt_socket_pal",
         "platform/shared/public_platform_debug_dump_manager",
-        "platform/shared/public_platform_gnss_pal",
-        "platform/shared/public_platform_wifi_pal",
-        "platform/shared/public_platform_wwan_pal",
-        "platform/shared/sensor_pal/include",
         "util/include",
     ],
     header_libs: [
@@ -1121,6 +1101,9 @@ cc_library_static {
         "chre_android_common_cflags",
         "pw_android_common_backends",
         "pw_rpc_cflags_chre",
+    ],
+    cflags: [
+        "-DCHRE_AP_ALSO_LOG_TO_STDERR",
     ],
     static_libs: [
         "pw_allocator",
@@ -1135,6 +1118,7 @@ cc_library_static {
         "pw_status",
     ],
     shared_libs: [
+        "libandroid",
         "libbase",
         "liblog",
     ],
@@ -1159,7 +1143,6 @@ cc_defaults {
         "-DCHRE_PLATFORM_ID=0x000001",
         "-Wall",
         "-Werror",
-        "-Wextra-semi",
         "-Wvla-extension",
     ],
 }

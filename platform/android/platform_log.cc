@@ -19,6 +19,7 @@
 
 #include <cstdarg>
 #include <cstdio>
+#include <iostream>
 
 #include "chre/platform/fatal_error.h"
 #include "chre/platform/shared/bt_snoop_log.h"
@@ -41,7 +42,7 @@ void PlatformLog::logVa(chreLogLevel logLevel, const char *formatStr,
   }
 
 #ifdef CHRE_AP_ALSO_LOG_TO_STDERR
-  std::cerr << buffer;
+  std::cerr << buffer << std::endl;
 #endif
 
   switch (logLevel) {

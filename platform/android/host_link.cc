@@ -17,9 +17,7 @@
 #include "chre/platform/host_link.h"
 
 #include "chre/core/event_loop_manager.h"
-#include "chre/platform/android/pal_ble.h"
 #include "chre/platform/shared/host_protocol_chre.h"
-#include "chre/util/flatbuffers/helpers.h"
 
 namespace chre {
 
@@ -43,29 +41,20 @@ bool HostLink::sendMessageDeliveryStatus(uint32_t /* messageSequenceNumber */,
 }
 
 bool HostLink::sendBtSocketGetCapabilitiesResponse(
-    uint32_t leCocNumberOfSupportedSockets, uint32_t leCocMtu,
-    uint32_t rfcommNumberOfSupportedSockets, uint32_t rfcommMaxFrameSize) {
-  setSocketCapabilities(
-      BtSocketCapabilities{leCocNumberOfSupportedSockets, leCocMtu,
-                           rfcommNumberOfSupportedSockets, rfcommMaxFrameSize});
-  return true;
+    uint32_t /*leCocNumberOfSupportedSockets*/, uint32_t /*leCocMtu*/,
+    uint32_t /*rfcommNumberOfSupportedSockets*/,
+    uint32_t /*rfcommMaxFrameSize*/) {
+  return false;
 }
 
-bool HostLink::sendBtSocketOpenResponse(uint64_t socketId, bool success,
-                                        const char *reason) {
-  setSocketOpenSuccess(success);
-  setSocketOpenFailureReason(reason);
-  constexpr size_t kFixedSizePortion = 52;
-  ChreFlatBufferBuilder builder(kFixedSizePortion);
-  HostProtocolChre::encodeBtSocketOpenResponse(builder, socketId, success,
-                                               reason);
-  return true;
+bool HostLink::sendBtSocketOpenResponse(uint64_t /*socketId*/, bool /*success*/,
+                                        const char * /*reason*/) {
+  return false;
 }
 
 bool HostLink::sendBtSocketClose(uint64_t /*socketId*/,
                                  const char * /*reason*/) {
-  incrementSocketClosureCount();
-  return true;
+  return false;
 }
 
 void HostLinkBase::sendNanConfiguration(bool enable) {

@@ -52,16 +52,4 @@ Nanoseconds SystemTime::getMonotonicTime() {
 int64_t SystemTime::getEstimatedHostTimeOffset() {
   return 0;
 }
-
-namespace platform_android {
-
-void overrideMonotonicTime(Nanoseconds ns) {
-  gTimeOverride = ns;
-}
-
-void clearMonotonicTimeOverride(void) {
-  gTimeOverride.reset();
-}
-
-}  // namespace platform_android
 }  // namespace chre
