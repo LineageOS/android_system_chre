@@ -38,7 +38,7 @@ void PowerControlManagerBase::onHostWakeSuspendEvent(bool awake) {
       LogBufferManagerSingleton::get()->flushLogs();
     }
 #endif
-    EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+    EventLoopManagerSingleton::get()->postEventOrDie(
         awake ? CHRE_EVENT_HOST_AWAKE : CHRE_EVENT_HOST_ASLEEP,
         /* eventData= */ nullptr, /* freeCallback= */ nullptr);
   }

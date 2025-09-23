@@ -302,7 +302,7 @@ void sendEventToNanoapp(uint64_t appId, uint16_t eventType,
     ASSERT_NE(ptr, nullptr);
     *ptr = eventData;
     event->data = ptr;
-    EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+    EventLoopManagerSingleton::get()->postEventOrDie(
         CHRE_EVENT_TEST_EVENT, static_cast<void *>(event),
         freeTestEventDataCallback, instanceId);
   } else {

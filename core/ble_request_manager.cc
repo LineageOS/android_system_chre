@@ -278,7 +278,7 @@ void BleRequestManager::handleAdvertisementEvent(
     populateLegacyAdvertisingReportFields(
         const_cast<chreBleAdvertisingReport &>(event->reports[i]));
   }
-  EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+  EventLoopManagerSingleton::get()->postEventOrDie(
       CHRE_EVENT_BLE_ADVERTISEMENT, event, freeAdvertisingEventCallback);
 }
 
@@ -459,7 +459,7 @@ void BleRequestManager::resolvePendingRssiRequest(uint8_t errorCode,
   event->connectionHandle = mPendingRssiRequests.front().connectionHandle;
   event->rssi = rssi;
 
-  EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+  EventLoopManagerSingleton::get()->postEventOrDie(
       CHRE_EVENT_BLE_RSSI_READ, event, freeEventDataCallback,
       mPendingRssiRequests.front().instanceId);
 
@@ -619,7 +619,7 @@ void BleRequestManager::sendFlushCompleteEventOrDie(
   event->errorCode = errorCode;
   event->reserved = 0;
   event->cookie = flushRequest.cookie;
-  EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+  EventLoopManagerSingleton::get()->postEventOrDie(
       CHRE_EVENT_BLE_FLUSH_COMPLETE, event, freeEventDataCallback,
       flushRequest.nanoappInstanceId);
 }
@@ -666,7 +666,7 @@ void BleRequestManager::postAsyncResultEventFatal(uint16_t instanceId,
     event->cookie = cookie;
     event->reserved = 0;
 
-    EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+    EventLoopManagerSingleton::get()->postEventOrDie(
         CHRE_EVENT_BLE_ASYNC_RESULT, event, freeEventDataCallback, instanceId);
   }
 }

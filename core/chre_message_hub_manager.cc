@@ -92,7 +92,7 @@ void sendReadyEventToNanoapp(uint16_t nanoappInstanceId,
     event->serviceDescriptor[CHRE_MSG_MAX_SERVICE_DESCRIPTOR_LEN - 1] = '\0';
   }
 
-  EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+  EventLoopManagerSingleton::get()->postEventOrDie(
       std::is_same_v<T, chreMsgServiceReadyEvent>
           ? CHRE_EVENT_MSG_SERVICE_READY
           : CHRE_EVENT_MSG_ENDPOINT_READY,

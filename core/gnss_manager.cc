@@ -308,8 +308,8 @@ void GnssSession::handleReportEvent(void *event) {
              .getSettingEnabled(Setting::LOCATION)) {
       freeReportEventCallback(reportEventType, data);
     } else {
-      EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
-          reportEventType, data, freeReportEventCallback);
+      EventLoopManagerSingleton::get()->postEventOrDie(reportEventType, data,
+                                                       freeReportEventCallback);
     }
   };
 
@@ -597,7 +597,7 @@ bool GnssSession::postAsyncResultEvent(uint16_t instanceId, bool success,
         LOGE("Undefined error in gnssAsyncResult: %" PRIu8, errorCode);
       }
 
-      EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+      EventLoopManagerSingleton::get()->postEventOrDie(
           CHRE_EVENT_GNSS_ASYNC_RESULT, event, freeEventDataCallback,
           instanceId);
       eventPosted = true;

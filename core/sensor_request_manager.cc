@@ -102,7 +102,7 @@ void postSamplingStatusEvent(uint16_t instanceId, uint32_t sensorHandle,
     event->sensorHandle = sensorHandle;
     event->status = status;
 
-    EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+    EventLoopManagerSingleton::get()->postEventOrDie(
         CHRE_EVENT_SENSOR_SAMPLING_CHANGE, event, freeEventDataCallback,
         instanceId);
   }
@@ -247,7 +247,7 @@ bool SensorRequestManager::setSensorRequest(
 
           // Deliver last valid event to new clients of on-change sensors
           if (sensor.getLastEvent() != nullptr) {
-            EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+            EventLoopManagerSingleton::get()->postEventOrDie(
                 eventType, sensor.getLastEvent(), nullptr /* freeCallback */,
                 nanoapp->getInstanceId());
           }
@@ -495,13 +495,11 @@ void SensorRequestManager::handleSensorDataEvent(uint32_t sensorHandle,
     // Only allow dropping continuous sensor events since losing one-shot or
     // on-change events could result in nanoapps stuck in a bad state.
     if (sensor.isContinuous()) {
-      EventLoopManagerSingleton::get()
-          ->getEventLoop()
-          .postLowPriorityEventOrFree(eventType, event, sensorDataEventFree,
-                                      kSystemInstanceId, kBroadcastInstanceId,
-                                      sensor.getTargetGroupMask());
+      EventLoopManagerSingleton::get()->postLowPriorityEventOrFree(
+          eventType, event, sensorDataEventFree, kSystemInstanceId,
+          kBroadcastInstanceId, sensor.getTargetGroupMask());
     } else {
-      EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+      EventLoopManagerSingleton::get()->postEventOrDie(
           eventType, event, sensorDataEventFree, kBroadcastInstanceId,
           sensor.getTargetGroupMask());
     }
@@ -569,7 +567,7 @@ void SensorRequestManager::handleBiasEvent(uint32_t sensorHandle,
             .releaseBiasData(data);
       };
 
-      EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+      EventLoopManagerSingleton::get()->postEventOrDie(
           eventType, biasData, freeCallback, kBroadcastInstanceId,
           sensor->getTargetGroupMask());
     }
@@ -677,7 +675,7 @@ void SensorRequestManager::postFlushCompleteEvent(uint32_t sensorHandle,
     event->cookie = request.cookie;
     memset(event->reserved, 0, sizeof(event->reserved));
 
-    EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+    EventLoopManagerSingleton::get()->postEventOrDie(
         CHRE_EVENT_SENSOR_FLUSH_COMPLETE, event, freeEventDataCallback,
         request.nanoappInstanceId);
   }

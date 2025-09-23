@@ -44,7 +44,7 @@ void DebugDumpManager::trigger() {
   };
 
   // Notify nanoapps to collect debug dumps.
-  EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+  EventLoopManagerSingleton::get()->postEventOrDie(
       CHRE_EVENT_DEBUG_DUMP, nullptr /*eventData*/, nappCallback);
 }
 

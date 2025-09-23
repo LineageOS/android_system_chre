@@ -49,6 +49,58 @@ uint16_t EventLoopManager::getNextInstanceId() {
   return instanceId;
 }
 
+// TODO(b/264108686): Refactor this function and postSystemEvent
+void EventLoopManager::postEventOrDie(uint16_t eventType, void *eventData,
+                                      chreEventCompleteFunction *freeCallback,
+                                      uint16_t targetInstanceId,
+                                      uint16_t targetGroupMask) {
+  if (mEventLoop.isRunning()) {
+    Event *event = mEventPool.allocate(
+        eventType, eventData, freeCallback, /* isLowPriority= */ false,
+        kSystemInstanceId, targetInstanceId, targetGroupMask);
+    if (!mEventLoop.postEvent(event) && event != nullptr) {
+      mEventPool.deallocate(event);
+    }
+  } else if (freeCallback != nullptr) {
+    freeCallback(eventType, eventData);
+  }
+}
+
+bool EventLoopManager::postSystemEvent(uint16_t eventType, void *eventData,
+                                       SystemEventCallbackFunction *callback,
+                                       void *extraData) {
+  if (!mEventLoop.isRunning()) return false;
+  Event *event = mEventPool.allocate(eventType, eventData, callback, extraData);
+  bool success = mEventLoop.postEvent(event);
+  if (!success && event != nullptr) {
+    mEventPool.deallocate(event);
+  }
+  return success;
+}
+
+bool EventLoopManager::postLowPriorityEventOrFree(
+    uint16_t eventType, void *eventData,
+    chreEventCompleteFunction *freeCallback, uint16_t senderInstanceId,
+    uint16_t targetInstanceId, uint16_t targetGroupMask) {
+  bool eventPosted = false;
+
+  if (mEventLoop.isRunning()) {
+    Event *event = mEventPool.allocate(
+        eventType, eventData, freeCallback, /* isLowPriority= */ true,
+        senderInstanceId, targetInstanceId, targetGroupMask);
+    eventPosted = mEventLoop.postEvent(event);
+    if (!eventPosted && event != nullptr) {
+      mEventPool.deallocate(event);
+    }
+  }
+
+  if (!eventPosted && freeCallback != nullptr) {
+    freeCallback(eventType, eventData);
+  }
+
+  return eventPosted;
+}
+
 void EventLoopManager::lateInit() {
 #ifdef CHRE_SENSORS_SUPPORT_ENABLED
   mSensorRequestManager.init();

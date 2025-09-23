@@ -61,7 +61,7 @@ void HostEndpointManager::hostNotificationCallback(uint16_t type, void *data,
             HOST_ENDPOINT_NOTIFICATION_TYPE_DISCONNECT;
         eventData->reserved = 0;
 
-        EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+        EventLoopManagerSingleton::get()->postEventOrDie(
             eventType, eventData, freeEventDataCallback, kBroadcastInstanceId);
       }
     } else {

@@ -76,7 +76,7 @@ void WwanRequestManager::handleCellInfoResultSync(
       LOGE("Undefined error in cellInfoResult: %" PRIu8, errorCode);
     }
 
-    EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+    EventLoopManagerSingleton::get()->postEventOrDie(
         CHRE_EVENT_WWAN_CELL_INFO_RESULT, result, freeCellInfoResultCallback,
         mCellInfoRequestingNanoappInstanceId.value());
   } else {
