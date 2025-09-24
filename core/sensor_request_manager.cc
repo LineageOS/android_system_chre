@@ -949,7 +949,7 @@ bool SensorRequestManager::configurePlatformSensor(
   if (!onlyBiasChanged &&
       !mPlatformSensorManager.configureSensor(sensor, request)) {
     LOGE("Failed to make platform sensor data request");
-  } else if (biasChanged &&
+  } else if (sensor.reportsBiasEvents() && biasChanged &&
              !mPlatformSensorManager.configureBiasEvents(
                  sensor, request.getBiasUpdatesRequested(), currentLatency)) {
     LOGE("Failed to make platform sensor bias request");
