@@ -54,10 +54,9 @@ static_assert(std::atomic<uint32_t>::is_always_lock_free);
 constexpr uint32_t kOffsetInvalid = UINT32_MAX;
 
 //! Endpoint id for remote notifications or local callback.
-// NOTE: 16-byte aligned to ensure the same padding across platforms.
-union alignas(16) IdOrNotifyFn {
-  LocalNotifyFn fn;
-  std::array<std::byte, 16> id;
+union alignas(8) IdOrNotifyFn {
+  LocalNotifyArgs localNotify;
+  std::array<std::byte, 16> remoteId;
 };
 static_assert(sizeof(IdOrNotifyFn) == 16);
 
@@ -155,14 +154,10 @@ struct BlockHeader {
   uint8_t padding[4];
 };
 
-/**
- * Block of element storage.
- *
- * Block<ElementType, 0> is used for determining the offset of data where
- * kBlockCapacity is not available at compile time, e.g. in Consumer.
- */
+/** Block of element storage. */
 template <typename ElementType, size_t kBlockCapacity = 0>
-struct Block : public BlockHeader {
+struct Block {
+  BlockHeader header;
   ElementType data[kBlockCapacity];
 };
 
@@ -175,6 +170,17 @@ pw::allocator::Layout blockLayout() {
 /** Base class for Producers of any ElementType. */
 class ProducerBase {
  public:
+  // Move-only.
+  ProducerBase(const ProducerBase &) = delete;
+  ProducerBase &operator=(const ProducerBase &) = delete;
+  ProducerBase(ProducerBase &&other) {
+    *this = std::move(other);
+  }
+  ProducerBase &operator=(ProducerBase && /*other*/) {
+    // TODO(b/445482700): Implement.
+    return *this;
+  }
+
   virtual ~ProducerBase();
 
   /**
@@ -249,12 +255,12 @@ class ProducerBase {
    * Returns the number of bytes available to the furthest-behind Consumer.
    *
    * @param includeReserved Iff true, includes reserved space in the size.
-   * @param includeOverwriteable Iff true, includes overwriteable space in the
+   * @param includeOverwritable Iff true, includes overwriteable space in the
    * size.
    * @return the size of the queue in bytes.
    */
   size_t size(bool includeReserved = false,
-              bool includeOverwriteable = true) const;
+              bool includeOverwritable = true) const;
 
   /** @return the current queue capacity. */
   size_t capacity() const;
@@ -270,16 +276,17 @@ class ProducerBase {
    * @param layout Layout for allocating Blocks.
    * @param count The number of blocks to allocate.
    * @param blockCapacity The capacity of each Block in bytes.
-   * @param notifyFn Present only when id is not present.
-   * @param id Present only when notifyFn is empty.
+   * @param elementAlignment The alignment of each element in bytes.
+   * @param local True only for a local queue.
+   * @param idOrNotifyFn The new instance's id for remote notifications or the
+   * LocalNotifyFn for notifying it.
    * @return pw::OkStatus() on success.
    */
   static pw::Status initialize(uintptr_t shmemBase, uint32_t shmemSize,
                                Queue &queue, pw::Allocator &allocator,
                                pw::allocator::Layout layout, size_t count,
-                               size_t blockCapacity,
-                               LocalNotifyFn localNotifyFn,
-                               std::optional<pw::ConstByteSpan> id);
+                               size_t blockCapacity, size_t elementAlignment,
+                               bool local, IdOrNotifyFn idOrNotifyFn);
 
   /**
    * See {@link Producer::create()} for a description of most parameters.
@@ -287,8 +294,8 @@ class ProducerBase {
    * @param queue The queue metadata in shared memory.
    * @param blockLayout Layout for allocating Blocks.
    * @param dataOffset The offset of the data from the start of BlockHeader.
-   * @param remoteNotifyFn Non-empty iff the queue uses out-of-band
-   * notifications.
+   * @param remoteNotifyFn Function for notifying Consumers out-of-band only for
+   * remote queues.
    */
   ProducerBase(uintptr_t shmemBase, uint32_t shmemSize, Queue &queue,
                pw::Allocator &allocator, pw::allocator::Layout blockLayout,
@@ -300,6 +307,17 @@ class ProducerBase {
 /** Base class for Consumers of any ElementType. */
 class ConsumerBase {
  public:
+  // Move-only.
+  ConsumerBase(const ConsumerBase &) = delete;
+  ConsumerBase &operator=(const ConsumerBase &) = delete;
+  ConsumerBase(ConsumerBase &&other) {
+    *this = std::move(other);
+  }
+  ConsumerBase &operator=(ConsumerBase && /*other*/) {
+    // TODO(b/445967147): Implement.
+    return *this;
+  }
+
   virtual ~ConsumerBase();
 
   /**
@@ -374,14 +392,13 @@ class ConsumerBase {
    * @param shmemSize The size of the queue shared memory region.
    * @param queueOffset The queue metadata in shared memory.
    * @param descOffset The consumer descriptor in shared memory.
-   * @param notifyFn Present only when id is not present.
-   * @param id Present only when notifyFn is empty.
+   * @param idOrNotifyFn The new instance's id for remote notifications or the
+   * LocalNotifyArgs for notifying it.
    * @param policy The ConsumerPolicy.
    * @return pw::OkStatus() on success.
    */
   static pw::Status initialize(uintptr_t base, uint32_t shmemSize, Queue *queue,
-                               ConsumerDesc *desc, LocalNotifyFn notifyFn,
-                               std::optional<pw::ConstByteSpan> id,
+                               ConsumerDesc *desc, IdOrNotifyFn idOrNotifyFn,
                                ConsumerPolicy policy);
 
   /**
@@ -389,9 +406,13 @@ class ConsumerBase {
    *
    * @param queue The Queue metadata in shared memory.
    * @param desc The ConsumerDesc in shared memory.
+   * @param dataOffset The offset of the data from the start of BlockHeader.
+   * @param remoteNotifyFn Function for notifying Consumers out-of-band only for
+   * remote queues.
    */
   ConsumerBase(uintptr_t shmemBase, uint32_t shmemSize, Queue &queue,
-               ConsumerDesc &desc, MemoryAccess *memAccess,
+               ConsumerDesc &desc, uint32_t dataOffset,
+               RemoteNotifyFn remoteNotifyFn, MemoryAccess *memAccess,
                std::optional<size_t> overwriteResetOffset);
 };
 

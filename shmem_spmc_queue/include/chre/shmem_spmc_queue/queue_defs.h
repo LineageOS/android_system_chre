@@ -27,7 +27,13 @@
 namespace chre::shmem_spmc_queue {
 
 /** Sends a notification to an endpoint within the same "process". */
-using LocalNotifyFn = pw::InlineFunction<void(void), 8>;
+using LocalNotifyFn = void (*)(void *context);
+
+/** Arguments passed to endpoints on a queue using local notifications. */
+struct LocalNotifyArgs {
+  LocalNotifyFn fn;
+  void *ctx;
+};
 
 /** Sends an out-of-band notification to an endpoint described by id. */
 using RemoteNotifyFn = pw::Function<void(pw::ConstByteSpan id)>;

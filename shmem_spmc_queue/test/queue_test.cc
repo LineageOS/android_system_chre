@@ -14,4 +14,4 @@
  * limitations under the License.
  */
 
- #include "chre/shmem_spmc_queue/queue.h"
+#include "chre/shmem_spmc_queue/queue.h"
