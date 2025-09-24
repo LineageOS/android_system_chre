@@ -181,7 +181,7 @@ class Producer : protected internal::ProducerBase {
    */
   template <size_t kBlockCapacity>
   static pw::Result<Producer> createLocal(
-      void *shmemBase, size_t shmemSize, void *queue,
+      void *shmemBase, uint32_t shmemSize, void *queue,
       pw::Allocator &allocator, size_t maxBlockCount, size_t minBlockCount,
       DataNotifier &dataNotifier, ConsumerManager &consumerManager,
       LocalNotifyFn notifyFn, MemoryAccess *memAccess = nullptr) {
@@ -206,7 +206,7 @@ class Producer : protected internal::ProducerBase {
    */
   template <size_t kBlockCapacity>
   static pw::Result<Producer> createRemote(
-      void *shmemBase, size_t shmemSize, void *queue,
+      void *shmemBase, uint32_t shmemSize, void *queue,
       pw::Allocator &allocator, size_t maxBlockCount, size_t minBlockCount,
       DataNotifier &dataNotifier, ConsumerManager &consumerManager,
       RemoteNotifyArgs notifyArgs, MemoryAccess *memAccess = nullptr) {
@@ -317,6 +317,7 @@ class Producer : protected internal::ProducerBase {
 template <typename ElementType>
 class Consumer : protected internal::ConsumerBase {
   static_assert(std::is_standard_layout_v<ElementType>);
+  using Base = internal::ConsumerBase;
 
  public:
   /**
@@ -343,10 +344,20 @@ class Consumer : protected internal::ConsumerBase {
    * @return An initialized Consumer instance.
    */
   static pw::Result<Consumer> createLocal(
-      void *shmemBase, size_t shmemSize, uint32_t queueOffset,
+      void *shmemBase, uint32_t shmemSize, uint32_t queueOffset,
       uint32_t descOffset, LocalNotifyFn notifyFn, ConsumerPolicy policy,
       MemoryAccess *memAccess = nullptr,
-      std::optional<size_t> overwriteResetOffset = std::nullopt);
+      std::optional<size_t> overwriteResetOffset = std::nullopt) {
+    auto base = reinterpret_cast<uintptr_t>(shmemBase);
+    auto *queue =
+        internal::fromOffset<internal::Queue>(base, shmemSize, queueOffset);
+    auto *desc = internal::fromOffset<internal::ConsumerDesc>(base, shmemSize,
+                                                              descOffset);
+    PW_TRY(initialize(base, shmemSize, queue, desc, std::move(notifyFn),
+                      /*id=*/std::nullopt, policy));
+    return Consumer(base, shmemSize, *queue, *desc, memAccess,
+                    overwriteResetOffset);
+  }
 
   /**
    * Like {@link #createLocal()} but for a remote queue.
@@ -357,41 +368,43 @@ class Consumer : protected internal::ConsumerBase {
    * for the Producer to notify this Consumer.
    */
   static pw::Result<Consumer> createRemote(
-      void *shmemBase, size_t shmemSize, uint32_t queueOffset,
+      void *shmemBase, uint32_t shmemSize, uint32_t queueOffset,
       uint32_t descOffset, RemoteNotifyArgs notifyArgs, ConsumerPolicy policy,
       MemoryAccess *memAccess = nullptr,
-      std::optional<size_t> overwriteResetOffset = std::nullopt);
+      std::optional<size_t> overwriteResetOffset = std::nullopt) {
+    auto base = reinterpret_cast<uintptr_t>(shmemBase);
+    auto *queue =
+        internal::fromOffset<internal::Queue>(base, shmemSize, queueOffset);
+    auto *desc = internal::fromOffset<internal::ConsumerDesc>(base, shmemSize,
+                                                              descOffset);
+    PW_TRY(initialize(base, shmemSize, queue, desc, /*notifyFn=*/{},
+                      pw::ConstByteSpan(notifyArgs.id), policy));
+    return Consumer(base, shmemSize, *queue, *desc, memAccess,
+                    overwriteResetOffset);
+  }
 
   /** TODO(b/445479433) Support static consumers. */
 
   /** If active, marks this consumer removed in shared memory and notifies the
    * producer. */
-  ~Consumer();
+  virtual ~Consumer() = default;
 
   /**
-   * Updates the current policy. Notifies the Producer.
+   * Sets a new ConsumerPolicy.
    *
-   * @param policy The new ConsumerPolicy.
-   * @return pw::OkStatus() on success.
+   * See {@link internal::ConsumerBase::updatePolicy()} for more details.
    */
-  pw::Status updatePolicy(ConsumerPolicy policy);
+  using Base::updatePolicy;
 
-  /** Disables this instance. Should be called when the Producer crashes. */
-  void disable();
+  /** Disables this instance. See {@link internal::ConsumerBase::disable()} */
+  using Base::disable;
 
   /**
-   * Checks the current state of the Consumer.
+   * Returns a pw::Status indicating the state of this Consumer.
    *
-   * This API can be used to check whether an in-progress peek() operation is
-   * still valid, i.e. the Producer hasn't overwritten this Consumer.
-   *
-   * @return pw::OkStatus() if state is ok. The following errors may be
-   * returned:
-   * - pw::Status::DataLoss(): The Consumer has been overwritten.
-   * - pw::Status::Aborted(): The Producer is gone. The Consumer is not safe to
-   * use.
+   * See {@link internal::ConsumerBase::checkState()} for more details.
    */
-  pw::Status checkState();
+  using Base::checkState;
 
   /**
    * If available, returns a span over the next available contiguous elements.
@@ -408,7 +421,11 @@ class Consumer : protected internal::ConsumerBase {
    * @param count The number of elements to peek.
    * @return On success, a span over the next up-to-count contiguous elements.
    */
-  pw::Result<pw::span<const ElementType>> peek(size_t count);
+  pw::Result<pw::span<const ElementType>> peek(size_t count) {
+    PW_TRY_ASSIGN(pw::ConstByteSpan bytes,
+                  Base::peek(count * sizeof(ElementType)));
+    return pw::span_cast<const ElementType>(bytes);
+  }
 
   /**
    * Releases the first count available elements back to the queue.
@@ -418,7 +435,9 @@ class Consumer : protected internal::ConsumerBase {
    * @param count The number of elements to release.
    * @return pw::OkStatus() on success. See checkState() for error conditions.
    */
-  pw::Status release(size_t count);
+  pw::Status release(size_t count) {
+    return Base::release(count * sizeof(ElementType));
+  }
 
   /**
    * If available, pops elements.size() elements into the provided memory.
@@ -426,7 +445,9 @@ class Consumer : protected internal::ConsumerBase {
    * @param elements Span over the memory into which to pop the elements.
    * @return pw::OkStatus() on success. See checkState() for error conditions.
    */
-  pw::Status pop(pw::span<ElementType> elements);
+  pw::Status pop(pw::span<ElementType> elements) {
+    return Base::pop(pw::as_writable_bytes(elements));
+  }
 
   /**
    * Syncs the read pointer to the write pointer minus an offset.
@@ -435,13 +456,24 @@ class Consumer : protected internal::ConsumerBase {
    * the number of available elements resync() will fail.
    * @return pw::OkStatus() on success.
    */
-  pw::Status resync(size_t offset);
+  pw::Status resync(size_t offset) {
+    return Base::resync(offset * sizeof(ElementType));
+  }
 
   /** @return the number of elements currently in the queue. */
-  size_t size();
+  size_t size() {
+    return Base::size() / sizeof(ElementType);
+  }
 
   /** @return true iff the queue is empty. */
-  bool empty();
+  using Base::empty;
+
+ protected:
+  Consumer(uintptr_t shmemBase, uint32_t shmemSize, internal::Queue &queue,
+           internal::ConsumerDesc &desc, MemoryAccess *memAccess,
+           std::optional<size_t> overwriteResetOffset)
+      : Base(shmemBase, shmemSize, queue, desc, memAccess,
+             overwriteResetOffset) {}
 };
 
 }  // namespace chre::shmem_spmc_queue

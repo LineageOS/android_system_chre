@@ -50,6 +50,9 @@ namespace internal {
 // implementation.
 static_assert(std::atomic<uint32_t>::is_always_lock_free);
 
+// Analog to nullptr for offsets in shared memory.
+constexpr uint32_t kOffsetInvalid = UINT32_MAX;
+
 //! Endpoint id for remote notifications or local callback.
 // NOTE: 16-byte aligned to ensure the same padding across platforms.
 union alignas(16) IdOrNotifyFn {
@@ -298,7 +301,115 @@ class ProducerBase {
 class ConsumerBase {
  public:
   virtual ~ConsumerBase();
+
+  /**
+   * Updates the current policy. Notifies the Producer.
+   *
+   * @param policy The new ConsumerPolicy.
+   * @return pw::OkStatus() on success.
+   */
+  pw::Status updatePolicy(ConsumerPolicy policy);
+
+  /** Disables this instance. Should be called when the Producer crashes. */
+  void disable();
+
+  /**
+   * Checks the current state of the Consumer.
+   *
+   * This API can be used to check whether an in-progress peek() operation is
+   * still valid, i.e. the Producer hasn't overwritten this Consumer.
+   *
+   * @return pw::OkStatus() if state is ok. The following errors may be
+   * returned:
+   * - pw::Status::DataLoss(): The Consumer has been overwritten.
+   * - pw::Status::Aborted(): The Producer is gone. The Consumer is not safe to
+   * use.
+   */
+  pw::Status checkState();
+
+  /**
+   * If available, returns a span over the next available contiguous bytes;
+   *
+   * @param count The number of bytes to peek.
+   * @return On success, a span over the next up-to-count contiguous bytes.
+   */
+  pw::Result<pw::ConstByteSpan> peek(size_t count);
+
+  /**
+   * Releases the count bytes previously peek()ed.
+   *
+   * @param count The number of bytes to release.
+   * @return pw::OkStatus() on success. See checkState() for error conditions.
+   */
+  pw::Status release(size_t count);
+
+  /**
+   * If available, pops data.size() bytes into the provided memory.
+   *
+   * @param elements Span over the memory into which to pop data.
+   * @return pw::OkStatus() on success. See checkState() for error conditions.
+   */
+  pw::Status pop(pw::ByteSpan data);
+
+  /**
+   * Syncs the read pointer to the write pointer minus an offset.
+   *
+   * @param offset The number of recent bytes to preserve. If greater than the
+   * current size of the queue, resync() will fail.
+   * @return pw::OkStatus() on success.
+   */
+  pw::Status resync(size_t offset);
+
+  /** @return the number of bytes available to read from the queue. */
+  size_t size();
+
+  /** @return true iff the queue is empty. */
+  bool empty();
+
+ protected:
+  /**
+   * Checks that the ConsumerDesc is in a valid state.
+   *
+   * @param shmemBase The base address of the queue shared memory region.
+   * @param shmemSize The size of the queue shared memory region.
+   * @param queueOffset The queue metadata in shared memory.
+   * @param descOffset The consumer descriptor in shared memory.
+   * @param notifyFn Present only when id is not present.
+   * @param id Present only when notifyFn is empty.
+   * @param policy The ConsumerPolicy.
+   * @return pw::OkStatus() on success.
+   */
+  static pw::Status initialize(uintptr_t base, uint32_t shmemSize, Queue *queue,
+                               ConsumerDesc *desc, LocalNotifyFn notifyFn,
+                               std::optional<pw::ConstByteSpan> id,
+                               ConsumerPolicy policy);
+
+  /**
+   * See {@link Consumer::createDynamic()} for most parameters.
+   *
+   * @param queue The Queue metadata in shared memory.
+   * @param desc The ConsumerDesc in shared memory.
+   */
+  ConsumerBase(uintptr_t shmemBase, uint32_t shmemSize, Queue &queue,
+               ConsumerDesc &desc, MemoryAccess *memAccess,
+               std::optional<size_t> overwriteResetOffset);
 };
+
+// Returns a pointer to the object at given offset from base or nullptr.
+template <typename ObjType>
+inline constexpr ObjType *fromOffset(uintptr_t shmemBase, uint32_t shmemSize,
+                                     uint32_t offset) {
+  if (offset == kOffsetInvalid || offset > shmemSize - sizeof(ObjType)) {
+    return nullptr;
+  }
+  // All objects that would be accessed this way are allocated with fixed
+  // alignment, however we should still check against bad values at runtime.
+  auto unalignedBits = (static_cast<uintptr_t>(1) << alignof(ObjType)) - 1;
+  if (auto addr = shmemBase + offset; !(addr & unalignedBits)) {
+    return reinterpret_cast<ObjType *>(addr);
+  }
+  return nullptr;
+}
 
 }  // namespace internal
 }  // namespace chre::shmem_spmc_queue
