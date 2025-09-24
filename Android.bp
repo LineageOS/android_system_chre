@@ -1182,8 +1182,6 @@ cc_library_static {
         "platform/shared/chre_api_sensor.cc",
         "platform/shared/chre_api_user_settings.cc",
         "platform/shared/chre_api_wifi.cc",
-        "platform/shared/host_protocol_chre.cc",
-        "platform/shared/host_protocol_common.cc",
         "platform/shared/init.cc",
         "platform/shared/log_buffer.cc",
         "platform/shared/memory_manager.cc",

@@ -18,8 +18,6 @@
 
 #include "chre/core/event_loop_manager.h"
 #include "chre/platform/linux/pal_ble.h"
-#include "chre/platform/shared/host_protocol_chre.h"
-#include "chre/util/flatbuffers/helpers.h"
 
 namespace chre {
 
@@ -51,14 +49,10 @@ bool HostLink::sendBtSocketGetCapabilitiesResponse(
   return true;
 }
 
-bool HostLink::sendBtSocketOpenResponse(uint64_t socketId, bool success,
+bool HostLink::sendBtSocketOpenResponse(uint64_t /*socketId*/, bool success,
                                         const char *reason) {
   setSocketOpenSuccess(success);
   setSocketOpenFailureReason(reason);
-  constexpr size_t kFixedSizePortion = 52;
-  ChreFlatBufferBuilder builder(kFixedSizePortion);
-  HostProtocolChre::encodeBtSocketOpenResponse(builder, socketId, success,
-                                               reason);
   return true;
 }
 
@@ -77,51 +71,5 @@ void HostLinkBase::sendNanConfiguration(bool enable) {
   UNUSED_VAR(enable);
 #endif
 }
-
-void HostMessageHandlers::sendFragmentResponse(uint16_t, uint32_t, uint32_t,
-                                               bool) {}
-
-void HostMessageHandlers::handleDebugDumpRequest(uint16_t) {}
-
-void HostMessageHandlers::handleHubInfoRequest(uint16_t) {}
-
-void HostMessageHandlers::handleLoadNanoappRequest(uint16_t, uint32_t, uint64_t,
-                                                   uint32_t, uint32_t, uint32_t,
-                                                   const void *, size_t,
-                                                   const char *, uint32_t,
-                                                   size_t, bool) {}
-
-void HostMessageHandlers::handleNanoappListRequest(uint16_t) {}
-
-void HostMessageHandlers::handleNanoappMessage(uint64_t, uint32_t, uint16_t,
-                                               const void *, size_t, bool,
-                                               uint32_t) {}
-
-void HostMessageHandlers::handleMessageDeliveryStatus(uint32_t, uint8_t) {}
-
-void HostMessageHandlers::handleSettingChangeMessage(fbs::Setting,
-                                                     fbs::SettingState) {}
-
-void HostMessageHandlers::handleTimeSyncMessage(int64_t) {}
-
-void HostMessageHandlers::handleUnloadNanoappRequest(uint16_t, uint32_t,
-                                                     uint64_t, bool) {}
-
-void HostMessageHandlers::handleSelfTestRequest(uint16_t) {}
-
-void HostMessageHandlers::handlePulseRequest() {}
-
-void HostMessageHandlers::handleDebugConfiguration(
-    const fbs::DebugConfiguration *) {}
-
-void HostMessageHandlers::handleNanConfigurationUpdate(bool) {}
-
-void HostMessageHandlers::handleBtSocketOpen(uint64_t,
-                                             const BleL2capCocSocketData &,
-                                             const char *, uint32_t) {}
-
-void HostMessageHandlers::handleBtSocketCapabilitiesRequest() {}
-
-void HostMessageHandlers::handleBtSocketClosed(uint64_t) {}
 
 }  // namespace chre
