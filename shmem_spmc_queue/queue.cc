@@ -17,32 +17,117 @@
 #include "chre/shmem_spmc_queue/queue.h"
 #include "chre/shmem_spmc_queue/internal/queue_internal.h"
 #include "chre/shmem_spmc_queue/queue_defs.h"
+#include "pw_allocator/layout.h"
 
 namespace chre::shmem_spmc_queue {
 namespace internal {
+namespace {
 
-pw::Status ProducerBase::initialize(uintptr_t /*shmemBase*/,
-                                    uint32_t /*shmemSize*/, Queue & /*queue*/,
-                                    pw::Allocator & /*allocator*/,
-                                    pw::allocator::Layout /*layout*/,
-                                    size_t /*count*/, size_t /*blockCapacity*/,
-                                    size_t /*elementAlignment*/, bool /*local*/,
-                                    IdOrNotifyFn /*idOrNotifyFn*/) {
-  // TODO(b/445482700): Implement.
-  return pw::Status::Unimplemented();
+void deallocateBlockRing(uintptr_t shmemBase, uint32_t shmemSize,
+                         pw::Allocator &allocator, pw::allocator::Layout layout,
+                         BlockHeader *head) {
+  if (!head) {
+    return;
+  }
+  for (BlockHeader *block = head; block;) {
+    auto *tmp = block;
+    block = fromOffset<BlockHeader>(shmemBase, shmemSize,
+                                    block->nextBlockOffset, layout);
+    allocator.Deallocate(tmp);
+    if (block == head) {
+      return;
+    }
+  }
 }
 
-ProducerBase::ProducerBase(
-    uintptr_t /*shmemBase*/, uint32_t /*shmemSize*/, Queue & /*queue*/,
-    pw::Allocator & /*allocator*/, pw::allocator::Layout /*blockLayout*/,
-    size_t /*maxBlockCount*/, size_t /*minBlockCount*/, uint32_t /*dataOffset*/,
-    DataNotifier & /*dataNotifier*/, ConsumerManager & /*consumerManager*/,
-    RemoteNotifyFn /*remoteNotifyFn*/, MemoryAccess * /*memAccess*/) {
-  // TODO(b/445482700): Implement.
+pw::Result<BlockHeader *> allocateBlockRing(uintptr_t shmemBase,
+                                            uint32_t shmemSize,
+                                            pw::Allocator &allocator,
+                                            pw::allocator::Layout layout,
+                                            size_t count) {
+  if (count == 0) {
+    return pw::Status::InvalidArgument();
+  }
+  BlockHeader *head = nullptr, *prev = nullptr;
+  for (int i = 0; i < count; ++i) {
+    if (auto *blockRaw = allocator.Allocate(layout); blockRaw) {
+      auto *block = static_cast<BlockHeader *>(blockRaw);
+      if (!head) {
+        head = block;
+      } else {
+        prev->nextBlockOffset = toOffset(shmemBase, block);
+      }
+      prev = block;
+    } else {
+      deallocateBlockRing(shmemBase, shmemSize, allocator, layout, head);
+      return pw::Status::ResourceExhausted();
+    }
+  }
+  prev->nextBlockOffset = internal::toOffset(shmemBase, head);
+  return head;
 }
+
+}  // namespace
+
+pw::Status ProducerBase::initialize(uintptr_t shmemBase, uint32_t shmemSize,
+                                    Queue &queue, pw::Allocator &allocator,
+                                    pw::allocator::Layout layout, size_t count,
+                                    size_t blockCapacity,
+                                    size_t elementAlignment, bool local,
+                                    IdOrNotifyFn idOrNotifyFn) {
+  PW_TRY_ASSIGN(auto *tailBlock, allocateBlockRing(shmemBase, shmemSize,
+                                                   allocator, layout, count));
+  auto &desc = tailBlock->producerDesc;
+  desc.idOrNotifyFn = idOrNotifyFn;
+  queue.localNotify = local;
+  desc.writeIndex = 0;
+  desc.indexCorrection = 0;
+  desc.epoch = 0;
+  desc.tailBlockOffset = toOffset(shmemBase, tailBlock);
+  queue.producerOffset = toOffset(shmemBase, &desc);
+  queue.dynamicConsumersHeadOffset = kOffsetInvalid;
+  queue.blockCapacity = blockCapacity;
+  queue.elementAlignment = elementAlignment;
+  queue.numStaticConsumers = 0;
+  return pw::OkStatus();
+}
+
+ProducerBase::ProducerBase(uintptr_t shmemBase, uint32_t shmemSize,
+                           Queue &queue, pw::Allocator &allocator,
+                           pw::allocator::Layout blockLayout,
+                           size_t maxBlockCount, size_t minBlockCount,
+                           uint32_t dataOffset, DataNotifier &dataNotifier,
+                           ConsumerManager &consumerManager,
+                           RemoteNotifyFn remoteNotifyFn,
+                           MemoryAccess *memAccess)
+    : mRemoteNotifyFn(std::move(remoteNotifyFn)),
+      kShmemBase(shmemBase),
+      mQueue(&queue),
+      mAllocator(&allocator),
+      mDataNotifier(&dataNotifier),
+      mConsumerManager(&consumerManager),
+      mMemAccess(memAccess),
+      kBlockLayout(blockLayout),
+      kShmemSize(shmemSize),
+      kDataOffset(dataOffset),
+      kBlockCapacity(queue.blockCapacity),
+      kLocal(queue.localNotify),
+      mDesc(fromOffset<ProducerDesc>(kShmemBase, kShmemSize,
+                                     queue.producerOffset)),
+      mMaxBlockCount(maxBlockCount),
+      mMinBlockCount(minBlockCount) {}
 
 ProducerBase::~ProducerBase() {
-  // TODO(b/445482700): Implement.
+  if (!mActive) {
+    return;
+  }
+  mActive = false;
+  mQueue->producerOffset = kOffsetInvalid;
+  // TODO(b/445482700): Notify Consumers.
+  deallocateBlockRing(
+      kShmemBase, kShmemSize, *mAllocator, kBlockLayout,
+      fromOffset<BlockHeader>(kShmemBase, kShmemSize, mDesc->tailBlockOffset,
+                              kBlockLayout));
 }
 
 pw::Status ProducerBase::setMaxBlockCountTarget(size_t /*count*/,

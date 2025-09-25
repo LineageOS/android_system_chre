@@ -167,6 +167,7 @@ class Producer : protected internal::ProducerBase {
    * @param queue Pointer to queue metadata in shared memory.
    * @param allocator Allocator used for element storage. Allocations are within
    * the shared memory region beginning at base. Must outlive the new instance.
+   * @param blockCapacity The capacity of each Block in elements.
    * @param maxBlockCount The maximum allowed blocks of element storage. Must
    * be >= minBlockCount. This can be adjusted at runtime.
    * @param minBlockCount The minimum required blocks of element storage. Must
@@ -179,10 +180,10 @@ class Producer : protected internal::ProducerBase {
    * Queue and element storage.
    * @return An initialized Producer instance on success.
    */
-  template <size_t kBlockCapacity>
   static pw::Result<Producer> createLocal(
-      void *shmemBase, uint32_t shmemSize, void *queue, pw::Allocator &allocator,
-      size_t maxBlockCount, size_t minBlockCount, DataNotifier &dataNotifier,
+      void *shmemBase, uint32_t shmemSize, void *queue,
+      pw::Allocator &allocator, size_t blockCapacity, size_t maxBlockCount,
+      size_t minBlockCount, DataNotifier &dataNotifier,
       ConsumerManager &consumerManager, LocalNotifyArgs notifyArgs,
       MemoryAccess *memAccess = nullptr) {
     if (!queue || !notifyArgs.fn || shmemSize > UINT32_MAX ||
@@ -190,10 +191,10 @@ class Producer : protected internal::ProducerBase {
       return pw::Status::InvalidArgument();
     }
     auto base = reinterpret_cast<uintptr_t>(shmemBase);
-    auto blockLayout = internal::blockLayout<ElementType, kBlockCapacity>();
+    auto blockLayout = internal::blockLayout<ElementType>(blockCapacity);
     auto &queueRef = *static_cast<internal::Queue *>(queue);
     PW_TRY(Base::initialize(base, shmemSize, queueRef, allocator, blockLayout,
-                            minBlockCount, kBlockCapacity * sizeof(ElementType),
+                            minBlockCount, blockCapacity * sizeof(ElementType),
                             alignof(ElementType), /*local=*/true,
                             {.localNotify = notifyArgs}));
     return Producer(base, shmemSize, queueRef, allocator, blockLayout,
@@ -209,10 +210,10 @@ class Producer : protected internal::ProducerBase {
    * @param notifyArgs Mechanism for notifying Consumers out-of-band and for
    * Consumers to notify this Producer.
    */
-  template <size_t kBlockCapacity>
   static pw::Result<Producer> createRemote(
-      void *shmemBase, uint32_t shmemSize, void *queue, pw::Allocator &allocator,
-      size_t maxBlockCount, size_t minBlockCount, DataNotifier &dataNotifier,
+      void *shmemBase, uint32_t shmemSize, void *queue,
+      pw::Allocator &allocator, size_t blockCapacity, size_t maxBlockCount,
+      size_t minBlockCount, DataNotifier &dataNotifier,
       ConsumerManager &consumerManager, RemoteNotifyArgs notifyArgs,
       MemoryAccess *memAccess = nullptr) {
     if (!queue || !notifyArgs.fn || shmemSize > UINT32_MAX ||
@@ -220,10 +221,10 @@ class Producer : protected internal::ProducerBase {
       return pw::Status::InvalidArgument();
     }
     auto base = reinterpret_cast<uintptr_t>(shmemBase);
-    auto blockLayout = internal::blockLayout<ElementType, kBlockCapacity>();
+    auto blockLayout = internal::blockLayout<ElementType>(blockCapacity);
     auto &queueRef = *static_cast<internal::Queue *>(queue);
     PW_TRY(Base::initialize(base, shmemSize, queueRef, allocator, blockLayout,
-                            minBlockCount, kBlockCapacity * sizeof(ElementType),
+                            minBlockCount, blockCapacity * sizeof(ElementType),
                             alignof(ElementType), /*local=*/false,
                             {.remoteId = notifyArgs.id}));
     return Producer(base, shmemSize, queueRef, allocator, blockLayout,

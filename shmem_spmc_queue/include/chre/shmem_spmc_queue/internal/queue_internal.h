@@ -155,16 +155,18 @@ struct BlockHeader {
 };
 
 /** Block of element storage. */
-template <typename ElementType, size_t kBlockCapacity = 0>
+template <typename ElementType>
 struct Block {
   BlockHeader header;
-  ElementType data[kBlockCapacity];
+  ElementType data[];
 };
 
 /** @return Layout for allocating Blocks using pw::Allocator. */
-template <typename ElementType, size_t kBlockCapacity>
-pw::allocator::Layout blockLayout() {
-  return pw::allocator::Layout::Of<Block<ElementType, kBlockCapacity>>();
+template <typename ElementType>
+constexpr pw::allocator::Layout blockLayout(size_t blockCapacity) {
+  return pw::allocator::Layout(
+      sizeof(Block<ElementType>) + blockCapacity * sizeof(ElementType),
+      alignof(Block<ElementType>));
 }
 
 /** Base class for Producers of any ElementType. */
@@ -176,8 +178,28 @@ class ProducerBase {
   ProducerBase(ProducerBase &&other) {
     *this = std::move(other);
   }
-  ProducerBase &operator=(ProducerBase && /*other*/) {
-    // TODO(b/445482700): Implement.
+  ProducerBase &operator=(ProducerBase &&other) {
+    if (&other != this) {
+      if (other.mActive) {
+        mRemoteNotifyFn = std::move(other.mRemoteNotifyFn);
+        kShmemBase = other.kShmemBase;
+        kShmemSize = other.kShmemSize;
+        mQueue = other.mQueue;
+        mAllocator = other.mAllocator;
+        mDataNotifier = other.mDataNotifier;
+        mConsumerManager = other.mConsumerManager;
+        mMemAccess = other.mMemAccess;
+        kBlockLayout = other.kBlockLayout;
+        kDataOffset = other.kDataOffset;
+        kBlockCapacity = other.kBlockCapacity;
+        kLocal = other.kLocal;
+        mDesc = other.mDesc;
+        mMaxBlockCount = other.mMaxBlockCount;
+        mMinBlockCount = other.mMinBlockCount;
+        mActive = true;
+      }
+      other.mActive = false;
+    }
     return *this;
   }
 
@@ -302,6 +324,25 @@ class ProducerBase {
                size_t maxBlockCount, size_t minBlockCount, uint32_t dataOffset,
                DataNotifier &dataNotifier, ConsumerManager &consumerManager,
                RemoteNotifyFn remoteNotifyFn, MemoryAccess *memAccess);
+
+  // Members fixed on construction.
+  RemoteNotifyFn mRemoteNotifyFn;
+  uintptr_t kShmemBase;
+  Queue *mQueue;
+  pw::Allocator *mAllocator;
+  DataNotifier *mDataNotifier;
+  ConsumerManager *mConsumerManager;
+  MemoryAccess *mMemAccess;
+  pw::allocator::Layout kBlockLayout;
+  uint32_t kShmemSize;
+  uint32_t kDataOffset;
+  uint32_t kBlockCapacity;
+  bool kLocal;
+
+  ProducerDesc *mDesc;
+  size_t mMaxBlockCount;
+  size_t mMinBlockCount;
+  bool mActive = true;
 };
 
 /** Base class for Consumers of any ElementType. */
@@ -416,17 +457,26 @@ class ConsumerBase {
                std::optional<size_t> overwriteResetOffset);
 };
 
+// Returns the offset of the object from base.
+uint32_t toOffset(uintptr_t base, void *ptr) {
+  auto addr = reinterpret_cast<uintptr_t>(ptr);
+  if (addr < base || addr - base > UINT32_MAX) {
+    return kOffsetInvalid;
+  }
+  return addr - base;
+}
+
 // Returns a pointer to the object at given offset from base or nullptr.
 template <typename ObjType>
-inline constexpr ObjType *fromOffset(uintptr_t shmemBase, uint32_t shmemSize,
-                                     uint32_t offset) {
-  if (offset == kOffsetInvalid || offset > shmemSize - sizeof(ObjType)) {
+inline constexpr ObjType *fromOffset(
+    uintptr_t shmemBase, uint32_t shmemSize, uint32_t offset,
+    pw::allocator::Layout layout = pw::allocator::Layout::Of<ObjType>()) {
+  if (offset == kOffsetInvalid || offset > shmemSize - layout.size()) {
     return nullptr;
   }
   // All objects that would be accessed this way are allocated with fixed
   // alignment, however we should still check against bad values at runtime.
-  auto unalignedBits = (static_cast<uintptr_t>(1) << alignof(ObjType)) - 1;
-  if (auto addr = shmemBase + offset; !(addr & unalignedBits)) {
+  if (auto addr = shmemBase + offset; !(addr & (layout.alignment() - 1))) {
     return reinterpret_cast<ObjType *>(addr);
   }
   return nullptr;
