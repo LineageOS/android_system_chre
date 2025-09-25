@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#define LOG_TAG "chredemojni native.cpp"
+#define LOG_TAG "CHRE_AP"
 
 #include "chre/core/event_loop.h"
 #include "chre/core/event_loop_manager.h"
@@ -22,6 +22,7 @@
 #include "chre/platform/shared/init.h"
 
 #include <android/log_macros.h>
+
 #include <stdio.h>
 #include <memory>
 #include <thread>
@@ -36,8 +37,6 @@ static jint init(JNIEnv * /*env*/, jobject /*thiz*/) {
     ALOGE("CHRE AP env already inited");
     return 0;
   }
-  // Initialize logging.
-  chre::PlatformLogSingleton::init();
   // Initialize the system.
   chre::initCommon();
 
@@ -59,7 +58,6 @@ static void destroy(JNIEnv * /*env*/, jobject /*thiz*/) {
   }
   chreThread.reset();
   chre::deinitCommon();
-  chre::PlatformLogSingleton::deinit();
   ALOGD("CHRE AP env: destroyed");
 }
 

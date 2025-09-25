@@ -21,8 +21,7 @@
 namespace chre {
 
 void preFatalError() {
-  // Flush logs before fatally quitting.
-  chre::PlatformLogSingleton::deinit();
+  // Unimplemented in this platform yet.
 }
 
 }  // namespace chre

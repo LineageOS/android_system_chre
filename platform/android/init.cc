@@ -37,9 +37,6 @@ extern "C" void signalHandler(int sig) {
 }  // namespace
 
 int main(int /*argc*/, char ** /*argv*/) {
-  // Initialize logging.
-  chre::PlatformLogSingleton::init();
-
   // Initialize the system.
   chre::initCommon();
 
@@ -56,9 +53,7 @@ int main(int /*argc*/, char ** /*argv*/) {
     EventLoopManagerSingleton::get()->getEventLoop().run();
   });
   chreThread.join();
-
   chre::deinitCommon();
-  chre::PlatformLogSingleton::deinit();
 
   return 0;
 }

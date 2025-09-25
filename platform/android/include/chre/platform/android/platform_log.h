@@ -28,19 +28,18 @@
 namespace chre {
 
 /**
- * Storage for the CHRE AP implementation of the PlatformLog class.
+ * The CHRE AP implementation of the PlatformLog class.
  */
 class PlatformLog {
  public:
-  PlatformLog();
-
-  ~PlatformLog();
+  PlatformLog() = default;
+  ~PlatformLog() = default;
 
   /**
    * Logs message with printf-style arguments. No trailing newline is required
    * for this method.
    */
-  void log(chreLogLevel logLevel, const char *formatStr, ...) {
+  static void log(chreLogLevel logLevel, const char *formatStr, ...) {
     va_list args;
     va_start(args, formatStr);
     logVa(logLevel, formatStr, args);
@@ -51,35 +50,8 @@ class PlatformLog {
    * Logs message with printf-style arguments. No trailing newline is required
    * for this method. Uses va_list parameter instead of ...
    */
-  void logVa(chreLogLevel logLevel, const char *formatStr, va_list args);
-
- private:
-  /**
-   * A looper method that idles on a condition variable on logs becoming
-   * available. When logs are available, they are output via std::cout.
-   */
-  void logLooper();
-
-  //! The thread that waits on incoming log messages and sends them out to
-  //! std::cout.
-  std::thread mLoggerThread;
-
-  //! A mutex to guard the shared queue and exit condition of this class.
-  std::mutex mMutex;
-
-  //! The condition variable to signal that the log looper has messages
-  //! available to output.
-  std::condition_variable mConditionVariable;
-
-  //! A queue of incoming log messages.
-  std::queue<char *> mLogQueue;
-
-  //! A flag to indicate that the logger should shut down.
-  bool mStopLogger = false;
+  static void logVa(chreLogLevel logLevel, const char *formatStr, va_list args);
 };
-
-typedef Singleton<PlatformLog> PlatformLogSingleton;
-
 }  // namespace chre
 
 #endif  // CHRE_PLATFORM_ANDROID_PLATFORM_LOG_H_
