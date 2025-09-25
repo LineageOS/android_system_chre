@@ -23,6 +23,7 @@
 #include "chre/core/event_loop_manager.h"
 #include "chre/platform/log.h"
 #include "chre/platform/shared/pal_system_api.h"
+#include "chre/util/macros.h"
 #include "chre/util/system/wifi_util.h"
 
 namespace chre {

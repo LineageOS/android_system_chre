@@ -20,6 +20,7 @@
 #include "chre/core/static_nanoapps.h"
 #include "chre/platform/fatal_error.h"
 #include "chre/platform/shared/nanoapp_support_lib_dso.h"
+#include "chre_api/chre/nanoapp.h"
 
 /**
  * Initializes a static nanoapp that is based on the Linux implementation of

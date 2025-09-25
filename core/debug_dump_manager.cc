@@ -16,6 +16,7 @@
 
 #include "chre/core/debug_dump_manager.h"
 
+#include <cinttypes>
 #include <cstring>
 
 #include "chre/core/event_loop_manager.h"

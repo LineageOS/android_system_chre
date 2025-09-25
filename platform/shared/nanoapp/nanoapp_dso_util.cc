@@ -21,6 +21,7 @@
 #include <cstring>
 
 #include "chre/platform/log.h"
+#include "chre/platform/shared/nanoapp_support_lib_dso.h"
 
 namespace chre {
 

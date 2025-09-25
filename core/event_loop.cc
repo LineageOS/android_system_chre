@@ -23,6 +23,7 @@
 #include "chre/core/event.h"
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/nanoapp.h"
+#include "chre/core/static_nanoapps.h"
 #include "chre/platform/assert.h"
 #include "chre/platform/context.h"
 #include "chre/platform/event_loop_hooks.h"
@@ -37,6 +38,7 @@
 #include "chre/util/throttle.h"
 #include "chre/util/time.h"
 #include "chre_api/chre/version.h"
+#include "pw_span/span.h"
 
 using ::chre::message::EndpointInfo;
 using ::chre::message::EndpointType;

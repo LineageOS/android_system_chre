@@ -26,6 +26,7 @@
 #include "chre_api/chre/version.h"
 
 #include <algorithm>
+#include <cinttypes>
 #include <cstdint>
 
 #if CHRE_FIRST_SUPPORTED_API_VERSION < CHRE_API_VERSION_1_5

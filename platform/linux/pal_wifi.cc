@@ -24,6 +24,7 @@
 #include "chre/pal/wifi.h"
 #include "chre/platform/linux/pal_nan.h"
 #include "chre/platform/linux/task_util/task_manager.h"
+#include "chre/platform/log.h"
 #include "chre/util/enum.h"
 #include "chre/util/memory.h"
 #include "chre/util/time.h"
