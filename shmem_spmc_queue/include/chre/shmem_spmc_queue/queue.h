@@ -35,11 +35,6 @@
 
 namespace chre::shmem_spmc_queue {
 
-/** Layout used to allocate queue metadata in shared memory. */
-pw::allocator::Layout queueLayout() {
-  return pw::allocator::Layout::Of<internal::Queue>();
-}
-
 /**
  * Interface for accessing shared memory.
  */
@@ -102,23 +97,31 @@ class DataNotifier {
                             std::optional<uint32_t> periodMs);
 };
 
-/** Manages the Consumers for one Queue. */
+/** Manages the Consumers for one or more queues in the same region. */
 class ConsumerManager {
  public:
   /**
-   * @param base The base address of the shared memory region.
-   * @param queue Pointer to the queue metadata in shared memory.
+   * @param shmemBase The base address of the shared memory region.
+   * @param shmemSize The size of the shared memory region.
    * @param allocator The allocator from which to allocate consumer descriptors.
+   * @param memAccess [optional] MemoryAccess implementation for accessing
+   * shared memory.
    */
-  ConsumerManager(uintptr_t base, void *queue, pw::Allocator &allocator);
+  ConsumerManager(void *shmemBase, size_t shmemSize, pw::Allocator &allocator,
+                  MemoryAccess *memAccess = nullptr)
+      : kShmemBase(reinterpret_cast<uintptr_t>(shmemBase)),
+        mAllocator(&allocator),
+        mMemAccess(memAccess),
+        kShmemSize(shmemSize) {}
 
   /**
    * Allocates a new consumer and links it to the list in shared memory.
    *
+   * @param queue Pointer to the queue metadata in shared memory.
    * @return The offset of the consumer descriptor in shared memory. Used to
    * initialize a Consumer instance.
    */
-  pw::Result<uint32_t> addConsumer();
+  pw::Result<uint32_t> addConsumer(void *queue);
 
   /**
    * Removes the descriptor for the consumer at given offset.
@@ -128,12 +131,13 @@ class ConsumerManager {
    * identifies this through an in-band mechanism and removes the state for that
    * Consumer.
    *
+   * @param queue Pointer to the queue metadata in shared memory.
    * @param offset The offset of the consumer descriptor in shared memory.
    * @return pw::OkStatus() on success.
    */
-  pw::Status removeConsumer(uint32_t offset);
+  pw::Status removeConsumer(void *queue, uint32_t offset);
 
- private:
+ protected:
   friend class ProducerBase;
   friend class DataNotifier;
 
@@ -143,12 +147,36 @@ class ConsumerManager {
    * This is used by the Producer and DataNotifier instances to access Consumer
    * state.
    *
-   * fn has the following signature:
-   * void(ConsumerDesc &desc, ConsumerDesc &prev, Args... args).
-   * prev can be used to remove a consumer while iterating.
+   * fn has the signature: void(ConsumerDesc &desc, Args... args).
    */
   template <typename Fn, typename... Args>
-  void forAllConsumers(const Fn & /*fn*/, Args... /*args*/) {}
+  void forAllConsumers(internal::Queue &queue, const Fn &fn, Args... args) {
+    uint32_t *descOffsetPtr = &queue.dynamicConsumersHeadOffset;
+    auto *desc = internal::fromOffset<internal::ConsumerDesc>(
+        kShmemBase, kShmemSize, *descOffsetPtr);
+    while (desc) {
+      if (static_cast<uint16_t>(desc->consumerFlags.load()) ==
+          static_cast<uint16_t>(internal::ConsumerFlags::kFinished)) {
+        // Remove a dynamic Consumer that has marked itself for removal.
+        *descOffsetPtr = desc->nextConsumerOffset;
+        mAllocator->Deallocate(desc);
+        desc = internal::fromOffset<internal::ConsumerDesc>(
+            kShmemBase, kShmemSize, *descOffsetPtr);
+      } else {
+        fn(*desc, args...);
+        descOffsetPtr = &desc->nextConsumerOffset;
+        desc = internal::fromOffset<internal::ConsumerDesc>(
+            kShmemBase, kShmemSize, *descOffsetPtr);
+      }
+    }
+    // TODO(b/445479433): Add support for static Consumers.
+  }
+
+  uintptr_t kShmemBase;
+  internal::Queue *mQueue;
+  pw::Allocator *mAllocator;
+  MemoryAccess *mMemAccess;
+  uint32_t kShmemSize;
 };
 
 template <typename ElementType>
@@ -186,18 +214,16 @@ class Producer : protected internal::ProducerBase {
       size_t minBlockCount, DataNotifier &dataNotifier,
       ConsumerManager &consumerManager, LocalNotifyArgs notifyArgs,
       MemoryAccess *memAccess = nullptr) {
-    if (!queue || !notifyArgs.fn || shmemSize > UINT32_MAX ||
-        maxBlockCount < minBlockCount) {
+    if (notifyArgs.fn == nullptr) {
       return pw::Status::InvalidArgument();
     }
+    auto queuePtr = static_cast<internal::Queue *>(queue);
     auto base = reinterpret_cast<uintptr_t>(shmemBase);
     auto blockLayout = internal::blockLayout<ElementType>(blockCapacity);
-    auto &queueRef = *static_cast<internal::Queue *>(queue);
-    PW_TRY(Base::initialize(base, shmemSize, queueRef, allocator, blockLayout,
-                            minBlockCount, blockCapacity * sizeof(ElementType),
-                            alignof(ElementType), /*local=*/true,
+    PW_TRY(Base::initialize(base, shmemSize, queuePtr, allocator, blockLayout,
+                            maxBlockCount, minBlockCount,
                             {.localNotify = notifyArgs}));
-    return Producer(base, shmemSize, queueRef, allocator, blockLayout,
+    return Producer(base, shmemSize, *queuePtr, allocator, blockLayout,
                     maxBlockCount, minBlockCount, dataNotifier, consumerManager,
                     /*remoteNotifyFn=*/{}, memAccess);
   }
@@ -216,18 +242,16 @@ class Producer : protected internal::ProducerBase {
       size_t minBlockCount, DataNotifier &dataNotifier,
       ConsumerManager &consumerManager, RemoteNotifyArgs notifyArgs,
       MemoryAccess *memAccess = nullptr) {
-    if (!queue || !notifyArgs.fn || shmemSize > UINT32_MAX ||
-        maxBlockCount < minBlockCount) {
+    if (!notifyArgs.fn) {
       return pw::Status::InvalidArgument();
     }
+    auto queuePtr = static_cast<internal::Queue *>(queue);
     auto base = reinterpret_cast<uintptr_t>(shmemBase);
     auto blockLayout = internal::blockLayout<ElementType>(blockCapacity);
-    auto &queueRef = *static_cast<internal::Queue *>(queue);
-    PW_TRY(Base::initialize(base, shmemSize, queueRef, allocator, blockLayout,
-                            minBlockCount, blockCapacity * sizeof(ElementType),
-                            alignof(ElementType), /*local=*/false,
+    PW_TRY(Base::initialize(base, shmemSize, queuePtr, allocator, blockLayout,
+                            maxBlockCount, minBlockCount,
                             {.remoteId = notifyArgs.id}));
-    return Producer(base, shmemSize, queueRef, allocator, blockLayout,
+    return Producer(base, shmemSize, *queuePtr, allocator, blockLayout,
                     maxBlockCount, minBlockCount, dataNotifier, consumerManager,
                     std::move(notifyArgs.fn), memAccess);
   }
@@ -501,5 +525,51 @@ class Consumer : protected internal::ConsumerBase {
              offsetof(internal::Block<ElementType>, data),
              std::move(remoteNotifyFn), memAccess, overwriteResetOffset) {}
 };
+
+/** Layout used to allocate queue metadata in shared memory. */
+pw::allocator::Layout queueLayout() {
+  return pw::allocator::Layout::Of<internal::Queue>();
+}
+
+/**
+ * Initializes the queue metadata.
+ *
+ * @tparam ElementType The type of elements in the queue.
+ * @tparam kBlockCapacity The capacity of each Block in elements.
+ * @param queue Pointer to queue metadata in shared memory.
+ * @param local True iff the queue is local.
+ * @param numStaticConsumers [optional] The number of static consumers.
+ */
+template <typename ElementType, size_t kBlockCapacity>
+void initQueue(void *queue, bool local, size_t numStaticConsumers = 0) {
+  auto &queueRef = *static_cast<internal::Queue *>(queue);
+  queueRef.producerOffset = internal::kOffsetInvalid;
+  queueRef.dynamicConsumersHeadOffset = internal::kOffsetInvalid;
+  queueRef.blockCapacity = kBlockCapacity * sizeof(ElementType);
+  queueRef.elementAlignment = alignof(ElementType);
+  queueRef.localNotify = local;
+  queueRef.numStaticConsumers = numStaticConsumers;
+  // TODO(b/445479433): Initialize static consumer descriptors.
+}
+
+/**
+ * Allocates and initializes a new queue in shared memory.
+ *
+ * @tparam ElementType The type of elements in the queue.
+ * @tparam kBlockCapacity The capacity of each Block in elements.
+ * @param allocator Allocator used for allocating the queue metadata.
+ * @param local True iff the queue is local.
+ * @param numStaticConsumers [optional] The number of static consumers.
+ * @return On success, a pointer to the new queue metadata.
+ */
+template <typename ElementType, size_t kBlockCapacity>
+pw::Result<void *> createQueue(pw::Allocator &allocator, bool local,
+                               size_t numStaticConsumers = 0) {
+  if (auto *queue = allocator.Allocate(queueLayout()); queue) {
+    initQueue<ElementType, kBlockCapacity>(queue, local, numStaticConsumers);
+    return queue;
+  }
+  return pw::Status::ResourceExhausted();
+}
 
 }  // namespace chre::shmem_spmc_queue

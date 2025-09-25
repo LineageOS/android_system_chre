@@ -69,26 +69,24 @@ pw::Result<BlockHeader *> allocateBlockRing(uintptr_t shmemBase,
 
 }  // namespace
 
-pw::Status ProducerBase::initialize(uintptr_t shmemBase, uint32_t shmemSize,
-                                    Queue &queue, pw::Allocator &allocator,
-                                    pw::allocator::Layout layout, size_t count,
-                                    size_t blockCapacity,
-                                    size_t elementAlignment, bool local,
+pw::Status ProducerBase::initialize(uintptr_t shmemBase, size_t shmemSize,
+                                    Queue *queue, pw::Allocator &allocator,
+                                    pw::allocator::Layout layout,
+                                    size_t maxBlockCount, size_t minBlockCount,
                                     IdOrNotifyFn idOrNotifyFn) {
-  PW_TRY_ASSIGN(auto *tailBlock, allocateBlockRing(shmemBase, shmemSize,
-                                                   allocator, layout, count));
+  if (!queue || shmemSize > UINT32_MAX || maxBlockCount < minBlockCount) {
+    return pw::Status::InvalidArgument();
+  }
+  PW_TRY_ASSIGN(auto *tailBlock,
+                allocateBlockRing(shmemBase, shmemSize, allocator, layout,
+                                  minBlockCount));
   auto &desc = tailBlock->producerDesc;
   desc.idOrNotifyFn = idOrNotifyFn;
-  queue.localNotify = local;
   desc.writeIndex = 0;
   desc.indexCorrection = 0;
   desc.epoch = 0;
   desc.tailBlockOffset = toOffset(shmemBase, tailBlock);
-  queue.producerOffset = toOffset(shmemBase, &desc);
-  queue.dynamicConsumersHeadOffset = kOffsetInvalid;
-  queue.blockCapacity = blockCapacity;
-  queue.elementAlignment = elementAlignment;
-  queue.numStaticConsumers = 0;
+  queue->producerOffset = toOffset(shmemBase, &desc);
   return pw::OkStatus();
 }
 
@@ -266,19 +264,44 @@ void DataNotifier::updatePeriod(internal::ProducerBase & /*producer*/,
   // TODO(b/445482700): Implement.
 }
 
-ConsumerManager::ConsumerManager(uintptr_t /*base*/, void * /*queue*/,
-                                 pw::Allocator & /*allocator*/) {
-  // TODO(b/445482700): Implement.
+pw::Result<uint32_t> ConsumerManager::addConsumer(void *queue) {
+  if (!queue) {
+    return pw::Status::InvalidArgument();
+  }
+  auto &queueRef = *static_cast<internal::Queue *>(queue);
+  auto descRaw =
+      mAllocator->Allocate(pw::allocator::Layout::Of<internal::ConsumerDesc>());
+  if (!descRaw) {
+    return pw::Status::ResourceExhausted();
+  }
+  auto &desc = *static_cast<internal::ConsumerDesc *>(descRaw);
+  desc.nextConsumerOffset =
+      queueRef.dynamicConsumersHeadOffset != internal::kOffsetInvalid
+          ? queueRef.dynamicConsumersHeadOffset
+          : internal::kOffsetInvalid;
+  queueRef.dynamicConsumersHeadOffset = toOffset(kShmemBase, &desc);
+  return queueRef.dynamicConsumersHeadOffset;
 }
 
-pw::Result<uint32_t> ConsumerManager::addConsumer() {
-  // TODO(b/445482700): Implement.
-  return pw::Status::Unimplemented();
-}
-
-pw::Status ConsumerManager::removeConsumer(uint32_t /*offset*/) {
-  // TODO(b/445482700): Implement.
-  return pw::Status::Unimplemented();
+pw::Status ConsumerManager::removeConsumer(void *queue, uint32_t offset) {
+  if (!queue || offset == internal::kOffsetInvalid) {
+    return pw::Status::InvalidArgument();
+  }
+  uint32_t *descOffsetPtr =
+      &static_cast<internal::Queue *>(queue)->dynamicConsumersHeadOffset;
+  auto *desc = internal::fromOffset<internal::ConsumerDesc>(
+      kShmemBase, kShmemSize, *descOffsetPtr);
+  while (desc) {
+    if (*descOffsetPtr == offset) {
+      *descOffsetPtr = desc->nextConsumerOffset;
+      mAllocator->Deallocate(desc);
+      return pw::OkStatus();
+    }
+    descOffsetPtr = &desc->nextConsumerOffset;
+    desc = internal::fromOffset<internal::ConsumerDesc>(kShmemBase, kShmemSize,
+                                                        *descOffsetPtr);
+  }
+  return pw::Status::NotFound();
 }
 
 }  // namespace chre::shmem_spmc_queue

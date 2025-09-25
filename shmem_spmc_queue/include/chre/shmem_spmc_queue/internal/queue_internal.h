@@ -296,19 +296,19 @@ class ProducerBase {
    * @param queue The queue metadata in shared memory.
    * @param allocator Allocator used for element storage.
    * @param layout Layout for allocating Blocks.
-   * @param count The number of blocks to allocate.
-   * @param blockCapacity The capacity of each Block in bytes.
-   * @param elementAlignment The alignment of each element in bytes.
-   * @param local True only for a local queue.
+   * @param maxBlockCount The maximum allowed blocks of element storage. Must
+   * be >= minBlockCount.
+   * @param minBlockCount The minimum required blocks of element storage. Must
+   * be > 0.
    * @param idOrNotifyFn The new instance's id for remote notifications or the
    * LocalNotifyFn for notifying it.
    * @return pw::OkStatus() on success.
    */
-  static pw::Status initialize(uintptr_t shmemBase, uint32_t shmemSize,
-                               Queue &queue, pw::Allocator &allocator,
-                               pw::allocator::Layout layout, size_t count,
-                               size_t blockCapacity, size_t elementAlignment,
-                               bool local, IdOrNotifyFn idOrNotifyFn);
+  static pw::Status initialize(uintptr_t shmemBase, size_t shmemSize,
+                               Queue *queue, pw::Allocator &allocator,
+                               pw::allocator::Layout layout,
+                               size_t maxBlockCount, size_t minBlockCount,
+                               IdOrNotifyFn idOrNotifyFn);
 
   /**
    * See {@link Producer::create()} for a description of most parameters.
@@ -466,7 +466,7 @@ uint32_t toOffset(uintptr_t base, void *ptr) {
   return addr - base;
 }
 
-// Returns a pointer to the object at given offset from base or nullptr.
+// Returns a pointer to the object at given offset from shmemBase or nullptr.
 template <typename ObjType>
 inline constexpr ObjType *fromOffset(
     uintptr_t shmemBase, uint32_t shmemSize, uint32_t offset,
