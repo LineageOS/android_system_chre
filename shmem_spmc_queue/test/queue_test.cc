@@ -25,111 +25,26 @@
 namespace chre::shmem_spmc_queue {
 namespace {
 
-class BasicProducerTest : public ::testing::Test {
- protected:
-  void TearDown() override {
-    if (mQueue) {
-      mAllocator.Deallocate(mQueue);
-    }
-  }
-
-  void init(size_t storageSize, bool local) {
-    mStorage.resize(storageSize);
-    mAllocator.Init(pw::ByteSpan(mStorage.data(), mStorage.size()));
-    auto maybeQueue =
-        chre::shmem_spmc_queue::createQueue<std::byte, 64>(mAllocator, local);
-    ASSERT_EQ(maybeQueue.status(), pw::OkStatus());
-    mQueue = *maybeQueue;
-    mConsumerManager.emplace(base(), size(), mAllocator);
-  }
-
-  void *base() {
-    return mStorage.data();
-  }
-
-  size_t size() {
-    return mStorage.size();
-  }
-
-  std::vector<std::byte> mStorage;
-  pw::allocator::FirstFitAllocator<> mAllocator;
-  void *mQueue;
-  DataNotifier mDataNotifier;
-  std::optional<ConsumerManager> mConsumerManager;
-};
-
-TEST_F(BasicProducerTest, CreateLocalAndDestroy) {
-  init(/*storageSize=*/1024, /*local=*/true);
-  EXPECT_EQ(
-      chre::shmem_spmc_queue::Producer<std::byte>::createLocal(
-          base(), size(), mQueue, mAllocator, /*blockCapacity=*/64,
-          /*maxBlockCount=*/5, /*minBlockCount=*/5, mDataNotifier,
-          *mConsumerManager,
-          {.fn = [](void * /*context*/) { return; }, .ctx = nullptr}, nullptr)
-          .status(),
-      pw::OkStatus());
-}
-
-TEST_F(BasicProducerTest, CreateRemoteAndDestroy) {
-  init(/*storageSize=*/1024, /*local=*/false);
-  RemoteNotifyArgs args = {.fn = [](pw::ConstByteSpan /*id*/) { return; },
-                           .id = {std::byte(0)}};
-  EXPECT_EQ(chre::shmem_spmc_queue::Producer<std::byte>::createRemote(
-                base(), size(), mQueue, mAllocator, /*blockCapacity=*/64,
-                /*maxBlockCount=*/5, /*minBlockCount=*/5, mDataNotifier,
-                *mConsumerManager, std::move(args), nullptr)
-                .status(),
-            pw::OkStatus());
-}
-
-TEST_F(BasicProducerTest, CreateFailureToAllocateBlockRing) {
-  init(/*storageSize=*/64, /*local=*/true);
-  EXPECT_EQ(
-      chre::shmem_spmc_queue::Producer<std::byte>::createLocal(
-          base(), size(), mQueue, mAllocator, /*blockCapacity=*/64,
-          /*maxBlockCount=*/5, /*minBlockCount=*/5, mDataNotifier,
-          *mConsumerManager,
-          {.fn = [](void * /*context*/) { return; }, .ctx = nullptr}, nullptr)
-          .status(),
-      pw::Status::ResourceExhausted());
-}
-
-TEST_F(BasicProducerTest, CreateLocalFailureInvalidNotifyFn) {
-  init(/*storageSize=*/1024, /*local=*/true);
-  EXPECT_EQ(chre::shmem_spmc_queue::Producer<std::byte>::createLocal(
-                base(), size(), mQueue, mAllocator, /*blockCapacity=*/64,
-                /*maxBlockCount=*/5, /*minBlockCount=*/5, mDataNotifier,
-                *mConsumerManager, {.fn = nullptr, .ctx = nullptr}, nullptr)
-                .status(),
-            pw::Status::InvalidArgument());
-}
-
-TEST_F(BasicProducerTest, CreateRemoteFailureInvalidNotifyFn) {
-  init(/*storageSize=*/1024, /*local=*/false);
-  EXPECT_EQ(chre::shmem_spmc_queue::Producer<std::byte>::createRemote(
-                base(), size(), mQueue, mAllocator, /*blockCapacity=*/64,
-                /*maxBlockCount=*/5, /*minBlockCount=*/5, mDataNotifier,
-                *mConsumerManager, {}, nullptr)
-                .status(),
-            pw::Status::InvalidArgument());
-}
-
 class TestConsumerManager : public ConsumerManager {
  public:
   using ConsumerManager::ConsumerManager;
   using ConsumerManager::forAllConsumers;
 };
 
-class ConsumerManagerTest : public ::testing::Test {
+class QueueTest : public ::testing::Test {
  protected:
+  static constexpr size_t kBlockCapacity = 32;
+  static constexpr size_t kBaseMinBlockCount = 3;
+  static constexpr size_t kBaseMaxBlockCount = 3;
+
   void SetUp() override {
     mStorage.resize(1024);
     mAllocator.Init(pw::ByteSpan(mStorage.data(), mStorage.size()));
-    auto maybeQueue = chre::shmem_spmc_queue::createQueue<std::byte, 64>(
+    auto maybeQueue = chre::shmem_spmc_queue::createQueue<int, kBlockCapacity>(
         mAllocator, /*local=*/true);
     ASSERT_EQ(maybeQueue.status(), pw::OkStatus());
     mQueue = *maybeQueue;
-    mConsumerManager.emplace(base(), size(), mAllocator);
+    mConsumerManager.emplace(basePtr(), size(), mAllocator);
   }
 
   void TearDown() override {
@@ -138,21 +53,87 @@ class ConsumerManagerTest : public ::testing::Test {
     }
   }
 
-  void *base() {
+  void setRemote() {
+    static_cast<internal::Queue *>(mQueue)->localNotify = false;
+  }
+
+  void *basePtr() {
     return mStorage.data();
   }
 
-  size_t size() {
+  uintptr_t base() {
+    return reinterpret_cast<uintptr_t>(basePtr());
+  }
+
+  uint32_t size() {
     return mStorage.size();
+  }
+
+  pw::Result<Producer<int>> createLocalProducer(LocalNotifyArgs notifyArgs) {
+    return Producer<int>::createLocal(basePtr(), size(), mQueue, mAllocator,
+                                      kBlockCapacity, kBaseMaxBlockCount,
+                                      kBaseMinBlockCount, mDataNotifier,
+                                      *mConsumerManager, notifyArgs);
+  }
+
+  pw::Result<Producer<int>> createRemoteProducer(RemoteNotifyArgs notifyArgs) {
+    return Producer<int>::createRemote(
+        basePtr(), size(), mQueue, mAllocator, kBlockCapacity,
+        kBaseMaxBlockCount, kBaseMinBlockCount, mDataNotifier,
+        *mConsumerManager, std::move(notifyArgs));
   }
 
   std::vector<std::byte> mStorage;
   pw::allocator::FirstFitAllocator<> mAllocator;
   void *mQueue;
+  DataNotifier mDataNotifier;
   std::optional<TestConsumerManager> mConsumerManager;
 };
 
-TEST_F(ConsumerManagerTest, AddConsumerSuccess) {
+TEST_F(QueueTest, ProducerCreateLocalAndDestroy) {
+  EXPECT_EQ(createLocalProducer(
+                {.fn = [](void * /*context*/) { return; }, .ctx = nullptr})
+                .status(),
+            pw::OkStatus());
+}
+
+TEST_F(QueueTest, ProducerCreateRemoteAndDestroy) {
+  setRemote();
+  RemoteNotifyArgs args = {.fn = [](pw::ConstByteSpan /*id*/) { return; },
+                           .id = {std::byte(0)}};
+  EXPECT_EQ(createRemoteProducer(std::move(args)).status(), pw::OkStatus());
+}
+
+TEST_F(QueueTest, ProducerCreateFailureToAllocateBlockRing) {
+  // Allocate all remaining memory.
+  std::vector<void *> tmps;
+  auto layout = internal::blockLayout<int>(kBlockCapacity);
+  auto *tmp = mAllocator.Allocate(layout);
+  while (tmp) {
+    tmps.push_back(tmp);
+    tmp = mAllocator.Allocate(layout);
+  }
+  EXPECT_EQ(createLocalProducer(
+                {.fn = [](void * /*context*/) { return; }, .ctx = nullptr})
+                .status(),
+            pw::Status::ResourceExhausted());
+  // Deallocate the allocated memory to avoid allocator crashing on destruction.
+  for (auto *tmp : tmps) {
+    mAllocator.Deallocate(tmp);
+  }
+}
+
+TEST_F(QueueTest, ProducerCreateLocalFailureInvalidNotifyFn) {
+  EXPECT_EQ(createLocalProducer({.fn = nullptr, .ctx = nullptr}).status(),
+            pw::Status::InvalidArgument());
+}
+
+TEST_F(QueueTest, ProducerCreateRemoteFailureInvalidNotifyFn) {
+  setRemote();
+  EXPECT_EQ(createRemoteProducer({}).status(), pw::Status::InvalidArgument());
+}
+
+TEST_F(QueueTest, ConsumerManagerAddConsumerSuccess) {
   pw::Result<uint32_t> result = mConsumerManager->addConsumer(mQueue);
   EXPECT_EQ(result.status(), pw::OkStatus());
   EXPECT_NE(*result, internal::kOffsetInvalid);
@@ -167,12 +148,12 @@ TEST_F(ConsumerManagerTest, AddConsumerSuccess) {
   EXPECT_EQ(mConsumerManager->removeConsumer(mQueue, *result), pw::OkStatus());
 }
 
-TEST_F(ConsumerManagerTest, AddConsumerFailureNullQueue) {
+TEST_F(QueueTest, ConsumerManagerAddConsumerFailureNullQueue) {
   pw::Result<uint32_t> result = mConsumerManager->addConsumer(nullptr);
   EXPECT_EQ(result.status(), pw::Status::InvalidArgument());
 }
 
-TEST_F(ConsumerManagerTest, AddConsumerFailureNoMemory) {
+TEST_F(QueueTest, ConsumerManagerAddConsumerFailureNoMemory) {
   // Allocate all remaining memory.
   std::vector<void *> tmps;
   auto layout = pw::allocator::Layout::Of<internal::ConsumerDesc>();
@@ -188,7 +169,7 @@ TEST_F(ConsumerManagerTest, AddConsumerFailureNoMemory) {
   }
 }
 
-TEST_F(ConsumerManagerTest, RemoveConsumerSuccess) {
+TEST_F(QueueTest, ConsumerManagerRemoveConsumerSuccess) {
   pw::Result<uint32_t> result = mConsumerManager->addConsumer(mQueue);
   ASSERT_EQ(result.status(), pw::OkStatus());
 
@@ -201,7 +182,7 @@ TEST_F(ConsumerManagerTest, RemoveConsumerSuccess) {
   EXPECT_EQ(consumerCount, 0);
 }
 
-TEST_F(ConsumerManagerTest, RemoveConsumerMultiple) {
+TEST_F(QueueTest, ConsumerManagerRemoveConsumerMultiple) {
   pw::Result<uint32_t> result1 = mConsumerManager->addConsumer(mQueue);
   ASSERT_EQ(result1.status(), pw::OkStatus());
   pw::Result<uint32_t> result2 = mConsumerManager->addConsumer(mQueue);
@@ -230,17 +211,17 @@ TEST_F(ConsumerManagerTest, RemoveConsumerMultiple) {
   EXPECT_EQ(consumerCount, 0);
 }
 
-TEST_F(ConsumerManagerTest, RemoveConsumerFailureInvalidOffset) {
+TEST_F(QueueTest, ConsumerManagerRemoveConsumerFailureInvalidOffset) {
   EXPECT_EQ(mConsumerManager->removeConsumer(mQueue, internal::kOffsetInvalid),
             pw::Status::InvalidArgument());
 }
 
-TEST_F(ConsumerManagerTest, RemoveConsumerFailureNotFound) {
+TEST_F(QueueTest, ConsumerManagerRemoveConsumerFailureNotFound) {
   EXPECT_EQ(mConsumerManager->removeConsumer(mQueue, 12345),
             pw::Status::NotFound());
 }
 
-TEST_F(ConsumerManagerTest, RemoveConsumerFailureNullQueue) {
+TEST_F(QueueTest, ConsumerManagerRemoveConsumerFailureNullQueue) {
   pw::Result<uint32_t> result = mConsumerManager->addConsumer(mQueue);
   ASSERT_EQ(result.status(), pw::OkStatus());
   EXPECT_EQ(mConsumerManager->removeConsumer(nullptr, *result),
