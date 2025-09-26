@@ -34,7 +34,7 @@ std::unique_ptr<std::thread> chreThread = nullptr;
 
 static jint init(JNIEnv * /*env*/, jobject /*thiz*/) {
   if (chreThread != nullptr) {
-    ALOGE("CHRE AP env already inited");
+    ALOGE("Environment already initialized");
     return 0;
   }
   // Initialize the system.
@@ -44,7 +44,10 @@ static jint init(JNIEnv * /*env*/, jobject /*thiz*/) {
     chre::EventLoopManagerSingleton::get()->lateInit();
     // Load static nanoapps unless they are disabled by a command-line flag.
     chre::loadStaticNanoapps();
-    ALOGD("CHRE AP env: nanoapps loaded");
+
+    ALOGD("%zu nanoapps loaded", chre::EventLoopManagerSingleton::get()
+                                     ->getEventLoop()
+                                     .getNanoappCount());
     chre::EventLoopManagerSingleton::get()->getEventLoop().run();
   });
 
@@ -58,17 +61,21 @@ static void destroy(JNIEnv * /*env*/, jobject /*thiz*/) {
   }
   chreThread.reset();
   chre::deinitCommon();
-  ALOGD("CHRE AP env: destroyed");
+  ALOGD("Environment destroyed");
 }
 
-static jint loadNanoApp(JNIEnv * /*env*/, jobject /*thiz*/,
-                        jlong /*nanoAppId*/) {
-  return 0;
+static jint loadNanoAppFromFile(JNIEnv *env, jobject /*thiz*/,
+                                jstring filename) {
+  auto nanoapp = chre::MakeUnique<chre::Nanoapp>();
+  nanoapp->loadFromFile(env->GetStringUTFChars(filename, nullptr));
+  return chre::EventLoopManagerSingleton::get()->getEventLoop().startNanoapp(
+      std::move(nanoapp));
 }
 
-static jint unloadNanoApp(JNIEnv * /*env*/, jobject /*thiz*/,
-                          jlong /*nanoAppId*/) {
-  return 0;
+static jboolean unloadNanoApp(JNIEnv * /*env*/, jobject /*thiz*/,
+                              jlong nanoAppInstanceId) {
+  return chre::EventLoopManagerSingleton::get()->getEventLoop().unloadNanoapp(
+      nanoAppInstanceId, false /*allowSystemNanoappUnload*/);
 }
 
 static jboolean sendMessage(JNIEnv *env, jobject /*thiz*/, jlong nanoAppId,
@@ -87,8 +94,11 @@ static jboolean sendMessage(JNIEnv *env, jobject /*thiz*/, jlong nanoAppId,
 static JNINativeMethod methods[] = {
     {"init", "()I", (void *)init},
     {"destroy", "()V", (void *)destroy},
-    {"loadNanoApp", "(J)I", (void *)loadNanoApp},
-    {"unloadNanoApp", "(J)I", (void *)unloadNanoApp},
+    {"loadNanoAppFromFile",
+     ""
+     "(Ljava/lang/String;)Z",
+     (void *)loadNanoAppFromFile},
+    {"unloadNanoApp", "(J)Z", (void *)unloadNanoApp},
     {"sendMessage", "(JI[BI)Z", (void *)sendMessage}};
 
 // Register native methods for all classes we know about.

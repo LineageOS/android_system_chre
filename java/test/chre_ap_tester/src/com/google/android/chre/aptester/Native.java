@@ -27,9 +27,9 @@ public class Native {
 
     static native void destroy();
 
-    static native int loadNanoApp(long nanoAppId);
+    static native boolean loadNanoAppFromFile(String filename);
 
-    static native int unloadNanoApp(long nanoAppId);
+    static native boolean unloadNanoApp(long nanoAppInstanceId);
 
     static native boolean sendMessage(
             long nanoAppId, int messageType, byte[] message, int messageSize);
@@ -40,7 +40,7 @@ public class Native {
      * @param nanoAppId
      * @param message
      */
-    public static void onMessageReceived(long nanoAppId, byte[] message) {
-        ContextHubAPManager.getInstance().onMessageFromNanoApp(nanoAppId, message);
+    public static void onMessageReceived(long nanoAppId, int messageType, byte[] messageBody) {
+        ContextHubAPManager.getInstance().onMessageFromNanoApp(nanoAppId, messageType, messageBody);
     }
 }

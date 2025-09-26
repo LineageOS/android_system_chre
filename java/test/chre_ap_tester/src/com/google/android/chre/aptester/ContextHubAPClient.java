@@ -16,7 +16,11 @@
 
 package com.google.android.chre.aptester;
 
+import android.annotation.IntRange;
 import android.annotation.NonNull;
+import android.hardware.location.ContextHubClientCallback;
+import android.hardware.location.ContextHubInfo;
+import android.hardware.location.ContextHubTransaction;
 import android.hardware.location.NanoAppMessage;
 import android.util.Log;
 
@@ -27,38 +31,31 @@ import java.util.concurrent.Executor;
  * Responsible for forwarding messages to the simulator via JNI and executing callbacks on the
  * specified Executor.
  *
- * Currently, we hold the assumption that the client has 1:1 mapping to nanoapps. Developer
+ * <p>Currently, we hold the assumption that the client has 1:1 mapping to nanoapps. Developer
  * should use ContextHubAPManager to create the client instead of creating directly.
  */
-public final class ContextHubAPClient {
+public final class ContextHubAPClient implements ContextHubClientInterface {
 
     private static final String TAG = "ContextHubAPClient";
 
-    private final long mNanoAppId;
     private final Executor mExecutor;
-    private final Callback mCallback;
+    private final ContextHubClientCallback mCallback;
     private final ContextHubAPManager mManager;
 
-    /** Nanoapp event callback interface. */
-    public interface Callback {
-        /**
-         * Called when a message is received from the simulated nanoapp.
-         *
-         * @param client The client that received the message.
-         * @param message The message data.
-         */
-        void onMessageFromNanoApp(@NonNull ContextHubAPClient client, @NonNull byte[] message);
-    }
+    private Integer mId = null;
 
     /**
      * Constructor.
      *
-     * @param nanoAppId The ID of the target nanoapp.
+     * @param id The ID of the client.
      * @param executor The executor for invoking callbacks.
      * @param callback The message receiving callback.
      */
-    ContextHubAPClient(long nanoAppId, @NonNull Executor executor, @NonNull Callback callback) {
-        mNanoAppId = nanoAppId;
+    ContextHubAPClient(
+            @NonNull Integer id,
+            @NonNull Executor executor,
+            @NonNull ContextHubClientCallback callback) {
+        mId = id;
         mExecutor = executor;
         mCallback = callback;
         mManager = ContextHubAPManager.getInstance();
@@ -67,29 +64,65 @@ public final class ContextHubAPClient {
     /**
      * Sends a message to the simulated nanoapp.
      *
-     * @param message The data to send.
-     * @return true if the message was successfully queued for the simulator.
+     * @param message the message object to send
+     * @return the result of sending the message defined as in ContextHubTransaction.Result
      */
-    public boolean sendMessageToNanoApp(@NonNull NanoAppMessage message) {
+    @Override
+    public int sendMessageToNanoApp(@NonNull NanoAppMessage message) {
         Log.d(TAG, "Sending message to NanoApp ID: " + message);
 
         // Core: Send the message to the native simulator via JNI
-        return Native.sendMessage(
-                mNanoAppId,
-                message.getMessageType(),
-                message.getMessageBody(),
-                message.getMessageBody().length);
+        boolean success =
+                Native.sendMessage(
+                        message.getNanoAppId(),
+                        message.getMessageType(),
+                        message.getMessageBody(),
+                        message.getMessageBody().length);
+        return success
+                ? ContextHubTransaction.RESULT_SUCCESS
+                : ContextHubTransaction.RESULT_FAILED_UNKNOWN;
+    }
+
+    @Override
+    @NonNull
+    public ContextHubTransaction<Void> sendReliableMessageToNanoApp(
+            @NonNull NanoAppMessage message) {
+        var res = sendMessageToNanoApp(message);
+        ContextHubTransaction<Void> transaction =
+                new ContextHubTransaction<>(ContextHubTransaction.TYPE_RELIABLE_MESSAGE);
+
+        var result = sendMessageToNanoApp(message);
+        transaction.setResponse(new ContextHubTransaction.Response<Void>(result, null));
+
+        return transaction;
+    }
+
+    @Override
+    @NonNull
+    public ContextHubInfo getAttachedHub() {
+        // Not implemented for AP simulator
+        return new ContextHubInfo();
+    }
+
+    @Override
+    @IntRange(from = 0, to = 65535)
+    public int getId() {
+        if (mId == null) {
+            throw new IllegalStateException("ID was not set");
+        }
+        return (0x0000FFFF & mId);
     }
 
     /** Closes the connection to the nanoapp. */
+    @Override
     public void close() {
-        Log.i(TAG, "Closing client for NanoApp ID: " + mNanoAppId);
-        mManager.unregisterClient(mNanoAppId);
+        Log.i(TAG, "Closing client");
+        mManager.unregisterClient(this);
     }
 
     /** Retrieves the client callback interface. */
     @NonNull
-    public Callback getCallback() {
+    public ContextHubClientCallback getCallback() {
         return mCallback;
     }
 

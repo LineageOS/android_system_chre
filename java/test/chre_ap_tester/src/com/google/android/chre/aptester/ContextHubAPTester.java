@@ -49,8 +49,19 @@ public class ContextHubAPTester extends Activity {
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        int res = Native.init();
-                        mResultTextView.setText("init returns: " + Integer.toString(res));
+                        // Load the nanoapp
+                        ContextHubAPManager manager = ContextHubAPManager.getInstance();
+
+                        String nativeLibraryDir = getApplicationInfo().nativeLibraryDir;
+                        String nanoappPath = nativeLibraryDir + "/libhello_world_nanoapp.so";
+                        boolean success = manager.loadNanoApp(nanoappPath);
+
+                        if (success) {
+                            mResultTextView.setText("Successfully loaded hello_world nanoapp!");
+                        } else {
+                            mResultTextView.setText(
+                                    "Failed to load hello_world nanoapp from " + nanoappPath);
+                        }
                     }
                 });
         layout.addView(initButton);
