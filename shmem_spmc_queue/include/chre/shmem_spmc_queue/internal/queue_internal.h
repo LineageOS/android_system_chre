@@ -30,15 +30,9 @@
 
 namespace chre::shmem_spmc_queue {
 
-/** Consumer notification and overwrite policy. */
-struct ConsumerPolicy {
-  //! { 0-3: {@link #NotificationPolicy} | 4-7: {@link #OverwritePolicy} }
-  uint8_t policy;
-  uint8_t data[3];  // Interpreted based on NotificationPolicy.
-};
-
 // Forward declarations.
 class ConsumerManager;
+class ConsumerPolicyBuilder;
 class DataNotifier;
 class MemoryAccess;
 
@@ -52,6 +46,15 @@ static_assert(std::atomic<uint32_t>::is_always_lock_free);
 
 // Analog to nullptr for offsets in shared memory.
 constexpr uint32_t kOffsetInvalid = UINT32_MAX;
+
+/** Consumer notification and overwrite policy. */
+union ConsumerPolicy {
+  struct {
+    uint8_t policy;   // NotificationPolicy | OverwritePolicy.
+    uint8_t data[3];  // Interpreted based on NotificationPolicy.
+  };
+  uint32_t rawValue;
+};
 
 //! Endpoint id for remote notifications or local callback.
 union alignas(8) IdOrNotifyFn {
@@ -364,10 +367,10 @@ class ConsumerBase {
   /**
    * Updates the current policy. Notifies the Producer.
    *
-   * @param policy The new ConsumerPolicy.
+   * @param policyBuilder Builder for the new policy.
    * @return pw::OkStatus() on success.
    */
-  pw::Status updatePolicy(ConsumerPolicy policy);
+  pw::Status updatePolicy(ConsumerPolicyBuilder &policyBuilder);
 
   /** Disables this instance. Should be called when the Producer crashes. */
   void disable();
@@ -435,12 +438,12 @@ class ConsumerBase {
    * @param descOffset The consumer descriptor in shared memory.
    * @param idOrNotifyFn The new instance's id for remote notifications or the
    * LocalNotifyArgs for notifying it.
-   * @param policy The ConsumerPolicy.
+   * @param policyBuilder Builder for the ConsumerPolicy.
    * @return pw::OkStatus() on success.
    */
   static pw::Status initialize(uintptr_t base, uint32_t shmemSize, Queue *queue,
                                ConsumerDesc *desc, IdOrNotifyFn idOrNotifyFn,
-                               ConsumerPolicy policy);
+                               ConsumerPolicyBuilder &policyBuilder);
 
   /**
    * See {@link Consumer::createDynamic()} for most parameters.

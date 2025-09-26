@@ -179,6 +179,93 @@ class ConsumerManager {
   uint32_t kShmemSize;
 };
 
+/**
+ * Builder for notification and overwrite policy passed to a Consumer instance.
+ */
+class ConsumerPolicyBuilder {
+ public:
+  ConsumerPolicyBuilder()
+      : mData(0),
+        mNotificationPolicy(NotificationPolicy::kNever),
+        mOverwritePolicy(OverwritePolicy::kAllowed) {}
+
+  /** Sets the overwrite policy to allowed. */
+  ConsumerPolicyBuilder &setOverwritable() {
+    mOverwritePolicy = OverwritePolicy::kAllowed;
+    return *this;
+  }
+
+  /** Sets the overwrite policy to disallowed. */
+  ConsumerPolicyBuilder &setNonOverwritable() {
+    mOverwritePolicy = OverwritePolicy::kDisallowed;
+    return *this;
+  }
+
+  /** Sets the notification policy to never. */
+  ConsumerPolicyBuilder &setNeverNotify() {
+    mNotificationPolicy = NotificationPolicy::kNever;
+    return *this;
+  }
+
+  /**
+   * Sets the notification policy to opportunistic.
+   *
+   * @param lowWatermark The watermark above which to notify the consumer if
+   * active.
+   */
+  ConsumerPolicyBuilder &setOpportunistic(size_t lowWatermark) {
+    mNotificationPolicy = NotificationPolicy::kOpportunistic;
+    mData = lowWatermark >= 1 << 24 ? (1 << 24) - 1 : lowWatermark;
+    return *this;
+  }
+
+  /**
+   * Sets the notification policy to high watermark.
+   *
+   * @param highWatermark The watermark above which to notify the consumer.
+   */
+  ConsumerPolicyBuilder &setHighWaterMark(size_t highWatermark) {
+    mNotificationPolicy = NotificationPolicy::kHighWaterMark;
+    mData = highWatermark >= 1 << 24 ? (1 << 24) - 1 : highWatermark;
+    return *this;
+  }
+
+  /**
+   * Sets the notification policy to periodic.
+   *
+   * @param periodMs The period in milliseconds to wait between notifications.
+   */
+  ConsumerPolicyBuilder &setPeriodic(size_t periodMs) {
+    if (periodMs == 0) {
+      return setStreaming();
+    }
+    mNotificationPolicy = NotificationPolicy::kPeriodic;
+    mData = periodMs >= 1 << 24 ? (1 << 24) - 1 : periodMs;
+    return *this;
+  }
+
+  /** Sets the notification policy to streaming. */
+  ConsumerPolicyBuilder &setStreaming() {
+    mNotificationPolicy = NotificationPolicy::kStreaming;
+    return *this;
+  }
+
+ protected:
+  friend class internal::ConsumerBase;
+
+  internal::ConsumerPolicy build() const {
+    internal::ConsumerPolicy policy;
+    policy.policy = static_cast<uint8_t>(mNotificationPolicy) |
+                    static_cast<uint8_t>(mOverwritePolicy);
+    memcpy(policy.data, &mData, sizeof(policy.data));
+    return policy;
+  }
+
+  size_t mData;
+  NotificationPolicy mNotificationPolicy;
+  OverwritePolicy mOverwritePolicy;
+};
+
 template <typename ElementType>
 class Producer : protected internal::ProducerBase {
   static_assert(std::is_standard_layout_v<ElementType>);
@@ -377,7 +464,7 @@ class Consumer : protected internal::ConsumerBase {
    * @param descOffset The offset of the consumer's descriptor in shared
    * memory. Allocated and shared by the producer endpoint.
    * @param notifyArgs Callback and context for notifying this Consumer.
-   * @param policy The policy for receiving notifications / overwriting data.
+   * @param policyBuilder Builder for the Consumer's policy.
    * @param memAccess [optional] MemoryAccess implementation for accessing
    * Queue and element storage.
    * @param overwriteResetOffset [optional] Offset before the Producer's write
@@ -387,8 +474,8 @@ class Consumer : protected internal::ConsumerBase {
    */
   static pw::Result<Consumer> createLocal(
       void *shmemBase, uint32_t shmemSize, uint32_t queueOffset,
-      uint32_t descOffset, LocalNotifyArgs notifyArgs, ConsumerPolicy policy,
-      MemoryAccess *memAccess = nullptr,
+      uint32_t descOffset, LocalNotifyArgs notifyArgs,
+      ConsumerPolicyBuilder &policyBuilder, MemoryAccess *memAccess = nullptr,
       std::optional<size_t> overwriteResetOffset = std::nullopt) {
     auto base = reinterpret_cast<uintptr_t>(shmemBase);
     auto *queue =
@@ -396,7 +483,7 @@ class Consumer : protected internal::ConsumerBase {
     auto *desc = internal::fromOffset<internal::ConsumerDesc>(base, shmemSize,
                                                               descOffset);
     PW_TRY(initialize(base, shmemSize, queue, desc, {.localNotify = notifyArgs},
-                      policy));
+                      policyBuilder));
     return Consumer(base, shmemSize, *queue, *desc, /*remoteNotifyFn=*/{},
                     memAccess, overwriteResetOffset);
   }
@@ -411,8 +498,8 @@ class Consumer : protected internal::ConsumerBase {
    */
   static pw::Result<Consumer> createRemote(
       void *shmemBase, uint32_t shmemSize, uint32_t queueOffset,
-      uint32_t descOffset, RemoteNotifyArgs notifyArgs, ConsumerPolicy policy,
-      MemoryAccess *memAccess = nullptr,
+      uint32_t descOffset, RemoteNotifyArgs notifyArgs,
+      ConsumerPolicyBuilder &policyBuilder, MemoryAccess *memAccess = nullptr,
       std::optional<size_t> overwriteResetOffset = std::nullopt) {
     auto base = reinterpret_cast<uintptr_t>(shmemBase);
     auto *queue =
@@ -420,7 +507,7 @@ class Consumer : protected internal::ConsumerBase {
     auto *desc = internal::fromOffset<internal::ConsumerDesc>(base, shmemSize,
                                                               descOffset);
     PW_TRY(initialize(base, shmemSize, queue, desc, {.remoteId = notifyArgs.id},
-                      policy));
+                      policyBuilder));
     return Consumer(base, shmemSize, *queue, *desc, std::move(notifyArgs.fn),
                     memAccess, overwriteResetOffset);
   }

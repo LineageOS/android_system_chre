@@ -61,15 +61,4 @@ enum class OverwritePolicy : uint8_t {
   kMask = 0xf << 4,        // Mask for extracting overwrite policy bits.
 };
 
-/** Opaque struct representing a Consumer's policies. */
-// TODO(b/445495673): Make nicer user-facing Consumer policy class.
-struct ConsumerPolicy;
-ConsumerPolicy getNoNotifyPolicy(OverwritePolicy overwritePolicy);
-ConsumerPolicy getOpportunisticPolicy(size_t lowWatermark,
-                                      OverwritePolicy overwritePolicy);
-ConsumerPolicy getHighWaterMark(size_t highWatermark,
-                                OverwritePolicy overwritePolicy);
-ConsumerPolicy getPeriodic(uint32_t periodMs, OverwritePolicy overwritePolicy);
-ConsumerPolicy getStreaming(OverwritePolicy overwritePolicy);
-
 }  // namespace chre::shmem_spmc_queue

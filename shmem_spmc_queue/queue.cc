@@ -190,7 +190,7 @@ pw::Status ConsumerBase::initialize(uintptr_t /*shmemBase*/,
                                     uint32_t /*shmemSize*/, Queue * /*queue*/,
                                     ConsumerDesc * /*desc*/,
                                     IdOrNotifyFn /*idOrNotifyFn*/,
-                                    ConsumerPolicy /*policy*/) {
+                                    ConsumerPolicyBuilder & /*policyBuilder*/) {
   // TODO(b/445967147): Implement.
   return pw::Status::Unimplemented();
 }
@@ -208,7 +208,8 @@ ConsumerBase::~ConsumerBase() {
   // TODO(b/445967147): Implement.
 }
 
-pw::Status ConsumerBase::updatePolicy(ConsumerPolicy /*policy*/) {
+pw::Status ConsumerBase::updatePolicy(
+    ConsumerPolicyBuilder & /*policyBuilder*/) {
   // TODO(b/445967147): Implement.
   return pw::Status::Unimplemented();
 }
