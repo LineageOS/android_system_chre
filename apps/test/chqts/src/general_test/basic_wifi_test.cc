@@ -643,6 +643,10 @@ void BasicWifiTest::validateWifiScanResult(uint8_t count,
     validateCenterFreq(results[i], mApiVersion);
     if (mWifiCapabilities & CHRE_WIFI_CAPABILITIES_VENUE_INFO) {
       validateVenueInfo(results[i]);
+    } else if (mApiVersion >= CHRE_API_VERSION_1_12) {
+      EXPECT_EQ_OR_RETURN(
+          results[i].venueInfo, 0,
+          "Received non-zero venue info when capability not set");
     }
   }
 }

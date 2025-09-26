@@ -653,7 +653,9 @@ struct chreWifiScanResult {
     uint8_t reserved0[1];
 
     //! Provides information about the place where this AP is located,
-    //! for example if it is in a building or vehicle.
+    //! for example if it is in a building or vehicle. Only valid if
+    //! CHRE_WIFI_CAPABILITIES_VENUE_INFO is set in chreWifiGetCapabilities(),
+    //! otherwise this field should be set to 0 and must be ignored by nanoapps.
     //! Note that venueType and venueGroup are defined in this order to match
     //! the endianness of the venueInfo field, and fits the following format:
     //! venueInfo = (venueGroup << 8) | venueType
