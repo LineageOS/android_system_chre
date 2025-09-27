@@ -260,7 +260,7 @@ struct ChppLoopbackTestResult chppRunLoopbackTest(struct ChppAppState *appState,
 }
 
 enum ChppAppErrorCode chppRunLoopbackTestAsync(struct ChppAppState *appState) {
-  struct ChppLoopbackTestResult result;
+  struct ChppLoopbackTestResult result = {0};
   bool success = chppRunLoopbackTestInternal(
       appState, gLoopbackBuf, LOOPBACK_BUF_LEN, /* sync= */ false, &result);
   // Override the result for the success case because for async, the stored

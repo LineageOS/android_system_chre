@@ -48,7 +48,7 @@ extern "C" {
 /**
  * Event types for the timesync client event log .
  */
-enum ChppTimesyncClientEventType : uint16_t {
+enum ChppTimesyncClientEventType {
   CHPP_TIMESYNC_CLIENT_INIT = 0,
   CHPP_TIMESYNC_CLIENT_RESET,
   CHPP_TIMESYNC_CLIENT_FIRST_OFFSET,
