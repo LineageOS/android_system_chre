@@ -352,6 +352,14 @@ chre_lunch() {
   echo "NOTE: A default value is provided in the parenthesis when possible"
   echo ""
 
+  # Clear out existing CHRE environment variables to prevent pollution
+  if [[ -n "${CHRE_ENVS[*]}" ]]; then
+    echo "Clearing existing CHRE environment variables..."
+    for env_var in "${CHRE_ENVS[@]}"; do
+      unset "$env_var"
+    done
+  fi
+
   commands=`python3 $CHRE_DEV_SCRIPT_PATH/env_setup.py "$@"` && \
   echo "exporting environment variables..." && \
   while read -r -u 3 command; do  # Read from fd 3 to save stdin for user input

@@ -57,7 +57,7 @@ def verify_nanoapp(session: ShellSession, header_file: str):
     if nanoapp_id in dumpsys_output:
       success(f"Nanoapp {nanoapp_id} found in the output of dumpsys of contexthub HAL")
       return
-    print(f"  Verification attempt {i + 1}/5 failed, retrying...")
+    print(f"  Verification attempt {i + 1}/5...")
     time.sleep(1)
 
   warning(f"Verification failed: Nanoapp ID {nanoapp_id} not found in dumpsys of contexthub HAL.")
