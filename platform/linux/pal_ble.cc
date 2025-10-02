@@ -71,8 +71,12 @@ void updateScanInterval(chreBleScanMode mode) {
 
 void flush() {
   std::lock_guard<std::mutex> lock(gBatchMutex);
-  for (struct chreBleAdvertisementEvent *batchedEvent : gBatchedAdEvents) {
+  for (chreBleAdvertisementEvent *batchedEvent : gBatchedAdEvents) {
     gCallbacks->advertisingEventCallback(batchedEvent);
+  }
+  if (gCallbacks != nullptr && gCallbacks->notifyScanBatchComplete != nullptr &&
+      !gBatchedAdEvents.empty()) {
+    gCallbacks->notifyScanBatchComplete();
   }
   gBatchedAdEvents.clear();
   gLastAdDataTimestamp = std::chrono::steady_clock::now();
@@ -175,6 +179,7 @@ bool chrePalBleStartScan(chreBleScanMode mode, uint32_t reportDelayMs,
 bool chrePalBleStopScan() {
   stopAllTasks();
   flush();
+  gReportDelayMs.reset();
 
   std::optional<uint32_t> callbackTaskId = TaskManagerSingleton::get()->addTask(
       []() { gCallbacks->scanStatusChangeCallback(false, CHRE_ERROR_NONE); });

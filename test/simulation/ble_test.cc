@@ -864,5 +864,215 @@ TEST_F(BleTest, BleFlush) {
   ASSERT_FALSE(success);
 }
 
+TEST_F(BleTest, BleBatchCompleteViaFlush) {
+  CREATE_CHRE_TEST_EVENT(START_SCAN, 0);
+  CREATE_CHRE_TEST_EVENT(SCAN_STARTED, 1);
+  CREATE_CHRE_TEST_EVENT(STOP_SCAN, 2);
+  CREATE_CHRE_TEST_EVENT(SCAN_STOPPED, 3);
+  CREATE_CHRE_TEST_EVENT(BATCH_COMPLATE_CALLED, 4);
+  CREATE_CHRE_TEST_EVENT(CALL_FLUSH, 5);
+  CREATE_CHRE_TEST_EVENT(FLUSH_CALLED, 6);
+
+  class App : public BleTestNanoapp {
+   public:
+    void handleEvent(uint32_t, uint16_t eventType,
+                     const void *eventData) override {
+      switch (eventType) {
+        case CHRE_EVENT_BLE_ASYNC_RESULT: {
+          auto *event = static_cast<const struct chreAsyncResult *>(eventData);
+          if (event->errorCode == CHRE_ERROR_NONE) {
+            uint16_t type =
+                event->requestType == CHRE_BLE_REQUEST_TYPE_START_SCAN
+                    ? SCAN_STARTED
+                    : SCAN_STOPPED;
+            TestEventQueueSingleton::get()->pushEvent(type);
+          }
+          break;
+        }
+
+        case CHRE_EVENT_BLE_ADVERTISEMENT: {
+          ++advCount;
+          break;
+        }
+
+        case CHRE_EVENT_BLE_BATCH_COMPLETE: {
+          auto event = static_cast<const chreBatchCompleteEvent *>(eventData);
+          LOGI(
+              "Batch complete. Received %d batched events (type=0x%04x) so far",
+              advCount, event->eventType);
+          TestEventQueueSingleton::get()->pushEvent(BATCH_COMPLATE_CALLED,
+                                                    *event);
+          break;
+        }
+
+        case CHRE_EVENT_BLE_FLUSH_COMPLETE: {
+          auto *event = static_cast<const struct chreAsyncResult *>(eventData);
+          TestEventQueueSingleton::get()->pushEvent(FLUSH_CALLED, *event);
+          break;
+        }
+
+        case CHRE_EVENT_TEST_EVENT: {
+          auto event = static_cast<const TestEvent *>(eventData);
+          switch (event->type) {
+            case START_SCAN: {
+              // Give enough time to batch the data.
+              const bool success = chreBleStartScanAsync(
+                  CHRE_BLE_SCAN_MODE_AGGRESSIVE, /* reportDelayMs= */ 60000,
+                  /* filter= */ nullptr);
+              TestEventQueueSingleton::get()->pushEvent(START_SCAN, success);
+              break;
+            }
+
+            case STOP_SCAN: {
+              const bool success = chreBleStopScanAsync();
+              TestEventQueueSingleton::get()->pushEvent(STOP_SCAN, success);
+              break;
+            }
+            case CALL_FLUSH: {
+              const bool success = chreBleFlushAsync(&mCookie);
+              TestEventQueueSingleton::get()->pushEvent(CALL_FLUSH, success);
+              break;
+            }
+          }
+          break;
+        }
+      }
+    }
+
+   private:
+    int advCount = 0;
+    uint32_t mCookie = 0;
+  };
+
+  uint64_t appId = loadNanoapp(MakeUnique<App>());
+  bool success = false;
+
+  // Start a scan with batching.
+  sendEventToNanoapp(appId, START_SCAN);
+  waitForEvent(START_SCAN, &success);
+  ASSERT_TRUE(success);
+  waitForEvent(SCAN_STARTED);
+  ASSERT_TRUE(chrePalIsBleEnabled());
+
+  // Wait for some time to let the adv events populate the batch.
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+  // Flush the results
+  sendEventToNanoapp(appId, CALL_FLUSH);
+  waitForEvent(CALL_FLUSH, &success);
+  ASSERT_TRUE(success);
+
+  // Batch complete must be called while flush is being called.
+  chreBatchCompleteEvent batchCompleteEvent{};
+  waitForEvent(BATCH_COMPLATE_CALLED, &batchCompleteEvent);
+  ASSERT_EQ(batchCompleteEvent.eventType, CHRE_EVENT_BLE_ADVERTISEMENT);
+
+  // Flush complete must be called after flush is called.
+  chreAsyncResult flushCompleteEvent{};
+  waitForEvent(FLUSH_CALLED, &flushCompleteEvent);
+  ASSERT_EQ(flushCompleteEvent.requestType, CHRE_BLE_REQUEST_TYPE_FLUSH);
+
+  // Stop a scan.
+  sendEventToNanoapp(appId, STOP_SCAN);
+  waitForEvent(STOP_SCAN, &success);
+  ASSERT_TRUE(success);
+  waitForEvent(SCAN_STOPPED);
+  ASSERT_FALSE(chrePalIsBleEnabled());
+}
+
+TEST_F(BleTest, BleBatchCompleteViaDelayMs) {
+  CREATE_CHRE_TEST_EVENT(START_SCAN, 0);
+  CREATE_CHRE_TEST_EVENT(SCAN_STARTED, 1);
+  CREATE_CHRE_TEST_EVENT(STOP_SCAN, 2);
+  CREATE_CHRE_TEST_EVENT(SCAN_STOPPED, 3);
+  CREATE_CHRE_TEST_EVENT(BATCH_COMPLATE_CALLED, 4);
+
+  constexpr uint32_t kReportDelayMs = 200;
+
+  class App : public BleTestNanoapp {
+   public:
+    void handleEvent(uint32_t, uint16_t eventType,
+                     const void *eventData) override {
+      switch (eventType) {
+        case CHRE_EVENT_BLE_ASYNC_RESULT: {
+          auto *event = static_cast<const struct chreAsyncResult *>(eventData);
+          if (event->errorCode == CHRE_ERROR_NONE) {
+            uint16_t type =
+                event->requestType == CHRE_BLE_REQUEST_TYPE_START_SCAN
+                    ? SCAN_STARTED
+                    : SCAN_STOPPED;
+            TestEventQueueSingleton::get()->pushEvent(type);
+          }
+          break;
+        }
+
+        case CHRE_EVENT_BLE_ADVERTISEMENT: {
+          ++advCount;
+          break;
+        }
+
+        case CHRE_EVENT_BLE_BATCH_COMPLETE: {
+          auto event = static_cast<const chreBatchCompleteEvent *>(eventData);
+          LOGI(
+              "Batch complete. Received %d batched events (type=0x%04x) so far",
+              advCount, event->eventType);
+          TestEventQueueSingleton::get()->pushEvent(BATCH_COMPLATE_CALLED,
+                                                    *event);
+          break;
+        }
+
+        case CHRE_EVENT_TEST_EVENT: {
+          auto event = static_cast<const TestEvent *>(eventData);
+          switch (event->type) {
+            case START_SCAN: {
+              // Give enough time to batch the data.
+              const bool success = chreBleStartScanAsync(
+                  CHRE_BLE_SCAN_MODE_AGGRESSIVE, kReportDelayMs,
+                  /* filter= */ nullptr);
+              TestEventQueueSingleton::get()->pushEvent(START_SCAN, success);
+              break;
+            }
+
+            case STOP_SCAN: {
+              const bool success = chreBleStopScanAsync();
+              TestEventQueueSingleton::get()->pushEvent(STOP_SCAN, success);
+              break;
+            }
+          }
+          break;
+        }
+      }
+    }
+
+   private:
+    int advCount = 0;
+  };
+
+  uint64_t appId = loadNanoapp(MakeUnique<App>());
+  bool success = false;
+
+  // Start a scan with batching.
+  sendEventToNanoapp(appId, START_SCAN);
+  waitForEvent(START_SCAN, &success);
+  ASSERT_TRUE(success);
+  waitForEvent(SCAN_STARTED);
+  ASSERT_TRUE(chrePalIsBleEnabled());
+
+  // Wait for a little longer than kReportDelayMs.
+  std::this_thread::sleep_for(std::chrono::milliseconds(kReportDelayMs + 100));
+
+  // Batch complete must be called while flush is being called.
+  chreBatchCompleteEvent batchCompleteEvent{};
+  waitForEvent(BATCH_COMPLATE_CALLED, &batchCompleteEvent);
+  ASSERT_EQ(batchCompleteEvent.eventType, CHRE_EVENT_BLE_ADVERTISEMENT);
+
+  // Stop a scan.
+  sendEventToNanoapp(appId, STOP_SCAN);
+  waitForEvent(STOP_SCAN, &success);
+  ASSERT_TRUE(success);
+  waitForEvent(SCAN_STOPPED);
+  ASSERT_FALSE(chrePalIsBleEnabled());
+}
+
 }  // namespace
 }  // namespace chre

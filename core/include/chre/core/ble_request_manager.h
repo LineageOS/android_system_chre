@@ -201,6 +201,14 @@ class BleRequestManager : public NonCopyable {
   void handleFlushCompleteTimeout();
 
   /**
+   * Handles a batch complete operation.
+   *
+   * Called when the PAL indicates that a batch of BLE scan events is complete.
+   * Processes in an asynchronous manner.
+   */
+  void handleScanBatchComplete();
+
+  /**
    * Retrieves the current scan status.
    *
    * @param status A non-null pointer to where the scan status will be

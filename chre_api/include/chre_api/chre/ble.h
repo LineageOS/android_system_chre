@@ -180,7 +180,9 @@ extern "C" {
  * events in a single batch has been delivered (for example, batching
  * CHRE_EVENT_BLE_ADVERTISEMENT events if the platform has
  * CHRE_BLE_CAPABILITIES_SCAN_RESULT_BATCHING enabled, and a non-zero
- * reportDelayMs in chreBleStartScanAsync() was accepted).
+ * reportDelayMs in chreBleStartScanAsync() was accepted). CHRE implementations
+ * are recommended to *not* generate this event when a batching interval expired
+ * without producing any CHRE_EVENT_BLE_ADVERTISEMENT events.
  *
  * If the nanoapp receives a CHRE_EVENT_BLE_SCAN_STATUS_CHANGE with a non-zero
  * reportDelayMs and enabled set to true, then this event must be generated.

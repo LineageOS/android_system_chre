@@ -379,6 +379,7 @@ void BleRequestManager::handleNanoappEventRegistration(uint16_t instanceId,
   if (nanoapp != nullptr) {
     if (success && enabled) {
       nanoapp->registerForBroadcastEvent(CHRE_EVENT_BLE_ADVERTISEMENT);
+      nanoapp->registerForBroadcastEvent(CHRE_EVENT_BLE_BATCH_COMPLETE);
     } else if (!enabled || forceUnregister) {
       nanoapp->unregisterForBroadcastEvent(CHRE_EVENT_BLE_ADVERTISEMENT);
     }
@@ -503,6 +504,17 @@ void BleRequestManager::handleFlushComplete(uint8_t errorCode) {
 void BleRequestManager::handleFlushCompleteTimeout() {
   mFlushRequestTimerHandle = CHRE_TIMER_INVALID;
   handleFlushCompleteInternal(CHRE_ERROR_TIMEOUT);
+}
+
+void BleRequestManager::handleScanBatchComplete() {
+  auto *batchCompleteEvent = memoryAlloc<struct chreBatchCompleteEvent>();
+  if (batchCompleteEvent == nullptr) {
+    FATAL_ERROR("Failed to alloc chreBatchCompleteEvent");
+  }
+  memset(batchCompleteEvent, 0, sizeof(chreBatchCompleteEvent));
+  batchCompleteEvent->eventType = CHRE_EVENT_BLE_ADVERTISEMENT;
+  EventLoopManagerSingleton::get()->postEventOrDie(
+      CHRE_EVENT_BLE_BATCH_COMPLETE, batchCompleteEvent, freeEventDataCallback);
 }
 
 bool BleRequestManager::getScanStatus(struct chreBleScanStatus * /* status */) {
