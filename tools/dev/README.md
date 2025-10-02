@@ -12,6 +12,8 @@ Assuming `system/chre` project is checked out at `~/main/system/chre`, run
 `source ~/main/system/chre/tools/dev/env_setup.sh && chre_lunch <PLATFORM-TARGET>` and fill out the
 required environment variables, which is a one-time effort. After that you are good to go.
 
+`chre_lunch` also supports customized config file: `chre_lunch -c <path-to-config>`
+
 ```bash
 # build a target
 chre_make
@@ -80,7 +82,14 @@ chre_make -C -s ../../src/general_test
 
 Note that `chre_make` will only generate above two files when `-C` is provided. This is because the
 dryrun output of making the target is used extract source files, include directories, compiler
-flags, and macro definitions. Therefore to generate the target binary please do not add `-C`.
+flags, and macro definitions. Therefore, to generate the target binary please do not add `-C`.
+
+#### Use `-a` for accumulative build
+
+`chre_make -a` does accumulative build, which means it won't run `make clean` before compiling the
+code. The reason that `make clean` is always done by default is because it's known that some of the
+changes like header files and macro definitions in the makefiles might be overlooked during the
+accumulative build. Therefore, option `-a` is discouraged.
 
 ### Flash the target onto the device
 

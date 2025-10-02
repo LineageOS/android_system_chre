@@ -248,21 +248,35 @@ chre_make() {
   # CMakeLists.txt and compile_commands.json.
   if [[ $1 == "-C" ]]; then
     shift
-    rm -rf out/$CHRE_BUILD_TARGET && \
+    make clean && \
     python3 $CHRE_DEV_SCRIPT_PATH/cml_gen.py -c "make -n $CHRE_BUILD_TARGET" -o out/$CHRE_BUILD_TARGET "$@" && \
     mkdir out/$CHRE_BUILD_TARGET/build && \
     pushd out/$CHRE_BUILD_TARGET/build > /dev/null
     if [[ $? -eq 0 ]]; then
       cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON ../ && \
       mv compile_commands.json ../
+      echo "CMakeLists.txt and compile_commands.json have been generated at out/$CHRE_BUILD_TARGET"
+    else
+      return
     fi
     popd > /dev/null && \
     rm -rf out/$CHRE_BUILD_TARGET/build
     return
   fi
 
+  if [[ $# > 1 || $1 != "-a" && $# == 1 ]]; then
+    echo "Only -a and -C are supported options, mutual exclusive"
+    return
+  elif [[ $1 == "-a" ]]; then
+    echo ""
+    echo "WARN: accumulative build. Be aware that some of the changes like header files or make files might not be caught"
+    echo ""
+  else
+    make clean
+  fi
+
   # Making the target
-  make $CHRE_BUILD_TARGET || return 1
+  make OPT_LEVEL=s $CHRE_BUILD_TARGET || return 1
 
   # Getting the .so file
   local so_files=(./out/$CHRE_BUILD_TARGET/*.so)
@@ -277,12 +291,11 @@ chre_make() {
   local so_file="${so_files[0]}"
 
   # Stripping unneeded symbols
-  local so_file_stripped="${so_file}_stripped"
-  llvm-strip $so_file --strip-unneeded -o $so_file_stripped
+  llvm-strip $so_file --strip-unneeded
 
   # Checking external symbols
   if [[ $CHRE_TARGET_TYPE == "nanoapp" ]]; then
-    python3 "$CHRE_DEV_SCRIPT_PATH/check_nanoapp_symbols.py" --nanoapp "$so_file_stripped"
+    python3 "$CHRE_DEV_SCRIPT_PATH/check_nanoapp_symbols.py" --nanoapp "$so_file"
   fi
 
   # Signing
@@ -292,8 +305,8 @@ chre_make() {
   fi
   if [ -n "$CHRE_SIGNER_PATH" ]; then
     local signed_so_file="$signed_path/$(basename "$so_file")"
-    echo "Signing $so_file_stripped -> $signed_so_file"
-    if "$CHRE_SIGNER_PATH" "$so_file_stripped" "$signed_so_file"; then
+    echo "Signing $so_file -> $signed_so_file"
+    if "$CHRE_SIGNER_PATH" "$so_file" "$signed_so_file"; then
       echo "Signing successful!"
     else
       echo "Error: Signing failed." >&2
@@ -304,8 +317,8 @@ chre_make() {
   fi
 
   # Printing the size
-  echo -e "\nPrinting binary size of ${so_file_stripped}..."
-  print_binary_size "$so_file_stripped" || return 1
+  echo -e "\nPrinting binary size of ${so_file}..."
+  print_binary_size "$so_file" || return 1
 }
 
 #######################################
