@@ -254,13 +254,11 @@ public class ChreCrossValidatorWwan extends ChreCrossValidatorBase implements Ex
             expectedResults = Math.min(expectedResults, 1);
         }
 
-        Assert.assertEquals(
-                "Unexpected result count from CHRE cell info. Expected="
-                        + expectedResults
-                        + " Actual="
-                        + chreResultCount,
-                expectedResults,
-                chreResultCount);
+        // CHRE may have more results than the AP, but never fewer.
+        if (chreResultCount < expectedResults) {
+            Assert.fail("Insufficient result count from CHRE cell info. Expected>="
+                    + expectedResults + " Actual=" + chreResultCount);
+        }
     }
 
     void verifyCellInfoContents() {
