@@ -457,10 +457,8 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
         return builder.build();
     }
 
-    /**
-     * Generates a Filter that only known Broadcaster Address
-     */
-    public static ChreApiTest.ChreBleScanFilter getBroadcasterAddressFilter(String macAddress) {
+    /** Generates a Filter that only known Broadcaster Address */
+    public static ChreApiTest.ChreBleScanFilterV1_9 getBroadcasterAddressFilter(String macAddress) {
         byte[] macBytes = parseMacStringToBytes(macAddress);
 
         ChreApiTest.ChreBleBroadcasterAddressFilter broadcasterAddressFilter =
@@ -468,8 +466,8 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
                         .setBroadcasterAddress(ByteString.copyFrom(macBytes))
                         .build();
 
-        ChreApiTest.ChreBleScanFilter.Builder builder =
-                ChreApiTest.ChreBleScanFilter.newBuilder()
+        ChreApiTest.ChreBleScanFilterV1_9.Builder builder =
+                ChreApiTest.ChreBleScanFilterV1_9.newBuilder()
                         .setRssiThreshold(RSSI_THRESHOLD)
                         .addBroadcasterAddressFilters(broadcasterAddressFilter);
         return builder.build();
@@ -600,6 +598,36 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
                         inputBuilder.build());
         assertThat(response).isNotEmpty();
         for (ChreApiTest.GeneralSyncMessage status: response) {
+            assertThat(status.getStatus()).isTrue();
+        }
+    }
+
+    /**
+     * Starts a BLE scan with the v1_9 APIs and asserts it was started successfully in a synchronous
+     * manner. This waits for the event to be received and returns the status in the event.
+     *
+     * @param scanFilter The scan filter.
+     */
+    public void chreBleStartScanSyncV1_9(ChreApiTest.ChreBleScanFilterV1_9 scanFilter)
+            throws Exception {
+        ChreApiTest.ChreBleStartScanAsyncInputV1_9.Builder inputBuilder =
+                ChreApiTest.ChreBleStartScanAsyncInputV1_9.newBuilder()
+                        .setMode(ChreApiTest.ChreBleScanMode.CHRE_BLE_SCAN_MODE_FOREGROUND)
+                        .setReportDelayMs(REPORT_DELAY_MS)
+                        .setHasFilter(false);
+        if (scanFilter != null) {
+            inputBuilder.setHasFilter(true);
+            inputBuilder.setFilter(scanFilter);
+        }
+
+        ChreApiTestUtil util = new ChreApiTestUtil();
+        List<ChreApiTest.GeneralSyncMessage> response =
+                util.callServerStreamingRpcMethodSync(
+                        getRpcClient(),
+                        "chre.rpc.ChreApiTestService.ChreBleStartScanSyncV1_9",
+                        inputBuilder.build());
+        assertThat(response).isNotEmpty();
+        for (ChreApiTest.GeneralSyncMessage status : response) {
             assertThat(status.getStatus()).isTrue();
         }
     }
