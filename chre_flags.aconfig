@@ -111,3 +111,13 @@ flag {
   bug: "445766743"
   is_exported: true
 }
+
+flag {
+  name: "optimize_service_transaction_lock"
+  namespace: "context_hub"
+  description: "Flag guarding the optimizing of the ContextHubService transaction lock"
+  bug: "444955194"
+  metadata {
+    purpose: PURPOSE_BUGFIX
+  }
+}
