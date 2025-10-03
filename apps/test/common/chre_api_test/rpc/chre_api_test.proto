@@ -68,6 +68,14 @@ service ChreApiTestService {
   rpc ChreBleStartScanSync(ChreBleStartScanAsyncInput)
       returns (stream GeneralSyncMessage) {}
 
+  /* Starts a BLE scan synchronously with the v1_9 APIs. This will wait for the
+   * event and will return success if the chreBleStartScanAsync function
+   * returns success and the event is seen. This will return the event's
+   * success field.
+   */
+  rpc ChreBleStartScanSyncV1_9(ChreBleStartScanAsyncInputV1_9)
+      returns (stream GeneralSyncMessage) {}
+
   /* Stops a BLE scan synchronously. This will wait for the
    * event and will return success if the chreBleStopScanAsync
    * function returns success and the event is seen. This will
@@ -405,7 +413,10 @@ message ChreBleScanFilter {
   // Deprecated: We use the built-in count variable now
   uint32 scanFilterCount = 2 [deprecated = true];
   repeated ChreBleGenericFilter scanFilters = 3;
-  repeated ChreBleBroadcasterAddressFilter broadcasterAddressFilters = 4;
+
+  // Deprecated: Use ChreBleScanFilterV1_9 if using broadcasterAddress filters
+  repeated ChreBleBroadcasterAddressFilter broadcasterAddressFilters = 4
+      [deprecated = true];
 }
 
 // Input value for ChreBleStartScanAsync
@@ -414,6 +425,21 @@ message ChreBleStartScanAsyncInput {
   uint32 reportDelayMs = 2;
   bool hasFilter = 3;
   ChreBleScanFilter filter = 4;
+}
+
+// Scan filter for BLE scanning
+message ChreBleScanFilterV1_9 {
+  int32 rssiThreshold = 1;
+  repeated ChreBleGenericFilter genericFilters = 2;
+  repeated ChreBleBroadcasterAddressFilter broadcasterAddressFilters = 3;
+}
+
+// Input value for ChreBleStartScanSyncV1_9
+message ChreBleStartScanAsyncInputV1_9 {
+  ChreBleScanMode mode = 1;
+  uint32 reportDelayMs = 2;
+  bool hasFilter = 3;
+  ChreBleScanFilterV1_9 filter = 4;
 }
 
 message ChreBleBroadcasterAddressFilter {

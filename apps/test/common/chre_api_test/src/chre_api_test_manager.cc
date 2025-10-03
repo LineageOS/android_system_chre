@@ -272,6 +272,31 @@ void ChreApiTestService::ChreBleStartScanSync(
   startRpcSyncTimer(mWriter);
 }
 
+void ChreApiTestService::ChreBleStartScanSyncV1_9(
+    const chre_rpc_ChreBleStartScanAsyncInputV1_9 &request,
+    ServerWriter<chre_rpc_GeneralSyncMessage> &writer) {
+  if (mWriter.has_value()) {
+    ChreApiTestManagerSingleton::get()->setPermissionForNextMessage(
+        CHRE_MESSAGE_PERMISSION_NONE);
+    writer.Finish();
+    LOGE("ChreBleStartScanSyncV1_9: a sync message already exists");
+    return;
+  }
+
+  mWriter = std::move(writer);
+  mRequestType = CHRE_BLE_REQUEST_TYPE_START_SCAN;
+
+  chre_rpc_Status status;
+  if (!validateInputAndCallChreBleStartScanAsyncV1_9(request, status) ||
+      !status.status) {
+    LOGE("ChreBleStartScanSyncV1_9: status: false (error)");
+    sendFailureAndFinishCloseWriter(mWriter);
+    return;
+  }
+
+  startRpcSyncTimer(mWriter);
+}
+
 void ChreApiTestService::ChreBleStopScanSync(
     const google_protobuf_Empty &request,
     ServerWriter<chre_rpc_GeneralSyncMessage> &writer) {

@@ -81,17 +81,78 @@ bool ChreApiTestService::validateInputAndCallChreBleStartScanAsync(
     return false;
   }
 
-  if (request.filter.scanFilters_count == 0 &&
+  if (request.filter.scanFilters_count == 0) {
+    LOGE("ChreBleStartScanAsync: invalid filter.scanFilters_count");
+    return false;
+  }
+
+  chreBleGenericFilter scanFilters[request.filter.scanFilters_count];
+  if (!validateBleScanFilters(request.filter.scanFilters, scanFilters,
+                              request.filter.scanFilters_count)) {
+    return false;
+  }
+
+  struct chreBleScanFilter filter;
+  filter.rssiThreshold = request.filter.rssiThreshold;
+  filter.scanFilterCount = request.filter.scanFilters_count;
+  filter.scanFilters = scanFilters;
+
+  auto mode = static_cast<chreBleScanMode>(request.mode);
+  response.status = chreBleStartScanAsync(mode, request.reportDelayMs, &filter);
+
+  LOGD("chreBleStartScanAsync: mode: %s, reportDelayMs: %" PRIu32
+       ", scanFilterCount: %" PRIu16 ", status: %s",
+       mode == CHRE_BLE_SCAN_MODE_BACKGROUND
+           ? "background"
+           : (mode == CHRE_BLE_SCAN_MODE_FOREGROUND ? "foreground"
+                                                    : "aggressive"),
+       request.reportDelayMs, request.filter.scanFilters_count,
+       response.status ? "true" : "false");
+  return true;
+}
+
+bool ChreApiTestService::validateInputAndCallChreBleStartScanAsyncV1_9(
+    const chre_rpc_ChreBleStartScanAsyncInputV1_9 &request,
+    chre_rpc_Status &response) {
+  if (request.mode < _chre_rpc_ChreBleScanMode_MIN ||
+      request.mode > _chre_rpc_ChreBleScanMode_MAX ||
+      request.mode == chre_rpc_ChreBleScanMode_INVALID) {
+    LOGE("ChreBleStartScanAsyncV1_9: invalid mode");
+    return false;
+  }
+
+  if (!request.hasFilter) {
+    auto mode = static_cast<chreBleScanMode>(request.mode);
+    response.status = chreBleStartScanAsyncV1_9(mode, request.reportDelayMs,
+                                                nullptr, nullptr);
+
+    LOGD("ChreBleStartScanAsyncV1_9: mode: %s, reportDelayMs: %" PRIu32
+         ", filter: nullptr, status: %s",
+         mode == CHRE_BLE_SCAN_MODE_BACKGROUND
+             ? "background"
+             : (mode == CHRE_BLE_SCAN_MODE_FOREGROUND ? "foreground"
+                                                      : "aggressive"),
+         request.reportDelayMs, response.status ? "true" : "false");
+    return true;
+  }
+
+  if (request.filter.rssiThreshold < std::numeric_limits<int8_t>::min() ||
+      request.filter.rssiThreshold > std::numeric_limits<int8_t>::max()) {
+    LOGE("ChreBleStartScanAsyncV1_9: invalid filter.rssiThreshold");
+    return false;
+  }
+
+  if (request.filter.genericFilters_count == 0 &&
       request.filter.broadcasterAddressFilters_count == 0) {
     LOGE(
-        "ChreBleStartScanAsync: invalid filter.scanFilters_count and "
+        "ChreBleStartScanAsyncV1_9: invalid filter.genericFilters_count and "
         "broadcasterAddressFilter_count");
     return false;
   }
 
-  chreBleGenericFilter genericFilters[request.filter.scanFilters_count];
-  if (!validateBleScanFilters(request.filter.scanFilters, genericFilters,
-                              request.filter.scanFilters_count)) {
+  chreBleGenericFilter genericFilters[request.filter.genericFilters_count];
+  if (!validateBleScanFilters(request.filter.genericFilters, genericFilters,
+                              request.filter.genericFilters_count)) {
     return false;
   }
   chreBleBroadcasterAddressFilter
@@ -104,7 +165,7 @@ bool ChreApiTestService::validateInputAndCallChreBleStartScanAsync(
 
   struct chreBleScanFilterV1_9 filter;
   filter.rssiThreshold = request.filter.rssiThreshold;
-  filter.genericFilterCount = request.filter.scanFilters_count;
+  filter.genericFilterCount = request.filter.genericFilters_count;
   filter.genericFilters = genericFilters;
   filter.broadcasterAddressFilterCount =
       request.filter.broadcasterAddressFilters_count;
@@ -114,16 +175,17 @@ bool ChreApiTestService::validateInputAndCallChreBleStartScanAsync(
   response.status =
       chreBleStartScanAsyncV1_9(mode, request.reportDelayMs, &filter, nullptr);
 
-  LOGD("chreBleStartScanAsyncV1_9: mode: %s, reportDelayMs: %" PRIu32
-       ", scanFilterCount: %" PRIu16 ", broadcasterAddressFilterCount: %" PRIu16
-       ", status: %s",
-       mode == CHRE_BLE_SCAN_MODE_BACKGROUND
-           ? "background"
-           : (mode == CHRE_BLE_SCAN_MODE_FOREGROUND ? "foreground"
-                                                    : "aggressive"),
-       request.reportDelayMs, request.filter.scanFilters_count,
-       request.filter.broadcasterAddressFilters_count,
-       response.status ? "true" : "false");
+  LOGD(
+      "ChreBleStartScanAsyncV1_9: mode: %s, reportDelayMs: "
+      "%" PRIu32 ", genericFilterCount: %" PRIu16
+      ", broadcasterAddressFilterCount: %" PRIu16 ", status: %s",
+      mode == CHRE_BLE_SCAN_MODE_BACKGROUND
+          ? "background"
+          : (mode == CHRE_BLE_SCAN_MODE_FOREGROUND ? "foreground"
+                                                   : "aggressive"),
+      request.reportDelayMs, request.filter.genericFilters_count,
+      request.filter.broadcasterAddressFilters_count,
+      response.status ? "true" : "false");
   return true;
 }
 

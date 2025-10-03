@@ -122,11 +122,19 @@ class ChreApiTestService final
                                chre_rpc_ChreBleSocketSendStatus &response);
 
   /**
-   * Starts a BLE scan synchronously. Waits for the CHRE_EVENT_BLE_ASYNC_RESULT
-   * event.
+   * Starts a BLE scan synchronously. Waits for the
+   * CHRE_EVENT_BLE_ASYNC_RESULT event.
    */
   void ChreBleStartScanSync(const chre_rpc_ChreBleStartScanAsyncInput &request,
                             ServerWriter<chre_rpc_GeneralSyncMessage> &writer);
+
+  /**
+   * Starts a BLE scan synchronously using the v1.9 APIs. Waits for the
+   * CHRE_EVENT_BLE_ASYNC_RESULT event.
+   */
+  void ChreBleStartScanSyncV1_9(
+      const chre_rpc_ChreBleStartScanAsyncInputV1_9 &request,
+      ServerWriter<chre_rpc_GeneralSyncMessage> &writer);
 
   /**
    * Stops a BLE scan synchronously. Waits for the CHRE_EVENT_BLE_ASYNC_RESULT
@@ -255,6 +263,10 @@ class ChreApiTestService final
 
   bool validateInputAndCallChreBleStartScanAsync(
       const chre_rpc_ChreBleStartScanAsyncInput &request,
+      chre_rpc_Status &response);
+
+  bool validateInputAndCallChreBleStartScanAsyncV1_9(
+      const chre_rpc_ChreBleStartScanAsyncInputV1_9 &request,
       chre_rpc_Status &response);
 
   bool validateInputAndCallChreBleStopScanAsync(
