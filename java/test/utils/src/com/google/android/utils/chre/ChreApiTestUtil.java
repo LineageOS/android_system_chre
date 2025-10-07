@@ -490,10 +490,6 @@ public class ChreApiTestUtil {
                         ChreApiTest.ChreBleStartScanAsyncInput.parser(),
                         ChreApiTest.GeneralSyncMessage.parser()),
                 Service.serverStreamingMethod(
-                        "ChreBleStartScanSyncV1_9",
-                        ChreApiTest.ChreBleStartScanAsyncInputV1_9.parser(),
-                        ChreApiTest.GeneralSyncMessage.parser()),
-                Service.serverStreamingMethod(
                         "ChreBleStopScanSync",
                         Empty.parser(),
                         ChreApiTest.GeneralSyncMessage.parser()),
