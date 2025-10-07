@@ -132,6 +132,8 @@ pw_add_library(chre.util.nanoapp STATIC
 pw_add_library(chre.util.pigweed STATIC
   HEADERS
     include/chre/util/pigweed/chre_channel_output.h
+    include/chre/util/pigweed/default_pw_allocator.h
+    include/chre/util/pigweed/nanoapp_pw_allocator.h
     include/chre/util/pigweed/permission.h
     include/chre/util/pigweed/rpc_client.h
     include/chre/util/pigweed/rpc_common.h
@@ -144,6 +146,7 @@ pw_add_library(chre.util.pigweed STATIC
     chre.util
     chre.util.nanoapp
     chre.variant.config
+    pw_allocator
     pw_rpc.client
     pw_rpc.common
     pw_rpc.server
