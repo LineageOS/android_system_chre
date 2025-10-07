@@ -25,7 +25,6 @@
 #include "pw_allocator/layout.h"
 #include "pw_bytes/span.h"
 #include "pw_result/result.h"
-#include "pw_span/span.h"
 #include "pw_status/status.h"
 
 namespace chre::shmem_spmc_queue {
@@ -44,7 +43,7 @@ namespace internal {
 // implementation.
 static_assert(std::atomic<uint32_t>::is_always_lock_free);
 
-// Analog to nullptr for offsets in shared memory.
+//! Analog to nullptr for offsets in shared memory.
 constexpr uint32_t kOffsetInvalid = UINT32_MAX;
 
 /** Consumer notification and overwrite policy. */
@@ -81,14 +80,15 @@ struct ProducerDesc {
  * Flags used by the Producer to indicate exceptional state.
  *
  * Flags are mutually exclusive and the latest value takes precedence over
- * previous ones.
+ * previous ones. The values are a bitmask to make it easy to compare against a
+ * set of values.
  */
 enum class ProducerFlags : uint16_t {
-  kNone = 0,
-  kPendingInit,  // Consumer state allocated, pending Consumer().
-  kBlocking,     // Producer cannot write until this Consumer reads.
-  kOverwrite,    // Producer overwrote this Consumer.
-  kReset,        // Producer torn down.
+  kNone = 0x0,            // No flags set. Consumer does not need to ack this.
+  kPendingInit = 0x1,     // Consumer state allocated, pending Consumer().
+  kBlocking = 0x1 << 1,   // Producer cannot write until this Consumer reads.
+  kOverwrite = 0x1 << 2,  // Producer overwrote this Consumer.
+  kReset = 0x1 << 3,      // Producer torn down.
 };
 
 /** Flags used by the Consumer to acknowledge ProducerFlags or tear down. */
@@ -120,7 +120,7 @@ struct ConsumerDesc {
   // { 0-15: ConsumerFlags | 16-31: latest value of producerFlags counter }
   std::atomic<uint32_t> consumerFlags;
   // Consumer policy.
-  ConsumerPolicy policy;
+  std::atomic<uint32_t> policy;
   // Padding bytes.
   uint8_t padding[8];
 };
@@ -328,6 +328,23 @@ class ProducerBase {
                DataNotifier &dataNotifier, ConsumerManager &consumerManager,
                RemoteNotifyFn remoteNotifyFn, MemoryAccess *memAccess);
 
+  /**
+   * Sets the given flag on a consumer.
+   *
+   * @param desc The consumer descriptor.
+   * @param flag The flag to set.
+   * @param forceNotify If true, notify the consumer regardless of their policy.
+   */
+  void setConsumerFlag(ConsumerDesc &desc, ProducerFlags flag,
+                       bool forceNotify = false);
+
+  /**
+   * Notifies a consumer.
+   *
+   * @param desc The consumer descriptor.
+   */
+  void notifyConsumer(ConsumerDesc &desc);
+
   // Members fixed on construction.
   RemoteNotifyFn mRemoteNotifyFn;
   uintptr_t kShmemBase;
@@ -357,8 +374,24 @@ class ConsumerBase {
   ConsumerBase(ConsumerBase &&other) {
     *this = std::move(other);
   }
-  ConsumerBase &operator=(ConsumerBase && /*other*/) {
-    // TODO(b/445967147): Implement.
+  ConsumerBase &operator=(ConsumerBase &&other) {
+    if (&other != this) {
+      if (other.mStatus.ok()) {
+        kShmemBase = other.kShmemBase;
+        kShmemSize = other.kShmemSize;
+        mQueue = other.mQueue;
+        mDesc = other.mDesc;
+        mRemoteNotifyFn = std::move(other.mRemoteNotifyFn);
+        mMemAccess = other.mMemAccess;
+        mOverwriteResetOffset = other.mOverwriteResetOffset;
+        kBlockCapacity = other.kBlockCapacity;
+        kDataOffset = other.kDataOffset;
+        kLocal = other.kLocal;
+        mEpoch = other.mEpoch;
+        mStatus = pw::OkStatus();
+      }
+      other.mStatus = pw::Status::NotFound();
+    }
     return *this;
   }
 
@@ -367,10 +400,10 @@ class ConsumerBase {
   /**
    * Updates the current policy. Notifies the Producer.
    *
-   * @param policyBuilder Builder for the new policy.
+   * @param policyBuilder Builder for the new consumer policy.
    * @return pw::OkStatus() on success.
    */
-  pw::Status updatePolicy(ConsumerPolicyBuilder &policyBuilder);
+  pw::Status updatePolicy(ConsumerPolicyBuilder &policy);
 
   /** Disables this instance. Should be called when the Producer crashes. */
   void disable();
@@ -430,20 +463,17 @@ class ConsumerBase {
 
  protected:
   /**
-   * Checks that the ConsumerDesc is in a valid state.
+   * Checks arguments before initializing.
    *
    * @param shmemBase The base address of the queue shared memory region.
    * @param shmemSize The size of the queue shared memory region.
    * @param queueOffset The queue metadata in shared memory.
    * @param descOffset The consumer descriptor in shared memory.
-   * @param idOrNotifyFn The new instance's id for remote notifications or the
-   * LocalNotifyArgs for notifying it.
-   * @param policyBuilder Builder for the ConsumerPolicy.
-   * @return pw::OkStatus() on success.
+   * @return On success, a pair of pointers to the Queue and ConsumerDesc.
    */
-  static pw::Status initialize(uintptr_t base, uint32_t shmemSize, Queue *queue,
-                               ConsumerDesc *desc, IdOrNotifyFn idOrNotifyFn,
-                               ConsumerPolicyBuilder &policyBuilder);
+  static pw::Result<std::pair<Queue *, ConsumerDesc *>> checkArgs(
+      uintptr_t base, uint32_t shmemSize, uint32_t queueOffset,
+      uint32_t descOffset);
 
   /**
    * See {@link Consumer::createDynamic()} for most parameters.
@@ -458,6 +488,49 @@ class ConsumerBase {
                ConsumerDesc &desc, uint32_t dataOffset,
                RemoteNotifyFn remoteNotifyFn, MemoryAccess *memAccess,
                std::optional<size_t> overwriteResetOffset);
+
+  /**
+   * One-time post-construction initialization.
+   *
+   * @param idOrNotifyFn The new instance's id for remote notifications or the
+   * LocalNotifyFn for notifying it.
+   * @param policyBuilder Builder for the consumer's policy.
+   * @return pw::OkStatus() on success.
+   */
+  pw::Status initialize(IdOrNotifyFn idOrNotifyFn,
+                        ConsumerPolicyBuilder &policyBuilder);
+
+  /** @return On success, the current producer descriptor. */
+  pw::Result<ProducerDesc *> getProducerDesc();
+
+  /**
+   * Notifies the Producer.
+   *
+   * @param producerDesc The producer descriptor.
+   */
+  void notifyProducer(ProducerDesc &producerDesc);
+
+  /**
+   * Clears the producer flags.
+   *
+   * @param flag The value loaded from ConsumerDesc.producerFlags.
+   */
+  void clearFlag(uint32_t flag);
+
+  // Members fixed on construction.
+  RemoteNotifyFn mRemoteNotifyFn;
+  uintptr_t kShmemBase;
+  Queue *mQueue;
+  ConsumerDesc *mDesc;
+  MemoryAccess *mMemAccess;
+  size_t mOverwriteResetOffset;
+  uint32_t kShmemSize;
+  uint32_t kBlockCapacity;
+  uint32_t kDataOffset;
+  bool kLocal;
+
+  uint32_t mEpoch;
+  pw::Status mStatus = pw::OkStatus();
 };
 
 // Returns the offset of the object from base.

@@ -15,6 +15,7 @@
  */
 
 #include "chre/shmem_spmc_queue/queue.h"
+
 #include "chre/shmem_spmc_queue/internal/queue_internal.h"
 #include "chre/shmem_spmc_queue/queue_defs.h"
 #include "pw_allocator/layout.h"
@@ -22,6 +23,9 @@
 namespace chre::shmem_spmc_queue {
 namespace internal {
 namespace {
+
+constexpr uint32_t kFlagCountInc = 0x10000;
+constexpr uint32_t kFlagCountMask = 0xffff0000;
 
 void deallocateBlockRing(uintptr_t shmemBase, uint32_t shmemSize,
                          pw::Allocator &allocator, pw::allocator::Layout layout,
@@ -65,6 +69,39 @@ pw::Result<BlockHeader *> allocateBlockRing(uintptr_t shmemBase,
   }
   prev->nextBlockOffset = internal::toOffset(shmemBase, head);
   return head;
+}
+
+void notify(IdOrNotifyFn &idOrNotifyFn, const RemoteNotifyFn &remoteNotifyFn,
+            bool local) {
+  if (local) {
+    idOrNotifyFn.localNotify.fn(idOrNotifyFn.localNotify.ctx);
+  } else {
+    remoteNotifyFn(pw::ConstByteSpan(idOrNotifyFn.remoteId));
+  }
+}
+
+constexpr uint32_t getFlagsCounter(uint32_t flags) {
+  return flags & kFlagCountMask;
+}
+
+constexpr ProducerFlags getProducerFlags(uint32_t producerFlags) {
+  return static_cast<ProducerFlags>(producerFlags & ~kFlagCountMask);
+}
+
+constexpr ProducerFlags getAndCheckProducerFlags(uint32_t producerFlags,
+                                                 uint32_t consumerFlags) {
+  auto value = getProducerFlags(producerFlags);
+  if (value == ProducerFlags::kNone ||
+      getFlagsCounter(producerFlags) == getFlagsCounter(consumerFlags)) {
+    return internal::ProducerFlags::kNone;
+  }
+  return value;
+}
+
+NotificationPolicy notificationPolicy(uint32_t policyRaw) {
+  return static_cast<NotificationPolicy>(
+      reinterpret_cast<ConsumerPolicy *>(&policyRaw)->policy &
+      static_cast<uint8_t>(NotificationPolicy::kMask));
 }
 
 }  // namespace
@@ -121,7 +158,12 @@ ProducerBase::~ProducerBase() {
   }
   mActive = false;
   mQueue->producerOffset = kOffsetInvalid;
-  // TODO(b/445482700): Notify Consumers.
+  mConsumerManager->forAllConsumers(
+      *mQueue, /*excludeMask=*/0,
+      [this](internal::ConsumerDesc &desc, uint32_t /*producerFlags*/,
+             uint32_t /*consumerFlags*/) {
+        setConsumerFlag(desc, ProducerFlags::kReset, /*forceNotify=*/true);
+      });
   deallocateBlockRing(
       kShmemBase, kShmemSize, *mAllocator, kBlockLayout,
       fromOffset<BlockHeader>(kShmemBase, kShmemSize, mDesc->tailBlockOffset,
@@ -186,26 +228,77 @@ size_t ProducerBase::capacity() const {
   return 0;
 }
 
-pw::Status ConsumerBase::initialize(uintptr_t /*shmemBase*/,
-                                    uint32_t /*shmemSize*/, Queue * /*queue*/,
-                                    ConsumerDesc * /*desc*/,
-                                    IdOrNotifyFn /*idOrNotifyFn*/,
-                                    ConsumerPolicyBuilder & /*policyBuilder*/) {
-  // TODO(b/445967147): Implement.
-  return pw::Status::Unimplemented();
+void ProducerBase::setConsumerFlag(ConsumerDesc &desc, ProducerFlags flag,
+                                   bool forceNotify) {
+  uint32_t flagCounter =
+      getFlagsCounter(desc.producerFlags.load()) + kFlagCountInc;
+  desc.producerFlags.store(static_cast<uint32_t>(flag) | flagCounter);
+  if (forceNotify ||
+      notificationPolicy(desc.policy.load()) != NotificationPolicy::kNever) {
+    notifyConsumer(desc);
+  }
 }
 
-ConsumerBase::ConsumerBase(uintptr_t /*shmemBase*/, uint32_t /*shmemSize*/,
-                           Queue & /*queue*/, ConsumerDesc & /*desc*/,
-                           uint32_t /*dataOffset*/,
-                           RemoteNotifyFn /*remoteNotifyFn*/,
-                           MemoryAccess * /*memAccess*/,
-                           std::optional<size_t> /*overwriteResetOffset*/) {
-  // TODO(b/445967147): Implement.
+void ProducerBase::notifyConsumer(ConsumerDesc &desc) {
+  notify(desc.idOrNotifyFn, mRemoteNotifyFn, kLocal);
+}
+
+pw::Result<std::pair<Queue *, ConsumerDesc *>> ConsumerBase::checkArgs(
+    uintptr_t shmemBase, uint32_t shmemSize, uint32_t queueOffset,
+    uint32_t descOffset) {
+  auto *queue = fromOffset<Queue>(shmemBase, shmemSize, queueOffset);
+  auto *desc = fromOffset<ConsumerDesc>(shmemBase, shmemSize, descOffset);
+  if (!queue || !desc) {
+    return pw::Status::InvalidArgument();
+  }
+  return std::make_pair(queue, desc);
+}
+
+ConsumerBase::ConsumerBase(uintptr_t shmemBase, uint32_t shmemSize,
+                           Queue &queue, ConsumerDesc &desc,
+                           uint32_t dataOffset, RemoteNotifyFn remoteNotifyFn,
+                           MemoryAccess *memAccess,
+                           std::optional<size_t> overwriteResetOffset)
+    : mRemoteNotifyFn(std::move(remoteNotifyFn)),
+      kShmemBase(shmemBase),
+      mQueue(&queue),
+      mDesc(&desc),
+      mMemAccess(memAccess),
+      mOverwriteResetOffset(
+          overwriteResetOffset.value_or(queue.blockCapacity / 2)),
+      kShmemSize(shmemSize),
+      kBlockCapacity(queue.blockCapacity),
+      kDataOffset(dataOffset),
+      kLocal(queue.localNotify) {}
+
+pw::Status ConsumerBase::initialize(IdOrNotifyFn idOrNotifyFn,
+                                    ConsumerPolicyBuilder &policyBuilder) {
+  auto consumerFlags = mDesc->consumerFlags.load();
+  auto producerFlags = mDesc->producerFlags.load();
+  if (getAndCheckProducerFlags(producerFlags, consumerFlags) !=
+      ProducerFlags::kPendingInit) {
+    return pw::Status::FailedPrecondition();
+  }
+  mDesc->idOrNotifyFn = idOrNotifyFn;
+  mDesc->policy.store(policyBuilder.build().rawValue);
+  // Sync the consumer to the producer and store the current epoch.
+  PW_TRY_ASSIGN(auto *producerDesc, getProducerDesc());
+  mDesc->readIndex.store(producerDesc->writeIndex.load());
+  mDesc->indexCorrection = producerDesc->indexCorrection;
+  mEpoch = producerDesc->epoch.load();
+  clearFlag(producerFlags);
+  return pw::OkStatus();
 }
 
 ConsumerBase::~ConsumerBase() {
-  // TODO(b/445967147): Implement.
+  if (!mStatus.ok()) {
+    return;
+  }
+  mStatus = pw::Status::NotFound();
+  mDesc->consumerFlags.store(static_cast<uint32_t>(ConsumerFlags::kFinished));
+  if (auto maybeProducerDesc = getProducerDesc(); maybeProducerDesc.ok()) {
+    notifyProducer(*maybeProducerDesc.value());
+  }
 }
 
 pw::Status ConsumerBase::updatePolicy(
@@ -253,6 +346,26 @@ bool ConsumerBase::empty() {
   return true;
 }
 
+pw::Result<ProducerDesc *> ConsumerBase::getProducerDesc() {
+  auto *producerDesc = fromOffset<ProducerDesc>(kShmemBase, kShmemSize,
+                                                mQueue->producerOffset.load());
+  if (!producerDesc) {
+    mStatus = pw::Status::Aborted();
+    return mStatus;
+  }
+  return producerDesc;
+}
+
+void ConsumerBase::notifyProducer(ProducerDesc &producerDesc) {
+  notify(producerDesc.idOrNotifyFn, mRemoteNotifyFn, kLocal);
+}
+
+void ConsumerBase::clearFlag(uint32_t flag) {
+  mDesc->consumerFlags.store(
+      static_cast<uint32_t>(ConsumerFlags::kFlagsCleared) |
+      getFlagsCounter(flag));
+}
+
 }  // namespace internal
 
 void DataNotifier::onWrite(internal::ProducerBase & /*producer*/) {
@@ -275,12 +388,18 @@ pw::Result<uint32_t> ConsumerManager::addConsumer(void *queue) {
   if (!descRaw) {
     return pw::Status::ResourceExhausted();
   }
+  std::memset(descRaw, 0, sizeof(internal::ConsumerDesc));
   auto &desc = *static_cast<internal::ConsumerDesc *>(descRaw);
+  desc.consumerFlags.store(
+      static_cast<uint32_t>(internal::ConsumerFlags::kFlagsCleared));
+  desc.producerFlags.store(
+      static_cast<uint32_t>(internal::ProducerFlags::kPendingInit) |
+      internal::kFlagCountInc);
   desc.nextConsumerOffset =
       queueRef.dynamicConsumersHeadOffset != internal::kOffsetInvalid
           ? queueRef.dynamicConsumersHeadOffset
           : internal::kOffsetInvalid;
-  queueRef.dynamicConsumersHeadOffset = toOffset(kShmemBase, &desc);
+  queueRef.dynamicConsumersHeadOffset = internal::toOffset(kShmemBase, &desc);
   return queueRef.dynamicConsumersHeadOffset;
 }
 
@@ -303,6 +422,26 @@ pw::Status ConsumerManager::removeConsumer(void *queue, uint32_t offset) {
                                                         *descOffsetPtr);
   }
   return pw::Status::NotFound();
+}
+
+bool ConsumerManager::isFlagInMask(internal::ConsumerDesc &desc,
+                                   uint32_t producerFlags,
+                                   uint32_t consumerFlags,
+                                   uint16_t producerMask) {
+  // Check whether the consumer has acked the latest flag value.
+  if (internal::getAndCheckProducerFlags(producerFlags, consumerFlags) ==
+      internal::ProducerFlags::kNone) {
+    // If the flag hasn't been cleared, clear it now.
+    if (internal::getProducerFlags(producerFlags) !=
+        internal::ProducerFlags::kNone) {
+      desc.producerFlags.store(
+          internal::getFlagsCounter(producerFlags) |
+          static_cast<uint32_t>(internal::ProducerFlags::kNone));
+    }
+    return false;
+  }
+  // Return true if the current flag value is in the mask.
+  return !!(static_cast<uint16_t>(producerFlags) & producerMask);
 }
 
 }  // namespace chre::shmem_spmc_queue

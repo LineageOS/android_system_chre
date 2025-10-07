@@ -83,6 +83,22 @@ class QueueTest : public ::testing::Test {
         *mConsumerManager, std::move(notifyArgs));
   }
 
+  pw::Result<Consumer<int>> createLocalConsumer(
+      LocalNotifyArgs notifyArgs, ConsumerPolicyBuilder &policyBuilder) {
+    PW_TRY_ASSIGN(uint32_t descOffset, mConsumerManager->addConsumer(mQueue));
+    return Consumer<int>::createLocal(
+        basePtr(), size(), reinterpret_cast<uintptr_t>(mQueue) - base(),
+        descOffset, notifyArgs, policyBuilder);
+  }
+
+  pw::Result<Consumer<int>> createRemoteConsumer(
+      RemoteNotifyArgs notifyArgs, ConsumerPolicyBuilder &policyBuilder) {
+    PW_TRY_ASSIGN(uint32_t descOffset, mConsumerManager->addConsumer(mQueue));
+    return Consumer<int>::createRemote(
+        basePtr(), size(), reinterpret_cast<uintptr_t>(mQueue) - base(),
+        descOffset, std::move(notifyArgs), policyBuilder);
+  }
+
   std::vector<std::byte> mStorage;
   pw::allocator::FirstFitAllocator<> mAllocator;
   void *mQueue;
@@ -140,8 +156,8 @@ TEST_F(QueueTest, ConsumerManagerAddConsumerSuccess) {
 
   int consumerCount = 0;
   mConsumerManager->forAllConsumers(
-      *static_cast<internal::Queue *>(mQueue),
-      [&](internal::ConsumerDesc &) { consumerCount++; });
+      *static_cast<internal::Queue *>(mQueue), /*excludeMask=*/0,
+      [&](internal::ConsumerDesc &, uint32_t, uint32_t) { consumerCount++; });
   EXPECT_EQ(consumerCount, 1);
 
   // Remove the consumer to avoid memory leaks.
@@ -177,8 +193,8 @@ TEST_F(QueueTest, ConsumerManagerRemoveConsumerSuccess) {
 
   int consumerCount = 0;
   mConsumerManager->forAllConsumers(
-      *static_cast<internal::Queue *>(mQueue),
-      [&](internal::ConsumerDesc &) { consumerCount++; });
+      *static_cast<internal::Queue *>(mQueue), /*excludeMask=*/0,
+      [&](internal::ConsumerDesc &, uint32_t, uint32_t) { consumerCount++; });
   EXPECT_EQ(consumerCount, 0);
 }
 
@@ -192,13 +208,13 @@ TEST_F(QueueTest, ConsumerManagerRemoveConsumerMultiple) {
 
   int consumerCount = 0;
   uint32_t foundOffset = 0;
-  mConsumerManager->forAllConsumers(*static_cast<internal::Queue *>(mQueue),
-                                    [&](internal::ConsumerDesc &desc) {
-                                      consumerCount++;
-                                      foundOffset = internal::toOffset(
-                                          reinterpret_cast<uintptr_t>(base()),
-                                          &desc);
-                                    });
+  mConsumerManager->forAllConsumers(
+      *static_cast<internal::Queue *>(mQueue), /*excludeMask=*/0,
+      [&](internal::ConsumerDesc &desc, uint32_t, uint32_t) {
+        consumerCount++;
+        foundOffset =
+            internal::toOffset(reinterpret_cast<uintptr_t>(base()), &desc);
+      });
   EXPECT_EQ(consumerCount, 1);
   EXPECT_EQ(foundOffset, *result2);
 
@@ -206,8 +222,8 @@ TEST_F(QueueTest, ConsumerManagerRemoveConsumerMultiple) {
 
   consumerCount = 0;
   mConsumerManager->forAllConsumers(
-      *static_cast<internal::Queue *>(mQueue),
-      [&](internal::ConsumerDesc &) { consumerCount++; });
+      *static_cast<internal::Queue *>(mQueue), /*excludeMask=*/0,
+      [&](internal::ConsumerDesc &, uint32_t, uint32_t) { consumerCount++; });
   EXPECT_EQ(consumerCount, 0);
 }
 
@@ -229,6 +245,55 @@ TEST_F(QueueTest, ConsumerManagerRemoveConsumerFailureNullQueue) {
 
   // Remove the consumer to avoid memory leaks.
   EXPECT_EQ(mConsumerManager->removeConsumer(mQueue, *result), pw::OkStatus());
+}
+
+TEST_F(QueueTest, ConsumerManagerForAllConsumersExcludeMask) {
+  pw::Result<uint32_t> result = mConsumerManager->addConsumer(mQueue);
+  ASSERT_EQ(result.status(), pw::OkStatus());
+
+  int consumerCount = 0;
+  uint32_t mask = static_cast<uint32_t>(internal::ProducerFlags::kPendingInit);
+  mConsumerManager->forAllConsumers(
+      *static_cast<internal::Queue *>(mQueue), mask,
+      [&](internal::ConsumerDesc &, uint32_t, uint32_t) { consumerCount++; });
+  EXPECT_EQ(consumerCount, 0);
+
+  // Remove the consumer to avoid memory leaks.
+  EXPECT_EQ(mConsumerManager->removeConsumer(mQueue, *result), pw::OkStatus());
+}
+
+TEST_F(QueueTest, ConsumerCreateLocalAndDestroy) {
+  // First create a Producer so that on destruction it iterates through the
+  // consumers and cleans up the consumer descriptor. This also tests that
+  // ConsumerManager::forAllConsumers() cleans up gracefully removed Consumers
+  // as expected.
+  auto producer = createLocalProducer(
+      {.fn = [](void * /*context*/) { return; }, .ctx = nullptr});
+  ASSERT_EQ(producer.status(), pw::OkStatus());
+
+  ConsumerPolicyBuilder policyBuilder;
+  EXPECT_EQ(createLocalConsumer(
+                {.fn = [](void * /*context*/) { return; }, .ctx = nullptr},
+                policyBuilder)
+                .status(),
+            pw::OkStatus());
+}
+
+TEST_F(QueueTest, ConsumerCreateRemoteAndDestroy) {
+  // First create a Producer so that on destruction it iterates through the
+  // consumers and cleans up the consumer descriptor. This also tests that
+  // ConsumerManager::forAllConsumers() cleans up gracefully removed Consumers
+  // as expected.
+  setRemote();
+  RemoteNotifyArgs args = {.fn = [](pw::ConstByteSpan /*id*/) { return; },
+                           .id = {std::byte(0)}};
+  auto producer = createRemoteProducer(std::move(args));
+  ASSERT_EQ(producer.status(), pw::OkStatus());
+
+  ConsumerPolicyBuilder policyBuilder;
+  args = {.fn = [](pw::ConstByteSpan /*id*/) { return; }, .id = {std::byte(1)}};
+  EXPECT_EQ(createRemoteConsumer(std::move(args), policyBuilder).status(),
+            pw::OkStatus());
 }
 
 }  // namespace
