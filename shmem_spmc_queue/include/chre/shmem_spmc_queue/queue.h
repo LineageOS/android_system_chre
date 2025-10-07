@@ -148,11 +148,9 @@ class ConsumerManager {
    * state.
    *
    * fn has the signature:
-   * void(ConsumerDesc &desc, uint32_t producerFlags,
-   *      uint32_t consumerFlags, Args... args).
+   * void(ConsumerDesc &desc, uint32_t producerFlags, Args... args).
    *
-   * The flag values are included to avoid several atomic operations on the same
-   * fields.
+   * The producerFlags value is provided to avoid an extra atomic operation.
    */
   template <typename Fn, typename... Args>
   void forAllConsumers(internal::Queue &queue, uint16_t excludeMask,
@@ -171,8 +169,10 @@ class ConsumerManager {
         desc = internal::fromOffset<internal::ConsumerDesc>(
             kShmemBase, kShmemSize, *descOffsetPtr);
       } else {
+        // NOTE: producerFlag and consumerFlags are cached and passed in to
+        // avoid an unnecessary load(). fn() may reload them if required.
         if (!isFlagInMask(*desc, producerFlags, consumerFlags, excludeMask)) {
-          fn(*desc, producerFlags, consumerFlags, args...);
+          fn(*desc, producerFlags, args...);
         }
         descOffsetPtr = &desc->nextConsumerOffset;
         desc = internal::fromOffset<internal::ConsumerDesc>(
@@ -440,14 +440,10 @@ class Producer : protected internal::ProducerBase {
    * Returns the size of the queue based on the furthest-behind consumer.
    *
    * @param includeReserved Iff true, includes reserved space in the size.
-   * @param includeOverwritable Iff true, includes overwriteable space in the
-   * size.
    * @return the size of the queue.
    */
-  size_t size(bool includeReserved = false,
-              bool includeOverwritable = true) const {
-    return Base::size(includeReserved, includeOverwritable) /
-           sizeof(ElementType);
+  size_t size(bool includeReserved = false) const {
+    return Base::size(includeReserved) / sizeof(ElementType);
   }
 
   /** @return the current queue capacity. */

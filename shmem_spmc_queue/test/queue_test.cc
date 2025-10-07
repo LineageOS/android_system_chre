@@ -157,7 +157,7 @@ TEST_F(QueueTest, ConsumerManagerAddConsumerSuccess) {
   int consumerCount = 0;
   mConsumerManager->forAllConsumers(
       *static_cast<internal::Queue *>(mQueue), /*excludeMask=*/0,
-      [&](internal::ConsumerDesc &, uint32_t, uint32_t) { consumerCount++; });
+      [&](internal::ConsumerDesc &, uint32_t) { consumerCount++; });
   EXPECT_EQ(consumerCount, 1);
 
   // Remove the consumer to avoid memory leaks.
@@ -194,7 +194,7 @@ TEST_F(QueueTest, ConsumerManagerRemoveConsumerSuccess) {
   int consumerCount = 0;
   mConsumerManager->forAllConsumers(
       *static_cast<internal::Queue *>(mQueue), /*excludeMask=*/0,
-      [&](internal::ConsumerDesc &, uint32_t, uint32_t) { consumerCount++; });
+      [&](internal::ConsumerDesc &, uint32_t) { consumerCount++; });
   EXPECT_EQ(consumerCount, 0);
 }
 
@@ -210,7 +210,7 @@ TEST_F(QueueTest, ConsumerManagerRemoveConsumerMultiple) {
   uint32_t foundOffset = 0;
   mConsumerManager->forAllConsumers(
       *static_cast<internal::Queue *>(mQueue), /*excludeMask=*/0,
-      [&](internal::ConsumerDesc &desc, uint32_t, uint32_t) {
+      [&](internal::ConsumerDesc &desc, uint32_t) {
         consumerCount++;
         foundOffset =
             internal::toOffset(reinterpret_cast<uintptr_t>(base()), &desc);
@@ -223,7 +223,7 @@ TEST_F(QueueTest, ConsumerManagerRemoveConsumerMultiple) {
   consumerCount = 0;
   mConsumerManager->forAllConsumers(
       *static_cast<internal::Queue *>(mQueue), /*excludeMask=*/0,
-      [&](internal::ConsumerDesc &, uint32_t, uint32_t) { consumerCount++; });
+      [&](internal::ConsumerDesc &, uint32_t) { consumerCount++; });
   EXPECT_EQ(consumerCount, 0);
 }
 
@@ -255,7 +255,7 @@ TEST_F(QueueTest, ConsumerManagerForAllConsumersExcludeMask) {
   uint32_t mask = static_cast<uint32_t>(internal::ProducerFlags::kPendingInit);
   mConsumerManager->forAllConsumers(
       *static_cast<internal::Queue *>(mQueue), mask,
-      [&](internal::ConsumerDesc &, uint32_t, uint32_t) { consumerCount++; });
+      [&](internal::ConsumerDesc &, uint32_t) { consumerCount++; });
   EXPECT_EQ(consumerCount, 0);
 
   // Remove the consumer to avoid memory leaks.

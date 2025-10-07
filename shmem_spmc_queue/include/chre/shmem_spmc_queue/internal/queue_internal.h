@@ -197,8 +197,7 @@ class ProducerBase {
         kBlockCapacity = other.kBlockCapacity;
         kLocal = other.kLocal;
         mDesc = other.mDesc;
-        mMaxBlockCount = other.mMaxBlockCount;
-        mMinBlockCount = other.mMinBlockCount;
+        mBlockCount = other.mBlockCount;
         mActive = true;
       }
       other.mActive = false;
@@ -224,7 +223,10 @@ class ProducerBase {
   pw::Status setMaxBlockCountTarget(size_t count, bool force = false);
 
   /** @return The current target maximum block count. */
-  size_t getMaxBlockCountTarget() const;
+  size_t getMaxBlockCountTarget() const {
+    // TODO(b/448384247): Support dynamic sizing.
+    return mBlockCount;
+  };
 
   /**
    * Sets the desired minimum block count.
@@ -240,10 +242,15 @@ class ProducerBase {
   pw::Status setMinBlockCountTarget(size_t count);
 
   /** @return The current target minimum block count. */
-  size_t getMinBlockCountTarget() const;
+  size_t getMinBlockCountTarget() const {
+    // TODO(b/448384247): Support dynamic sizing.
+    return mBlockCount;
+  };
 
   /** @return The current block count. */
-  size_t getBlockCount() const;
+  size_t getBlockCount() const {
+    return mBlockCount;
+  };
 
   /**
    * Reserve up-to-count contiguous bytes for writing if there is space.
@@ -274,21 +281,22 @@ class ProducerBase {
   /** Push the given data to the queue if space is available. */
 
   /** @return true iff the queue is full and at max capacity. */
-  bool full() const;
+  bool full() {
+    return size() == capacity();
+  }
 
   /**
    * Returns the number of bytes available to the furthest-behind Consumer.
    *
    * @param includeReserved Iff true, includes reserved space in the size.
-   * @param includeOverwritable Iff true, includes overwriteable space in the
-   * size.
    * @return the size of the queue in bytes.
    */
-  size_t size(bool includeReserved = false,
-              bool includeOverwritable = true) const;
+  size_t size(bool includeReserved = false);
 
   /** @return the current queue capacity. */
-  size_t capacity() const;
+  size_t capacity() const {
+    return kBlockCapacity * mBlockCount;
+  }
 
  protected:
   /**
@@ -329,13 +337,29 @@ class ProducerBase {
                RemoteNotifyFn remoteNotifyFn, MemoryAccess *memAccess);
 
   /**
+   * Iterates over consumers to recalculate available space.
+   *
+   * While iterating, checks whether a Consumer has been overwritten or would
+   * block the producer, flagging them accordingly. The optional increment is
+   * used to determine whether a push()/reserve() would result in these states.
+   *
+   * Consumers in exceptional states (overwritten, blocking, etc.) except for
+   * blocking the producer are excluded from the available space calculations.
+   *
+   * @param increment The size of a prospective push/reserve operation,
+   * otherwise 0.
+   */
+  void updateAvailable(uint32_t increment = 0);
+
+  /**
    * Sets the given flag on a consumer.
    *
    * @param desc The consumer descriptor.
+   * @param current The current desc.producerFlags value.
    * @param flag The flag to set.
    * @param forceNotify If true, notify the consumer regardless of their policy.
    */
-  void setConsumerFlag(ConsumerDesc &desc, ProducerFlags flag,
+  void setConsumerFlag(ConsumerDesc &desc, uint32_t current, ProducerFlags flag,
                        bool forceNotify = false);
 
   /**
@@ -360,8 +384,10 @@ class ProducerBase {
   bool kLocal;
 
   ProducerDesc *mDesc;
-  size_t mMaxBlockCount;
-  size_t mMinBlockCount;
+  BlockHeader *mCurrBlock;
+  size_t mBlockCount;
+  size_t mReserved = 0;
+  size_t mAvailable = 0;
   bool mActive = true;
 };
 

@@ -98,10 +98,28 @@ constexpr ProducerFlags getAndCheckProducerFlags(uint32_t producerFlags,
   return value;
 }
 
+/** @return The NotificationPolicy given the raw ConsumerPolicy value. */
 NotificationPolicy notificationPolicy(uint32_t policyRaw) {
   return static_cast<NotificationPolicy>(
       reinterpret_cast<ConsumerPolicy *>(&policyRaw)->policy &
       static_cast<uint8_t>(NotificationPolicy::kMask));
+}
+
+/** @return The OverwritePolicy given the raw ConsumerPolicy value. */
+OverwritePolicy overwritePolicy(uint32_t policyRaw) {
+  return static_cast<OverwritePolicy>(
+      reinterpret_cast<ConsumerPolicy *>(&policyRaw)->policy &
+      static_cast<uint8_t>(OverwritePolicy::kMask));
+}
+
+/**
+ * @return writeIndex - readIndex handling UINT32_MAX overflow.
+ *
+ * writeIndex is always at or ahead of readIndex.
+ */
+uint32_t writeReadDiff(uint32_t writeIndex, uint32_t readIndex) {
+  return writeIndex >= readIndex ? writeIndex - readIndex
+                                 : UINT32_MAX - readIndex + 1 + writeIndex;
 }
 
 }  // namespace
@@ -130,7 +148,7 @@ pw::Status ProducerBase::initialize(uintptr_t shmemBase, size_t shmemSize,
 ProducerBase::ProducerBase(uintptr_t shmemBase, uint32_t shmemSize,
                            Queue &queue, pw::Allocator &allocator,
                            pw::allocator::Layout blockLayout,
-                           size_t maxBlockCount, size_t minBlockCount,
+                           size_t /*maxBlockCount*/, size_t minBlockCount,
                            uint32_t dataOffset, DataNotifier &dataNotifier,
                            ConsumerManager &consumerManager,
                            RemoteNotifyFn remoteNotifyFn,
@@ -149,8 +167,7 @@ ProducerBase::ProducerBase(uintptr_t shmemBase, uint32_t shmemSize,
       kLocal(queue.localNotify),
       mDesc(fromOffset<ProducerDesc>(kShmemBase, kShmemSize,
                                      queue.producerOffset)),
-      mMaxBlockCount(maxBlockCount),
-      mMinBlockCount(minBlockCount) {}
+      mBlockCount(minBlockCount) {}
 
 ProducerBase::~ProducerBase() {
   if (!mActive) {
@@ -160,9 +177,9 @@ ProducerBase::~ProducerBase() {
   mQueue->producerOffset = kOffsetInvalid;
   mConsumerManager->forAllConsumers(
       *mQueue, /*excludeMask=*/0,
-      [this](internal::ConsumerDesc &desc, uint32_t /*producerFlags*/,
-             uint32_t /*consumerFlags*/) {
-        setConsumerFlag(desc, ProducerFlags::kReset, /*forceNotify=*/true);
+      [this](internal::ConsumerDesc &desc, uint32_t producerFlags) {
+        setConsumerFlag(desc, producerFlags, ProducerFlags::kReset,
+                        /*forceNotify=*/true);
       });
   deallocateBlockRing(
       kShmemBase, kShmemSize, *mAllocator, kBlockLayout,
@@ -172,28 +189,13 @@ ProducerBase::~ProducerBase() {
 
 pw::Status ProducerBase::setMaxBlockCountTarget(size_t /*count*/,
                                                 bool /*force*/) {
-  // TODO(b/445482700): Implement.
+  // TODO(b/448384247): Implement.
   return pw::Status::Unimplemented();
-}
-
-size_t ProducerBase::getMaxBlockCountTarget() const {
-  // TODO(b/445482700): Implement.
-  return 0;
 }
 
 pw::Status ProducerBase::setMinBlockCountTarget(size_t /*count*/) {
-  // TODO(b/445482700): Implement.
+  // TODO(b/448384247): Implement.
   return pw::Status::Unimplemented();
-}
-
-size_t ProducerBase::getMinBlockCountTarget() const {
-  // TODO(b/445482700): Implement.
-  return 0;
-}
-
-size_t ProducerBase::getBlockCount() const {
-  // TODO(b/445482700): Implement.
-  return 0;
 }
 
 pw::Result<pw::ByteSpan> ProducerBase::reserve(size_t /*count*/) {
@@ -212,26 +214,59 @@ pw::Result<size_t> ProducerBase::push(pw::ConstByteSpan /*data*/,
   return pw::Status::Unimplemented();
 }
 
-bool ProducerBase::full() const {
-  // TODO(b/445482700): Implement.
-  return true;
+size_t ProducerBase::size(bool includeReserved) {
+  if (!mActive) {
+    return 0;
+  }
+  // Recalculate the available space to capture updates from consumers in shared
+  // state.
+  updateAvailable();
+  auto size = capacity() - mAvailable;
+  // If requested, exclude reserved elements from the size.
+  return includeReserved ? size : size - mReserved;
 }
 
-size_t ProducerBase::size(bool /*includeReserved*/,
-                          bool /*includeOverwritable*/) const {
-  // TODO(b/445482700): Implement.
-  return 0;
+void ProducerBase::updateAvailable(uint32_t increment) {
+  auto tail = mDesc->writeIndex.load(std::memory_order_relaxed) + mReserved;
+  mAvailable = capacity();  // Reset available counts.
+  // Consumers that have been overwritten, are not yet initialized, or would
+  // otherwise need to sync back to the producer position should not block
+  // writes to the queue. Add them to the exclude mask.
+  // NOTE: This effectively means all ProducerFlags states except kBlocking.
+  auto excludeMask = ~(static_cast<uint16_t>(ProducerFlags::kBlocking));
+  mConsumerManager->forAllConsumers(
+      *mQueue, excludeMask,
+      [this](internal::ConsumerDesc &desc, uint32_t producerFlags,
+             uint32_t tail, uint32_t increment) {
+        auto readIndex = desc.readIndex.load();
+        auto diff = writeReadDiff(tail, readIndex);
+        bool overwritable =
+            overwritePolicy(desc.policy.load()) == OverwritePolicy::kAllowed;
+        bool overwritten = false;
+        if (overwritable && diff + increment > capacity()) {
+          // If the consumer is behind by more than the current capacity or
+          // would be if the increment is applied, mark it overwritten.
+          // TODO(b/448384247): When the queue supports dynamic expansion, this
+          // needs to be more conservative.
+          setConsumerFlag(desc, producerFlags, ProducerFlags::kOverwrite);
+          overwritten = true;
+        } else if (!overwritable && diff + increment >= capacity()) {
+          // If the queue is at capacity or would be if the increment is applied
+          // and the consumer cannot be overwritten, indicate that the producer
+          // is blocked.
+          setConsumerFlag(desc, producerFlags, ProducerFlags::kBlocking);
+        }
+        // If this consumer is not overwritten, update the available space.
+        if (!overwritten) {
+          mAvailable = std::min(mAvailable, capacity() - diff);
+        }
+      },
+      tail, increment);
 }
 
-size_t ProducerBase::capacity() const {
-  // TODO(b/445482700): Implement.
-  return 0;
-}
-
-void ProducerBase::setConsumerFlag(ConsumerDesc &desc, ProducerFlags flag,
-                                   bool forceNotify) {
-  uint32_t flagCounter =
-      getFlagsCounter(desc.producerFlags.load()) + kFlagCountInc;
+void ProducerBase::setConsumerFlag(ConsumerDesc &desc, uint32_t current,
+                                   ProducerFlags flag, bool forceNotify) {
+  uint32_t flagCounter = getFlagsCounter(current) + kFlagCountInc;
   desc.producerFlags.store(static_cast<uint32_t>(flag) | flagCounter);
   if (forceNotify ||
       notificationPolicy(desc.policy.load()) != NotificationPolicy::kNever) {
