@@ -195,7 +195,6 @@ class ProducerBase {
         kBlockLayout = other.kBlockLayout;
         kDataOffset = other.kDataOffset;
         kBlockCapacity = other.kBlockCapacity;
-        kLocal = other.kLocal;
         mDesc = other.mDesc;
         mBlockCount = other.mBlockCount;
         mActive = true;
@@ -307,6 +306,7 @@ class ProducerBase {
    * @param queue The queue metadata in shared memory.
    * @param allocator Allocator used for element storage.
    * @param layout Layout for allocating Blocks.
+   * @param blockCapacity The capacity of each Block in bytes.
    * @param maxBlockCount The maximum allowed blocks of element storage. Must
    * be >= minBlockCount.
    * @param minBlockCount The minimum required blocks of element storage. Must
@@ -315,11 +315,11 @@ class ProducerBase {
    * LocalNotifyFn for notifying it.
    * @return pw::OkStatus() on success.
    */
-  static pw::Status initialize(uintptr_t shmemBase, size_t shmemSize,
+  static pw::Status initialize(uintptr_t shmemBase, uint32_t shmemSize,
                                Queue *queue, pw::Allocator &allocator,
                                pw::allocator::Layout layout,
-                               size_t maxBlockCount, size_t minBlockCount,
-                               IdOrNotifyFn idOrNotifyFn);
+                               uint32_t blockCapacity, size_t maxBlockCount,
+                               size_t minBlockCount, IdOrNotifyFn idOrNotifyFn);
 
   /**
    * See {@link Producer::create()} for a description of most parameters.
@@ -335,6 +335,42 @@ class ProducerBase {
                size_t maxBlockCount, size_t minBlockCount, uint32_t dataOffset,
                DataNotifier &dataNotifier, ConsumerManager &consumerManager,
                RemoteNotifyFn remoteNotifyFn, MemoryAccess *memAccess);
+
+  /**
+   * Checks whether the queue can accommodate the given amount of data.
+   *
+   * @param count The number of bytes to be push()d or reserve()d.
+   * @param allOrNothing Iff true, this is an all-or-nothing operation.
+   * @return The number of bytes to push() or reserve() on success. May be less
+   * than count if allOrNothing is unset.
+   */
+  pw::Result<size_t> checkAvailable(size_t count, bool allOrNothing);
+
+  /**
+   * Enters the next block, updating all of the given parameters.
+   *
+   * @param block [in/out] The current block. Stores the next block pointer.
+   * @param correction [in/out] The current index correction. Stores the updated
+   * value.
+   * @param index [out] Stores the starting index in the next block.
+   * @param data [out] Stores the pointer to the next block's data.
+   */
+  void enterNextBlock(BlockHeader *&block, uint32_t &correction,
+                      uint32_t &index, uint8_t *&data);
+
+  /**
+   * Updates the write index.
+   *
+   * If necessary, initializes a new block and updates the queue metadata to
+   * point to the ProducerDesc in the new block.
+   *
+   * @param tailBlock Pointer to the new tail block. May be the same as the
+   * current tail block.
+   * @param writeIndex The new write index value.
+   * @param correction The new index correction value.
+   */
+  void updateWriteIndex(BlockHeader *tailBlock, uint32_t writeIndex,
+                        uint32_t correction);
 
   /**
    * Iterates over consumers to recalculate available space.
@@ -381,7 +417,6 @@ class ProducerBase {
   uint32_t kShmemSize;
   uint32_t kDataOffset;
   uint32_t kBlockCapacity;
-  bool kLocal;
 
   ProducerDesc *mDesc;
   BlockHeader *mCurrBlock;
@@ -412,7 +447,6 @@ class ConsumerBase {
         mOverwriteResetOffset = other.mOverwriteResetOffset;
         kBlockCapacity = other.kBlockCapacity;
         kDataOffset = other.kDataOffset;
-        kLocal = other.kLocal;
         mEpoch = other.mEpoch;
         mStatus = pw::OkStatus();
       }
@@ -553,7 +587,6 @@ class ConsumerBase {
   uint32_t kShmemSize;
   uint32_t kBlockCapacity;
   uint32_t kDataOffset;
-  bool kLocal;
 
   uint32_t mEpoch;
   pw::Status mStatus = pw::OkStatus();

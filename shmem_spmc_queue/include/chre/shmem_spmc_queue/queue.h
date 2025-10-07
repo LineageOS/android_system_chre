@@ -332,8 +332,8 @@ class Producer : protected internal::ProducerBase {
     auto base = reinterpret_cast<uintptr_t>(shmemBase);
     auto blockLayout = internal::blockLayout<ElementType>(blockCapacity);
     PW_TRY(Base::initialize(base, shmemSize, queuePtr, allocator, blockLayout,
-                            maxBlockCount, minBlockCount,
-                            {.localNotify = notifyArgs}));
+                            blockCapacity * sizeof(ElementType), maxBlockCount,
+                            minBlockCount, {.localNotify = notifyArgs}));
     return Producer(base, shmemSize, *queuePtr, allocator, blockLayout,
                     maxBlockCount, minBlockCount, dataNotifier, consumerManager,
                     /*remoteNotifyFn=*/{}, memAccess);
@@ -360,8 +360,8 @@ class Producer : protected internal::ProducerBase {
     auto base = reinterpret_cast<uintptr_t>(shmemBase);
     auto blockLayout = internal::blockLayout<ElementType>(blockCapacity);
     PW_TRY(Base::initialize(base, shmemSize, queuePtr, allocator, blockLayout,
-                            maxBlockCount, minBlockCount,
-                            {.remoteId = notifyArgs.id}));
+                            blockCapacity * sizeof(ElementType), maxBlockCount,
+                            minBlockCount, {.remoteId = notifyArgs.id}));
     return Producer(base, shmemSize, *queuePtr, allocator, blockLayout,
                     maxBlockCount, minBlockCount, dataNotifier, consumerManager,
                     std::move(notifyArgs.fn), memAccess);
@@ -433,6 +433,16 @@ class Producer : protected internal::ProducerBase {
     return numBytes / sizeof(ElementType);
   }
 
+  /**
+   * Push a single element to the queue if space is available.
+   *
+   * @param element The element to push.
+   * @return pw::OkStatus() on success.
+   */
+  pw::Status push(const ElementType &element) {
+    return push({&element, 1}, /*allOrNothing=*/true).status();
+  }
+
   /** @return true if full. See {@link internal::ProducerBase::full()}. */
   using Base::full;
 
@@ -442,7 +452,7 @@ class Producer : protected internal::ProducerBase {
    * @param includeReserved Iff true, includes reserved space in the size.
    * @return the size of the queue.
    */
-  size_t size(bool includeReserved = false) const {
+  size_t size(bool includeReserved = false) {
     return Base::size(includeReserved) / sizeof(ElementType);
   }
 

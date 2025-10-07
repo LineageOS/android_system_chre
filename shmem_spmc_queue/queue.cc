@@ -19,6 +19,7 @@
 #include "chre/shmem_spmc_queue/internal/queue_internal.h"
 #include "chre/shmem_spmc_queue/queue_defs.h"
 #include "pw_allocator/layout.h"
+#include "pw_assert/assert.h"
 
 namespace chre::shmem_spmc_queue {
 namespace internal {
@@ -27,6 +28,15 @@ namespace {
 constexpr uint32_t kFlagCountInc = 0x10000;
 constexpr uint32_t kFlagCountMask = 0xffff0000;
 
+/**
+ * Deallocates the block ring starting at the given head.
+ *
+ * @param shmemBase The base address of the shared memory.
+ * @param shmemSize The size of the shared memory.
+ * @param allocator The allocator used to allocate the block ring.
+ * @param layout The layout of the block ring.
+ * @param head The head of the block ring to deallocate. May be nullptr.
+ */
 void deallocateBlockRing(uintptr_t shmemBase, uint32_t shmemSize,
                          pw::Allocator &allocator, pw::allocator::Layout layout,
                          BlockHeader *head) {
@@ -44,18 +54,47 @@ void deallocateBlockRing(uintptr_t shmemBase, uint32_t shmemSize,
   }
 }
 
-pw::Result<BlockHeader *> allocateBlockRing(uintptr_t shmemBase,
-                                            uint32_t shmemSize,
-                                            pw::Allocator &allocator,
-                                            pw::allocator::Layout layout,
-                                            size_t count) {
+/**
+ * Allocate a block in shared memory.
+ *
+ * @param allocator The allocator used to allocate the block.
+ * @param layout The layout of the block.
+ * @param blockCapacity The capacity of the block. This cannot be inferred from
+ * the layout as it is dependent on element size and alignment.
+ * @return The allocated block on success, nullptr on failure.
+ */
+BlockHeader *allocateBlock(pw::Allocator &allocator,
+                           pw::allocator::Layout layout,
+                           uint32_t blockCapacity) {
+  auto *block = static_cast<BlockHeader *>(allocator.Allocate(layout));
+  if (block) {
+    block->baseIndex.store(0);
+    block->skipIndex.store(blockCapacity);
+  }
+  return block;
+}
+
+/**
+ * Allocates a block ring in shared memory.
+ *
+ * @param shmemBase The base address of the shared memory.
+ * @param shmemSize The size of the shared memory.
+ * @param allocator The allocator used to allocate the block ring.
+ * @param layout The layout of the block ring.
+ * @param blockCapacity The capacity of the block ring. This cannot be inferred
+ * from the layout as it is dependent on element size and alignment.
+ * @param count The number of blocks to allocate.
+ * @return Pointer to one block in the ring on success.
+ */
+pw::Result<BlockHeader *> allocateBlockRing(
+    uintptr_t shmemBase, uint32_t shmemSize, pw::Allocator &allocator,
+    pw::allocator::Layout layout, uint32_t blockCapacity, size_t count) {
   if (count == 0) {
     return pw::Status::InvalidArgument();
   }
   BlockHeader *head = nullptr, *prev = nullptr;
   for (int i = 0; i < count; ++i) {
-    if (auto *blockRaw = allocator.Allocate(layout); blockRaw) {
-      auto *block = static_cast<BlockHeader *>(blockRaw);
+    if (auto *block = allocateBlock(allocator, layout, blockCapacity); block) {
       if (!head) {
         head = block;
       } else {
@@ -71,23 +110,40 @@ pw::Result<BlockHeader *> allocateBlockRing(uintptr_t shmemBase,
   return head;
 }
 
-void notify(IdOrNotifyFn &idOrNotifyFn, const RemoteNotifyFn &remoteNotifyFn,
-            bool local) {
-  if (local) {
-    idOrNotifyFn.localNotify.fn(idOrNotifyFn.localNotify.ctx);
-  } else {
+/**
+ * Notifies an endpoint out-of-band.
+ *
+ * @param idOrNotifyFn Id for remote notification or local callback.
+ * @param remoteNotifyFn Function for notifying Consumers out-of-band only for
+ * remote queues.
+ */
+void notify(IdOrNotifyFn &idOrNotifyFn, const RemoteNotifyFn &remoteNotifyFn) {
+  if (remoteNotifyFn) {
     remoteNotifyFn(pw::ConstByteSpan(idOrNotifyFn.remoteId));
+  } else {
+    idOrNotifyFn.localNotify.fn(idOrNotifyFn.localNotify.ctx);
   }
 }
 
+/** @return The counter value from the given flags. */
 constexpr uint32_t getFlagsCounter(uint32_t flags) {
   return flags & kFlagCountMask;
 }
 
+/** @return The ProducerFlags value from the given flags. */
 constexpr ProducerFlags getProducerFlags(uint32_t producerFlags) {
   return static_cast<ProducerFlags>(producerFlags & ~kFlagCountMask);
 }
 
+/**
+ * Returns the current effective ProducerFlags state.
+ *
+ * @param producerFlags The raw producer flags value.
+ * @param consumerFlags The raw consumer flags value. The counter is used to
+ * determine if the consuemr has already cleared the ProducerFlags.
+ * @return The effective ProducerFlags. This is kNone if the consumer has
+ * already acked the flags.
+ */
 constexpr ProducerFlags getAndCheckProducerFlags(uint32_t producerFlags,
                                                  uint32_t consumerFlags) {
   auto value = getProducerFlags(producerFlags);
@@ -117,16 +173,86 @@ OverwritePolicy overwritePolicy(uint32_t policyRaw) {
  *
  * writeIndex is always at or ahead of readIndex.
  */
-uint32_t writeReadDiff(uint32_t writeIndex, uint32_t readIndex) {
+constexpr uint32_t writeReadDiff(uint32_t writeIndex, uint32_t readIndex) {
   return writeIndex >= readIndex ? writeIndex - readIndex
                                  : UINT32_MAX - readIndex + 1 + writeIndex;
 }
 
+/**
+ * Calculates the difference between two ring buffer indices.
+ *
+ * @param end The ending index. May be less than the starting index.
+ * @param begin The starting index.
+ * @param size The size of the ring buffer.
+ * @return The difference between the ending and starting index.
+ */
+constexpr uint32_t ringDiff(uint32_t end, uint32_t begin, uint32_t size) {
+  return end > begin ? end - begin : size - begin + end;
+}
+
+/**
+ * Initializes a ProducerDesc.
+ *
+ * @param desc The producer descriptor to initialize.
+ * @param idOrNotifyFn Id for remote notification or local callback.
+ * @param tailBlock The tail block.
+ * @param shmemBase The base address of the shared memory.
+ */
+void initProducerDesc(ProducerDesc &desc, IdOrNotifyFn idOrNotifyFn,
+                      uint32_t writeIndex, uint32_t correction, uint32_t epoch,
+                      BlockHeader *tailBlock, uintptr_t shmemBase) {
+  desc.idOrNotifyFn = idOrNotifyFn;
+  desc.writeIndex.store(writeIndex);
+  desc.indexCorrection = correction;
+  desc.epoch.store(epoch);
+  desc.tailBlockOffset = toOffset(shmemBase, tailBlock);
+}
+
+/**
+ * Advances a read or write index within a block.
+ *
+ * The advancement done is over a single contiguous region of a block of size up
+ * to count. This helps break up a larger chunk of data to be copied into
+ * non-contiguous regions of one or more blocks.
+ *
+ * @param blockBaseIndex The base index of the block.
+ * @param blockSkipIndex The skip index of the block.
+ * @param blockCapacity The capacity of the block.
+ * @param blockIndex [in/out] The index to advance.
+ * @param count [in/out] The number of elements to advance. Stores the actual
+ * advance.
+ * @return true if the index should move on to the next block (note this may
+ * actually be the same block).
+ */
+bool advanceContiguous(uint32_t blockBaseIndex, uint32_t blockSkipIndex,
+                       uint32_t blockCapacity, uint32_t &blockIndex,
+                       uint32_t &count) {
+  PW_ASSERT(blockIndex < blockCapacity);
+  PW_ASSERT(blockSkipIndex <= blockCapacity);
+  PW_ASSERT(blockBaseIndex < blockCapacity);
+  // Find the size of the next contiguous region (within count) by taking the
+  // minimum with the distance to the end of the block, the distance to the skip
+  // index (if set), and the distance to the base index of the block.
+  auto diffToEnd = ringDiff(blockBaseIndex, blockIndex, blockCapacity);
+  auto diffToSkip = ringDiff(blockSkipIndex, blockIndex, blockCapacity);
+  auto diffToWrap = blockCapacity - blockIndex;
+  count = std::min({count, diffToEnd, diffToSkip, diffToWrap});
+  // Advance the index, wrapping around the block if necessary.
+  PW_ASSERT(blockIndex + count <= blockCapacity);
+  blockIndex = blockIndex + count == blockCapacity ? 0 : blockIndex + count;
+  // The end of the block is reached if one of the following is true:
+  // * The skip index is set and the index has reached it.
+  // * The skip index is unset and the index has reached the block's base index.
+  return (blockIndex == blockBaseIndex && blockSkipIndex == blockCapacity) ||
+         blockIndex == blockSkipIndex;
+}
+
 }  // namespace
 
-pw::Status ProducerBase::initialize(uintptr_t shmemBase, size_t shmemSize,
+pw::Status ProducerBase::initialize(uintptr_t shmemBase, uint32_t shmemSize,
                                     Queue *queue, pw::Allocator &allocator,
                                     pw::allocator::Layout layout,
+                                    uint32_t blockCapacity,
                                     size_t maxBlockCount, size_t minBlockCount,
                                     IdOrNotifyFn idOrNotifyFn) {
   if (!queue || shmemSize > UINT32_MAX || maxBlockCount < minBlockCount) {
@@ -134,13 +260,10 @@ pw::Status ProducerBase::initialize(uintptr_t shmemBase, size_t shmemSize,
   }
   PW_TRY_ASSIGN(auto *tailBlock,
                 allocateBlockRing(shmemBase, shmemSize, allocator, layout,
-                                  minBlockCount));
+                                  blockCapacity, minBlockCount));
   auto &desc = tailBlock->producerDesc;
-  desc.idOrNotifyFn = idOrNotifyFn;
-  desc.writeIndex = 0;
-  desc.indexCorrection = 0;
-  desc.epoch = 0;
-  desc.tailBlockOffset = toOffset(shmemBase, tailBlock);
+  initProducerDesc(desc, idOrNotifyFn, /*writeIndex=*/0, /*correction=*/0,
+                   /*epoch=*/0, tailBlock, shmemBase);
   queue->producerOffset = toOffset(shmemBase, &desc);
   return pw::OkStatus();
 }
@@ -164,7 +287,6 @@ ProducerBase::ProducerBase(uintptr_t shmemBase, uint32_t shmemSize,
       kShmemSize(shmemSize),
       kDataOffset(dataOffset),
       kBlockCapacity(queue.blockCapacity),
-      kLocal(queue.localNotify),
       mDesc(fromOffset<ProducerDesc>(kShmemBase, kShmemSize,
                                      queue.producerOffset)),
       mBlockCount(minBlockCount) {}
@@ -208,10 +330,37 @@ pw::Status ProducerBase::commit(size_t /*count*/) {
   return pw::Status::Unimplemented();
 }
 
-pw::Result<size_t> ProducerBase::push(pw::ConstByteSpan /*data*/,
-                                      bool /*allOrNothing*/) {
-  // TODO(b/445482700): Implement.
-  return pw::Status::Unimplemented();
+pw::Result<size_t> ProducerBase::push(pw::ConstByteSpan data,
+                                      bool allOrNothing) {
+  if (mReserved > 0) {  // push() is not allowed while a reservation is active.
+    return pw::Status::FailedPrecondition();
+  }
+  PW_TRY_ASSIGN(auto count, checkAvailable(data.size(), allOrNothing));
+  uint32_t writeIndex = mDesc->writeIndex.load();
+  uint32_t correction = mDesc->indexCorrection;
+  auto *block = fromOffset<BlockHeader>(kShmemBase, kShmemSize,
+                                        mDesc->tailBlockOffset, kBlockLayout);
+  uint32_t blockIndex = (writeIndex + correction) % kBlockCapacity;
+  auto *blockData = reinterpret_cast<uint8_t *>(
+      reinterpret_cast<uintptr_t>(block) + kDataOffset);
+  auto pending = count;
+  while (pending > 0) {
+    uint32_t advance = pending;
+    auto *copyDst = blockData + blockIndex;
+    // Advance through the largest possible contiguous region from the current
+    // index.
+    bool toNextBlock = advanceContiguous(block->baseIndex, block->skipIndex,
+                                         kBlockCapacity, blockIndex, advance);
+    std::memcpy(copyDst, data.data(), advance);
+    data = data.subspan(advance);
+    pending -= advance;
+    if (toNextBlock) {
+      enterNextBlock(block, correction, blockIndex, blockData);
+    }
+  }
+  // Update the write index in queue metadata.
+  updateWriteIndex(block, writeIndex + count, correction);
+  return count;
 }
 
 size_t ProducerBase::size(bool includeReserved) {
@@ -224,6 +373,69 @@ size_t ProducerBase::size(bool includeReserved) {
   auto size = capacity() - mAvailable;
   // If requested, exclude reserved elements from the size.
   return includeReserved ? size : size - mReserved;
+}
+
+pw::Result<size_t> ProducerBase::checkAvailable(size_t count,
+                                                bool allOrNothing) {
+  if (!mActive) {
+    return pw::Status::NotFound();
+  }
+  // TODO(b/448384247): This should check against the maximum capacity.
+  if (count > capacity()) {
+    return pw::Status::OutOfRange();
+  }
+  if (count > mAvailable) {
+    // Update the available space. If allOrNothing, update consumer flags taking
+    // into account the size of the data.
+    updateAvailable(allOrNothing ? count : 0);
+    // TODO(b/448384247): Support dynamically resizing the queue.
+    if (count > mAvailable) {
+      if (allOrNothing) {
+        return pw::Status::ResourceExhausted();
+      }
+      count = mAvailable;
+    }
+  }
+  return count;
+}
+
+void ProducerBase::enterNextBlock(BlockHeader *&block, uint32_t &correction,
+                                  uint32_t &index, uint8_t *&data) {
+  auto *nextBlock = fromOffset<BlockHeader>(
+      kShmemBase, kShmemSize, block->nextBlockOffset, kBlockLayout);
+  // If the next block was skipped from on the last visit, set its base
+  // index to that skip index and reset the skip index.
+  if (nextBlock->skipIndex != kBlockCapacity) {
+    nextBlock->baseIndex.store(nextBlock->skipIndex.load());
+    nextBlock->skipIndex.store(kBlockCapacity);
+  }
+  // Update the correction based on the offset between where we're leaving
+  // the current block and where we're starting in the next block.
+  uint32_t diffBase =
+      block->skipIndex == kBlockCapacity ? block->baseIndex : block->skipIndex;
+  correction = ringDiff(nextBlock->baseIndex, diffBase, kBlockCapacity);
+  block = nextBlock;
+  index = block->baseIndex;
+  data = reinterpret_cast<uint8_t *>(reinterpret_cast<uintptr_t>(block) +
+                                     kDataOffset);
+}
+
+void ProducerBase::updateWriteIndex(BlockHeader *tailBlock, uint32_t writeIndex,
+                                    uint32_t correction) {
+  if (tailBlock == fromOffset<BlockHeader>(kShmemBase, kShmemSize,
+                                           mDesc->tailBlockOffset,
+                                           kBlockLayout)) {
+    // If the currently linked tail block is still the tail, just store the new
+    // write index.
+    mDesc->writeIndex.store(writeIndex);
+  } else {
+    // Initialize the descriptor in the new tail block, then link it.
+    auto &newDesc = tailBlock->producerDesc;
+    initProducerDesc(newDesc, mDesc->idOrNotifyFn, writeIndex, correction,
+                     mDesc->epoch.load(), tailBlock, kShmemBase);
+    mQueue->producerOffset.store(toOffset(kShmemBase, &newDesc));
+    mDesc = &newDesc;
+  }
 }
 
 void ProducerBase::updateAvailable(uint32_t increment) {
@@ -275,7 +487,7 @@ void ProducerBase::setConsumerFlag(ConsumerDesc &desc, uint32_t current,
 }
 
 void ProducerBase::notifyConsumer(ConsumerDesc &desc) {
-  notify(desc.idOrNotifyFn, mRemoteNotifyFn, kLocal);
+  notify(desc.idOrNotifyFn, mRemoteNotifyFn);
 }
 
 pw::Result<std::pair<Queue *, ConsumerDesc *>> ConsumerBase::checkArgs(
@@ -303,8 +515,7 @@ ConsumerBase::ConsumerBase(uintptr_t shmemBase, uint32_t shmemSize,
           overwriteResetOffset.value_or(queue.blockCapacity / 2)),
       kShmemSize(shmemSize),
       kBlockCapacity(queue.blockCapacity),
-      kDataOffset(dataOffset),
-      kLocal(queue.localNotify) {}
+      kDataOffset(dataOffset) {}
 
 pw::Status ConsumerBase::initialize(IdOrNotifyFn idOrNotifyFn,
                                     ConsumerPolicyBuilder &policyBuilder) {
@@ -329,7 +540,6 @@ ConsumerBase::~ConsumerBase() {
   if (!mStatus.ok()) {
     return;
   }
-  mStatus = pw::Status::NotFound();
   mDesc->consumerFlags.store(static_cast<uint32_t>(ConsumerFlags::kFinished));
   if (auto maybeProducerDesc = getProducerDesc(); maybeProducerDesc.ok()) {
     notifyProducer(*maybeProducerDesc.value());
@@ -392,7 +602,7 @@ pw::Result<ProducerDesc *> ConsumerBase::getProducerDesc() {
 }
 
 void ConsumerBase::notifyProducer(ProducerDesc &producerDesc) {
-  notify(producerDesc.idOrNotifyFn, mRemoteNotifyFn, kLocal);
+  notify(producerDesc.idOrNotifyFn, mRemoteNotifyFn);
 }
 
 void ConsumerBase::clearFlag(uint32_t flag) {

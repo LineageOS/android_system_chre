@@ -31,6 +31,12 @@ cc_library {
     srcs: ["queue.cc"],
     local_include_dirs: ["include"],
     export_include_dirs: ["include"],
+    header_libs: [
+        "pw_assert",
+    ],
+    export_header_lib_headers: [
+        "pw_assert",
+    ],
     shared_libs: ["liblog"],
     static_libs: [
         "pw_allocator",
@@ -54,6 +60,12 @@ cc_test_host {
     name: "chre_shmem_spmc_queue_unit_tests",
     srcs: ["test/queue_test.cc"],
     local_include_dirs: ["include"],
+    header_libs: [
+        "pw_assert",
+    ],
+    export_header_lib_headers: [
+        "pw_assert",
+    ],
     shared_libs: [
         "chre_shmem_spmc_queue",
         "liblog",

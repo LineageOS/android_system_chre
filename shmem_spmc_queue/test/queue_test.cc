@@ -16,14 +16,23 @@
 
 #include "chre/shmem_spmc_queue/queue.h"
 
+#include <optional>
 #include <vector>
 
+#include "chre/shmem_spmc_queue/queue_defs.h"
 #include "gtest/gtest.h"
 #include "pw_allocator/first_fit.h"
 #include "pw_bytes/span.h"
 
 namespace chre::shmem_spmc_queue {
 namespace {
+
+constexpr LocalNotifyArgs kEmptyLocalNotifyArgs = {
+    .fn = [](void * /*context*/) { return; }, .ctx = nullptr};
+
+RemoteNotifyFn getEmptyRemoteNotifyFn() {
+  return [](pw::ConstByteSpan /*id*/) { return; };
+}
 
 class TestConsumerManager : public ConsumerManager {
  public:
@@ -48,9 +57,9 @@ class QueueTest : public ::testing::Test {
   }
 
   void TearDown() override {
-    if (mQueue) {
-      mAllocator.Deallocate(mQueue);
-    }
+    mConsumers.clear();
+    mProducer.reset();
+    mAllocator.Deallocate(mQueue);
   }
 
   void setRemote() {
@@ -99,23 +108,57 @@ class QueueTest : public ::testing::Test {
         descOffset, std::move(notifyArgs), policyBuilder);
   }
 
+  void initLocalEndpoints(
+      LocalNotifyArgs producerNotifyArgs,
+      std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>>
+          &consumerArgs) {
+    auto maybeProducer = createLocalProducer(producerNotifyArgs);
+    ASSERT_EQ(maybeProducer.status(), pw::OkStatus());
+    mProducer.emplace(std::move(*maybeProducer));
+    for (auto &[consumerNotifyArgs, policyBuilder] : consumerArgs) {
+      auto maybeConsumer =
+          createLocalConsumer(consumerNotifyArgs, policyBuilder);
+      ASSERT_EQ(maybeConsumer.status(), pw::OkStatus());
+      mConsumers.emplace_back(std::move(*maybeConsumer));
+    }
+  }
+
+  void initRemoteEndpoints(
+      RemoteNotifyArgs producerNotifyArgs,
+      std::vector<std::pair<RemoteNotifyFn, ConsumerPolicyBuilder>>
+          &consumerArgs) {
+    setRemote();
+    auto maybeProducer = createRemoteProducer(std::move(producerNotifyArgs));
+    ASSERT_EQ(maybeProducer.status(), pw::OkStatus());
+    mProducer.emplace(std::move(*maybeProducer));
+    for (auto i = 0; i < consumerArgs.size(); ++i) {
+      auto maybeConsumer = createRemoteConsumer(
+          {.fn = std::move(consumerArgs[i].first), .id = {std::byte(i + 1)}},
+          consumerArgs[i].second);
+      ASSERT_EQ(maybeConsumer.status(), pw::OkStatus());
+      mConsumers.emplace_back(std::move(*maybeConsumer));
+    }
+  }
+
   std::vector<std::byte> mStorage;
   pw::allocator::FirstFitAllocator<> mAllocator;
   void *mQueue;
   DataNotifier mDataNotifier;
   std::optional<TestConsumerManager> mConsumerManager;
+  std::optional<Producer<int>> mProducer;
+  // Ensure Consumers are destroyed before the Producer so that the Producer
+  // cleans them up on destruction.
+  std::vector<Consumer<int>> mConsumers;
 };
 
 TEST_F(QueueTest, ProducerCreateLocalAndDestroy) {
-  EXPECT_EQ(createLocalProducer(
-                {.fn = [](void * /*context*/) { return; }, .ctx = nullptr})
-                .status(),
+  EXPECT_EQ(createLocalProducer(kEmptyLocalNotifyArgs).status(),
             pw::OkStatus());
 }
 
 TEST_F(QueueTest, ProducerCreateRemoteAndDestroy) {
   setRemote();
-  RemoteNotifyArgs args = {.fn = [](pw::ConstByteSpan /*id*/) { return; },
+  RemoteNotifyArgs args = {.fn = getEmptyRemoteNotifyFn(),
                            .id = {std::byte(0)}};
   EXPECT_EQ(createRemoteProducer(std::move(args)).status(), pw::OkStatus());
 }
@@ -129,9 +172,7 @@ TEST_F(QueueTest, ProducerCreateFailureToAllocateBlockRing) {
     tmps.push_back(tmp);
     tmp = mAllocator.Allocate(layout);
   }
-  EXPECT_EQ(createLocalProducer(
-                {.fn = [](void * /*context*/) { return; }, .ctx = nullptr})
-                .status(),
+  EXPECT_EQ(createLocalProducer(kEmptyLocalNotifyArgs).status(),
             pw::Status::ResourceExhausted());
   // Deallocate the allocated memory to avoid allocator crashing on destruction.
   for (auto *tmp : tmps) {
@@ -267,15 +308,11 @@ TEST_F(QueueTest, ConsumerCreateLocalAndDestroy) {
   // consumers and cleans up the consumer descriptor. This also tests that
   // ConsumerManager::forAllConsumers() cleans up gracefully removed Consumers
   // as expected.
-  auto producer = createLocalProducer(
-      {.fn = [](void * /*context*/) { return; }, .ctx = nullptr});
+  auto producer = createLocalProducer(kEmptyLocalNotifyArgs);
   ASSERT_EQ(producer.status(), pw::OkStatus());
 
   ConsumerPolicyBuilder policyBuilder;
-  EXPECT_EQ(createLocalConsumer(
-                {.fn = [](void * /*context*/) { return; }, .ctx = nullptr},
-                policyBuilder)
-                .status(),
+  EXPECT_EQ(createLocalConsumer(kEmptyLocalNotifyArgs, policyBuilder).status(),
             pw::OkStatus());
 }
 
@@ -285,8 +322,7 @@ TEST_F(QueueTest, ConsumerCreateRemoteAndDestroy) {
   // ConsumerManager::forAllConsumers() cleans up gracefully removed Consumers
   // as expected.
   setRemote();
-  RemoteNotifyArgs args = {.fn = [](pw::ConstByteSpan /*id*/) { return; },
-                           .id = {std::byte(0)}};
+  RemoteNotifyArgs args = {getEmptyRemoteNotifyFn(), .id = {std::byte(0)}};
   auto producer = createRemoteProducer(std::move(args));
   ASSERT_EQ(producer.status(), pw::OkStatus());
 
@@ -294,6 +330,68 @@ TEST_F(QueueTest, ConsumerCreateRemoteAndDestroy) {
   args = {.fn = [](pw::ConstByteSpan /*id*/) { return; }, .id = {std::byte(1)}};
   EXPECT_EQ(createRemoteConsumer(std::move(args), policyBuilder).status(),
             pw::OkStatus());
+}
+
+TEST_F(QueueTest, PushNonoverwritableConsumer) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  EXPECT_EQ(mProducer->size(), 0);
+  EXPECT_EQ(mProducer->push(1), pw::OkStatus());
+  EXPECT_EQ(mProducer->size(), 1);
+}
+
+TEST_F(QueueTest, PushOverwritableConsumer) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  EXPECT_EQ(mProducer->size(), 0);
+  EXPECT_EQ(mProducer->push(1), pw::OkStatus());
+  EXPECT_EQ(mProducer->size(), 1);
+}
+
+TEST_F(QueueTest, PushBlockedNonOverwritableConsumer) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  // Fill the queue to the point of blocking the producer. Pushing a single
+  // element after should fail.
+  std::vector<int> data(mProducer->capacity());
+  auto res = mProducer->push(data);
+  EXPECT_EQ(res.status(), pw::OkStatus());
+  EXPECT_EQ(res.value(), data.size());
+  EXPECT_EQ(mProducer->size(), mProducer->capacity());
+  EXPECT_EQ(mProducer->push(1), pw::Status::ResourceExhausted());
+}
+
+TEST_F(QueueTest, PushBlockedOverwritableConsumer) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  // Fill the queue to the point of overwriting the consumer. Pushing a single
+  // element should succeed, overwriting the consumer. Since the consumer is
+  // overwritten, it is ignored for calculation of the queue size.
+  std::vector<int> data(mProducer->capacity());
+  auto res = mProducer->push(data);
+  EXPECT_EQ(res.status(), pw::OkStatus());
+  EXPECT_EQ(res.value(), data.size());
+  EXPECT_EQ(mProducer->size(), mProducer->capacity());
+  EXPECT_EQ(mProducer->push(1), pw::OkStatus());
+  EXPECT_EQ(mProducer->size(), 0);
+}
+
+TEST_F(QueueTest, NewConsumerSyncsToProducer) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs;
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+  EXPECT_EQ(mProducer->push(1), pw::OkStatus());
+  auto consumer = createLocalConsumer(
+      kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable());
+  ASSERT_EQ(consumer.status(), pw::OkStatus());
+  EXPECT_EQ(mProducer->size(), 0);
 }
 
 }  // namespace
