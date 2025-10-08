@@ -394,5 +394,121 @@ TEST_F(QueueTest, NewConsumerSyncsToProducer) {
   EXPECT_EQ(mProducer->size(), 0);
 }
 
+TEST_F(QueueTest, ReserveAndCommit) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  auto maybeRes = mProducer->reserve(1);
+  ASSERT_EQ(maybeRes.status(), pw::OkStatus());
+  EXPECT_EQ(mProducer->size(), 0);
+  EXPECT_EQ(mProducer->size(/*includeReserved=*/true), 1);
+  EXPECT_EQ(mProducer->commit(1), pw::OkStatus());
+  EXPECT_EQ(mProducer->size(), 1);
+}
+
+TEST_F(QueueTest, PushFailsWithReservation) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs;
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  auto maybeRes = mProducer->reserve(1);
+  ASSERT_EQ(maybeRes.status(), pw::OkStatus());
+  EXPECT_EQ(mProducer->push(1), pw::Status::FailedPrecondition());
+}
+
+TEST_F(QueueTest, MultipleReserveSingleCommit) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  auto maybeRes = mProducer->reserve(1);
+  ASSERT_EQ(maybeRes.status(), pw::OkStatus());
+  EXPECT_EQ(maybeRes.value().size(), 1);
+  EXPECT_EQ(mProducer->size(/*includeReserved=*/true), 1);
+  maybeRes = mProducer->reserve(1);
+  ASSERT_EQ(maybeRes.status(), pw::OkStatus());
+  EXPECT_EQ(mProducer->size(/*includeReserved=*/true), 2);
+  EXPECT_EQ(mProducer->commit(2), pw::OkStatus());
+  EXPECT_EQ(mProducer->size(), 2);
+}
+
+TEST_F(QueueTest, SingleReserveMultipleCommit) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  auto maybeRes = mProducer->reserve(2);
+  ASSERT_EQ(maybeRes.status(), pw::OkStatus());
+  EXPECT_EQ(maybeRes.value().size(), 2);
+  EXPECT_EQ(mProducer->size(/*includeReserved=*/true), 2);
+  EXPECT_EQ(mProducer->commit(1), pw::OkStatus());
+  EXPECT_EQ(mProducer->size(), 1);
+  EXPECT_EQ(mProducer->commit(1), pw::OkStatus());
+  EXPECT_EQ(mProducer->size(), 2);
+}
+
+TEST_F(QueueTest, CommitFailsMoreThanReserved) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  auto maybeRes = mProducer->reserve(1);
+  ASSERT_EQ(maybeRes.status(), pw::OkStatus());
+  EXPECT_EQ(mProducer->size(), 0);
+  EXPECT_EQ(mProducer->size(/*includeReserved=*/true), 1);
+  EXPECT_EQ(mProducer->commit(2), pw::Status::OutOfRange());
+  EXPECT_EQ(mProducer->size(), 0);
+  EXPECT_EQ(mProducer->size(/*includeReserved=*/true), 1);
+}
+
+TEST_F(QueueTest, ReserveBlockedNonOverwritableConsumer) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  // Fill the queue to the point of blocking the producer. Reserving a single
+  // element after should fail.
+  std::vector<int> data(mProducer->capacity());
+  auto res = mProducer->push(data);
+  EXPECT_EQ(res.status(), pw::OkStatus());
+  EXPECT_EQ(res.value(), data.size());
+  EXPECT_EQ(mProducer->size(), mProducer->capacity());
+  EXPECT_EQ(mProducer->reserve(1).status(), pw::Status::ResourceExhausted());
+}
+
+TEST_F(QueueTest, ReserveBlockedOverwritableConsumer) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  // Fill the queue to the point of overwriting the consumer. Reserving a single
+  // element should succeed, overwriting the consumer. Since the consumer is
+  // overwritten, it is ignored for calculation of the queue size.
+  std::vector<int> data(mProducer->capacity());
+  auto res = mProducer->push(data);
+  EXPECT_EQ(res.status(), pw::OkStatus());
+  EXPECT_EQ(res.value(), data.size());
+  EXPECT_EQ(mProducer->size(), mProducer->capacity());
+  EXPECT_EQ(mProducer->reserve(1).status(), pw::OkStatus());
+  EXPECT_EQ(mProducer->size(), 0);
+}
+
+TEST_F(QueueTest, ReservationBrokenUpAcrossBlocks) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  auto total = mProducer->capacity();
+  auto count = total;
+  while (count > 0) {
+    auto maybeRes = mProducer->reserve(count);
+    ASSERT_EQ(maybeRes.status(), pw::OkStatus());
+    EXPECT_EQ(maybeRes.value().size(), kBlockCapacity);
+    count -= maybeRes.value().size();
+  }
+  EXPECT_EQ(mProducer->commit(total), pw::OkStatus());
+  EXPECT_EQ(mProducer->size(), mProducer->size(/*includeReserved=*/true));
+}
+
 }  // namespace
 }  // namespace chre::shmem_spmc_queue

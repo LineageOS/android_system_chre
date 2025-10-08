@@ -196,7 +196,11 @@ class ProducerBase {
         kDataOffset = other.kDataOffset;
         kBlockCapacity = other.kBlockCapacity;
         mDesc = other.mDesc;
+        mCurrBlock = other.mCurrBlock;
         mBlockCount = other.mBlockCount;
+        mReserved = other.mReserved;
+        mAvailable = other.mAvailable;
+        mCurrBlockIndex = other.mCurrBlockIndex;
         mActive = true;
       }
       other.mActive = false;
@@ -339,6 +343,8 @@ class ProducerBase {
   /**
    * Checks whether the queue can accommodate the given amount of data.
    *
+   * On success, updates the available space by the returned size.
+   *
    * @param count The number of bytes to be push()d or reserve()d.
    * @param allOrNothing Iff true, this is an all-or-nothing operation.
    * @return The number of bytes to push() or reserve() on success. May be less
@@ -347,16 +353,31 @@ class ProducerBase {
   pw::Result<size_t> checkAvailable(size_t count, bool allOrNothing);
 
   /**
+   * Advances the write index, possibly copying data into the queue.
+   *
+   * This is invoked from either push() or commit(). Only push() provides data.
+   * commit() effectively publishes data written to previously reserve()d space,
+   * as advancing the write index makes that data accessible to consumers.
+   *
+   * @param count The number of bytes to advance.
+   * @param data [optional] The data to copy. The size is greater than or equal
+   * to count.
+   */
+  void advanceWriteIndex(uint32_t count, std::optional<pw::ConstByteSpan> data);
+
+  /**
    * Enters the next block, updating all of the given parameters.
    *
    * @param block [in/out] The current block. Stores the next block pointer.
    * @param correction [in/out] The current index correction. Stores the updated
    * value.
    * @param index [out] Stores the starting index in the next block.
-   * @param data [out] Stores the pointer to the next block's data.
+   * @param convertSkipToBase Iff true, converts the skip index to a base index
+   * in the next block. This is used to avoid converting more than once on the
+   * same block on commit() since it would have been done on reserve().
    */
   void enterNextBlock(BlockHeader *&block, uint32_t &correction,
-                      uint32_t &index, uint8_t *&data);
+                      uint32_t &index, bool convertSkipToBase);
 
   /**
    * Updates the write index.
@@ -423,6 +444,7 @@ class ProducerBase {
   size_t mBlockCount;
   size_t mReserved = 0;
   size_t mAvailable = 0;
+  uint32_t mCurrBlockIndex = 0;
   bool mActive = true;
 };
 

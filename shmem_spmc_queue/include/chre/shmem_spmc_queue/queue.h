@@ -28,7 +28,6 @@
 #include "pw_allocator/layout.h"
 #include "pw_bytes/span.h"
 #include "pw_result/result.h"
-#include "pw_span/cast.h"
 #include "pw_span/span.h"
 #include "pw_status/status.h"
 #include "pw_status/try.h"
@@ -403,7 +402,9 @@ class Producer : protected internal::ProducerBase {
   pw::Result<pw::span<ElementType>> reserve(size_t count) {
     PW_TRY_ASSIGN(pw::ByteSpan reservation,
                   Base::reserve(count * sizeof(ElementType)));
-    return pw::span_cast<ElementType>(reservation);
+    return pw::span<ElementType>(
+        reinterpret_cast<ElementType *>(reservation.data()),
+        reservation.size() / sizeof(ElementType));
   }
 
   /**
@@ -594,7 +595,9 @@ class Consumer : protected internal::ConsumerBase {
   pw::Result<pw::span<const ElementType>> peek(size_t count) {
     PW_TRY_ASSIGN(pw::ConstByteSpan bytes,
                   Base::peek(count * sizeof(ElementType)));
-    return pw::span_cast<const ElementType>(bytes);
+    return pw::span<const ElementType>(
+        reinterpret_cast<ElementType *>(bytes.data()),
+        bytes.size() / sizeof(ElementType));
   }
 
   /**

@@ -209,6 +209,17 @@ void initProducerDesc(ProducerDesc &desc, IdOrNotifyFn idOrNotifyFn,
 }
 
 /**
+ * @return The data pointer within the given block.
+ *
+ * @param block The block header.
+ * @param dataOffset The offset of the data within the block.
+ */
+std::byte *blockData(BlockHeader *block, uint32_t dataOffset) {
+  return reinterpret_cast<std::byte *>(reinterpret_cast<uintptr_t>(block) +
+                                       dataOffset);
+}
+
+/**
  * Advances a read or write index within a block.
  *
  * The advancement done is over a single contiguous region of a block of size up
@@ -289,6 +300,8 @@ ProducerBase::ProducerBase(uintptr_t shmemBase, uint32_t shmemSize,
       kBlockCapacity(queue.blockCapacity),
       mDesc(fromOffset<ProducerDesc>(kShmemBase, kShmemSize,
                                      queue.producerOffset)),
+      mCurrBlock(fromOffset<BlockHeader>(kShmemBase, kShmemSize,
+                                         mDesc->tailBlockOffset, kBlockLayout)),
       mBlockCount(minBlockCount) {}
 
 ProducerBase::~ProducerBase() {
@@ -320,14 +333,27 @@ pw::Status ProducerBase::setMinBlockCountTarget(size_t /*count*/) {
   return pw::Status::Unimplemented();
 }
 
-pw::Result<pw::ByteSpan> ProducerBase::reserve(size_t /*count*/) {
-  // TODO(b/445482700): Implement.
-  return pw::Status::Unimplemented();
+pw::Result<pw::ByteSpan> ProducerBase::reserve(size_t count) {
+  PW_TRY_ASSIGN(uint32_t size, checkAvailable(count, /*allOrNothing=*/true));
+  // Return a span over the next available contiguous region.
+  auto *begin = blockData(mCurrBlock, kDataOffset) + mCurrBlockIndex;
+  if (advanceContiguous(mCurrBlock->baseIndex, mCurrBlock->skipIndex,
+                        kBlockCapacity, mCurrBlockIndex, size)) {
+    uint32_t correction = 0;  // unused
+    enterNextBlock(mCurrBlock, correction, mCurrBlockIndex,
+                   /*convertSkipToBase=*/true);
+  }
+  mReserved += size;
+  return pw::ByteSpan(begin, size);
 }
 
-pw::Status ProducerBase::commit(size_t /*count*/) {
-  // TODO(b/445482700): Implement.
-  return pw::Status::Unimplemented();
+pw::Status ProducerBase::commit(size_t count) {
+  if (count > mReserved) {
+    return pw::Status::OutOfRange();
+  }
+  mReserved -= count;
+  advanceWriteIndex(count, /*data=*/std::nullopt);
+  return pw::OkStatus();
 }
 
 pw::Result<size_t> ProducerBase::push(pw::ConstByteSpan data,
@@ -336,30 +362,7 @@ pw::Result<size_t> ProducerBase::push(pw::ConstByteSpan data,
     return pw::Status::FailedPrecondition();
   }
   PW_TRY_ASSIGN(auto count, checkAvailable(data.size(), allOrNothing));
-  uint32_t writeIndex = mDesc->writeIndex.load();
-  uint32_t correction = mDesc->indexCorrection;
-  auto *block = fromOffset<BlockHeader>(kShmemBase, kShmemSize,
-                                        mDesc->tailBlockOffset, kBlockLayout);
-  uint32_t blockIndex = (writeIndex + correction) % kBlockCapacity;
-  auto *blockData = reinterpret_cast<uint8_t *>(
-      reinterpret_cast<uintptr_t>(block) + kDataOffset);
-  auto pending = count;
-  while (pending > 0) {
-    uint32_t advance = pending;
-    auto *copyDst = blockData + blockIndex;
-    // Advance through the largest possible contiguous region from the current
-    // index.
-    bool toNextBlock = advanceContiguous(block->baseIndex, block->skipIndex,
-                                         kBlockCapacity, blockIndex, advance);
-    std::memcpy(copyDst, data.data(), advance);
-    data = data.subspan(advance);
-    pending -= advance;
-    if (toNextBlock) {
-      enterNextBlock(block, correction, blockIndex, blockData);
-    }
-  }
-  // Update the write index in queue metadata.
-  updateWriteIndex(block, writeIndex + count, correction);
+  advanceWriteIndex(count, data);
   return count;
 }
 
@@ -396,16 +399,48 @@ pw::Result<size_t> ProducerBase::checkAvailable(size_t count,
       count = mAvailable;
     }
   }
+  mAvailable -= count;
   return count;
 }
 
+void ProducerBase::advanceWriteIndex(uint32_t count,
+                                     std::optional<pw::ConstByteSpan> data) {
+  uint32_t writeIndex = mDesc->writeIndex.load();
+  uint32_t correction = mDesc->indexCorrection;
+  auto *block = fromOffset<BlockHeader>(kShmemBase, kShmemSize,
+                                        mDesc->tailBlockOffset, kBlockLayout);
+  uint32_t blockIndex = (writeIndex + correction) % kBlockCapacity;
+  auto pending = count;
+  while (pending > 0) {
+    uint32_t advance = pending;
+    auto *copyDst = blockData(block, kDataOffset) + blockIndex;
+    // Advance through the largest possible contiguous region from the current
+    // index.
+    bool toNextBlock = advanceContiguous(block->baseIndex, block->skipIndex,
+                                         kBlockCapacity, blockIndex, advance);
+    if (data) {
+      std::memcpy(copyDst, data->data(), advance);
+      data = data->subspan(advance);
+    }
+    pending -= advance;
+    if (toNextBlock) {
+      // Only convert skip to base during a push(). If commit(), then the
+      // conversion would already have occurred on reserve().
+      enterNextBlock(block, correction, blockIndex,
+                     /*convertSkipToBase=*/data.has_value());
+    }
+  }
+  // Update the write index in queue metadata.
+  updateWriteIndex(block, writeIndex + count, correction);
+}
+
 void ProducerBase::enterNextBlock(BlockHeader *&block, uint32_t &correction,
-                                  uint32_t &index, uint8_t *&data) {
+                                  uint32_t &index, bool convertSkipToBase) {
   auto *nextBlock = fromOffset<BlockHeader>(
       kShmemBase, kShmemSize, block->nextBlockOffset, kBlockLayout);
   // If the next block was skipped from on the last visit, set its base
   // index to that skip index and reset the skip index.
-  if (nextBlock->skipIndex != kBlockCapacity) {
+  if (convertSkipToBase && nextBlock->skipIndex != kBlockCapacity) {
     nextBlock->baseIndex.store(nextBlock->skipIndex.load());
     nextBlock->skipIndex.store(kBlockCapacity);
   }
@@ -413,11 +448,9 @@ void ProducerBase::enterNextBlock(BlockHeader *&block, uint32_t &correction,
   // the current block and where we're starting in the next block.
   uint32_t diffBase =
       block->skipIndex == kBlockCapacity ? block->baseIndex : block->skipIndex;
-  correction = ringDiff(nextBlock->baseIndex, diffBase, kBlockCapacity);
+  correction += ringDiff(nextBlock->baseIndex, diffBase, kBlockCapacity);
   block = nextBlock;
   index = block->baseIndex;
-  data = reinterpret_cast<uint8_t *>(reinterpret_cast<uintptr_t>(block) +
-                                     kDataOffset);
 }
 
 void ProducerBase::updateWriteIndex(BlockHeader *tailBlock, uint32_t writeIndex,
@@ -439,8 +472,8 @@ void ProducerBase::updateWriteIndex(BlockHeader *tailBlock, uint32_t writeIndex,
 }
 
 void ProducerBase::updateAvailable(uint32_t increment) {
-  auto tail = mDesc->writeIndex.load(std::memory_order_relaxed) + mReserved;
-  mAvailable = capacity();  // Reset available counts.
+  auto tail = mDesc->writeIndex.load() + mReserved;
+  mAvailable = capacity() - mReserved;  // Reset available counts.
   // Consumers that have been overwritten, are not yet initialized, or would
   // otherwise need to sync back to the producer position should not block
   // writes to the queue. Add them to the exclude mask.
