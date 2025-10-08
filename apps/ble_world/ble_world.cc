@@ -302,6 +302,13 @@ void handleBatchCompleteEvent(const chreBatchCompleteEvent *event) {
        event->eventType);
 }
 
+void handleBleScanStatusChangeEvent(const chreBleScanStatus *event) {
+  LOGI(
+      "Received BLE scan status change event. %s, reportDelayMs: "
+      "%" PRIu32,
+      event->enabled ? "enabled" : "disabled", event->reportDelayMs);
+}
+
 void handleFlushCompleteEvent(const chreAsyncResult *event) {
   LOGI("Received flush complete event with status 0x%" PRIx8, event->errorCode);
 }
@@ -331,6 +338,11 @@ void nanoappHandleEvent(uint32_t senderInstanceId, uint16_t eventType,
     case CHRE_EVENT_BLE_BATCH_COMPLETE:
       handleBatchCompleteEvent(
           static_cast<const chreBatchCompleteEvent *>(eventData));
+      break;
+
+    case CHRE_EVENT_BLE_SCAN_STATUS_CHANGE:
+      handleBleScanStatusChangeEvent(
+          static_cast<const chreBleScanStatus *>(eventData));
       break;
     default:
       LOGW("Unhandled event type %" PRIu16, eventType);

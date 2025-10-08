@@ -50,11 +50,11 @@ namespace chre {
  * A base class for all CHRE simulated tests.
  */
 class TestBase : public testing::Test {
- protected:
+ public:
   TestBase() {
     CHRE_TEST_DEBUG("Constructed %p", this);
   }
-  ~TestBase() {
+  ~TestBase() override {
     CHRE_TEST_DEBUG("Destroying %p", this);
   }
 
@@ -82,7 +82,7 @@ class TestBase : public testing::Test {
    *
    * @param eventType The event type to wait for.
    */
-  void waitForEvent(uint16_t eventType) {
+  static void waitForEvent(uint16_t eventType) {
     TestEventQueueSingleton::get()->waitForEvent(eventType);
   }
 
@@ -96,7 +96,7 @@ class TestBase : public testing::Test {
    * @param eventData Populated with the data attached to the event.
    */
   template <class T>
-  void waitForEvent(uint16_t eventType, T *eventData) {
+  static void waitForEvent(uint16_t eventType, T *eventData) {
     TestEventQueueSingleton::get()->waitForEvent(eventType, eventData);
   }
 
@@ -106,7 +106,7 @@ class TestBase : public testing::Test {
    * @param id Nanoapp ID
    * @return A pointer to the Nanoapp instance or nullptr if not found.
    */
-  Nanoapp *getNanoappByAppId(uint64_t id) {
+  static Nanoapp *getNanoappByAppId(uint64_t id) {
     uint16_t instanceId;
     EXPECT_TRUE(EventLoopManagerSingleton::get()
                     ->getEventLoop()
