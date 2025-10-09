@@ -93,6 +93,12 @@ extern "C" {
  */
 #define CHRE_EVENT_FIRST_USER_VALUE  UINT16_C(0x8000)
 
+
+/**
+ * A reserved event type value that will never be sent to a nanoapp.
+ */
+#define CHRE_EVENT_INVALID UINT16_C(0x0000)
+
 /**
  * nanoappHandleEvent argument: struct chreMessageFromHostData
  *
