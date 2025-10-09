@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 The Android Open Source Project
+ * Copyright (C) 2025 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,28 +14,18 @@
  * limitations under the License.
  */
 
-#ifndef CHRE_PLATFORM_CONTEXT_H_
-#define CHRE_PLATFORM_CONTEXT_H_
+#pragma once
 
 #include "chre/core/event_loop.h"
 
 namespace chre {
 
 /**
- * @return true to indicate that the current thread is the thread that is
- * currently blocked by the event loop. This is used by the event loop to
- * determine whether it needs to lock shared data structures or not.
+ * Registers the event loop with the current thread, used for
+ * getCurrentEventLoop().
  *
- * TODO(b/435246073): Deprecate this API in favor of getCurrentEventLoop().
+ * @param eventLoop The event loop to register.
  */
-bool inEventLoopThread();
-
-/**
- * @return A reference to the EventLoop that is running on the current thread.
- * Null if there is no event loop running on this thread.
- */
-EventLoop *getCurrentEventLoop();
+void registerThreadContext(EventLoop *eventLoop);
 
 }  // namespace chre
-
-#endif  // CHRE_CONTEXT_H

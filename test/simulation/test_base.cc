@@ -21,6 +21,7 @@
 #include "chre/core/event_loop_manager.h"
 #include "chre/platform/linux/platform_log.h"
 #include "chre/platform/linux/task_util/task_manager.h"
+#include "chre/platform/linux/thread_context.h"
 #include "chre/platform/shared/init.h"
 #include "chre/util/system/message_router.h"
 #include "chre/util/time.h"
@@ -79,8 +80,10 @@ void TestBase::SetUp() {
   chre::initCommon();
   EventLoopManagerSingleton::get()->lateInit();
 
-  mChreThread = std::thread(
-      []() { EventLoopManagerSingleton::get()->getEventLoop().run(); });
+  mChreThread = std::thread([]() {
+    registerThreadContext(&EventLoopManagerSingleton::get()->getEventLoop());
+    EventLoopManagerSingleton::get()->getEventLoop().run();
+  });
 
   auto callback = [](void *) {
     LOGE("Test timed out ...");

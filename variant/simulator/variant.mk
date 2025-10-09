@@ -9,6 +9,7 @@ COMMIT_HASH_COMMAND = git describe --always --long --dirty
 VERSION_STRING = chre=$(shell $(COMMIT_HASH_COMMAND))
 
 COMMON_CFLAGS += -DCHRE_VERSION_STRING='"$(VERSION_STRING)"'
+COMMON_CFLAGS += -Ivariant/simulator/include
 
 # Common Compiler Flags ########################################################
 

@@ -16,6 +16,7 @@
 
 #include "chre/platform/context.h"
 #include "chre/embos/init.h"
+#include "chre/variant/config.h"
 
 #include <string.h>
 
@@ -38,6 +39,13 @@ bool inEventLoopThread() {
   }
 
   return rv;
+}
+
+EventLoop *getCurrentEventLoop() {
+  static_assert(CHRE_MULTI_THREADING_ENABLED == 0,
+                "CHRE multi-threading is not implemented on this platform");
+  return inEventLoopThread() ? &EventLoopManagerSingleton::get()->getEventLoop()
+                             : nullptr;
 }
 
 }  // namespace chre

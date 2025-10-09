@@ -15,12 +15,27 @@
  */
 
 #include "chre/platform/context.h"
+#include "chre/platform/linux/thread_context.h"
 
 namespace chre {
+
+namespace {
+// Note: thread_local may not be well-supported on all platforms, so beware of
+// its usage outside this linux impl.
+thread_local EventLoop *gEventLoop = nullptr;
+}  // anonymous namespace
 
 bool inEventLoopThread() {
   // TODO: Implement this.
   return true;
+}
+
+EventLoop *getCurrentEventLoop() {
+  return gEventLoop;
+}
+
+void registerThreadContext(EventLoop *eventLoop) {
+  gEventLoop = eventLoop;
 }
 
 }  // namespace chre

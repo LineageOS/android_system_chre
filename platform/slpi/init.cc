@@ -35,6 +35,7 @@ extern "C" {
 #include "chre/platform/slpi/fastrpc.h"
 #include "chre/platform/slpi/uimg_util.h"
 #include "chre/util/lock_guard.h"
+#include "chre/variant/config.h"
 
 #ifdef CHRE_SLPI_SEE
 #include "chre/platform/slpi/see/island_vote_client.h"
@@ -147,6 +148,12 @@ bool inEventLoopThread() {
   return (qurt_thread_get_id() == gThreadHandle);
 }
 
+EventLoop *getCurrentEventLoop() {
+  static_assert(CHRE_MULTI_THREADING_ENABLED == 0,
+                "CHRE multi-threading is not implemented on this platform");
+  return inEventLoopThread() ? &EventLoopManagerSingleton::get()->getEventLoop()
+                             : nullptr;
+}
 }  // namespace chre
 
 /**

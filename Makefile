@@ -106,6 +106,7 @@ CHRE_PATCH_VERSION = $(shell echo $$(((`$(DATE_CMD) +%s` - $(EPOCH)) / (60 * 60)
 endif
 
 COMMON_CFLAGS += -DCHRE_PATCH_VERSION=$(CHRE_PATCH_VERSION)
+COMMON_CFLAGS += -DCHRE_USING_PURE_MAKEFILE
 
 # Makefile Includes ############################################################
 
@@ -121,6 +122,7 @@ include $(CHRE_PREFIX)/external/external.mk
 include $(CHRE_PREFIX)/pal/pal.mk
 include $(CHRE_PREFIX)/platform/platform.mk
 include $(CHRE_PREFIX)/util/util.mk
+include $(CHRE_PREFIX)/variant/variant.mk
 
 # Supported variants includes.
 ifneq ($(CHRE_TARGET_EXTENSION),)

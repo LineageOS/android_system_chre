@@ -19,7 +19,8 @@
 // TODO: b/376532038 - Refactor the platform layer to provide static nanoapps
 // instead of having it conditionally come out of core/static_nanoapps.cc to
 // ensure the build graph can properly represent chre.core.
-#if defined(CHRE_INCLUDE_DEFAULT_STATIC_NANOAPPS)
+#if defined(CHRE_INCLUDE_DEFAULT_STATIC_NANOAPPS) && \
+    !defined(CHRE_USING_PURE_MAKEFILE)
 // This cannot be supported due to how the build rules are set up. Ideally this
 // would be part of a shared platform layer, but it's in fact part of core.
 #error "CMake does not permit the built in default static nanoapps"
@@ -27,3 +28,8 @@
 
 // This should provide all CHRE_* configuration defines.
 #include "chre/target_variant/config.h"
+
+// CHRE optionally supports the use of multiple eventloops, etc.
+#ifndef CHRE_MULTI_THREADING_ENABLED
+#define CHRE_MULTI_THREADING_ENABLED 0
+#endif  // CHRE_MULTI_THREADING_ENABLED

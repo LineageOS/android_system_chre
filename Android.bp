@@ -1229,6 +1229,8 @@ cc_library_static {
         "platform/shared/public_platform_wwan_pal",
         "platform/shared/sensor_pal/include",
         "util/include",
+        "variant/include",
+        "variant/googletest/include",
     ],
     header_libs: [
         "chre_api",

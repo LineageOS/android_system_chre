@@ -29,6 +29,7 @@
 #include "chre/platform/context.h"
 #include "chre/platform/shared/dram_vote_client.h"
 #include "chre/platform/shared/init.h"
+#include "chre/variant/config.h"
 
 #ifdef CHRE_USE_BUFFERED_LOGGING
 #include "chre/platform/shared/log_buffer_manager.h"
@@ -177,6 +178,13 @@ BaseType_t getChreTaskPriority() {
 
 bool inEventLoopThread() {
   return (xTaskGetCurrentTaskHandle() == freertos::gChreTaskHandle);
+}
+
+EventLoop *getCurrentEventLoop() {
+  static_assert(CHRE_MULTI_THREADING_ENABLED == 0,
+                "CHRE multi-threading is not implemented on this platform");
+  return inEventLoopThread() ? &EventLoopManagerSingleton::get()->getEventLoop()
+                             : nullptr;
 }
 
 }  // namespace chre

@@ -61,6 +61,8 @@ COMMON_CFLAGS += -DCHRE_VARIANT_SUPPLIES_STATIC_NANOAPP_LIST
 # Support for tinysys specific exported symbols
 COMMON_CFLAGS += -DCHREX_SYMBOL_EXTENSIONS
 
+COMMON_CFLAGS += -Ivariant/tinysys/include
+
 # CHRE event count #############################################################
 
 TINYSYS_CFLAGS += -DCHRE_EVENT_PER_BLOCK=32
