@@ -254,6 +254,7 @@ static bool chppRunLoopbackTestInternal(struct ChppAppState *appState,
 struct ChppLoopbackTestResult chppRunLoopbackTest(struct ChppAppState *appState,
                                                   const uint8_t *buf,
                                                   size_t len) {
+  CHPP_LOGI("%s: buffer size %zu", __func__, len);
   struct ChppLoopbackTestResult result;
   chppRunLoopbackTestInternal(appState, buf, len, /* sync= */ true, &result);
   return result;
