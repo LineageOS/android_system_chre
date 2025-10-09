@@ -22,13 +22,16 @@
 namespace chre {
 Mutex Sensor::mSamplingStatusMutex;
 
-Sensor::Sensor(Sensor &&other)
-    : PlatformSensor(std::move(other)), mFlushRequestPending(false) {
-  *this = std::move(other);
-}
-
-Sensor &Sensor::operator=(Sensor &&other) {
-  PlatformSensor::operator=(std::move(other));
+void Sensor::moveFrom(Sensor &other) {
+  // Don't call base class's move assignment operator in this class. It is not
+  // safe because of the possibly duplicate moves:
+  //  1. The base class's move assignment operator is already called in this
+  //     class's move assignment operator.
+  //  2. This class's move constructor already calls base class's move
+  //     constructor.
+  if (&other == this) {
+    return;
+  }
 
   mSensorRequests = std::move(other.mSensorRequests);
 
@@ -43,7 +46,16 @@ Sensor &Sensor::operator=(Sensor &&other) {
 
   mLastEventValid = other.mLastEventValid;
   other.mLastEventValid = false;
+}
 
+Sensor::Sensor(Sensor &&other)
+    : PlatformSensor(std::move(other)), mFlushRequestPending(false) {
+  moveFrom(other);
+}
+
+Sensor &Sensor::operator=(Sensor &&other) {
+  PlatformSensor::operator=(std::move(other));
+  moveFrom(other);
   return *this;
 }
 

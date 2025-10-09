@@ -60,6 +60,9 @@ class PlatformSensorBase {
 
   //! Whether this sensor supports passive sensor requests.
   bool mPassiveSupported = false;
+
+ protected:
+  void moveFrom(PlatformSensorBase &other);
 };
 
 }  // namespace chre

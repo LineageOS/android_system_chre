@@ -57,6 +57,9 @@ class PlatformSensorBase {
   uint32_t getSensorHandle() const {
     return mSensorHandle;
   }
+
+ protected:
+  void moveFrom(PlatformSensorBase &other);
 };
 
 }  // namespace chre
