@@ -36,6 +36,16 @@ Nanoapp *EventLoopManager::validateChreApiCall(const char *functionName) {
   return currentNanoapp;
 }
 
+bool EventLoopManager::inEventLoopForNanoapp(uint64_t appId) {
+  EventLoop *eventLoop = getCurrentEventLoop();
+  if (!eventLoop) {
+    return false;
+  }
+
+  uint16_t instanceId;
+  return eventLoop->findNanoappInstanceIdByAppId(appId, &instanceId);
+}
+
 uint16_t EventLoopManager::getNextInstanceId() {
   // Get the next available instance ID and mask off the upper 16 bit.
   uint16_t instanceId =

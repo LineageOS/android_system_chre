@@ -650,6 +650,11 @@ class EventLoop : public NonCopyable {
    * wakeup buckets once the wakeup bucket interval has been surpassed.
    */
   void setCycleWakeupBucketsTimer();
+
+  /**
+   * @return true if the current thread is running this event loop.
+   */
+  bool inThisEventLoopThread() const;
 };
 
 }  // namespace chre

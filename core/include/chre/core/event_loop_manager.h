@@ -137,6 +137,16 @@ class EventLoopManager : public NonCopyable {
   static Nanoapp *validateChreApiCall(const char *functionName);
 
   /**
+   * Validates that the current thread is running the event loop for the given
+   * nanoapp and returns true if so.
+   *
+   * @param appId ID of the nanoapp to validate the context of
+   * @return true if the current thread is running the event loop for the given
+   *         nanoapp; false otherwise
+   */
+  static bool inEventLoopForNanoapp(uint64_t appId);
+
+  /**
    * Posts an event to a nanoapp that is currently running (or all nanoapps if
    * the target instance ID is kBroadcastInstanceId). A senderInstanceId cannot
    * be provided to this method because it must only be used to post events

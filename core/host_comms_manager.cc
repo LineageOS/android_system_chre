@@ -402,13 +402,20 @@ MessageToHost *HostCommsManager::findMessageToHostBySeq(
 }
 
 void HostCommsManager::freeMessageToHost(MessageToHost *msgToHost) {
+  EventLoop *eventLoop = getCurrentEventLoop();
+  CHRE_ASSERT(eventLoop != nullptr);
   if (msgToHost->toHostData.nanoappFreeFunction != nullptr) {
-    EventLoopManagerSingleton::get()->getEventLoop().invokeMessageFreeFunction(
+    eventLoop->invokeMessageFreeFunction(
         msgToHost->appId, msgToHost->toHostData.nanoappFreeFunction,
         msgToHost->message.data(), msgToHost->message.size());
   }
 #ifdef CHRE_RELIABLE_MESSAGE_SUPPORT_ENABLED
   if (msgToHost->isReliable) {
+    // TODO(b/435246073): Reconcile thread safety when moving to multi-threaded
+    // CHRE.
+    static_assert(CHRE_MULTI_THREADING_ENABLED == 0,
+                  "Host comms manager must be updated for"
+                  " multi-threading");
     mTransactionManager.remove(msgToHost->messageSequenceNumber);
   }
 #endif  // CHRE_RELIABLE_MESSAGE_SUPPORT_ENABLED
@@ -499,7 +506,8 @@ void HostCommsManager::onMessageToHostCompleteInternal(
   // EventLoop context.
   if (msgToHost->toHostData.nanoappFreeFunction == nullptr) {
     mMessagePool.deallocate(msgToHost);
-  } else if (inEventLoopThread()) {
+  } else if (EventLoopManagerSingleton::get()->inEventLoopForNanoapp(
+                 msgToHost->appId)) {
     // If we're already within the event loop context, it is safe to call the
     // free callback synchronously.
     freeMessageToHost(msgToHost);

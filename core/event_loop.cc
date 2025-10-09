@@ -114,7 +114,7 @@ bool isNonNanoappLowPriorityEvent(Event *event, void * /* data */,
 bool EventLoop::findNanoappInstanceIdByAppId(uint64_t appId,
                                              uint16_t *instanceId) const {
   CHRE_ASSERT(instanceId != nullptr);
-  ConditionalLockGuard<Mutex> lock(mNanoappsLock, !inEventLoopThread());
+  ConditionalLockGuard<Mutex> lock(mNanoappsLock, !inThisEventLoopThread());
 
   bool found = false;
   for (const UniquePtr<Nanoapp> &app : mNanoapps) {
@@ -129,7 +129,7 @@ bool EventLoop::findNanoappInstanceIdByAppId(uint64_t appId,
 }
 
 void EventLoop::forEachNanoapp(NanoappCallbackFunction *callback, void *data) {
-  ConditionalLockGuard<Mutex> lock(mNanoappsLock, !inEventLoopThread());
+  ConditionalLockGuard<Mutex> lock(mNanoappsLock, !inThisEventLoopThread());
 
   for (const UniquePtr<Nanoapp> &nanoapp : mNanoapps) {
     callback(nanoapp.get(), data);
@@ -323,7 +323,7 @@ bool EventLoop::hasNoSpaceForHighPriorityEvent() {
 bool EventLoop::distributeEventSync(uint16_t eventType, void *eventData,
                                     uint16_t targetInstanceId,
                                     uint16_t targetGroupMask) {
-  CHRE_ASSERT(inEventLoopThread());
+  CHRE_ASSERT(inThisEventLoopThread());
   Event event(eventType, eventData,
               /* freeCallback= */ nullptr,
               /* isLowPriority= */ false,
@@ -410,25 +410,25 @@ void EventLoop::onStopComplete() {
 }
 
 Nanoapp *EventLoop::findNanoappByInstanceId(uint16_t instanceId) const {
-  ConditionalLockGuard<Mutex> lock(mNanoappsLock, !inEventLoopThread());
+  ConditionalLockGuard<Mutex> lock(mNanoappsLock, !inThisEventLoopThread());
   return lookupAppByInstanceId(instanceId);
 }
 
 Nanoapp *EventLoop::findNanoappByAppId(uint64_t appId) const {
-  ConditionalLockGuard<Mutex> lock(mNanoappsLock, !inEventLoopThread());
+  ConditionalLockGuard<Mutex> lock(mNanoappsLock, !inThisEventLoopThread());
   return lookupAppByAppId(appId);
 }
 
 bool EventLoop::populateNanoappInfoForAppId(
     uint64_t appId, struct chreNanoappInfo *info) const {
-  ConditionalLockGuard<Mutex> lock(mNanoappsLock, !inEventLoopThread());
+  ConditionalLockGuard<Mutex> lock(mNanoappsLock, !inThisEventLoopThread());
   Nanoapp *app = lookupAppByAppId(appId);
   return populateNanoappInfo(app, info);
 }
 
 bool EventLoop::populateNanoappInfoForInstanceId(
     uint16_t instanceId, struct chreNanoappInfo *info) const {
-  ConditionalLockGuard<Mutex> lock(mNanoappsLock, !inEventLoopThread());
+  ConditionalLockGuard<Mutex> lock(mNanoappsLock, !inThisEventLoopThread());
   Nanoapp *app = lookupAppByInstanceId(instanceId);
   return populateNanoappInfo(app, info);
 }
@@ -475,7 +475,7 @@ void EventLoop::logStateToBuffer(DebugDumpWrapper &debugDump) const {
 
 void EventLoop::onMatchingNanoappEndpoint(
     const pw::Function<bool(const EndpointInfo &)> &function) {
-  ConditionalLockGuard<Mutex> lock(mNanoappsLock, !inEventLoopThread());
+  ConditionalLockGuard<Mutex> lock(mNanoappsLock, !inThisEventLoopThread());
 
   for (const UniquePtr<Nanoapp> &app : mNanoapps) {
     if (function(getEndpointInfoFromNanoappLocked(*app.get()))) {
@@ -487,7 +487,7 @@ void EventLoop::onMatchingNanoappEndpoint(
 void EventLoop::onMatchingNanoappService(
     const pw::Function<bool(const EndpointInfo &, const ServiceInfo &)>
         &function) {
-  ConditionalLockGuard<Mutex> lock(mNanoappsLock, !inEventLoopThread());
+  ConditionalLockGuard<Mutex> lock(mNanoappsLock, !inThisEventLoopThread());
 
   // Format for legacy service descriptors:
   // serviceDescriptor = FORMAT_STRING(
@@ -517,7 +517,7 @@ void EventLoop::onMatchingNanoappService(
 }
 
 std::optional<EndpointInfo> EventLoop::getEndpointInfo(uint64_t appId) {
-  ConditionalLockGuard<Mutex> lock(mNanoappsLock, !inEventLoopThread());
+  ConditionalLockGuard<Mutex> lock(mNanoappsLock, !inThisEventLoopThread());
   Nanoapp *app = lookupAppByAppId(appId);
   return app == nullptr
              ? std::nullopt
@@ -795,6 +795,10 @@ EndpointInfo EventLoop::getEndpointInfoFromNanoappLocked(
       /* version= */ nanoapp.getAppVersion(),
       /* type= */ EndpointType::NANOAPP,
       /* requiredPermissions= */ nanoapp.getAppPermissions());
+}
+
+bool EventLoop::inThisEventLoopThread() const {
+  return getCurrentEventLoop() == this;
 }
 
 }  // namespace chre

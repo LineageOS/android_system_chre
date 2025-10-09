@@ -169,7 +169,7 @@ bool ChreMessageHubManager::getEndpointInfo(MessageHubId hubId,
 bool ChreMessageHubManager::configureReadyEvents(
     uint16_t nanoappInstanceId, EndpointId fromEndpointId, MessageHubId hubId,
     EndpointId endpointId, const char *serviceDescriptor, bool enable) {
-  CHRE_ASSERT(inEventLoopThread());
+  CHRE_ASSERT(getCurrentEventLoop() != nullptr);
 
   if (hubId == MESSAGE_HUB_ID_INVALID && endpointId == ENDPOINT_ID_INVALID &&
       serviceDescriptor == nullptr) {
@@ -319,7 +319,7 @@ bool ChreMessageHubManager::sendMessage(void *message, size_t messageSize,
 bool ChreMessageHubManager::publishServices(
     EndpointId fromEndpointId, const chreMsgServiceInfo *serviceInfos,
     size_t numServices) {
-  CHRE_ASSERT(inEventLoopThread());
+  CHRE_ASSERT(getCurrentEventLoop() != nullptr);
 
   LockGuard<Mutex> lockGuard(mNanoappPublishedServicesMutex);
   if (!validateServicesLocked(fromEndpointId, serviceInfos, numServices)) {
@@ -359,7 +359,7 @@ void ChreMessageHubManager::unregisterEndpoint(EndpointId endpointId) {
 }
 
 void ChreMessageHubManager::cleanupEndpointResources(EndpointId endpointId) {
-  CHRE_ASSERT(inEventLoopThread());
+  CHRE_ASSERT(getCurrentEventLoop() != nullptr);
 
   {
     LockGuard<Mutex> lockGuard(mNanoappPublishedServicesMutex);
@@ -593,7 +593,7 @@ void ChreMessageHubManager::onSessionOpenComplete(
 
 void ChreMessageHubManager::onEndpointReadyEvent(MessageHubId messageHubId,
                                                  EndpointId endpointId) {
-  CHRE_ASSERT(inEventLoopThread());
+  CHRE_ASSERT(getCurrentEventLoop() != nullptr);
 
   for (size_t i = 0; i < mEndpointReadyEventRequests.size(); ++i) {
     EndpointReadyEventData &data = mEndpointReadyEventRequests[i];
@@ -899,9 +899,8 @@ ChreMessageHubManager::ChreMessageHubCallback::getEndpointForService(
   }
 
   {
-    ConditionalLockGuard<Mutex> lockGuard(
-        mChreMessageHubManager->mNanoappPublishedServicesMutex,
-        !inEventLoopThread());
+    LockGuard<Mutex> lockGuard(
+        mChreMessageHubManager->mNanoappPublishedServicesMutex);
     for (const NanoappServiceData &service :
          mChreMessageHubManager->mNanoappPublishedServices) {
       if (std::strcmp(serviceDescriptor,
@@ -940,9 +939,8 @@ void ChreMessageHubManager::ChreMessageHubCallback::forEachService(
   }
 
   {
-    ConditionalLockGuard<Mutex> lockGuard(
-        mChreMessageHubManager->mNanoappPublishedServicesMutex,
-        !inEventLoopThread());
+    LockGuard<Mutex> lockGuard(
+        mChreMessageHubManager->mNanoappPublishedServicesMutex);
     for (const NanoappServiceData &service :
          mChreMessageHubManager->mNanoappPublishedServices) {
       std::optional<EndpointInfo> endpointInfo =
