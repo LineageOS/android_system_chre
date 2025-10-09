@@ -767,6 +767,8 @@ cc_test_host {
         "platform/shared/include",
         "platform/shared/pw_trace/include",
         "util/include",
+        "variant/include",
+        "variant/googletest/include",
     ],
     header_libs: [
         "chre_flatbuffers",
@@ -1092,6 +1094,8 @@ cc_library_static {
         "platform/shared/nanoapp_memory_guard_no_op/include",
         "platform/shared/public_platform_debug_dump_manager",
         "util/include",
+        "variant/include",
+        "variant/android/include",
     ],
     header_libs: [
         "chre_api",
@@ -1403,6 +1407,8 @@ cc_library_static {
         "platform/shared/public_platform_gnss_pal",
         "platform/shared/sensor_pal/include",
         "platform/shared/public_platform_wifi_pal",
+        "variant/include",
+        "variant/googletest/include",
     ],
     include_dirs: [
         "external/abseil-cpp/",
@@ -1453,6 +1459,7 @@ cc_library_static {
         "test/integration/location/lbs/contexthub/test_suite/integration/platform/simulator_test.cc",
     ],
     export_include_dirs: [
+        "apps/nearby",
         "chre_api/include",
         "chre_api/include/chre_api",
         "core/include",
@@ -1474,7 +1481,8 @@ cc_library_static {
         "util/include",
         "test",
         "test/integration",
-        "apps/nearby",
+        "variant/include",
+        "variant/googletest/include",
     ],
     header_libs: [
         "chre_api",

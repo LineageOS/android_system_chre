@@ -36,6 +36,9 @@ class AtomicBase {
 };
 
 typedef AtomicBase<bool> AtomicBoolBase;
+#if CHRE_ATOMIC_UINT8_ENABLED
+typedef AtomicBase<uint8_t> AtomicUint8Base;
+#endif  // CHRE_ATOMIC_UINT8_ENABLED
 typedef AtomicBase<uint32_t> AtomicUint32Base;
 
 }  // namespace chre

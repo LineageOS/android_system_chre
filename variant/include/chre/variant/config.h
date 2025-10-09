@@ -33,3 +33,8 @@
 #ifndef CHRE_MULTI_THREADING_ENABLED
 #define CHRE_MULTI_THREADING_ENABLED 0
 #endif  // CHRE_MULTI_THREADING_ENABLED
+
+// Temporary flag to disable AtomicUint8 until all platforms implement it
+#ifndef CHRE_ATOMIC_UINT8_ENABLED
+#define CHRE_ATOMIC_UINT8_ENABLED 0
+#endif  // CHRE_ATOMIC_UINT8_ENABLED

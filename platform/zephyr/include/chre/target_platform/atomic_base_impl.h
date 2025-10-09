@@ -20,6 +20,7 @@
 #include <zephyr/sys/atomic.h>
 
 #include "chre/platform/atomic.h"
+#include "chre/variant/config.h"
 
 namespace chre {
 
@@ -42,6 +43,44 @@ inline void AtomicBool::store(bool desired) {
 inline bool AtomicBool::exchange(bool desired) {
   return atomic_set(&value, desired);
 }
+
+#if CHRE_ATOMIC_UINT8_ENABLED
+inline AtomicUint8::AtomicUint8(uint8_t starting_value) {
+  value = ATOMIC_INIT(starting_value);
+}
+
+inline uint8_t AtomicUint8::operator=(uint8_t desired) {
+  return atomic_set(&value, desired);
+}
+
+inline uint8_t AtomicUint8::load() const {
+  return atomic_get(&value);
+}
+
+inline void AtomicUint8::store(uint8_t desired) {
+  atomic_set(&value, desired);
+}
+
+inline uint8_t AtomicUint8::exchange(uint8_t desired) {
+  return atomic_set(&value, desired);
+}
+
+inline uint8_t AtomicUint8::fetch_add(uint8_t arg) {
+  return atomic_add(&value, arg);
+}
+
+inline uint8_t AtomicUint8::fetch_increment() {
+  return atomic_inc(&value);
+}
+
+inline uint8_t AtomicUint8::fetch_sub(uint8_t arg) {
+  return atomic_sub(&value, arg);
+}
+
+inline uint8_t AtomicUint8::fetch_decrement() {
+  return atomic_dec(&value);
+}
+#endif  // CHRE_ATOMIC_UINT8_ENABLED
 
 inline AtomicUint32::AtomicUint32(uint32_t starting_value) {
   value = ATOMIC_INIT(starting_value);

@@ -19,6 +19,7 @@
 
 #include "chre/target_platform/atomic_base.h"
 #include "chre/util/non_copyable.h"
+#include "chre/variant/config.h"
 
 namespace chre {
 
@@ -78,6 +79,93 @@ class AtomicBool : public AtomicBoolBase, public NonCopyable {
    */
   bool exchange(bool desired);
 };
+
+#if CHRE_ATOMIC_UINT8_ENABLED
+class AtomicUint8 : public AtomicUint8Base, public NonCopyable {
+ public:
+  /**
+   * Allows the platform to do any atomic initialization at construction time.
+   *
+   * @param The starting value for the object.
+   */
+  AtomicUint8(uint8_t startingValue);
+
+  /**
+   * Atomically assigns the desired value to the atomic object. Equivalent to
+   * store().
+   *
+   * @param The value the object will be replaced with.
+   *
+   * @return The desired value.
+   */
+  uint8_t operator=(uint8_t desired);
+
+  /**
+   * Atomically loads the current value of the atomic object. Equivalent to
+   * load().
+   *
+   * @return The current value of the object.
+   */
+  operator uint8_t() const {
+    return load();
+  }
+
+  /**
+   * Atomically loads the current value of the atomic object.
+   *
+   * @return The current value of the object.
+   */
+  uint8_t load() const;
+
+  /**
+   * Atomically replaces the current value of the atomic object.
+   *
+   * @param The value the object will be replaced with.
+   */
+  void store(uint8_t desired);
+
+  /**
+   * Atomically replaces the value of the atomic object.
+   *
+   * @param The value the object should have when the method returns.
+   *
+   * @return The previous value of the object.
+   */
+  uint8_t exchange(uint8_t desired);
+
+  /**
+   * Atomically adds the argument to the current value of the object.
+   *
+   * @param The amount which the object should be increased by.
+   *
+   * @return The previous value of the object.
+   */
+  uint8_t fetch_add(uint8_t arg);
+
+  /**
+   * Atomically increments the value stored in the atomic object by 1.
+   *
+   * @return The previous value of the object.
+   */
+  uint8_t fetch_increment();
+
+  /**
+   * Atomically subtracts the argument from the current value of the object.
+   *
+   * @param The amount which the object should be decreased by.
+   *
+   * @return The previous value of the object.
+   */
+  uint8_t fetch_sub(uint8_t arg);
+
+  /**
+   * Atomically decrements the value stored in the atomic object by 1.
+   *
+   * @return The previous value of the object.
+   */
+  uint8_t fetch_decrement();
+};
+#endif  // CHRE_ATOMIC_UINT8_ENABLED
 
 /**
  * Provides an implementation of an atomic uint32_t. AtomicUint32Base is

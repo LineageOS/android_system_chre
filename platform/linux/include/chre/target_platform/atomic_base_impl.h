@@ -18,6 +18,7 @@
 #define CHRE_PLATFORM_LINUX_ATOMIC_BASE_IMPL_H_
 
 #include "chre/platform/atomic.h"
+#include "chre/variant/config.h"
 
 namespace chre {
 
@@ -39,6 +40,43 @@ inline void AtomicBool::store(bool desired) {
 inline bool AtomicBool::exchange(bool desired) {
   return mAtomic.exchange(desired);
 }
+
+#if CHRE_ATOMIC_UINT8_ENABLED
+inline AtomicUint8::AtomicUint8(uint8_t startingValue)
+    : AtomicUint8Base(startingValue) {}
+
+inline uint8_t AtomicUint8::operator=(uint8_t desired) {
+  return mAtomic = desired;
+}
+
+inline uint8_t AtomicUint8::load() const {
+  return mAtomic.load();
+}
+
+inline void AtomicUint8::store(uint8_t desired) {
+  mAtomic.store(desired);
+}
+
+inline uint8_t AtomicUint8::exchange(uint8_t desired) {
+  return mAtomic.exchange(desired);
+}
+
+inline uint8_t AtomicUint8::fetch_add(uint8_t arg) {
+  return mAtomic.fetch_add(arg);
+}
+
+inline uint8_t AtomicUint8::fetch_increment() {
+  return mAtomic.fetch_add(1);
+}
+
+inline uint8_t AtomicUint8::fetch_sub(uint8_t arg) {
+  return mAtomic.fetch_sub(arg);
+}
+
+inline uint8_t AtomicUint8::fetch_decrement() {
+  return mAtomic.fetch_sub(1);
+}
+#endif  // CHRE_ATOMIC_UINT8_ENABLED
 
 inline AtomicUint32::AtomicUint32(uint32_t startingValue)
     : AtomicUint32Base(startingValue) {}

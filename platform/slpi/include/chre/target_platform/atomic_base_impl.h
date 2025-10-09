@@ -18,6 +18,7 @@
 #define CHRE_PLATFORM_SLPI_ATOMIC_BASE_IMPL_H_
 
 #include "chre/platform/atomic.h"
+#include "chre/variant/config.h"
 
 extern "C" {
 
@@ -49,6 +50,51 @@ inline bool AtomicBool::exchange(bool desired) {
   qurt_atomic_barrier();
   return qurt_atomic_set(&mValue, static_cast<unsigned int>(desired));
 }
+
+#if CHRE_ATOMIC_UINT8_ENABLED
+inline AtomicUint8::AtomicUint8(uint8_t startingValue) {
+  mValue = startingValue;
+}
+
+inline uint8_t AtomicUint8::operator=(uint8_t desired) {
+  store(desired);
+  return desired;
+}
+
+inline uint8_t AtomicUint8::load() const {
+  qurt_atomic_barrier();
+  return mValue;
+}
+
+inline void AtomicUint8::store(uint8_t desired) {
+  exchange(desired);
+}
+
+inline uint8_t AtomicUint8::exchange(uint8_t desired) {
+  qurt_atomic_barrier();
+  return qurt_atomic_set(&mValue, desired);
+}
+
+inline uint8_t AtomicUint8::fetch_add(uint8_t arg) {
+  qurt_atomic_barrier();
+  return qurt_atomic_add_return(&mValue, arg);
+}
+
+inline uint8_t AtomicUint8::fetch_increment() {
+  qurt_atomic_barrier();
+  return qurt_atomic_add_return(&mValue, 1);
+}
+
+inline uint8_t AtomicUint8::fetch_sub(uint8_t arg) {
+  qurt_atomic_barrier();
+  return qurt_atomic_sub_return(&mValue, arg);
+}
+
+inline uint8_t AtomicUint8::fetch_decrement() {
+  qurt_atomic_barrier();
+  return qurt_atomic_sub_return(&mValue, 1);
+}
+#endif  // CHRE_ATOMIC_UINT8_ENABLED
 
 inline AtomicUint32::AtomicUint32(uint32_t startingValue) {
   mValue = startingValue;

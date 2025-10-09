@@ -17,6 +17,8 @@
 #ifndef CHRE_PLATFORM_ARM_ATOMIC_BASE_H_
 #define CHRE_PLATFORM_ARM_ATOMIC_BASE_H_
 
+#include "chre/variant/config.h"
+
 namespace chre {
 
 namespace atomic {
@@ -118,6 +120,60 @@ inline uint32_t subFromWord(volatile uint32_t *word, uint32_t arg) {
   return prevValue;
 }
 
+#if CHRE_ATOMIC_UINT8_ENABLED
+/**
+ * Atomically add a value to a byte.
+ *
+ * @param byte Pointer to a byte whose value is to be incremented.
+ * @param addend Value that is to be added to the byte.
+ * @return The byte's value before the addition was performed.
+ */
+inline uint8_t addToByte(volatile uint8_t *byte, uint8_t addend) {
+  uint8_t prevValue;
+  uint32_t storeFailed;
+  uint8_t tmp;
+
+  do {
+    asm volatile(
+        "ldrexb  %0,     [%4] \n"
+        "add     %2, %0, %3   \n"
+        "strexb  %1, %2, [%4] \n"
+        : "=&r"(prevValue), "=&r"(storeFailed), "=&r"(tmp), "=&r"(addend),
+          "=&r"(byte)
+        : "3"(addend), "4"(byte)
+        : "memory");
+  } while (storeFailed);
+
+  return prevValue;
+}
+
+/**
+ * Atomically subtract a value from a byte.
+ *
+ * @param byte Pointer to a byte which is to be decremented.
+ * @param arg Value to subtract from the byte.
+ * @return Value of the byte before the subtraction was performed.
+ */
+inline uint8_t subFromByte(volatile uint8_t *byte, uint8_t arg) {
+  uint8_t prevValue;
+  uint32_t storeFailed;
+  uint8_t tmp;
+
+  do {
+    asm volatile(
+        "ldrexb  %0,     [%4] \n"
+        "sub     %2, %0, %3   \n"
+        "strexb  %1, %2, [%4] \n"
+        : "=&r"(prevValue), "=&r"(storeFailed), "=&r"(tmp), "=&r"(arg),
+          "=&r"(byte)
+        : "3"(arg), "4"(byte)
+        : "memory");
+  } while (storeFailed);
+
+  return prevValue;
+}
+#endif  // CHRE_ATOMIC_UINT8_ENABLED
+
 }  // namespace atomic
 
 /**
@@ -176,6 +232,45 @@ class AtomicBoolBase : public AtomicBase<bool> {
                             desired);
   }
 };
+
+#if CHRE_ATOMIC_UINT8_ENABLED
+/**
+ * Base class implementation for the Atomic Uint8 type.
+ */
+class AtomicUint8Base : public AtomicBase<uint8_t> {
+ public:
+  /**
+   * Atomically swap the stored 8-bit byte with a new value.
+   *
+   * @param desired New value to be assigned to the stored 8-bit byte.
+   * @return Previous value of the stored 8-bit byte.
+   */
+  uint8_t swap(uint8_t desired) {
+    return atomic::swapByte(reinterpret_cast<volatile uint8_t *>(&mValue),
+                            desired);
+  }
+
+  /**
+   * Atomically add a new value to the stored 8-bit byte.
+   *
+   * @param arg Value to be added to the stored byte.
+   * @return Pre-addition value of the stored byte.
+   */
+  uint8_t add(uint8_t arg) {
+    return atomic::addToByte(&mValue, arg);
+  }
+
+  /**
+   * Atomically subtract a value from the stored 8-bit byte.
+   *
+   * @param arg Value to be subtracted from the stored byte.
+   * @return Pre-subtraction value of the stored byte.
+   */
+  uint8_t sub(uint8_t arg) {
+    return atomic::subFromByte(&mValue, arg);
+  }
+};
+#endif  // CHRE_ATOMIC_UINT8_ENABLED
 
 /**
  * Base class implementation for the Atomic Uint32 type.
