@@ -347,7 +347,7 @@ public class ContextHubMultiDeviceBleBeaconTestExecutor extends ContextHubBleTes
      */
     public void chreBleStartScanSyncWithBroadcasterAddressFilter(
                                                 String macAddress) throws Exception {
-        chreBleStartScanSync(getBroadcasterAddressFilter(macAddress));
+        chreBleStartScanSyncV1_9(getBroadcasterAddressFilter(macAddress));
     }
 
      /**
