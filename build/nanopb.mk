@@ -271,6 +271,7 @@ COMMON_SRCS += $(PIGWEED_DIR)/pw_assert_log/assert_log.cc
 COMMON_SRCS += $(PIGWEED_DIR)/pw_containers/intrusive_item.cc
 COMMON_SRCS += $(PIGWEED_DIR)/pw_protobuf/decoder.cc
 COMMON_SRCS += $(PIGWEED_DIR)/pw_protobuf/encoder.cc
+COMMON_SRCS += $(PIGWEED_DIR)/pw_protobuf/find.cc
 COMMON_SRCS += $(PIGWEED_DIR)/pw_protobuf/stream_decoder.cc
 COMMON_SRCS += $(PIGWEED_DIR)/pw_rpc/call.cc
 COMMON_SRCS += $(PIGWEED_DIR)/pw_rpc/channel.cc
