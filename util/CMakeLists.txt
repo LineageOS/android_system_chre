@@ -96,7 +96,6 @@ pw_add_library(chre.util.host INTERFACE
     include
 )
 
-
 pw_add_library(chre.util.nanoapp STATIC
   HEADERS
     include/chre/util/nanoapp/app_id.h
@@ -129,11 +128,21 @@ pw_add_library(chre.util.nanoapp STATIC
     nanoapp/wifi.cc
 )
 
+pw_add_library(chre.util.pigweed.allocators INTERFACE
+  HEADERS
+    include/chre/util/pigweed/default_pw_allocator.h
+    include/chre/util/pigweed/nanoapp_pw_allocator.h
+  PUBLIC_INCLUDES
+    include
+  PUBLIC_DEPS
+    chre.chre_api
+    chre.util
+    pw_allocator
+)
+
 pw_add_library(chre.util.pigweed STATIC
   HEADERS
     include/chre/util/pigweed/chre_channel_output.h
-    include/chre/util/pigweed/default_pw_allocator.h
-    include/chre/util/pigweed/nanoapp_pw_allocator.h
     include/chre/util/pigweed/permission.h
     include/chre/util/pigweed/rpc_client.h
     include/chre/util/pigweed/rpc_common.h
@@ -146,7 +155,6 @@ pw_add_library(chre.util.pigweed STATIC
     chre.util
     chre.util.nanoapp
     chre.variant.config
-    pw_allocator
     pw_rpc.client
     pw_rpc.common
     pw_rpc.server
