@@ -150,13 +150,10 @@ std::optional<int64_t> tryExtractEstimatedHostOffset(const std::string &str) {
  */
 std::string appendWalltimeToTimestamp(const std::string &str,
                                       std::optional<int64_t> hostOffset) {
-  if (hostOffset == std::nullopt) {
-    return str;
-  }
   // Regex to find timestamp keys ('ts=', 'time=', 'time(ns)=') followed by
   // digits. The negative lookahead `(?!ms)` ensures we skip timestamps
   // explicitly in milliseconds.
-  std::regex ts_regex(R"((ts=|time=|time\(ns\)=)(\d+)(?!ms))");
+  std::regex ts_regex(R"(\b(ts=|time=|time\(ns\)=)(\d+)(?!ms))");
   auto it = std::sregex_iterator(str.begin(), str.end(), ts_regex);
   auto end = std::sregex_iterator();
 
@@ -178,9 +175,12 @@ std::string appendWalltimeToTimestamp(const std::string &str,
     if (!success) {
       continue;
     }
-    ts_val += hostOffset.value();
-    ss << "ts=" << chre::formatNanos(ts_val) << " ["
-       << chre::realtimeNsToWallclockTime(ts_val) << "]";
+    ss << "ts=" << chre::formatNanos(ts_val);
+
+    if (hostOffset.has_value()) {
+      ts_val += hostOffset.value();
+      ss << " [" << chre::realtimeNsToWallclockTime(ts_val) << "]";
+    }
     last_pos = match.position() + match.length();
 
     if (last_pos + 1 < str.size() && str.substr(last_pos, 2) == "ns") {
