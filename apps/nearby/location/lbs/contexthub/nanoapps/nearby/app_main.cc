@@ -73,3 +73,10 @@ void nanoappHandleEvent(uint32_t sender_instance_id, uint16_t event_type,
   ::nearby::AppManagerSingleton::get()->HandleEvent(sender_instance_id,
                                                     event_type, event_data);
 }
+#ifdef SIMULATION_LOAD_STATIC
+#include "third_party/contexthub/chre/platform/include/chre/platform/static_nanoapp_init.h"
+
+CHRE_STATIC_NANOAPP_INIT(Nearby, 0x476f6f676c001031, 0x00000001,
+                         chre::NanoappPermissions::CHRE_PERMS_BLE)
+
+#endif

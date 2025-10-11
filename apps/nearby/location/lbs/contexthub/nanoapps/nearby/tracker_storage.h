@@ -7,6 +7,7 @@
 
 #include "chre_api/chre.h"
 #include "third_party/contexthub/chre/util/include/chre/util/dynamic_vector.h"
+#include "third_party/contexthub/chre/util/include/chre/util/segmented_queue.h"
 #include "third_party/contexthub/chre/util/include/chre/util/unique_ptr.h"
 
 namespace nearby {
@@ -92,8 +93,14 @@ struct TrackerReport {
 
 class TrackerStorage {
  public:
+  // Block size for tracker reports in segmented queue.
+  static constexpr size_t kTrackerReportsBlockSize = 10;
+  // Max blocks for tracker reports in segmented queue to hold up to 30 tracker
+  // reports defined in TrackerBatchConfig.
+  static constexpr size_t kTrackerReportsMaxBlocks = 3;
+
   // Constructs tracker storage.
-  TrackerStorage() = default;
+  TrackerStorage() : tracker_reports_(kTrackerReportsMaxBlocks) {}
 
   // Adds advertise report to tracker storage.
   void Push(const chreBleAdvertisingReport &report,
@@ -103,10 +110,13 @@ class TrackerStorage {
   void Refresh(const TrackerBatchConfig &config);
 
   // Clears tracker storage.
-  void Clear() { tracker_reports_.clear(); }
+  void Clear() {
+    while (!tracker_reports_.empty()) tracker_reports_.pop_front();
+  }
 
   // Return tracker batch reports in storage.
-  chre::DynamicVector<TrackerReport> &GetBatchReports() {
+  chre::SegmentedQueue<TrackerReport, kTrackerReportsBlockSize>
+      &GetBatchReports() {
     return tracker_reports_;
   }
 
@@ -120,9 +130,8 @@ class TrackerStorage {
   static constexpr size_t kDefaultTrackerHistorySize = 2;
 
   // Tracker batch reports.
-  // TODO(b/341757839): Optimize tracker storage memory using
-  // chre::SegmentedQueue to minimize heap fragmentation.
-  chre::DynamicVector<TrackerReport> tracker_reports_;
+  chre::SegmentedQueue<TrackerReport, kTrackerReportsBlockSize>
+      tracker_reports_;
 
   // Tracker storage event callback.
   TrackerStorageCallbackInterface *callback_ = nullptr;

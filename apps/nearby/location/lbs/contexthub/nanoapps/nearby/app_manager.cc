@@ -31,6 +31,7 @@
 #include "location/lbs/contexthub/nanoapps/proto/filter.nanopb.h"
 #include "third_party/contexthub/chre/util/include/chre/util/macros.h"
 #include "third_party/contexthub/chre/util/include/chre/util/nanoapp/log.h"
+#include "third_party/contexthub/chre/util/include/chre/util/segmented_queue.h"
 #include "third_party/contexthub/chre/util/include/chre/util/time.h"
 
 #define LOG_TAG "[NEARBY][APP_MANAGER]"
@@ -727,10 +728,13 @@ void AppManager::SendTrackerStorageFullEventToHost() {
 }
 
 void AppManager::SendTrackerReportsToHost(
-    chre::DynamicVector<TrackerReport> &tracker_reports) {
+    chre::SegmentedQueue<TrackerReport,
+                         TrackerStorage::kTrackerReportsBlockSize>&
+        tracker_reports) {
   last_tracker_report_flush_time_nanosec_ = chreGetTime();
   uint16_t host_end_point = tracker_filter_.GetHostEndPoint();
-  for (auto &tracker_report : tracker_reports) {
+  for (size_t i = 0; i < tracker_reports.size(); ++i) {
+    auto &tracker_report = tracker_reports[i];
     size_t encoded_size;
     uint8_t *msg_buf = (uint8_t *)chreHeapAlloc(kTrackerReportsBufSize);
     if (msg_buf == nullptr) {

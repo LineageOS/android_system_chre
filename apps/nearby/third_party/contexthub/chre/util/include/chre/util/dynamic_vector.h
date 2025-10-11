@@ -17,8 +17,10 @@
 #ifndef CHRE_UTIL_DYNAMIC_VECTOR_H_
 #define CHRE_UTIL_DYNAMIC_VECTOR_H_
 
+#include <cstddef>
 #include <type_traits>
 
+#include "chre/util/default_allocator_provider.h"
 #include "chre/util/dynamic_vector_base.h"
 
 namespace chre {
@@ -26,9 +28,20 @@ namespace chre {
 /**
  * A container for storing a sequential array of elements. This container
  * resizes dynamically using heap allocations.
+ *
+ * @param AllocatorProviderT The allocator provider to use for allocation.
+ * Must implement these functions:
+ *   - void* allocate(size_t size) - allocates memory of the given size
+ *   - template <typename T> T* allocateAlignedArray<T>(size_t size) - allocates
+ *     memory of suitable alignment to hold an array of the given object type,
+ *     which may exceed alignment of std::max_align_t and therefore excludes the
+ *     use of allocate().
+ *   - void deallocate(void *ptr) - deallocates the memory at the given address.
+ * @param ElementType The type of elements to store in the vector.
  */
-template <typename ElementType>
-class DynamicVector : private DynamicVectorBase {
+template <typename ElementType,
+          typename AllocatorProviderT = DefaultAllocatorProvider>
+class DynamicVector : protected AllocatorProviderT, private DynamicVectorBase {
  public:
   /**
    * Random-access iterator that points to some element in the container.
@@ -38,10 +51,7 @@ class DynamicVector : private DynamicVectorBase {
   typedef ElementType value_type;
   typedef size_t size_type;
 
-  /**
-   * Default-constructs a dynamic vector.
-   */
-  DynamicVector();
+  DynamicVector() = default;
 
   /**
    * Move-constructs a dynamic vector from another. The other dynamic vector is
@@ -49,13 +59,14 @@ class DynamicVector : private DynamicVectorBase {
    *
    * @param other The other vector to move from.
    */
-  DynamicVector(DynamicVector<ElementType> &&other);
+  DynamicVector(DynamicVector<ElementType, AllocatorProviderT> &&other);
 
   /**
    * Move assigns a dynamic vector from another. The other dynamic vector is
    * left in an empty state.
    */
-  DynamicVector &operator=(DynamicVector<ElementType> &&other);
+  DynamicVector &operator=(
+      DynamicVector<ElementType, AllocatorProviderT> &&other);
 
   /**
    * Destructs the objects and releases the memory owned by the vector.
@@ -169,7 +180,8 @@ class DynamicVector : private DynamicVectorBase {
    * @param Right-hand side vector to compared with.
    * @return true if two vectors are equal, false otherwise.
    */
-  bool operator==(const DynamicVector<ElementType> &other) const;
+  bool operator==(
+      const DynamicVector<ElementType, AllocatorProviderT> &other) const;
 
   /**
    * Resizes the vector to a new capacity returning true if allocation was
@@ -290,81 +302,33 @@ class DynamicVector : private DynamicVectorBase {
   /**
    * @return A random-access iterator to the beginning.
    */
-  typename DynamicVector<ElementType>::iterator begin();
-  typename DynamicVector<ElementType>::const_iterator begin() const;
-  typename DynamicVector<ElementType>::const_iterator cbegin() const;
+  typename DynamicVector<ElementType, AllocatorProviderT>::iterator begin();
+  typename DynamicVector<ElementType, AllocatorProviderT>::const_iterator
+  begin() const;
+  typename DynamicVector<ElementType, AllocatorProviderT>::const_iterator
+  cbegin() const;
 
   /**
    * @return A random-access iterator to the end.
    */
-  typename DynamicVector<ElementType>::iterator end();
-  typename DynamicVector<ElementType>::const_iterator end() const;
-  typename DynamicVector<ElementType>::const_iterator cend() const;
+  typename DynamicVector<ElementType, AllocatorProviderT>::iterator end();
+  typename DynamicVector<ElementType, AllocatorProviderT>::const_iterator end()
+      const;
+  typename DynamicVector<ElementType, AllocatorProviderT>::const_iterator cend()
+      const;
 
  private:
+  static constexpr bool canUseDynamicVectorBase() {
+    return (std::is_trivially_copyable_v<ElementType> &&
+            alignof(ElementType) <= alignof(std::max_align_t) &&
+            std::is_same_v<AllocatorProviderT, DefaultAllocatorProvider>);
+  }
+
   /**
    * Prepares the vector for insertion - upon successful return, the memory at
    * the given index will be allocated but uninitialized
-   *
-   * @param index
-   * @return true
    */
   bool prepareInsert(size_t index);
-
-  /**
-   * Performs the reserve operation for DynamicVector when ElementType is a
-   * trivial type. See {@link DynamicVector::reserve} for the rest of the
-   * details.
-   */
-  bool doReserve(size_type newCapacity, std::true_type);
-
-  /**
-   * Performs the reserve operation for DynamicVector when ElementType is a
-   * non-trivial type. See {@link DynamicVector::reserve} for the rest of the
-   * details.
-   */
-  bool doReserve(size_type newCapacity, std::false_type);
-
-  /**
-   * Performs the prepare for push operation for DynamicVector when ElementType
-   * is a trivial type. See {@link DynamicVector::prepareForPush} for the rest
-   * of the details.
-   */
-  bool doPrepareForPush(std::true_type);
-
-  /**
-   * Performs the prepare for push operation for DynamicVector when ElementType
-   * is a non-trivial type. See {@link DynamicVector::prepareForPush} for the
-   * rest of the details.
-   */
-  bool doPrepareForPush(std::false_type);
-
-  /**
-   * Performs the erase operation for DynamicVector when ElementType is a
-   * trivial type. See {@link DynamicVector::erase} for the rest of the details.
-   */
-  void doErase(size_type index, std::true_type);
-
-  /**
-   * Performs the erase operation for DynamicVector when ElementType is a
-   * non-trivial type. See {@link DynamicVector::erase} for the rest of the
-   * details.
-   */
-  void doErase(size_type index, std::false_type);
-
-  /**
-   * Performs the push back operation for DynamicVector when ElementType is a
-   * trivial type. See {@link DynamicVector::push_back} for the rest of the
-   * details.
-   */
-  bool doPushBack(const ElementType &element, std::true_type);
-
-  /**
-   * Performs the push back operation for DynamicVector when ElementType is a
-   * non-trivial type. See {@link DynamicVector::push_back} for the rest of the
-   * details.
-   */
-  bool doPushBack(const ElementType &element, std::false_type);
 };
 
 }  // namespace chre

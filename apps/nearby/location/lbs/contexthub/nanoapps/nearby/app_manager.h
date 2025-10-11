@@ -23,13 +23,13 @@
 #include "location/lbs/contexthub/nanoapps/nearby/tracker_filter.h"
 #include "location/lbs/contexthub/nanoapps/nearby/tracker_storage.h"
 #include "third_party/contexthub/chre/util/include/chre/util/dynamic_vector.h"
+#include "third_party/contexthub/chre/util/include/chre/util/segmented_queue.h"
 #include "third_party/nanopb/pb.h"
 #ifdef NEARBY_PROFILE
 #include <ash/profile.h>
 #endif
 
-#include <chre.h>
-
+#include "chre_api/chre.h"
 #include "location/lbs/contexthub/nanoapps/nearby/adv_report_cache.h"
 #include "location/lbs/contexthub/nanoapps/nearby/ble_scanner.h"
 #include "location/lbs/contexthub/nanoapps/nearby/filter.h"
@@ -145,7 +145,9 @@ class AppManager : public TrackerStorageCallbackInterface {
 
   // Sends tracker reports to host.
   void SendTrackerReportsToHost(
-      chre::DynamicVector<TrackerReport> &tracker_reports);
+      chre::SegmentedQueue<TrackerReport,
+                           TrackerStorage::kTrackerReportsBlockSize>
+          &tracker_reports);
 
   // TrackerStorageCallbackInterface API called when sending a tracker
   // storage full event to host.
