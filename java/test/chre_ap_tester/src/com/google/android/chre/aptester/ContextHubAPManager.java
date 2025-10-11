@@ -74,6 +74,7 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
         }
 
         mMainHandler = new Handler(Looper.getMainLooper());
+        nativeRegister(this);
         Log.i(TAG, "ContextHubAPManager initialized successfully.");
     }
 
@@ -93,6 +94,8 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
         }
         return sInstance;
     }
+
+    private native void nativeRegister(ContextHubAPManager instance);
 
     /**
      * Creates and registers a client to communicate with a simulated nanoapp.

@@ -15,9 +15,13 @@
  */
 
 #include "chre/platform/host_link.h"
+#include "chre/target_platform/host_link_base.h"
 
 #include "chre/core/event_loop_manager.h"
+#include "chre/platform/android/platform_log.h"
 #include "chre/platform/shared/host_protocol_chre.h"
+
+#include <cstdlib>
 
 namespace chre {
 
@@ -26,11 +30,18 @@ void HostLink::flushMessagesSentByNanoapp(uint64_t /* appId */) {
 }
 
 bool HostLink::sendMessage(const MessageToHost *message) {
-  // Just drop the message since we do not have a real host to send the message
-  EventLoopManagerSingleton::get()
-      ->getHostCommsManager()
-      .onMessageToHostComplete(message);
-  return true;
+  bool success = false;
+  if (mMessageCallback) {
+    mMessageCallback(message->appId, message->toHostData.messageType,
+                     message->message.data(), message->message.size());
+    EventLoopManagerSingleton::get()
+        ->getHostCommsManager()
+        .onMessageToHostComplete(message);
+    success = true;
+  }
+
+  free(message->message.data());
+  return success;
 }
 
 bool HostLink::sendMessageDeliveryStatus(uint32_t /* messageSequenceNumber */,
@@ -65,6 +76,11 @@ void HostLinkBase::sendNanConfiguration(bool enable) {
 #else
   UNUSED_VAR(enable);
 #endif
+}
+
+void HostLinkBase::registerMessageCallback(
+    const HostLinkBase::MessageCallback &callback) {
+  mMessageCallback = callback;
 }
 
 void HostMessageHandlers::sendFragmentResponse(uint16_t, uint32_t, uint32_t,

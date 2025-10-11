@@ -32,6 +32,46 @@
 // Global thread to run CHRE event loop.
 std::unique_ptr<std::thread> chreThread = nullptr;
 
+static JavaVM *g_javaVM = nullptr;
+static jobject g_contextHubAPManagerInstance = nullptr;
+static jmethodID g_onMessageMethodID = nullptr;
+
+void messageCallback(int64_t nanoAppId, int32_t messageType, void *messageBody,
+                     size_t messageBodyLen) {
+  ALOGD(
+      "Received nanoapp message, nanoAppid: %ld, messageType: %d, "
+      "message: %p, length: %lu",
+      nanoAppId, messageType, messageBody, messageBodyLen);
+
+  if (!g_javaVM || !g_contextHubAPManagerInstance || !g_onMessageMethodID) {
+    ALOGE("JNI environment not ready to call Java method.");
+    return;
+  }
+
+  JNIEnv *env;
+  jint attachResult = g_javaVM->AttachCurrentThread(&env, nullptr);
+  if (attachResult != JNI_OK) {
+    ALOGE("Failed to attach current thread to JVM.");
+    return;
+  }
+
+  jbyteArray messagePayload = env->NewByteArray(messageBodyLen);
+  env->SetByteArrayRegion(messagePayload, 0, messageBodyLen,
+                          reinterpret_cast<const jbyte *>(messageBody));
+
+  env->CallVoidMethod(g_contextHubAPManagerInstance, g_onMessageMethodID,
+                      static_cast<jlong>(nanoAppId),
+                      static_cast<jint>(messageType), messagePayload);
+  if (env->ExceptionCheck()) {
+    ALOGE("An exception occurred during the call to onMessageFromNanoApp.");
+    env->ExceptionDescribe();
+    env->ExceptionClear();
+  }
+
+  env->DeleteLocalRef(messagePayload);
+  g_javaVM->DetachCurrentThread();
+}
+
 static jint init(JNIEnv * /*env*/, jobject /*thiz*/) {
   if (chreThread != nullptr) {
     ALOGE("Environment already initialized");
@@ -42,12 +82,18 @@ static jint init(JNIEnv * /*env*/, jobject /*thiz*/) {
 
   chreThread = std::make_unique<std::thread>([&]() {
     chre::EventLoopManagerSingleton::get()->lateInit();
+
+    chre::EventLoopManagerSingleton::get()
+        ->getHostCommsManager()
+        .registerMessageCallback(messageCallback);
+    ALOGD("message callback function registered.");
+
     // Load static nanoapps unless they are disabled by a command-line flag.
     chre::loadStaticNanoapps();
-
     ALOGD("%zu nanoapps loaded", chre::EventLoopManagerSingleton::get()
                                      ->getEventLoop()
                                      .getNanoappCount());
+
     chre::EventLoopManagerSingleton::get()->getEventLoop().run();
   });
 
@@ -184,6 +230,7 @@ typedef union {
 
 // Called by the VM when the shared library is first loaded.
 jint JNI_OnLoad(JavaVM *vm, void * /*reserved*/) {
+  g_javaVM = vm;
   UnionJNIEnvToVoid uenv;
   uenv.venv = nullptr;
   JNIEnv *env = nullptr;
@@ -202,4 +249,34 @@ jint JNI_OnLoad(JavaVM *vm, void * /*reserved*/) {
   }
 
   return JNI_VERSION_1_6;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_google_android_chre_aptester_ContextHubAPManager_nativeRegister(
+    JNIEnv *env, jobject, jobject instance) {
+  if (g_contextHubAPManagerInstance != nullptr) {
+    env->DeleteGlobalRef(g_contextHubAPManagerInstance);
+  }
+  g_contextHubAPManagerInstance = env->NewGlobalRef(instance);
+  if (g_contextHubAPManagerInstance == nullptr) {
+    ALOGE("Failed to create global reference for ContextHubAPManager.");
+    return;
+  }
+
+  jclass managerClass = env->GetObjectClass(instance);
+  if (managerClass == nullptr) {
+    ALOGE("Failed to find class for ContextHubAPManager.");
+    return;
+  }
+
+  g_onMessageMethodID =
+      env->GetMethodID(managerClass, "onMessageFromNanoApp", "(JI[B)V");
+
+  if (g_onMessageMethodID == nullptr) {
+    ALOGE("Failed to find method 'onMessageFromNanoApp'.");
+  } else {
+    ALOGI("Successfully cached ContextHubAPManager instance and method ID.");
+  }
+
+  env->DeleteLocalRef(managerClass);
 }

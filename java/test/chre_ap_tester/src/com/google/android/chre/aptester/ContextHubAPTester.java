@@ -19,6 +19,8 @@ package com.google.android.chre.aptester;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.pm.ApplicationInfo;
+import android.hardware.location.ContextHubInfo;
+import android.hardware.location.NanoAppMessage;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -33,6 +35,7 @@ import android.widget.Toast;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.Set;
@@ -43,10 +46,12 @@ import java.util.zip.ZipFile;
 public class ContextHubAPTester extends Activity {
     private static final String TAG = "ContextHubAPTester";
 
+    // Declare a TextView to display the result
     private TextView mResultTextView;
     private Spinner mNanoappSpinner;
     private LinearLayout mNanoAppListLayout;
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
+    private TextView mMessageTextView;
 
     private Set<String> getBundledSoFileNames() {
         Set<String> soFileNames = new HashSet<>();
@@ -151,7 +156,9 @@ public class ContextHubAPTester extends Activity {
         }, 500);
     }
 
-    /** Called when the activity is first created. */
+    /**
+     * Called when the activity is first created.
+     */
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -163,6 +170,8 @@ public class ContextHubAPTester extends Activity {
         mNanoappSpinner = findViewById(R.id.nanoappSpinner);
         Button loadButton = findViewById(R.id.loadButton);
         mNanoAppListLayout = findViewById(R.id.nanoAppListLayout);
+        Button messageButton = findViewById(R.id.messageButton);
+        mMessageTextView = findViewById(R.id.messageTextView);
 
         populateDynamicNanoappList();
 
@@ -189,6 +198,20 @@ public class ContextHubAPTester extends Activity {
             mResultTextView.setText(
                     (success ? "Successfully loaded: " : "Failed to load: ") + selectedNanoapp);
             populateNanoAppListView();
+        });
+
+        // Create a Button to send message to Message World nanoapp.
+        var contextHub = new ContextHubInfo();
+        var callback = new MessageCallback(mMessageTextView);
+        var client = ContextHubAPManager.getInstance().createClient(contextHub, callback);
+        messageButton.setOnClickListener(v -> {
+            var message = NanoAppMessage.createMessageToNanoApp(
+                    0x0123456789000003L /*Message World Nanoapp ID*/, 100,
+                    "Test message".getBytes(StandardCharsets.UTF_8));
+            var result = client.sendMessageToNanoApp(message);
+            mMessageTextView.setText(
+                    "Sent message to Message World Nanoapp with res: "
+                    + result);
         });
     }
 }

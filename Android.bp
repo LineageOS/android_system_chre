@@ -1020,6 +1020,7 @@ cc_library_static {
         "variant/android/static_nanoapps.cc",
         "core/static_nanoapps.cc",
         "apps/sensor_world/sensor_world.cc",
+        "apps/message_world/message_world.cc",
     ],
     local_include_dirs: [
         "apps/include",

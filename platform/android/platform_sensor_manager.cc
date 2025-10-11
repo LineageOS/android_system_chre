@@ -151,6 +151,7 @@ void PlatformSensorManager::init() {
       mSensorManager, mLooper, 1 /* ident */, looperCallback, this);
   if (mSharedEventQueue == nullptr) {
     LOGE("Failed to create shared event queue");
+    return;
   }
 
   // Retrieves sensor list.
@@ -430,6 +431,11 @@ int PlatformSensorManagerBase::looperCallback(int /*fd*/, int /*events*/,
   for (ssize_t i = 0; i < numEvents; ++i) {
     const ASensorEvent &event = eventBuffer[i];
     const std::string key = eventKey(event);
+    auto it = chreEventByTypeAndSensor.find(key);
+    if (it == chreEventByTypeAndSensor.end()) {
+      LOGI("Ignore uninited event: %s", key.c_str());
+      continue;
+    }
     chreEvent &chreEvent = chreEventByTypeAndSensor[key];
     switch (event.type) {
       case ASENSOR_TYPE_ACCELEROMETER:

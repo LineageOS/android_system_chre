@@ -17,10 +17,16 @@
 #ifndef CHRE_PLATFORM_ANDROID_HOST_LINK_BASE_H_
 #define CHRE_PLATFORM_ANDROID_HOST_LINK_BASE_H_
 
+#include <functional>
+
 namespace chre {
 
 class HostLinkBase {
  public:
+  using MessageCallback =
+      std::function<void(int64_t nanoAppId, int32_t messageType,
+                         void *messageBody, size_t messageBodyLen)>;
+
   /**
    * Enqueues a NAN configuration request to be sent to the host.
    * For CHRE AP, the request is simply echoed back via a NAN configuration
@@ -30,6 +36,16 @@ class HostLinkBase {
    *        boolean's value.
    */
   void sendNanConfiguration(bool enable);
+
+  /**
+   * Registers a callback function to handle messages from nanoapp to host.
+   *
+   * @param callback The call back function.
+   */
+  void registerMessageCallback(const MessageCallback &callback);
+
+ protected:
+  MessageCallback mMessageCallback = nullptr;
 };
 
 }  // namespace chre

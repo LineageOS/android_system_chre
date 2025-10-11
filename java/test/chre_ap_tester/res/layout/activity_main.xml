@@ -40,7 +40,6 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="16dp"
             android:text="Destroy CHRE AP" />
-
     </LinearLayout>
 
     <LinearLayout
@@ -71,7 +70,6 @@
         android:layout_marginTop="8dp"
         android:gravity="center_vertical"
         android:orientation="vertical">
-
     </LinearLayout>
 
     <TextView
@@ -79,6 +77,22 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
+        android:text="Result will be shown here after clicking the button." />
+
+    <Button
+        android:id="@+id/messageButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:layout_marginStart="8dp"
+        android:text="Send message" />
+
+    <TextView
+        android:id="@+id/messageTextView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:layout_marginStart="8dp"
         android:text="Result will be shown here after clicking the button." />
 
 </LinearLayout>
