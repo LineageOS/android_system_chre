@@ -1,0 +1,33 @@
+cc_library_shared {
+    name: "nanoapp_hello_world",
+    srcs: [
+        "hello_world.cc",
+        ":chre_nanoapp_dso_srcs",
+    ],
+    defaults: [
+        "chre_android_common_cflags",
+    ],
+    cflags: [
+        "-DNANOAPP_ID=0x0123456789000001",
+        "-DNANOAPP_VERSION=0x00000001",
+        "-DNANOAPP_NAME_STRING=\"Hello World\"",
+        "-DNANOAPP_IS_SYSTEM_NANOAPP=0",
+        "-DNANOAPP_VENDOR_STRING = \"Google\"",
+        "-DNANOAPP_UNSTABLE_ID=\"nanoapp=hello_world@ap\"",
+    ],
+    include_dirs: [
+        "system/chre/chre_api/include",
+        "system/chre/chre_api/include/chre_api",
+        "system/chre/util/include",
+        "system/chre/platform/shared/nanoapp/include",
+        "system/chre/platform/include",
+        "system/chre/platform/android/include",
+    ],
+    static_libs: [
+        "pw_allocator",
+        "pw_span",
+    ],
+    shared_libs: [
+        "libchre_jni",
+    ],
+}

@@ -22,7 +22,7 @@ package {
 }
 
 cc_library_shared {
-    name: "libchredemojni",
+    name: "libchre_jni",
     // All of the source files that we will compile.
     srcs: ["native.cpp"],
     // All of the shared libraries we link against.

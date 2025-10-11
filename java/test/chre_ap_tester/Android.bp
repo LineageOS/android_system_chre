@@ -21,7 +21,10 @@ package {
 android_app {
     name: "ContextHubAPTester",
     srcs: ["**/*.java"],
-    jni_libs: ["libchredemojni"],
+    jni_libs: [
+        "libchre_jni",
+        "nanoapp_hello_world",
+    ],
     optimize: {
         enabled: false,
     },
@@ -29,5 +32,6 @@ android_app {
     dex_preopt: {
         enabled: false,
     },
+    resource_dirs: ["res"],
     use_embedded_native_libs: true,
 }

@@ -23,7 +23,7 @@
 
 #include <android/log_macros.h>
 
-#include <stdio.h>
+#include <cstdio>
 #include <memory>
 #include <thread>
 
@@ -91,6 +91,63 @@ static jboolean sendMessage(JNIEnv *env, jobject /*thiz*/, jlong nanoAppId,
   return true;
 }
 
+static jobjectArray listNanoapps(JNIEnv *env, jclass /*clazz*/) {
+  std::vector<std::pair<uint32_t, const char *>> nanoappInfoList;
+  auto nanoappCallback = [](const chre::Nanoapp *app, void *data) {
+    auto *list =
+        static_cast<std::vector<std::pair<uint32_t, const char *>> *>(data);
+    list->push_back({app->getInstanceId(), app->getAppName()});
+  };
+  chre::EventLoopManagerSingleton::get()->getEventLoop().forEachNanoapp(
+      nanoappCallback, &nanoappInfoList);
+
+  const char *nanoAppInfoClassName =
+      "com/google/android/chre/aptester/Native$NanoAppInfo";
+  jclass nanoAppInfoClass = env->FindClass(nanoAppInfoClassName);
+  if (nanoAppInfoClass == nullptr) {
+    ALOGE("Failed to find class '%s'", nanoAppInfoClassName);
+    return nullptr;
+  }
+
+  jmethodID constructor = env->GetMethodID(nanoAppInfoClass, "<init>", "()V");
+  jfieldID instanceIdField =
+      env->GetFieldID(nanoAppInfoClass, "mInstanceId", "J");
+  jfieldID nameField =
+      env->GetFieldID(nanoAppInfoClass, "mName", "Ljava/lang/String;");
+
+  if (constructor == nullptr || instanceIdField == nullptr ||
+      nameField == nullptr) {
+    ALOGE("Failed to find constructor or fields for NanoAppInfo");
+    return nullptr;
+  }
+
+  jobjectArray nanoAppArray =
+      env->NewObjectArray(nanoappInfoList.size(), nanoAppInfoClass, nullptr);
+  if (nanoAppArray == nullptr) {
+    ALOGE("Failed to create NanoAppInfo array");
+    return nullptr;
+  }
+
+  for (size_t i = 0; i < nanoappInfoList.size(); ++i) {
+    const auto &info = nanoappInfoList[i];
+
+    jobject nanoAppInfoObj = env->NewObject(nanoAppInfoClass, constructor);
+    env->SetLongField(nanoAppInfoObj, instanceIdField,
+                      static_cast<jlong>(info.first));
+
+    jstring nameStr = env->NewStringUTF(info.second);
+    env->SetObjectField(nanoAppInfoObj, nameField, nameStr);
+
+    env->SetObjectArrayElement(nanoAppArray, i, nanoAppInfoObj);
+
+    // Clean up local references created in the loop
+    env->DeleteLocalRef(nanoAppInfoObj);
+    env->DeleteLocalRef(nameStr);
+  }
+
+  return nanoAppArray;
+}
+
 static JNINativeMethod methods[] = {
     {"init", "()I", (void *)init},
     {"destroy", "()V", (void *)destroy},
@@ -99,6 +156,8 @@ static JNINativeMethod methods[] = {
      "(Ljava/lang/String;)Z",
      (void *)loadNanoAppFromFile},
     {"unloadNanoApp", "(J)Z", (void *)unloadNanoApp},
+    {"listNanoapps", "()[Lcom/google/android/chre/aptester/Native$NanoAppInfo;",
+     (void *)listNanoapps},
     {"sendMessage", "(JI[BI)Z", (void *)sendMessage}};
 
 // Register native methods for all classes we know about.

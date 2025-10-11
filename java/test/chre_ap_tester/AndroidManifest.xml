@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+
 <!-- Copyright (C) 2025 The Android Open Source Project
 
      Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,9 +16,12 @@
 -->
 
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-      package="com.google.android.chre.aptester">
+    package="com.google.android.chre.aptester">
+
     <application android:label="ContextHubAPTester">
-        <activity android:name="ContextHubAPTester" android:exported="true">
+        <activity
+            android:name="ContextHubAPTester"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
