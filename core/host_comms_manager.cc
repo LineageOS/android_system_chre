@@ -27,6 +27,7 @@
 #include "chre/platform/host_link.h"
 #include "chre/platform/log.h"
 #include "chre/util/duplicate_message_detector.h"
+#include "chre/util/lock_guard.h"
 #include "chre/util/macros.h"
 #include "chre/util/nested_data_ptr.h"
 #include "chre/util/optional.h"
@@ -210,8 +211,13 @@ bool HostCommsManager::sendMessageToHostFromNanoapp(
   bool success = false;
   if (isReliable) {
 #ifdef CHRE_RELIABLE_MESSAGE_SUPPORT_ENABLED
-    success = mTransactionManager.add(nanoapp->getInstanceId(),
-                                      &msgToHost->messageSequenceNumber);
+    {
+#if CHRE_MULTI_THREADING_ENABLED
+      LockGuard<Mutex> lock(mTransactionManagerMutex);
+#endif  // CHRE_MULTI_THREADING_ENABLED
+      success = mTransactionManager.add(nanoapp->getInstanceId(),
+                                        &msgToHost->messageSequenceNumber);
+    }
 #endif  // CHRE_RELIABLE_MESSAGE_SUPPORT_ENABLED
   } else {
     success = doSendMessageToHostFromNanoapp(nanoapp, msgToHost);
@@ -411,11 +417,9 @@ void HostCommsManager::freeMessageToHost(MessageToHost *msgToHost) {
   }
 #ifdef CHRE_RELIABLE_MESSAGE_SUPPORT_ENABLED
   if (msgToHost->isReliable) {
-    // TODO(b/435246073): Reconcile thread safety when moving to multi-threaded
-    // CHRE.
-    static_assert(CHRE_MULTI_THREADING_ENABLED == 0,
-                  "Host comms manager must be updated for"
-                  " multi-threading");
+#if CHRE_MULTI_THREADING_ENABLED
+    LockGuard<Mutex> lock(mTransactionManagerMutex);
+#endif  // CHRE_MULTI_THREADING_ENABLED
     mTransactionManager.remove(msgToHost->messageSequenceNumber);
   }
 #endif  // CHRE_RELIABLE_MESSAGE_SUPPORT_ENABLED
