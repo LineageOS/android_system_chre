@@ -26,7 +26,6 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
-#include <vector>
 
 namespace chre {
 namespace {
@@ -57,9 +56,15 @@ static std::optional<uint8_t> mapAndroidToChreSensorType(
       return CHRE_SENSOR_TYPE_ACCELEROMETER;
     case ASENSOR_TYPE_ACCELEROMETER_UNCALIBRATED:
       return CHRE_SENSOR_TYPE_UNCALIBRATED_ACCELEROMETER;
+    case ASENSOR_TYPE_PRESSURE:
+      return CHRE_SENSOR_TYPE_PRESSURE;
     default:
       return std::nullopt;
   }
+}
+
+std::string eventKey(const ASensorEvent &event) {
+  return std::format("{}:{}", event.type, event.sensor);
 }
 }  // namespace
 
@@ -265,6 +270,9 @@ bool PlatformSensorManager::configureSensor(Sensor &sensor,
                                       context->androidSensor);
       context->enabled = false;
     }
+  } else {
+    LOGE("Unsupported CHRE sensor mode: %d", mode);
+    return false;
   }
 
   // Send status update on success.
@@ -322,6 +330,71 @@ void PlatformSensorManager::releaseBiasEvent(void *data) {
   chre::memoryFree(data);
 }
 
+void PlatformSensorManagerBase::fillAccelerometerEvent(
+    const ASensorEvent &event, chreEvent &chreEvent,
+    struct chreSensorThreeAxisData **pEvent) {
+  if (*pEvent == nullptr) {
+    // Alloc memory.
+    size_t total_size =
+        sizeof(struct chreSensorThreeAxisData) +
+        sizeof(struct chreSensorThreeAxisData::chreSensorThreeAxisSampleData) *
+            (chreEvent.dataSize - 1);
+    *pEvent = (struct chreSensorThreeAxisData *)malloc(total_size);
+    // Fill in the header data based on the first sensor event.
+    (*pEvent)->header.sensorHandle = chreEvent.context->chreSensorHandle;
+    (*pEvent)->header.readingCount = chreEvent.dataSize;
+    // Assuming that the first event has the earliest timestamp of all
+    // events.
+    (*pEvent)->header.baseTimestamp = event.timestamp;
+    (*pEvent)->header.accuracy =
+        event.type == ASENSOR_TYPE_ACCELEROMETER
+            ? mapAndroidAccuracyToChre(event.acceleration.status)
+            : CHRE_SENSOR_ACCURACY_UNRELIABLE;
+    (*pEvent)->header.reserved = 0;
+  }
+  // Fill in data for accelerometer
+  size_t index = chreEvent.currentIndex;
+  ++chreEvent.currentIndex;
+  (*pEvent)->readings[index].timestampDelta =
+      event.timestamp - (*pEvent)->header.baseTimestamp;
+  if (event.type == ASENSOR_TYPE_ACCELEROMETER) {
+    (*pEvent)->readings[index].v[0] = event.acceleration.x;
+    (*pEvent)->readings[index].v[1] = event.acceleration.y;
+    (*pEvent)->readings[index].v[2] = event.acceleration.z;
+  } else if (event.type == ASENSOR_TYPE_ACCELEROMETER_UNCALIBRATED) {
+    (*pEvent)->readings[index].v[0] = event.uncalibrated_acceleration.x_uncalib;
+    (*pEvent)->readings[index].v[1] = event.uncalibrated_acceleration.y_uncalib;
+    (*pEvent)->readings[index].v[2] = event.uncalibrated_acceleration.z_uncalib;
+  }
+}
+
+void PlatformSensorManagerBase::fillBarometerEvent(
+    const ASensorEvent &event, chreEvent &chreEvent,
+    struct chreSensorFloatData **pEvent) {
+  if (*pEvent == nullptr) {
+    // Alloc memory.
+    size_t total_size =
+        sizeof(struct chreSensorFloatData) +
+        sizeof(struct chreSensorFloatData::chreSensorFloatSampleData) *
+            (chreEvent.dataSize - 1);
+    *pEvent = (struct chreSensorFloatData *)malloc(total_size);
+    // Fill in the header data based on the first sensor event.
+    (*pEvent)->header.sensorHandle = chreEvent.context->chreSensorHandle;
+    (*pEvent)->header.readingCount = chreEvent.dataSize;
+    // Assuming that the first event has the earliest timestamp of all
+    // events.
+    (*pEvent)->header.baseTimestamp = event.timestamp;
+    (*pEvent)->header.accuracy = CHRE_SENSOR_ACCURACY_UNRELIABLE;
+    (*pEvent)->header.reserved = 0;
+  }
+  // Fill in data for accelerometer
+  size_t index = chreEvent.currentIndex;
+  ++chreEvent.currentIndex;
+  (*pEvent)->readings[index].timestampDelta =
+      event.timestamp - (*pEvent)->header.baseTimestamp;
+  (*pEvent)->readings[index].pressure = event.pressure;
+}
+
 // NDK Looper callback function. Now a static member of the class.
 int PlatformSensorManagerBase::looperCallback(int /*fd*/, int /*events*/,
                                               void *data) {
@@ -331,96 +404,63 @@ int PlatformSensorManagerBase::looperCallback(int /*fd*/, int /*events*/,
   ssize_t numEvents = ASensorEventQueue_getEvents(
       manager->mSharedEventQueue, eventBuffer.data(), MAX_EVENT_BUFFER_SIZE);
 
-  // Groups incoming events by eventType+sensor.
-  // TODO(b/445584823): implement this in a more efficient way.
-  std::unordered_map<std::string, std::vector<ASensorEvent *>>
-      eventMapByTypeAndSensor;
+  // Create chreEvent by type+sensor and count the sample data size of each
+  // event.
+  std::unordered_map<std::string, chreEvent> chreEventByTypeAndSensor;
   for (ssize_t i = 0; i < numEvents; ++i) {
-    eventMapByTypeAndSensor[std::format("{}:{}", eventBuffer[i].type,
-                                        eventBuffer[i].sensor)]
-        .push_back(&eventBuffer[i]);
-  }
-
-  // Processes events by type+sensor.
-  for (const auto &elem : eventMapByTypeAndSensor) {
-    const std::vector<ASensorEvent *> &events = elem.second;
-    if (events.empty()) {
-      LOGW("Empty event list.");
-      continue;
-    }
+    const ASensorEvent &event = eventBuffer[i];
     // Find the corresponding CHRE sensor handle using the map.
-    auto it = manager->mAndroidHandleToChreHandleMap.find(events.at(0)->sensor);
+    auto it = manager->mAndroidHandleToChreHandleMap.find(event.sensor);
     if (it == manager->mAndroidHandleToChreHandleMap.end()) {
       LOGW("Received event for unknown Android sensor handle: %d",
-           events.at(0)->sensor);
+           event.sensor);
       continue;
     }
-    uint32_t chreSensorHandle = it->second;
-    struct SensorContext &context =
-        manager->mSensorContextArray[chreSensorHandle];
-    processEvents(context, events);
+    // Increase the sample data size of this event group.
+    const std::string key = eventKey(event);
+    chreEvent &chreEvent = chreEventByTypeAndSensor[key];
+    if (chreEvent.context == nullptr) {
+      uint32_t chreSensorHandle = it->second;
+      chreEvent.context = &manager->mSensorContextArray[chreSensorHandle];
+    }
+    ++chreEvent.dataSize;
+  }
+
+  // Loop event buffer again to fill in the real chreEvent data.
+  for (ssize_t i = 0; i < numEvents; ++i) {
+    const ASensorEvent &event = eventBuffer[i];
+    const std::string key = eventKey(event);
+    chreEvent &chreEvent = chreEventByTypeAndSensor[key];
+    switch (event.type) {
+      case ASENSOR_TYPE_ACCELEROMETER:
+      case ASENSOR_TYPE_ACCELEROMETER_UNCALIBRATED: {
+        struct chreSensorThreeAxisData **pEvent =
+            (struct chreSensorThreeAxisData **)&chreEvent.event;
+        fillAccelerometerEvent(event, chreEvent, pEvent);
+        break;
+      }
+      case ASENSOR_TYPE_PRESSURE: {
+        struct chreSensorFloatData **pEvent =
+            (struct chreSensorFloatData **)&chreEvent.event;
+        fillBarometerEvent(event, chreEvent, pEvent);
+        break;
+      }
+      default:
+        LOGW("Received event for unsupported sensor type: %d", event.type);
+        break;
+    }
+  }
+
+  // Sends CHRE events
+  for (const auto &elem : chreEventByTypeAndSensor) {
+    const chreEvent &chreEvent = elem.second;
+    EventLoopManagerSingleton::get()
+        ->getSensorRequestManager()
+        .handleSensorDataEvent(chreEvent.context->chreSensorHandle,
+                               chreEvent.event);
   }
 
   // Return 1 to continue receiving callbacks.
   return 1;
-}
-
-void PlatformSensorManagerBase::processEvents(
-    struct SensorContext &context, const std::vector<ASensorEvent *> &events) {
-  int32_t eventType = events.at(0)->type;
-
-  if (eventType == ASENSOR_TYPE_ACCELEROMETER ||
-      eventType == ASENSOR_TYPE_ACCELEROMETER_UNCALIBRATED) {
-    size_t total_size =
-        sizeof(struct chreSensorThreeAxisData) +
-        sizeof(struct chreSensorThreeAxisData::chreSensorThreeAxisSampleData) *
-            (events.size() - 1);
-    struct chreSensorThreeAxisData *chreEvent =
-        (struct chreSensorThreeAxisData *)malloc(total_size);
-    if (chreEvent == nullptr) {
-      LOGE("Failed to allocate memory for sensor data event of type: ",
-           eventType);
-      return;
-    }
-
-    // Fill in the header data
-    chreEvent->header.sensorHandle = context.chreSensorHandle;
-    chreEvent->header.readingCount = events.size();
-    // Assuming that the first event has the earliest timestamp of all events.
-    auto baseTimestamp = events.at(0)->timestamp;
-    chreEvent->header.baseTimestamp = baseTimestamp;
-    chreEvent->header.accuracy =
-        eventType == ASENSOR_TYPE_ACCELEROMETER
-            ? mapAndroidAccuracyToChre(events.at(0)->acceleration.status)
-            : CHRE_SENSOR_ACCURACY_UNRELIABLE;
-    chreEvent->header.reserved = 0;
-
-    // Fill in data for accelerometer
-    for (ssize_t i = 0; i < events.size(); ++i) {
-      const ASensorEvent *event = events.at(i);
-      if (eventType == ASENSOR_TYPE_ACCELEROMETER) {
-        chreEvent->readings[i].timestampDelta =
-            events.at(i)->timestamp - baseTimestamp;
-        chreEvent->readings[i].v[0] = event->acceleration.x;
-        chreEvent->readings[i].v[1] = event->acceleration.y;
-        chreEvent->readings[i].v[2] = event->acceleration.z;
-      } else if (eventType == ASENSOR_TYPE_ACCELEROMETER_UNCALIBRATED) {
-        chreEvent->readings[i].timestampDelta =
-            events.at(i)->timestamp - baseTimestamp;
-        chreEvent->readings[i].v[0] =
-            event->uncalibrated_acceleration.x_uncalib;
-        chreEvent->readings[i].v[1] =
-            event->uncalibrated_acceleration.y_uncalib;
-        chreEvent->readings[i].v[2] =
-            event->uncalibrated_acceleration.z_uncalib;
-      }
-    }
-    EventLoopManagerSingleton::get()
-        ->getSensorRequestManager()
-        .handleSensorDataEvent(context.chreSensorHandle, chreEvent);
-    return;
-  }
-
-  LOGW("Unknown sensor event type: %d", events.at(0)->type);
 }
 }  // namespace chre

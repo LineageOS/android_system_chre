@@ -66,9 +66,25 @@ class PlatformSensorManagerBase {
   // Looper callback function.
   static int looperCallback(int fd, int events, void *data);
 
-  // Processes events.
-  static void processEvents(struct SensorContext &context,
-                            const std::vector<ASensorEvent *> &events);
+  // The struct used to store the CHRE event returned when processing a batch of
+  // sensor events.
+  struct chreEvent {
+    // The real event data.
+    void *event = nullptr;
+    // Context of the sensor that this event belongs to.
+    struct SensorContext *context;
+    // The data sample size in the chre event.
+    size_t dataSize = 0;
+    // The index used to fill in the chre event.
+    size_t currentIndex = 0;
+  };
+
+  static void fillAccelerometerEvent(const ASensorEvent &event,
+                                     chreEvent &chreEvent,
+                                     struct chreSensorThreeAxisData **pEvent);
+  static void fillBarometerEvent(const ASensorEvent &event,
+                                 chreEvent &chreEvent,
+                                 struct chreSensorFloatData **pEvent);
 };
 
 }  // namespace chre
