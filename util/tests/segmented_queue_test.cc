@@ -503,6 +503,140 @@ TEST(SegmentedQueue, RemoveALotOFMatchItems) {
   }
 }
 
+TEST(SegmentedQueue, Iterator) {
+  constexpr uint8_t blockSize = 5;
+  constexpr uint8_t maxBlockCount = 3;
+  SegmentedQueue<int, blockSize> segmentedQueue(maxBlockCount);
+
+  for (uint32_t i = 0; i < blockSize * maxBlockCount; ++i) {
+    segmentedQueue.push_back(i);
+  }
+
+  int expectedValue = 0;
+  for (auto &value : segmentedQueue) {
+    EXPECT_EQ(value, expectedValue++);
+  }
+
+  // Test modifying through iterator
+  for (auto &value : segmentedQueue) {
+    value = 99;
+  }
+  for (const auto &value : segmentedQueue) {
+    EXPECT_EQ(value, 99);
+  }
+
+  // Test post-increment
+  int expectedValue2 = 0;
+  for (auto it = segmentedQueue.begin(); it != segmentedQueue.end(); it++) {
+    // Set back to original values
+    *it = expectedValue2++;
+  }
+
+  // Verify values were set correctly
+  expectedValue2 = 0;
+  for (const auto &value : segmentedQueue) {
+    EXPECT_EQ(value, expectedValue2++);
+  }
+}
+
+TEST(SegmentedQueue, ConstIterator) {
+  constexpr uint8_t blockSize = 5;
+  constexpr uint8_t maxBlockCount = 3;
+  SegmentedQueue<int, blockSize> segmentedQueue(maxBlockCount);
+
+  for (uint32_t i = 0; i < blockSize * maxBlockCount; ++i) {
+    segmentedQueue.push_back(i);
+  }
+
+  const SegmentedQueue<int, blockSize> &constQueue = segmentedQueue;
+  int expectedValue = 0;
+  for (const auto &value : constQueue) {
+    EXPECT_EQ(value, expectedValue++);
+  }
+
+  // The following should not compile.
+  // for (auto &value : constQueue) {
+  //   value = 99;
+  // }
+}
+
+TEST(SegmentedQueue, IteratorEmptyQueue) {
+  constexpr uint8_t blockSize = 5;
+  SegmentedQueue<int, blockSize> segmentedQueue(1);
+  int count = 0;
+  for (auto &value : segmentedQueue) {
+    static_cast<void>(value);
+    count++;
+  }
+  EXPECT_EQ(count, 0);
+
+  const auto &constQueue = segmentedQueue;
+  for (const auto &value : constQueue) {
+    static_cast<void>(value);
+    count++;
+  }
+  EXPECT_EQ(count, 0);
+}
+
+TEST(SegmentedQueue, IteratorWithOffsetHead) {
+  constexpr uint8_t blockSize = 5;
+  constexpr uint8_t maxBlockCount = 3;
+  SegmentedQueue<int, blockSize> segmentedQueue(maxBlockCount);
+  const size_t capacity = blockSize * maxBlockCount;
+
+  // Fill the queue
+  for (uint32_t i = 0; i < capacity; ++i) {
+    segmentedQueue.push_back(i);
+  }
+
+  // Pop some elements to shift mHead
+  int popCount = 3;
+  for (int i = 0; i < popCount; ++i) {
+    segmentedQueue.pop_front();
+  }
+
+  // Add some more elements to potentially wrap around
+  for (uint32_t i = 0; i < popCount; ++i) {
+    segmentedQueue.push_back(capacity + i);
+  }
+
+  // Check iteration
+  int i = 0;
+  for (const auto &value : segmentedQueue) {
+    int expectedValue = (i < capacity - popCount)
+                            ? (i + popCount)
+                            : (capacity + i - (capacity - popCount));
+    EXPECT_EQ(value, expectedValue);
+    i++;
+  }
+  EXPECT_EQ(segmentedQueue.size(), capacity);
+
+  // Test equality operator
+  auto it1 = segmentedQueue.begin();
+  auto it2 = segmentedQueue.begin();
+  EXPECT_TRUE(it1 == it2);
+  it1++;
+  EXPECT_FALSE(it1 == it2);
+  it2++;
+  EXPECT_TRUE(it1 == it2);
+}
+
+TEST(SegmentedQueue, IteratorDifferentQueues) {
+  constexpr uint8_t blockSize = 5;
+  constexpr uint8_t maxBlockCount = 3;
+  SegmentedQueue<int, blockSize> segmentedQueue1(maxBlockCount);
+  SegmentedQueue<int, blockSize> segmentedQueue2(maxBlockCount);
+
+  segmentedQueue1.push_back(1);
+  segmentedQueue2.push_back(1);
+
+  auto it1 = segmentedQueue1.begin();
+  auto it2 = segmentedQueue2.begin();
+
+  EXPECT_FALSE(it1 == it2);
+  EXPECT_TRUE(it1 != it2);
+}
+
 TEST(SegmentedQueue, PseudoRandomStressTest) {
   // This test uses std::deque as reference implementation to make sure
   // that chre::SegmentedQueue is functioning correctly.
