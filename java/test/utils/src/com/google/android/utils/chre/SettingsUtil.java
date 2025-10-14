@@ -199,9 +199,13 @@ public class SettingsUtil {
                     mInstrumentation, "cmd connectivity airplane-mode " + value);
 
             boolean success = listener.mAirplaneModeLatch.await(10, TimeUnit.SECONDS);
+            if (!success) {
+              // Double check just to make sure
+              success = isAirplaneModeOn() == enable;
+            }
             Assert.assertTrue("Timeout waiting for signal: set airplane mode", success);
-            // Wait 1 additional second to make sure setting gets propagated to CHRE
-            Thread.sleep(1000);
+            // Wait for setting gets propagated to CHRE, longer if turning off airplane mode
+            Thread.sleep(enable ? 1000 : 3000);
             Assert.assertTrue(isAirplaneModeOn() == enable);
             mContext.unregisterReceiver(listener.mAirplaneModeReceiver);
         }
