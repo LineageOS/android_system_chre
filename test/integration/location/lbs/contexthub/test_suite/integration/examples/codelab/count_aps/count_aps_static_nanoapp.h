@@ -14,7 +14,8 @@
  * limitations under the License.
  */
 
-#include "examples/codelab/count_aps/count_aps_static_nanoapp.h"
+#ifndef LOCATION_LBS_CONTEXTHUB_TEST_SUITE_INTEGRATION_EXAMPLES_CODELAB_COUNT_APS_COUNT_APS_STATIC_NANOAPP_H_
+#define LOCATION_LBS_CONTEXTHUB_TEST_SUITE_INTEGRATION_EXAMPLES_CODELAB_COUNT_APS_COUNT_APS_STATIC_NANOAPP_H_
 
 #include "chre/core/nanoapp.h"
 #include "chre/core/static_nanoapps.h"
@@ -22,8 +23,12 @@
 
 namespace chre {
 
-const StaticNanoappInitFunction kStaticNanoappList[] = {
-    initializeStaticNanoappCountAps,
-};
-const size_t kStaticNanoappCount = ARRAY_SIZE(kStaticNanoappList);
+/**
+ * @return a unique_ptr to a new Nanoapp instance that provides
+ * functionality to count Access Points.
+ */
+UniquePtr<Nanoapp> initializeStaticNanoappCountAps();
+
 }  // namespace chre
+
+#endif  // LOCATION_LBS_CONTEXTHUB_TEST_SUITE_INTEGRATION_EXAMPLES_CODELAB_COUNT_APS_COUNT_APS_STATIC_NANOAPP_H_

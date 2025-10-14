@@ -39,9 +39,7 @@ class ScenarioThree : public lbs::contexthub::testing::DataFeedBase {
     AddPassiveWifiScanAtTime(12 * kSecsToNano, 7);
   }
 
-  uint32_t GetCapabilitiesBle() override {
-    return CHRE_BLE_CAPABILITIES_NONE;
-  }
+  uint32_t GetCapabilitiesBle() override { return CHRE_BLE_CAPABILITIES_NONE; }
 
   uint32_t GetFilterCapabilitiesBle() override {
     return CHRE_BLE_FILTER_CAPABILITIES_NONE;
@@ -59,13 +57,9 @@ class ScenarioThree : public lbs::contexthub::testing::DataFeedBase {
     return CHRE_WIFI_CAPABILITIES_SCAN_MONITORING;
   }
 
-  uint32_t GetSensorCount() override {
-    return 0;
-  }
+  const std::vector<chreSensorInfo> GetSensors() override { return {}; }
 
-  uint32_t GetAudioSourceCount() override {
-    return 0;
-  }
+  uint32_t GetAudioSourceCount() override { return 0; }
 
  private:
   void AddPassiveWifiScanAtTime(uint64_t t_ns, int nb_of_aps);
@@ -89,3 +83,4 @@ INTEGRATION_TEST(NanoappTest, ScenarioThree, ScenarioTwoTest) {
 }
 
 }  // namespace
+

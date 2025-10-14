@@ -146,8 +146,7 @@ class DataFeedBase {
   std::map<uint64_t, std::pair<uint8_t, bool>> setting_events_;
 
   // return 0 for no sensor support, n > 0 for sensor support.
-  virtual uint32_t GetSensorCount() = 0;
-  virtual std::vector<chreSensorInfo> GetSensors();
+  virtual const std::vector<chreSensorInfo> GetSensors();
   virtual SafeChreSensorSamplingStatus *absl_nullable GetSamplingStatusUpdate(
       uint64_t t_ns, uint32_t sensor_info_index, uint64_t requested_interval_ns,
       uint64_t requested_latency_ns);

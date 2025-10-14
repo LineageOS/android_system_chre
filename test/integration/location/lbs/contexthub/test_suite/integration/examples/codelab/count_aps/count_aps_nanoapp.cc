@@ -32,7 +32,10 @@
 
 int cookie_nb = 433;
 
+#ifdef SIMULATION_LOAD_STATIC
 namespace chre {
+namespace {
+#endif  //  SIMULATION_LOAD_STATIC
 
 bool nanoappStart(void) {
   LOGD("Nanoapp successfully started.");
@@ -57,9 +60,10 @@ void nanoappHandleEvent(uint32_t /* sender_instance_id */, uint16_t event_type,
     }
   }
 }
-}  // namespace chre
 
 #ifdef SIMULATION_LOAD_STATIC
+}  // namespace
+}  // namespace chre
 
 #include "chre/platform/static_nanoapp_init.h"
 

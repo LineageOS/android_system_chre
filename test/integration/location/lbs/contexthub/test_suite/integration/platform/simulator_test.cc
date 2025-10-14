@@ -19,20 +19,25 @@
 #include <chre.h>
 #include <stdlib.h>
 
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <thread>  // NOLINT(build/c++11)
 #include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
 #include "absl/base/casts.h"
+#include "absl/log/check.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -85,7 +90,7 @@ class MessageToHostDataClass : public DataFeedBase {
     return CHRE_WIFI_CAPABILITIES_NONE;
   }
 
-  uint32_t GetSensorCount() override { return 0; }
+  const std::vector<chreSensorInfo> GetSensors() override { return {}; }
 
   uint32_t GetAudioSourceCount() override { return 0; }
 };
@@ -153,7 +158,7 @@ class BleDataClass : public DataFeedBase {
     return CHRE_WIFI_CAPABILITIES_NONE;
   }
 
-  uint32_t GetSensorCount() override { return 0; }
+  const std::vector<chreSensorInfo> GetSensors() override { return {}; }
 
   uint32_t GetAudioSourceCount() override { return 0; }
 
@@ -236,8 +241,6 @@ class GnssDataClass : public DataFeedBase {
     return CHRE_WIFI_CAPABILITIES_NONE;
   }
 
-  uint32_t GetSensorCount() override { return 0; }
-
   uint32_t GetAudioSourceCount() override { return 0; }
 };
 
@@ -308,7 +311,7 @@ class WwanDataClass : public DataFeedBase {
     return CHRE_WIFI_CAPABILITIES_NONE;
   }
 
-  uint32_t GetSensorCount() override { return 0; }
+  const std::vector<chreSensorInfo> GetSensors() override { return {}; }
 
   uint32_t GetAudioSourceCount() override { return 0; }
 
@@ -392,7 +395,7 @@ class WifiDataClass : public DataFeedBase {
              CHRE_WIFI_CAPABILITIES_RTT_RANGING;
   }
 
-  uint32_t GetSensorCount() override { return 0; }
+  const std::vector<chreSensorInfo> GetSensors() override { return {}; }
 
   uint32_t GetAudioSourceCount() override { return 0; }
 
@@ -541,11 +544,9 @@ class SensorDataClass : public DataFeedBase {
     return CHRE_WIFI_CAPABILITIES_NONE;
   }
 
-  uint32_t GetSensorCount() override { return 1; }
-
   uint32_t GetAudioSourceCount() override { return 0; }
 
-  std::vector<chreSensorInfo> GetSensors() override {
+  const std::vector<chreSensorInfo> GetSensors() override {
     if (!define_all_functions_) return std::vector<chreSensorInfo>();
     std::vector<chreSensorInfo> ret = {chreSensorInfo{
         .sensorName = "sensor",
@@ -592,31 +593,6 @@ class SensorDataClass : public DataFeedBase {
   }
 };
 
-TEST(SimulatorVerifyTest, VerifyData_SensorVerifyTest) {
-  std::stringstream buffer;
-  std::cerr.rdbuf(buffer.rdbuf());
-
-  SensorDataClass data(false, 2);
-  EXPECT_FALSE(Simulator::VerifyValidData(&data));
-  auto text = buffer.view();
-  EXPECT_EQ(CountOccurrences(text, kVerifyDataInvalidData), 3);
-  EXPECT_GT(CountOccurrences(text, kVerifyDataReceivedSensorGetSensorsAtTime),
-            0);
-  EXPECT_GT(CountOccurrences(
-                text, kVerifyDataReceivedSensorGetSamplingStatusUpdateAtTime),
-            0);
-  EXPECT_GT(
-      CountOccurrences(text, kVerifyDataReceivedSensorConfigureSensorAtTime),
-      0);
-  buffer.str("");
-
-  SensorDataClass data2(true, 2);
-  EXPECT_TRUE(Simulator::VerifyValidData(&data2));
-  text = buffer.view();
-  EXPECT_EQ(CountOccurrences(text, kVerifyDataInvalidData), 0);
-  buffer.str("");
-}
-
 TEST(SimulatorVerifyTest, VerifyData_SensorBiasVerifyTest) {
   std::stringstream buffer;
   std::cerr.rdbuf(buffer.rdbuf());
@@ -642,6 +618,11 @@ TEST(SimulatorVerifyTest, VerifyData_SensorBiasVerifyTest) {
 }
 
 /************************* Simulator Core Tests *******************************/
+class SimulatorCoreTest;
+class BleData;
+
+// This is used to access the test fixture from the lambda functions.
+SimulatorCoreTest* gCurrentTest = nullptr;
 
 struct VerificationData {
   int event_type;
@@ -653,49 +634,81 @@ struct VerificationData {
 class SimulatorCoreTest : public ::testing::Test {
  public:
   Simulator* sim_;
-  static std::vector<VerificationData>* data_;
-  // pair of sensor index and flush id
-  static std::vector<std::pair<uint32_t, uint32_t>>* flush_responses_;
-  static uint64_t time_since_epoch_;
-  static bool wifi_response_callback_called_;
-  static bool wifi_scan_monitor_callback_called_;
+  std::thread chre_thread_;
+  std::unique_ptr<std::vector<VerificationData>> data_;
+  std::unique_ptr<std::vector<std::pair<uint32_t, uint32_t>>> flush_responses_;
+  uint64_t time_since_epoch_;
+  bool wifi_response_callback_called_;
+  bool wifi_scan_monitor_callback_called_;
 
  protected:
+  std::stringstream buffer_;
+  std::streambuf* orig_cerr_{nullptr};
+  std::unique_ptr<DataFeedBase> feed_;
+  std::unique_ptr<BleData> ble_data_;
+
   SimulatorCoreTest() {
     Simulator::ResetInstance();
     sim_ = Simulator::GetInstance();
-    data_ = new std::vector<VerificationData>();
-    data_->clear();
-
-    flush_responses_ = new std::vector<std::pair<uint32_t, uint32_t>>();
-    flush_responses_->clear();
-
-    time_since_epoch_ = sim_->time_since_epoch_;
-
-    wifi_scan_monitor_callback_called_ = false;
-
-    std::cerr.rdbuf(buffer_.rdbuf());
   }
-  std::stringstream buffer_;
 
   ~SimulatorCoreTest() override {
-    delete data_;
-    delete flush_responses_;
+    if (orig_cerr_ != nullptr) {
+      std::cerr.rdbuf(orig_cerr_);
+    }
     buffer_.str("");
   }
+
+  void SetUp() override {
+    gCurrentTest = this;
+    data_ = std::make_unique<std::vector<VerificationData>>();
+    flush_responses_ =
+        std::make_unique<std::vector<std::pair<uint32_t, uint32_t>>>();
+    time_since_epoch_ = sim_->time_since_epoch_;
+    wifi_response_callback_called_ = false;
+    wifi_scan_monitor_callback_called_ = false;
+
+    orig_cerr_ = std::cerr.rdbuf(buffer_.rdbuf());
+    feed_ = std::make_unique<MessageToHostDataClass>(1);
+    ASSERT_TRUE(sim_->InitializeDataFeed(feed_.get()));
+    sim_->EnableTestMode(true);
+    startChre();
+  }
+  void TearDown() override {
+    stopChre();
+    sim_->EnableTestMode(false);
+    gCurrentTest = nullptr;
+  }
+
+  void startChre() {
+    chre_thread_ = std::thread([this] { sim_->Run(""); });
+    ASSERT_TRUE(sim_->WaitForChreEventLoop(absl::Seconds(5)));
+  }
+
+  void stopChre() {
+    ASSERT_TRUE(sim_->dying_);
+    if (chre_thread_.joinable()) {
+      chre_thread_.join();
+    }
+  }
 };
+
+SimulatorCoreTest* getCurrentTest() {
+  CHECK(gCurrentTest != nullptr);
+  return gCurrentTest;
+}
 
 chrePalGnssCallbacks* GetGnssCallbacks() {
   auto callbacks = new chrePalGnssCallbacks;
   callbacks->locationEventCallback = [](struct chreGnssLocationEvent* event) {
-    SimulatorCoreTest::data_->push_back(VerificationData{
+    getCurrentTest()->data_->push_back(VerificationData{
         kGnssLocation,                                 // event_type
         event->timestamp,                              // time
         static_cast<uint64_t>(event->latitude_deg_e7)  // payload
     });
   };
   callbacks->measurementEventCallback = [](struct chreGnssDataEvent* event) {
-    SimulatorCoreTest::data_->push_back(VerificationData{
+    getCurrentTest()->data_->push_back(VerificationData{
         kGnssMeasurement,                             // data_type
         static_cast<uint64_t>(event->clock.time_ns),  // time
         static_cast<uint64_t>(event->measurements[0].received_sv_time_in_ns /
@@ -711,7 +724,7 @@ chrePalGnssCallbacks* GetGnssCallbacks() {
 bool GnssVerify(VerificationData d, int e_t, uint64_t t_ms) {
   if (d.event_type != e_t || d.payload != t_ms) return false;
   if (e_t == kGnssLocation)
-    return d.time == t_ms + SimulatorCoreTest::time_since_epoch_;
+    return d.time == t_ms + getCurrentTest()->time_since_epoch_;
   else
     return d.time == t_ms * kMillisToNano;
 }
@@ -759,17 +772,19 @@ class GnssData : public DataFeedBase {
     return CHRE_WIFI_CAPABILITIES_NONE;
   }
 
-  uint32_t GetSensorCount() override { return 0; }
+  const std::vector<chreSensorInfo> GetSensors() override { return {}; }
 
   uint32_t GetAudioSourceCount() override { return 0; }
 };
 
-// static
-std::vector<VerificationData>* SimulatorCoreTest::data_;
-std::vector<std::pair<uint32_t, uint32_t>>* SimulatorCoreTest::flush_responses_;
-uint64_t SimulatorCoreTest::time_since_epoch_;
-bool SimulatorCoreTest::wifi_response_callback_called_ = false;
-bool SimulatorCoreTest::wifi_scan_monitor_callback_called_ = false;
+class SimulatorGnssTest : public SimulatorCoreTest {
+ protected:
+  void SetUp() override {
+    SimulatorCoreTest::SetUp();
+    ASSERT_TRUE(sim_->InitializeDataFeed(&gnss_data_));
+  }
+  GnssData gnss_data_;
+};
 
 TEST_F(SimulatorCoreTest, SimulatorCore_InitialTimeIsCorrect) {
   auto current_time = chre::gChrePalSystemApi.getCurrentTime();
@@ -779,18 +794,16 @@ TEST_F(SimulatorCoreTest, SimulatorCore_InitialTimeIsCorrect) {
   absl::SleepFor(absl::Seconds(1));
   current_time = chre::gChrePalSystemApi.getCurrentTime();
   EXPECT_EQ(current_time, 0);
+  sim_->AllEventsProcessedFromTest();
 }
 
 TEST_F(SimulatorCoreTest, SimulatorCore_SystemTimerFunctionsWork) {
-  auto sys_timer = new chre::SystemTimer;
+  auto sys_timer = std::make_unique<chre::SystemTimer>();
 
   bool timer_triggered = false;
   chre::SystemTimerCallback* callback = [](void* data) {
     *static_cast<bool*>(data) = true;
   };
-
-  MessageToHostDataClass data(1);
-  ASSERT_TRUE(sim_->InitializeDataFeed(&data));
 
   EXPECT_FALSE(sys_timer->isActive());
   EXPECT_TRUE(sys_timer->init());
@@ -800,16 +813,14 @@ TEST_F(SimulatorCoreTest, SimulatorCore_SystemTimerFunctionsWork) {
   EXPECT_TRUE(sys_timer->isActive());
   EXPECT_FALSE(timer_triggered);
 
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 120);
   EXPECT_TRUE(timer_triggered);
   EXPECT_FALSE(sys_timer->isActive());
 
   EXPECT_FALSE(sim_->dying_);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_TRUE(sim_->dying_);
-
-  delete sys_timer;
 }
 
 TEST_F(SimulatorCoreTest, SimulatorCore_MultipleSystemTimers) {
@@ -833,10 +844,7 @@ TEST_F(SimulatorCoreTest, SimulatorCore_MultipleSystemTimers) {
   EXPECT_TRUE(s2.isActive());
   EXPECT_FALSE(s3.isActive());
 
-  MessageToHostDataClass data(1);
-  ASSERT_TRUE(sim_->InitializeDataFeed(&data));
-
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 100);
   EXPECT_FALSE(triggered1);
   EXPECT_TRUE(triggered2);
@@ -846,7 +854,7 @@ TEST_F(SimulatorCoreTest, SimulatorCore_MultipleSystemTimers) {
   EXPECT_TRUE(s3.set(callback, (void*)&triggered3, chre::Nanoseconds(60)));
   EXPECT_TRUE(s4.set([](void*) {}, nullptr, chre::Nanoseconds(50)));
 
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 150);
 
   // overwrite s3
@@ -855,32 +863,30 @@ TEST_F(SimulatorCoreTest, SimulatorCore_MultipleSystemTimers) {
   EXPECT_NE(sim_->current_time_, 200);
   EXPECT_FALSE(triggered1 || triggered3);
 
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 200);
   EXPECT_TRUE(triggered1 && triggered3);
   EXPECT_FALSE(sim_->dying_);
 
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_TRUE(sim_->dying_);
 }
 
-TEST_F(SimulatorCoreTest, SimulatorCore_GnssCallbacksWork) {
-  auto callbacks = GetGnssCallbacks();
-  GnssData gnss_data;
-  ASSERT_TRUE(sim_->InitializeDataFeed(&gnss_data));
+TEST_F(SimulatorGnssTest, SimulatorCore_GnssCallbacksWork) {
+  std::unique_ptr<chrePalGnssCallbacks> callbacks(GetGnssCallbacks());
 
-  auto gnss_api = chrePalGnssGetApi(12);
-  EXPECT_EQ(gnss_api->open(nullptr, callbacks), true);
+  auto gnss_api = chrePalGnssGetApi(CHRE_PAL_GNSS_API_CURRENT_VERSION);
+  EXPECT_EQ(gnss_api->open(nullptr, callbacks.get()), true);
 
   gnss_api->controlLocationSession(true, 100, 100);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
 
   ASSERT_EQ(data_->size(), 1);  // did the callback trigger?
   EXPECT_EQ((*data_)[0].event_type, kGnssLocation);
   EXPECT_EQ((*data_)[0].payload, 100);
   gnss_api->controlLocationSession(false, 100, 0);
   gnss_api->controlMeasurementSession(true, 1000);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
 
   ASSERT_EQ(data_->size(), 2);  // did the callback trigger?
   EXPECT_EQ((*data_)[1].event_type,
@@ -888,21 +894,20 @@ TEST_F(SimulatorCoreTest, SimulatorCore_GnssCallbacksWork) {
                                 // measurement data
   EXPECT_EQ((*data_)[1].payload, 1100);
 
+  gnss_api->controlMeasurementSession(false, 0);
   gnss_api->close();
-  delete callbacks;
+  sim_->AllEventsProcessedFromTest();
 }
 
-TEST_F(SimulatorCoreTest, SimulatorCore_TimeFreezesUntilAllEventsProcessed) {
-  auto callbacks = GetGnssCallbacks();
-  GnssData gnss_data;
-  ASSERT_TRUE(sim_->InitializeDataFeed(&gnss_data));
+TEST_F(SimulatorGnssTest, SimulatorCore_TimeFreezesUntilAllEventsProcessed) {
+  std::unique_ptr<chrePalGnssCallbacks> callbacks(GetGnssCallbacks());
 
-  auto gnss_api = chrePalGnssGetApi(12);
-  EXPECT_EQ(gnss_api->open(nullptr, callbacks), true);
+  auto gnss_api = chrePalGnssGetApi(CHRE_PAL_GNSS_API_CURRENT_VERSION);
+  EXPECT_EQ(gnss_api->open(nullptr, callbacks.get()), true);
 
   gnss_api->controlLocationSession(true, 100, 100);
   auto time = chre::gChrePalSystemApi.getCurrentTime();
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
 
   // we should now be at the next point in time
   EXPECT_NE(time, chre::gChrePalSystemApi.getCurrentTime());
@@ -910,79 +915,79 @@ TEST_F(SimulatorCoreTest, SimulatorCore_TimeFreezesUntilAllEventsProcessed) {
 
   absl::SleepFor(absl::Seconds(1));  // confirm that time doesn't change
   EXPECT_EQ(time, chre::gChrePalSystemApi.getCurrentTime());
-  sim_->AllEventsProcessed();  // now time can change again
+  sim_->AllEventsProcessedFromTest();  // now time can change again
   EXPECT_NE(time, chre::gChrePalSystemApi.getCurrentTime());
+  gnss_api->controlLocationSession(false, 0, 0);
 
   gnss_api->close();
-  delete callbacks;
+  sim_->AllEventsProcessedFromTest();
 }
 
-TEST_F(SimulatorCoreTest, SimulatorCore_CorrectFlow) {
-  auto callbacks = GetGnssCallbacks();
-  GnssData gnss_data;
-  ASSERT_TRUE(sim_->InitializeDataFeed(&gnss_data));
+TEST_F(SimulatorGnssTest, SimulatorCore_CorrectFlow) {
+  std::unique_ptr<chrePalGnssCallbacks> callbacks(GetGnssCallbacks());
 
-  auto gnss_api = chrePalGnssGetApi(12);
-  EXPECT_EQ(gnss_api->open(nullptr, callbacks), true);
+  auto gnss_api = chrePalGnssGetApi(CHRE_PAL_GNSS_API_CURRENT_VERSION);
+  EXPECT_EQ(gnss_api->open(nullptr, callbacks.get()), true);
   auto control_loc = gnss_api->controlLocationSession;
 
   auto now = chre::gChrePalSystemApi.getCurrentTime() + sim_->time_since_epoch_;
 
   control_loc(true, 100, 100);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
 
   ASSERT_EQ(data_->size(), 1);             // did the callback trigger?
   EXPECT_EQ((*data_)[0].time, now + 100);  // after minIntervalMs.
   EXPECT_EQ((*data_)[0].payload, 100);
-  sim_->AllEventsProcessed();  // trigger that we've processed the message.
+  sim_->AllEventsProcessedFromTest();  // trigger that we've processed the
+                                       // message.
   ASSERT_EQ(data_->size(), 2);
   EXPECT_EQ((*data_)[1].time, now + 100 + 100);  // after minIntervalMs.
   control_loc(true, 200, 200);                   // change the parameters.
-  sim_->AllEventsProcessed();  // trigger that we've processed the message.
+  sim_->AllEventsProcessedFromTest();  // trigger that we've processed the
+                                       // message.
   ASSERT_EQ(data_->size(), 3);
   EXPECT_EQ((*data_)[2].time,
             now + 200 + 200);  // make sure the old one was discontinued.
-  sim_->AllEventsProcessed();  // trigger that we've processed the message.
+  sim_->AllEventsProcessedFromTest();  // trigger that we've processed the
+                                       // message.
   ASSERT_EQ(data_->size(), 4);
   EXPECT_EQ((*data_)[3].time,
             now + 400 + 200);  // make sure the old one was discontinued.
   EXPECT_EQ((*data_)[3].payload, 400 + 200);
   EXPECT_FALSE(sim_->dying_);
-  control_loc(false, 200, 200);   // cancel the location request.
-  sim_->AllEventsProcessed();     // trigger that we've processed the message.
-  EXPECT_EQ(sim_->dying_, true);  // the simulator should now be dying.
-  EXPECT_EQ(data_->size(), 4);    // size should not increase.
+  control_loc(false, 200, 200);        // cancel the location request.
+  sim_->AllEventsProcessedFromTest();  // trigger that we've processed the
+                                       // message.
+  EXPECT_EQ(sim_->dying_, true);       // the simulator should now be dying.
+  EXPECT_EQ(data_->size(), 4);         // size should not increase.
 
   gnss_api->close();
-  delete callbacks;
 }
 
-TEST_F(SimulatorCoreTest, SimulatorCore_MultiGnssCorrectFlow) {
-  auto callbacks = GetGnssCallbacks();
-  GnssData gnss_data;
-  ASSERT_TRUE(sim_->InitializeDataFeed(&gnss_data));
+TEST_F(SimulatorGnssTest, SimulatorCore_MultiGnssCorrectFlow) {
+  std::unique_ptr<chrePalGnssCallbacks> callbacks(GetGnssCallbacks());
 
-  auto gnss_api = chrePalGnssGetApi(12);
-  EXPECT_EQ(gnss_api->open(nullptr, callbacks), true);
+  auto gnss_api = chrePalGnssGetApi(CHRE_PAL_GNSS_API_CURRENT_VERSION);
+  EXPECT_EQ(gnss_api->open(nullptr, callbacks.get()), true);
   auto control_loc = gnss_api->controlLocationSession;
   auto control_measure = gnss_api->controlMeasurementSession;
 
   control_loc(true, 150, 150);
   control_measure(true, 200);
-  sim_->AllEventsProcessed();  // moves to t = 150
-  sim_->AllEventsProcessed();  // 200
-  sim_->AllEventsProcessed();  // 300
+  sim_->AllEventsProcessedFromTest();  // moves to t = 150
+  sim_->AllEventsProcessedFromTest();  // 200
+  sim_->AllEventsProcessedFromTest();  // 300
   EXPECT_EQ(sim_->current_time_, 300 * kMillisToNano);
   control_measure(true, 250);
-  sim_->AllEventsProcessed();  // 450
-  sim_->AllEventsProcessed();  // 550
+  sim_->AllEventsProcessedFromTest();  // 450
+  sim_->AllEventsProcessedFromTest();  // 550
   EXPECT_EQ(sim_->current_time_, 550 * kMillisToNano);
   control_loc(false, 0, 0);
-  sim_->AllEventsProcessed();  // 800
+  sim_->AllEventsProcessedFromTest();  // 800
   EXPECT_EQ(sim_->current_time_, 800 * kMillisToNano);
   control_measure(false, 0);
   EXPECT_FALSE(sim_->dying_);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_TRUE(sim_->dying_);
 
   auto ds = (*data_);
@@ -994,28 +999,24 @@ TEST_F(SimulatorCoreTest, SimulatorCore_MultiGnssCorrectFlow) {
   EXPECT_TRUE(GnssVerify(ds[3], kGnssLocation, 450));
   EXPECT_TRUE(GnssVerify(ds[4], kGnssMeasurement, 550));
   EXPECT_TRUE(GnssVerify(ds[5], kGnssMeasurement, 800));
-
-  delete callbacks;
 }
 
-TEST_F(SimulatorCoreTest, SimulatorCore_GnssPalRequestsMonitoringWorks) {
-  auto callbacks = GetGnssCallbacks();
-  GnssData gnss_data;
-  ASSERT_TRUE(sim_->InitializeDataFeed(&gnss_data));
+TEST_F(SimulatorGnssTest, SimulatorCore_GnssPalRequestsMonitoringWorks) {
+  std::unique_ptr<chrePalGnssCallbacks> callbacks(GetGnssCallbacks());
   sim_->SetNanoappLoadedForTest(true);
 
-  auto gnss_api = chrePalGnssGetApi(12);
-  EXPECT_EQ(gnss_api->open(nullptr, callbacks), true);
+  auto gnss_api = chrePalGnssGetApi(CHRE_PAL_GNSS_API_CURRENT_VERSION);
+  EXPECT_EQ(gnss_api->open(nullptr, callbacks.get()), true);
 
   gnss_api->controlLocationSession(true, 100, 100);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   gnss_api->controlMeasurementSession(true, 50);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   gnss_api->configurePassiveLocationListener(true);
   gnss_api->controlLocationSession(false, 100, 0);
   gnss_api->controlMeasurementSession(false, 50);
-  sim_->AllEventsProcessed();
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
+  sim_->AllEventsProcessedFromTest();
 
   auto pal_requests = verify::GetReceivedNanoappRequests();
   EXPECT_EQ(pal_requests.size(), 5);
@@ -1030,8 +1031,6 @@ TEST_F(SimulatorCoreTest, SimulatorCore_GnssPalRequestsMonitoringWorks) {
   EXPECT_EQ(pal_requests[3].second, kRequestTypeControlLocationSessionGnss);
   EXPECT_EQ(pal_requests[4].first, 150 * kMillisToNano);
   EXPECT_EQ(pal_requests[4].second, kRequestTypeControlMeasurementSessionGnss);
-
-  delete callbacks;
 }
 
 class QuickGnss : public DataFeedBase {
@@ -1077,30 +1076,37 @@ class QuickGnss : public DataFeedBase {
     return CHRE_WIFI_CAPABILITIES_NONE;
   }
 
-  uint32_t GetSensorCount() override { return 0; }
+  const std::vector<chreSensorInfo> GetSensors() override { return {}; }
 
   uint32_t GetAudioSourceCount() override { return 0; }
 };
 
-TEST_F(SimulatorCoreTest, SimulatorCore_GnssTimeManipFeaturesWork) {
-  auto callbacks = GetGnssCallbacks();
-  QuickGnss gnss_data;
-  ASSERT_TRUE(sim_->InitializeDataFeed(&gnss_data));
+class SimulatorQuickGnssTest : public SimulatorCoreTest {
+ protected:
+  void SetUp() override {
+    SimulatorCoreTest::SetUp();
+    ASSERT_TRUE(sim_->InitializeDataFeed(&quick_gnss_data_));
+  }
+  QuickGnss quick_gnss_data_;
+};
 
-  auto gnss_api = chrePalGnssGetApi(12);
-  EXPECT_EQ(gnss_api->open(nullptr, callbacks), true);
+TEST_F(SimulatorQuickGnssTest, SimulatorCore_GnssTimeManipFeaturesWork) {
+  std::unique_ptr<chrePalGnssCallbacks> callbacks(GetGnssCallbacks());
+
+  auto gnss_api = chrePalGnssGetApi(CHRE_PAL_GNSS_API_CURRENT_VERSION);
+  EXPECT_EQ(gnss_api->open(nullptr, callbacks.get()), true);
   auto control_loc = gnss_api->controlLocationSession;
   auto control_measure = gnss_api->controlMeasurementSession;
 
   control_loc(true, 300, 0);
   control_measure(true, 300);
-  sim_->AllEventsProcessed();  // movest to t = 100
-  sim_->AllEventsProcessed();  // 150
-  sim_->AllEventsProcessed();  // 200
+  sim_->AllEventsProcessedFromTest();  // movest to t = 100
+  sim_->AllEventsProcessedFromTest();  // 150
+  sim_->AllEventsProcessedFromTest();  // 200
   control_loc(false, 0, 0);
   control_measure(false, 0);
   EXPECT_FALSE(sim_->dying_);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_TRUE(sim_->dying_);
 
   auto ds = (*data_);
@@ -1109,8 +1115,6 @@ TEST_F(SimulatorCoreTest, SimulatorCore_GnssTimeManipFeaturesWork) {
   EXPECT_TRUE(GnssVerify(ds[0], kGnssMeasurement, 100));
   EXPECT_TRUE(GnssVerify(ds[1], kGnssLocation, 150));
   EXPECT_TRUE(GnssVerify(ds[2], kGnssMeasurement, 200));
-
-  delete callbacks;
 }
 
 chrePalBleCallbacks* GetBleCallbacks() {
@@ -1120,14 +1124,14 @@ chrePalBleCallbacks* GetBleCallbacks() {
     for (size_t i = 0; i < event->numReports; i++) {
       max_time = fmax(max_time, event->reports[i].timestamp);
     }
-    SimulatorCoreTest::data_->push_back(
+    getCurrentTest()->data_->push_back(
         VerificationData{kBle, max_time, 0 /* payload */});
   };
   callbacks->requestStateResync = []() {};
   callbacks->scanStatusChangeCallback = [](bool, uint8_t) {};
   callbacks->readRssiCallback = [](uint8_t /* errorCode */,
                                    uint16_t /* handle */, int8_t rssi) {
-    SimulatorCoreTest::data_->push_back(
+    getCurrentTest()->data_->push_back(
         VerificationData{kBleRssi, 0 /* no time present in callback */,
                          absl::bit_cast<uint64_t>(static_cast<int64_t>(rssi))});
   };
@@ -1180,7 +1184,7 @@ class BleData : public DataFeedBase {
     return CHRE_WIFI_CAPABILITIES_NONE;
   }
 
-  uint32_t GetSensorCount() override { return 0; }
+  const std::vector<chreSensorInfo> GetSensors() override { return {}; }
 
   uint32_t GetAudioSourceCount() override { return 0; }
 
@@ -1188,13 +1192,21 @@ class BleData : public DataFeedBase {
   int8_t rssi_;
 };
 
-TEST_F(SimulatorCoreTest, SimulatorCore_BleCorrectFlow) {
-  chrePalBleCallbacks* callbacks = GetBleCallbacks();
-  BleData ble_data;
-  ASSERT_TRUE(sim_->InitializeDataFeed(&ble_data));
+class SimulatorBleTest : public SimulatorCoreTest {
+ protected:
+  void SetUp() override {
+    SimulatorCoreTest::SetUp();
+    ble_data_ = std::make_unique<BleData>();
+    ASSERT_TRUE(sim_->InitializeDataFeed(ble_data_.get()));
+  }
+};
 
-  const chrePalBleApi* ble_api = chrePalBleGetApi(1);
-  EXPECT_EQ(ble_api->open(nullptr, callbacks), true);
+TEST_F(SimulatorBleTest, SimulatorCore_BleCorrectFlow) {
+  std::unique_ptr<chrePalBleCallbacks> callbacks(GetBleCallbacks());
+
+  const chrePalBleApi* ble_api =
+      chrePalBleGetApi(CHRE_PAL_BLE_API_CURRENT_VERSION);
+  EXPECT_EQ(ble_api->open(nullptr, callbacks.get()), true);
 
   chreBleGenericFilter generic_filter = {
       .type = CHRE_BLE_AD_TYPE_SERVICE_DATA_WITH_UUID_16_LE,
@@ -1211,10 +1223,10 @@ TEST_F(SimulatorCoreTest, SimulatorCore_BleCorrectFlow) {
       .broadcasterAddressFilters = &broadcaster_address_filter};
 
   EXPECT_TRUE(ble_api->startScan(CHRE_BLE_SCAN_MODE_BACKGROUND, 0, &filter));
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, kSecsToNano);
 
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, kSecsToNano * 2);
 
   ASSERT_EQ(data_->size(), 2);
@@ -1224,25 +1236,25 @@ TEST_F(SimulatorCoreTest, SimulatorCore_BleCorrectFlow) {
   ASSERT_EQ((*data_)[1].time, kSecsToNano * 2);
 
   ble_api->stopScan();
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->dying_, true);
   EXPECT_EQ(data_->size(), 2);
 
   ble_api->close();
-  delete callbacks;
 }
 
-TEST_F(SimulatorCoreTest, SimulatorCore_BleReadRssiSuccess) {
+TEST_F(SimulatorBleTest, SimulatorCore_BleReadRssiSuccess) {
   // constants
-  uint16_t kConnectionHandle = -23;
+  uint16_t kConnectionHandle = 23;
   int8_t kRssi = -50;  // as defined in BleData
 
   // start simulation
-  chrePalBleCallbacks* callbacks = GetBleCallbacks();
-  BleData ble_data{kRssi};
-  sim_->InitializeDataFeed(&ble_data);
-  const chrePalBleApi* ble_api = chrePalBleGetApi(1);
-  ble_api->open(nullptr, callbacks);
+  std::unique_ptr<chrePalBleCallbacks> callbacks(GetBleCallbacks());
+  ble_data_ = std::make_unique<BleData>(kRssi);
+  sim_->InitializeDataFeed(ble_data_.get());
+  const chrePalBleApi* ble_api =
+      chrePalBleGetApi(CHRE_PAL_BLE_API_CURRENT_VERSION);
+  ble_api->open(nullptr, callbacks.get());
 
   // act
   auto ok = ble_api->readRssi(kConnectionHandle);
@@ -1254,12 +1266,11 @@ TEST_F(SimulatorCoreTest, SimulatorCore_BleReadRssiSuccess) {
   EXPECT_EQ(absl::bit_cast<int64_t>((*data_)[0].payload), kRssi);
 
   // no events should be sent, so we should immediately die
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->dying_, true);
 
   // cleanup
   ble_api->close();
-  delete callbacks;
 }
 
 class WwanData : public DataFeedBase {
@@ -1294,9 +1305,18 @@ class WwanData : public DataFeedBase {
     return CHRE_WIFI_CAPABILITIES_NONE;
   }
 
-  uint32_t GetSensorCount() override { return 0; }
+  const std::vector<chreSensorInfo> GetSensors() override { return {}; }
 
   uint32_t GetAudioSourceCount() override { return 0; }
+};
+
+class SimulatorWwanTest : public SimulatorCoreTest {
+ protected:
+  void SetUp() override {
+    SimulatorCoreTest::SetUp();
+    ASSERT_TRUE(sim_->InitializeDataFeed(&wwan_data_));
+  }
+  WwanData wwan_data_;
 };
 
 chrePalWwanCallbacks* GetWwanCallbacks() {
@@ -1305,7 +1325,7 @@ chrePalWwanCallbacks* GetWwanCallbacks() {
     auto actual_timestamp = res->cells[0].timeStamp;
     for (int i = 0; i < res->cellInfoCount; i++)
       actual_timestamp = fmax(actual_timestamp, res->cells[0].timeStamp);
-    SimulatorCoreTest::data_->push_back(VerificationData{
+    getCurrentTest()->data_->push_back(VerificationData{
         kWwanCellInfo,                                     // event_type
         actual_timestamp,                                  // time
         static_cast<uint64_t>(res->cells[0].cellInfoType)  // payload
@@ -1315,19 +1335,17 @@ chrePalWwanCallbacks* GetWwanCallbacks() {
   return callbacks;
 }
 
-TEST_F(SimulatorCoreTest, SimulatorCore_WwanCallbacksWork) {
-  auto callbacks = GetWwanCallbacks();
-  WwanData wwan_data;
-  ASSERT_TRUE(sim_->InitializeDataFeed(&wwan_data));
+TEST_F(SimulatorWwanTest, SimulatorCore_WwanCallbacksWork) {
+  std::unique_ptr<chrePalWwanCallbacks> callbacks(GetWwanCallbacks());
   sim_->SetNanoappLoadedForTest(true);
 
-  auto wwan_api = chrePalWwanGetApi(12);
-  EXPECT_TRUE(wwan_api->open(nullptr, callbacks));
+  auto wwan_api = chrePalWwanGetApi(CHRE_PAL_WWAN_API_CURRENT_VERSION);
+  EXPECT_TRUE(wwan_api->open(nullptr, callbacks.get()));
 
   EXPECT_EQ(wwan_api->getCapabilities(), CHRE_WWAN_GET_CELL_INFO);
   EXPECT_TRUE(wwan_api->requestCellInfo());
   EXPECT_FALSE(sim_->dying_);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 0);
 
   auto ds = (*data_);
@@ -1339,8 +1357,7 @@ TEST_F(SimulatorCoreTest, SimulatorCore_WwanCallbacksWork) {
   EXPECT_EQ(pal_requests.size(), 1);
   EXPECT_EQ(pal_requests[0].first, 0);
   EXPECT_EQ(pal_requests[0].second, kRequestTypeRequestCellInfoWwan);
-
-  delete callbacks;
+  sim_->AllEventsProcessedFromTest();
 }
 
 class DelayedWwan : public WwanData {
@@ -1359,20 +1376,27 @@ class DelayedWwan : public WwanData {
   }
 };
 
-TEST_F(SimulatorCoreTest, SimulatorCore_WwanTimeManipWorks) {
-  auto callbacks = GetWwanCallbacks();
-  DelayedWwan wwan_data;
-  ASSERT_TRUE(sim_->InitializeDataFeed(&wwan_data));
+class SimulatorDelayedWwanTest : public SimulatorCoreTest {
+ protected:
+  void SetUp() override {
+    SimulatorCoreTest::SetUp();
+    ASSERT_TRUE(sim_->InitializeDataFeed(&delayed_wwan_data_));
+  }
+  DelayedWwan delayed_wwan_data_;
+};
 
-  auto wwan_api = chrePalWwanGetApi(12);
-  EXPECT_TRUE(wwan_api->open(nullptr, callbacks));
+TEST_F(SimulatorDelayedWwanTest, SimulatorCore_WwanTimeManipWorks) {
+  std::unique_ptr<chrePalWwanCallbacks> callbacks(GetWwanCallbacks());
+
+  auto wwan_api = chrePalWwanGetApi(CHRE_PAL_WWAN_API_CURRENT_VERSION);
+  EXPECT_TRUE(wwan_api->open(nullptr, callbacks.get()));
 
   EXPECT_EQ(wwan_api->getCapabilities(), CHRE_WWAN_GET_CELL_INFO);
   EXPECT_TRUE(wwan_api->requestCellInfo());
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 10);
 
-  delete callbacks;
+  sim_->AllEventsProcessedFromTest();
 }
 
 class WifiDataFlow : public DataFeedBase {
@@ -1408,7 +1432,7 @@ class WifiDataFlow : public DataFeedBase {
            CHRE_WIFI_CAPABILITIES_RTT_RANGING;
   }
 
-  uint32_t GetSensorCount() override { return 0; }
+  const std::vector<chreSensorInfo> GetSensors() override { return {}; }
 
   uint32_t GetAudioSourceCount() override { return 0; }
 
@@ -1428,34 +1452,43 @@ class WifiDataFlow : public DataFeedBase {
   }
 };
 
+class SimulatorWifiDataFlowTest : public SimulatorCoreTest {
+ protected:
+  void SetUp() override {
+    SimulatorCoreTest::SetUp();
+    ASSERT_TRUE(sim_->InitializeDataFeed(&wifi_data_flow_));
+  }
+  WifiDataFlow wifi_data_flow_;
+};
+
 chrePalWifiCallbacks* GetWifiCallbacks(
     bool enable_response_callback_check = true) {
   auto callbacks = new chrePalWifiCallbacks();
   callbacks->scanMonitorStatusChangeCallback = [](bool /* pending */,
                                                   uint8_t /* errorCode */) {
-    SimulatorCoreTest::wifi_scan_monitor_callback_called_ = true;
+    getCurrentTest()->wifi_scan_monitor_callback_called_ = true;
   };
   callbacks->scanResponseCallback = [](bool /* pending */,
                                        uint8_t /* errorCode */) {
-    SimulatorCoreTest::wifi_response_callback_called_ = true;
+    getCurrentTest()->wifi_response_callback_called_ = true;
   };
 
   if (enable_response_callback_check) {
     callbacks->scanEventCallback = [](struct chreWifiScanEvent* event) {
       // only log this if we had a response callback first.
-      if (SimulatorCoreTest::wifi_response_callback_called_) {
-        SimulatorCoreTest::data_->push_back(VerificationData{
+      if (getCurrentTest()->wifi_response_callback_called_) {
+        getCurrentTest()->data_->push_back(VerificationData{
             .event_type = kWifiScan,
             .time = event->referenceTime,
             .payload = event->referenceTime,
         });
       }
-      SimulatorCoreTest::wifi_response_callback_called_ = false;
+      getCurrentTest()->wifi_response_callback_called_ = false;
     };
   } else {
     callbacks->scanEventCallback = [](struct chreWifiScanEvent* event) {
       // always log. Useful for passive testing.
-      SimulatorCoreTest::data_->push_back(VerificationData{
+      getCurrentTest()->data_->push_back(VerificationData{
           .event_type = kWifiScan,
           .time = event->referenceTime,
           .payload = event->referenceTime,
@@ -1468,7 +1501,7 @@ chrePalWifiCallbacks* GetWifiCallbacks(
     auto best_time = event->results[0].timestamp;
     for (int i = 0; i < event->resultCount; i++)
       best_time = fmax(best_time, event->results[i].timestamp);
-    SimulatorCoreTest::data_->push_back(VerificationData{
+    getCurrentTest()->data_->push_back(VerificationData{
         .event_type = kWifiRanging,
         .time = best_time,
         .payload = event->results[0].timestamp,
@@ -1478,13 +1511,11 @@ chrePalWifiCallbacks* GetWifiCallbacks(
   return callbacks;
 }
 
-TEST_F(SimulatorCoreTest, SimulatorCore_WifiCallbacksWork) {
-  auto callbacks = GetWifiCallbacks();
-  WifiDataFlow wifi_data;
-  ASSERT_TRUE(sim_->InitializeDataFeed(&wifi_data));
+TEST_F(SimulatorWifiDataFlowTest, SimulatorCore_WifiCallbacksWork) {
+  std::unique_ptr<chrePalWifiCallbacks> callbacks(GetWifiCallbacks());
 
-  auto wifi_api = chrePalWifiGetApi(12);
-  EXPECT_TRUE(wifi_api->open(nullptr, callbacks));
+  auto wifi_api = chrePalWifiGetApi(CHRE_PAL_WIFI_API_CURRENT_VERSION);
+  EXPECT_TRUE(wifi_api->open(nullptr, callbacks.get()));
 
   EXPECT_EQ(wifi_api->getCapabilities(),
             CHRE_WIFI_CAPABILITIES_ON_DEMAND_SCAN |
@@ -1499,15 +1530,16 @@ TEST_F(SimulatorCoreTest, SimulatorCore_WifiCallbacksWork) {
   wifi_scan_params.ssidList = nullptr;
   wifi_scan_params.radioChainPref = CHRE_WIFI_RADIO_CHAIN_PREF_DEFAULT;
   EXPECT_TRUE(wifi_api->requestScan(wifi_scan_params.GetUnsafe()));
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
 
   sim_->current_time_ = 10;
   SafeChreWifiRangingParams wifi_ranging_params;
   wifi_ranging_params.targetListLen = 1;
   wifi_ranging_params.targetList = new chreWifiRangingTarget[1];
   EXPECT_TRUE(wifi_api->requestRanging(wifi_ranging_params.GetUnsafe()));
-  sim_->AllEventsProcessed();
-  sim_->AllEventsProcessed();  // once more for the passive data workaround.
+  sim_->AllEventsProcessedFromTest();
+  sim_->AllEventsProcessedFromTest();  // once more for the passive data
+                                       // workaround.
 
   auto ds = (*data_);
   ASSERT_EQ(ds.size(), 2);
@@ -1516,10 +1548,15 @@ TEST_F(SimulatorCoreTest, SimulatorCore_WifiCallbacksWork) {
   ASSERT_EQ(ds[1].event_type, kWifiRanging);
   ASSERT_EQ(ds[1].payload, 10);
 
-  delete callbacks;
+  sim_->AllEventsProcessedFromTest();
 }
 
 class DelayedWifi : public WifiDataFlow {
+ public:
+  DelayedWifi() : WifiDataFlow(false) {
+    skip_initial_message_from_host_ = true;
+  }
+
   SafeChreWifiScanEvent* ReceivedWifiScanEventRequestAtTime(
       uint64_t t, const SafeChreWifiScanParams& /* params */) override {
     return EmptyChreWifiScanEvent(t + 20);
@@ -1538,13 +1575,20 @@ class DelayedWifi : public WifiDataFlow {
   }
 };
 
-TEST_F(SimulatorCoreTest, SimulatorCore_WifiTimeManipWorks) {
-  auto callbacks = GetWifiCallbacks();
-  DelayedWifi wifi_data;
-  ASSERT_TRUE(sim_->InitializeDataFeed(&wifi_data));
+class SimulatorDelayedWifiTest : public SimulatorCoreTest {
+ protected:
+  void SetUp() override {
+    SimulatorCoreTest::SetUp();
+    ASSERT_TRUE(sim_->InitializeDataFeed(&delayed_wifi_data_));
+  }
+  DelayedWifi delayed_wifi_data_;
+};
 
-  auto wifi_api = chrePalWifiGetApi(12);
-  EXPECT_TRUE(wifi_api->open(nullptr, callbacks));
+TEST_F(SimulatorDelayedWifiTest, SimulatorCore_WifiTimeManipWorks) {
+  std::unique_ptr<chrePalWifiCallbacks> callbacks(GetWifiCallbacks());
+
+  auto wifi_api = chrePalWifiGetApi(CHRE_PAL_WIFI_API_CURRENT_VERSION);
+  EXPECT_TRUE(wifi_api->open(nullptr, callbacks.get()));
 
   SafeChreWifiScanParams wifi_scan_params;
   wifi_scan_params.scanType = CHRE_WIFI_SCAN_TYPE_ACTIVE;
@@ -1555,16 +1599,17 @@ TEST_F(SimulatorCoreTest, SimulatorCore_WifiTimeManipWorks) {
   wifi_scan_params.ssidList = nullptr;
   wifi_scan_params.radioChainPref = CHRE_WIFI_RADIO_CHAIN_PREF_DEFAULT;
   EXPECT_TRUE(wifi_api->requestScan(wifi_scan_params.GetUnsafe()));
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 20);
 
   SafeChreWifiRangingParams wifi_ranging_params;
   wifi_ranging_params.targetListLen = 1;
   wifi_ranging_params.targetList = new chreWifiRangingTarget[1];
   EXPECT_TRUE(wifi_api->requestRanging(wifi_ranging_params.GetUnsafe()));
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 20 + 10);
-  sim_->AllEventsProcessed();  // once more for the passive data workaround.
+  sim_->AllEventsProcessedFromTest();  // once more for the passive data
+                                       // workaround.
 
   auto ds = (*data_);
   ASSERT_EQ(ds.size(), 2);
@@ -1573,17 +1618,17 @@ TEST_F(SimulatorCoreTest, SimulatorCore_WifiTimeManipWorks) {
   ASSERT_EQ(ds[1].event_type, kWifiRanging);
   ASSERT_EQ(ds[1].time, 30);
 
-  delete callbacks;
+  delete[] wifi_ranging_params.targetList;
+  wifi_ranging_params.targetList = nullptr;
+  sim_->AllEventsProcessedFromTest();
 }
 
-TEST_F(SimulatorCoreTest, SimulatorCore_WifiPalRequestsMonitoringWorks) {
-  auto callbacks = GetWifiCallbacks();
-  DelayedWifi wifi_data;
-  ASSERT_TRUE(sim_->InitializeDataFeed(&wifi_data));
+TEST_F(SimulatorDelayedWifiTest, SimulatorCore_WifiPalRequestsMonitoringWorks) {
+  std::unique_ptr<chrePalWifiCallbacks> callbacks(GetWifiCallbacks());
   sim_->SetNanoappLoadedForTest(true);
 
-  auto wifi_api = chrePalWifiGetApi(12);
-  EXPECT_TRUE(wifi_api->open(nullptr, callbacks));
+  auto wifi_api = chrePalWifiGetApi(CHRE_PAL_WIFI_API_CURRENT_VERSION);
+  EXPECT_TRUE(wifi_api->open(nullptr, callbacks.get()));
 
   SafeChreWifiScanParams wifi_scan_params;
   wifi_scan_params.scanType = CHRE_WIFI_SCAN_TYPE_ACTIVE;
@@ -1594,7 +1639,7 @@ TEST_F(SimulatorCoreTest, SimulatorCore_WifiPalRequestsMonitoringWorks) {
   wifi_scan_params.ssidList = nullptr;
   wifi_scan_params.radioChainPref = CHRE_WIFI_RADIO_CHAIN_PREF_DEFAULT;
   EXPECT_TRUE(wifi_api->requestScan(wifi_scan_params.GetUnsafe()));
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
 
   SafeChreWifiRangingParams wifi_ranging_params;
   wifi_ranging_params.targetListLen = 1;
@@ -1602,7 +1647,7 @@ TEST_F(SimulatorCoreTest, SimulatorCore_WifiPalRequestsMonitoringWorks) {
   EXPECT_TRUE(wifi_api->requestRanging(wifi_ranging_params.GetUnsafe()));
   EXPECT_TRUE(wifi_api->configureScanMonitor(true));
   EXPECT_TRUE(SimulatorCoreTest::wifi_scan_monitor_callback_called_);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
 
   auto pal_requests = verify::GetReceivedNanoappRequests();
 
@@ -1614,7 +1659,9 @@ TEST_F(SimulatorCoreTest, SimulatorCore_WifiPalRequestsMonitoringWorks) {
   EXPECT_EQ(pal_requests[2].first, 20);
   EXPECT_EQ(pal_requests[2].second, kRequestTypeConfigureScanMonitorWifi);
 
-  delete callbacks;
+  delete[] wifi_ranging_params.targetList;
+  wifi_ranging_params.targetList = nullptr;
+  sim_->AllEventsProcessedFromTest();
 }
 
 class WifiDataWithPassive : public WifiDataFlow {
@@ -1637,7 +1684,16 @@ class WifiDataWithPassive : public WifiDataFlow {
   }
 };
 
-TEST_F(SimulatorCoreTest, SimulatorCore_WifiWithPassiveWorks) {
+class SimulatorWifiDataWithPassiveTest : public SimulatorCoreTest {
+ protected:
+  void SetUp() override {
+    SimulatorCoreTest::SetUp();
+    ASSERT_TRUE(sim_->InitializeDataFeed(&wifi_data_with_passive_));
+  }
+  WifiDataWithPassive wifi_data_with_passive_;
+};
+
+TEST_F(SimulatorWifiDataWithPassiveTest, SimulatorCore_WifiWithPassiveWorks) {
   // Request oneshot with passive off. Should not return passive.
   // Now turn on passive. Should get passive. Request new one-shot. After it
   // finishes, we should still return a passive. Disable passive listening. We
@@ -1645,13 +1701,11 @@ TEST_F(SimulatorCoreTest, SimulatorCore_WifiWithPassiveWorks) {
 
   chre::SystemTimer timer;  // used to stop at particular times.
   timer.init();
+  std::unique_ptr<chrePalWifiCallbacks> callbacks(
+      GetWifiCallbacks(/*enable_response_callback_check=*/false));
 
-  auto callbacks = GetWifiCallbacks(/*enable_response_callback_check=*/false);
-  WifiDataWithPassive wifi_data;
-  ASSERT_TRUE(sim_->InitializeDataFeed(&wifi_data));
-
-  auto wifi_api = chrePalWifiGetApi(12);
-  EXPECT_TRUE(wifi_api->open(nullptr, callbacks));
+  auto wifi_api = chrePalWifiGetApi(CHRE_PAL_WIFI_API_CURRENT_VERSION);
+  EXPECT_TRUE(wifi_api->open(nullptr, callbacks.get()));
 
   SafeChreWifiScanParams wifi_scan_params;
   wifi_scan_params.scanType = CHRE_WIFI_SCAN_TYPE_ACTIVE;
@@ -1664,25 +1718,25 @@ TEST_F(SimulatorCoreTest, SimulatorCore_WifiWithPassiveWorks) {
 
   EXPECT_TRUE(timer.set([](void*) {}, nullptr, chre::Nanoseconds(200)));
 
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 200);  // skipped passive at 100.
   EXPECT_TRUE(wifi_api->configureScanMonitor(true));
   EXPECT_TRUE(SimulatorCoreTest::wifi_scan_monitor_callback_called_);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 300);  // returned passive at 300
   EXPECT_TRUE(wifi_api->requestScan(wifi_scan_params.GetUnsafe()));
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 300);  // returned active at 300
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 500);  // returned passive at 500
 
   EXPECT_TRUE(wifi_api->configureScanMonitor(false));
   EXPECT_TRUE(timer.set([](void*) {}, nullptr,
                         chre::Nanoseconds(300)));  // timer at 800
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 800);  // skipped passive ative at 700
   EXPECT_FALSE(sim_->dying_);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_TRUE(sim_->dying_);
 
   auto ds = (*data_);
@@ -1690,8 +1744,6 @@ TEST_F(SimulatorCoreTest, SimulatorCore_WifiWithPassiveWorks) {
   ASSERT_EQ(ds[0].payload, 300);
   ASSERT_EQ(ds[1].payload, 300);
   ASSERT_EQ(ds[2].payload, 500);
-
-  delete callbacks;
 }
 
 class PassiveData : public DataFeedBase {
@@ -1722,7 +1774,7 @@ class PassiveData : public DataFeedBase {
     return CHRE_WIFI_CAPABILITIES_NONE;
   }
 
-  uint32_t GetSensorCount() override { return 0; }
+  const std::vector<chreSensorInfo> GetSensors() override { return {}; }
 
   uint32_t GetAudioSourceCount() override { return 0; }
 
@@ -1737,18 +1789,24 @@ class PassiveData : public DataFeedBase {
   }
 };
 
-TEST_F(SimulatorCoreTest, SimulatorCore_PassiveDataWorks) {
-  PassiveData p_data;
-  ASSERT_TRUE(sim_->InitializeDataFeed(&p_data));
+class SimulatorPassiveDataTest : public SimulatorCoreTest {
+ protected:
+  void SetUp() override {
+    SimulatorCoreTest::SetUp();
+    ASSERT_TRUE(sim_->InitializeDataFeed(&passive_data_));
+  }
+  PassiveData passive_data_;
+};
 
-  sim_->AllEventsProcessed();
+TEST_F(SimulatorPassiveDataTest, SimulatorCore_PassiveDataWorks) {
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 100);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 200);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 300);
   EXPECT_FALSE(sim_->dying_);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_TRUE(sim_->dying_);
 }
 
@@ -1776,25 +1834,32 @@ class MixedPassiveData : public PassiveData {
   }
 };
 
-TEST_F(SimulatorCoreTest, SimulatorCore_MixedPassiveDataTest) {
-  MixedPassiveData p_data;
-  auto callbacks = GetGnssCallbacks();
-  auto gnss_api = chrePalGnssGetApi(12);
-  EXPECT_EQ(gnss_api->open(nullptr, callbacks), true);
+class SimulatorMixedPassiveDataTest : public SimulatorCoreTest {
+ protected:
+  void SetUp() override {
+    SimulatorCoreTest::SetUp();
+    ASSERT_TRUE(sim_->InitializeDataFeed(&mixed_passive_data_));
+  }
+  MixedPassiveData mixed_passive_data_;
+};
 
-  ASSERT_TRUE(sim_->InitializeDataFeed(&p_data));
+TEST_F(SimulatorMixedPassiveDataTest, SimulatorCore_MixedPassiveDataTest) {
+  std::unique_ptr<chrePalGnssCallbacks> callbacks(GetGnssCallbacks());
+  auto gnss_api = chrePalGnssGetApi(CHRE_PAL_GNSS_API_CURRENT_VERSION);
+  EXPECT_EQ(gnss_api->open(nullptr, callbacks.get()), true);
+
   EXPECT_TRUE(gnss_api->configurePassiveLocationListener(true));
 
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 100 * kMillisToNano);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 200 * kMillisToNano);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 300 * kMillisToNano);
   EXPECT_FALSE(sim_->dying_);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 300 * kMillisToNano);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_TRUE(sim_->dying_);
 
   auto ds = (*data_);
@@ -1805,8 +1870,6 @@ TEST_F(SimulatorCoreTest, SimulatorCore_MixedPassiveDataTest) {
   EXPECT_EQ(ds[1].event_type, kGnssLocation);
   EXPECT_EQ(ds[1].time, 300 + sim_->time_since_epoch_);
   EXPECT_EQ(ds[1].payload, 300);
-
-  delete callbacks;
 }
 
 class GnssPassiveDataActivation : public MixedPassiveData {
@@ -1821,24 +1884,31 @@ class GnssPassiveDataActivation : public MixedPassiveData {
   }
 };
 
-TEST_F(SimulatorCoreTest, SimulatorCore_GnssPassiveDataActivationTest) {
-  GnssPassiveDataActivation p_data;
-  auto callbacks = GetGnssCallbacks();
-  auto gnss_api = chrePalGnssGetApi(12);
-  EXPECT_EQ(gnss_api->open(nullptr, callbacks), true);
+class SimulatorGnssPassiveDataActivationTest : public SimulatorCoreTest {
+ protected:
+  void SetUp() override {
+    SimulatorCoreTest::SetUp();
+    ASSERT_TRUE(sim_->InitializeDataFeed(&gnss_passive_data_activation_));
+  }
+  GnssPassiveDataActivation gnss_passive_data_activation_;
+};
 
-  ASSERT_TRUE(sim_->InitializeDataFeed(&p_data));
+TEST_F(SimulatorGnssPassiveDataActivationTest,
+       SimulatorCore_GnssPassiveDataActivationTest) {
+  std::unique_ptr<chrePalGnssCallbacks> callbacks(GetGnssCallbacks());
+  auto gnss_api = chrePalGnssGetApi(CHRE_PAL_GNSS_API_CURRENT_VERSION);
+  EXPECT_EQ(gnss_api->open(nullptr, callbacks.get()), true);
 
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 150 * kMillisToNano);
   EXPECT_TRUE(gnss_api->configurePassiveLocationListener(true));
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 200 * kMillisToNano);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 300 * kMillisToNano);
   EXPECT_TRUE(gnss_api->configurePassiveLocationListener(false));
   EXPECT_FALSE(sim_->dying_);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_TRUE(sim_->dying_);
 
   auto ds = (*data_);
@@ -1847,8 +1917,6 @@ TEST_F(SimulatorCoreTest, SimulatorCore_GnssPassiveDataActivationTest) {
   EXPECT_EQ(ds[0].payload, 200);
   EXPECT_EQ(ds[1].event_type, kGnssLocation);
   EXPECT_EQ(ds[1].payload, 300);
-
-  delete callbacks;
 }
 
 class GnssMixedSources : public MixedPassiveData {
@@ -1879,50 +1947,55 @@ class GnssMixedSources : public MixedPassiveData {
   }
 };
 
-TEST_F(SimulatorCoreTest, SimulatorCore_GnssMixedSourcesTest) {
-  GnssMixedSources p_data;
-  auto callbacks = GetGnssCallbacks();
-  auto gnss_api = chrePalGnssGetApi(12);
-  EXPECT_EQ(gnss_api->open(nullptr, callbacks), true);
+class SimulatorGnssMixedSourcesTest : public SimulatorCoreTest {
+ protected:
+  void SetUp() override {
+    SimulatorCoreTest::SetUp();
+    ASSERT_TRUE(sim_->InitializeDataFeed(&gnss_mixed_sources_));
+  }
+  GnssMixedSources gnss_mixed_sources_;
+};
 
-  ASSERT_TRUE(sim_->InitializeDataFeed(&p_data));
+TEST_F(SimulatorGnssMixedSourcesTest, SimulatorCore_GnssMixedSourcesTest) {
+  std::unique_ptr<chrePalGnssCallbacks> callbacks(GetGnssCallbacks());
+  auto gnss_api = chrePalGnssGetApi(CHRE_PAL_GNSS_API_CURRENT_VERSION);
+  EXPECT_EQ(gnss_api->open(nullptr, callbacks.get()), true);
+
   EXPECT_TRUE(gnss_api->controlLocationSession(true, 100, 100));
 
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 100 * kMillisToNano);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 150 * kMillisToNano);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 200 * kMillisToNano);
   EXPECT_TRUE(gnss_api->configurePassiveLocationListener(true));
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 250 * kMillisToNano);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 300 * kMillisToNano);
   EXPECT_TRUE(gnss_api->controlLocationSession(false, 100, 0));
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 350 * kMillisToNano);
   EXPECT_TRUE(gnss_api->configurePassiveLocationListener(false));
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 500 * kMillisToNano);
   EXPECT_TRUE(gnss_api->controlLocationSession(true, 100, 0));
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 550 * kMillisToNano);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 600 * kMillisToNano);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 650 * kMillisToNano);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 700 * kMillisToNano);
   EXPECT_TRUE(gnss_api->controlLocationSession(false, 100, 0));
   EXPECT_FALSE(sim_->dying_);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_TRUE(sim_->dying_);
 
   auto ds = (*data_);
   ASSERT_EQ(ds.size(), 10);
-
-  delete callbacks;
 }
 
 class GnssMeasurementsPassiveData : public PassiveData {
@@ -1961,27 +2034,34 @@ class GnssMeasurementsPassiveData : public PassiveData {
   }
 };
 
-TEST_F(SimulatorCoreTest, GnssMeasurementsPassiveDataWorks) {
-  GnssMeasurementsPassiveData p_data;
-  auto callbacks = GetGnssCallbacks();
-  auto gnss_api = chrePalGnssGetApi(12);
-  EXPECT_EQ(gnss_api->open(nullptr, callbacks), true);
+class SimulatorGnssMeasurementsPassiveDataTest : public SimulatorCoreTest {
+ protected:
+  void SetUp() override {
+    SimulatorCoreTest::SetUp();
+    ASSERT_TRUE(sim_->InitializeDataFeed(&gnss_measurements_passive_data_));
+  }
+  GnssMeasurementsPassiveData gnss_measurements_passive_data_;
+};
 
-  ASSERT_TRUE(sim_->InitializeDataFeed(&p_data));
+TEST_F(SimulatorGnssMeasurementsPassiveDataTest,
+       GnssMeasurementsPassiveDataWorks) {
+  std::unique_ptr<chrePalGnssCallbacks> callbacks(GetGnssCallbacks());
+  auto gnss_api = chrePalGnssGetApi(CHRE_PAL_GNSS_API_CURRENT_VERSION);
+  EXPECT_EQ(gnss_api->open(nullptr, callbacks.get()), true);
 
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   // nothing should happen until the host message
   EXPECT_EQ(sim_->current_time_, 300 * kMillisToNano);
   gnss_api->controlMeasurementSession(true, 100);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 350 * kMillisToNano);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 400 * kMillisToNano);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 450 * kMillisToNano);
   gnss_api->controlMeasurementSession(false, 0);
   EXPECT_FALSE(sim_->dying_);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_TRUE(sim_->dying_);
 
   auto ds = (*data_);
@@ -1993,8 +2073,6 @@ TEST_F(SimulatorCoreTest, GnssMeasurementsPassiveDataWorks) {
   EXPECT_EQ(ds[1].time, 400 * kMillisToNano);
   EXPECT_EQ(ds[2].event_type, kGnssMeasurement);
   EXPECT_EQ(ds[2].time, 450 * kMillisToNano);
-
-  delete callbacks;
 }
 
 class MixedData : public DataFeedBase {
@@ -2033,7 +2111,7 @@ class MixedData : public DataFeedBase {
     return CHRE_WIFI_CAPABILITIES_NONE;
   }
 
-  uint32_t GetSensorCount() override { return 0; }
+  const std::vector<chreSensorInfo> GetSensors() override { return {}; }
 
   uint32_t GetAudioSourceCount() override { return 0; }
 
@@ -2048,36 +2126,41 @@ class MixedData : public DataFeedBase {
   }
 };
 
-TEST_F(SimulatorCoreTest, SimulatorCore_MixedDataWorks) {
-  auto callbacks = GetGnssCallbacks();
-  MixedData data;
-  ASSERT_TRUE(sim_->InitializeDataFeed(&data));
+class SimulatorMixedDataTest : public SimulatorCoreTest {
+ protected:
+  void SetUp() override {
+    SimulatorCoreTest::SetUp();
+    ASSERT_TRUE(sim_->InitializeDataFeed(&mixed_data_));
+  }
+  MixedData mixed_data_;
+};
 
-  auto gnss_api = chrePalGnssGetApi(12);
-  EXPECT_EQ(gnss_api->open(nullptr, callbacks), true);
+TEST_F(SimulatorMixedDataTest, SimulatorCore_MixedDataWorks) {
+  std::unique_ptr<chrePalGnssCallbacks> callbacks(GetGnssCallbacks());
+
+  auto gnss_api = chrePalGnssGetApi(CHRE_PAL_GNSS_API_CURRENT_VERSION);
+  EXPECT_EQ(gnss_api->open(nullptr, callbacks.get()), true);
   auto control_loc = gnss_api->controlLocationSession;
 
   control_loc(true, 150, 150);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 100 * kMillisToNano);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 150 * kMillisToNano);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 200 * kMillisToNano);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 300 * kMillisToNano);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 300 * kMillisToNano);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 450 * kMillisToNano);
   control_loc(false, 0, 0);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 1000 * kMillisToNano);
   EXPECT_FALSE(sim_->dying_);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_TRUE(sim_->dying_);
-
-  delete callbacks;
 }
 
 class SimpleSensorData : public DataFeedBase {
@@ -2112,11 +2195,9 @@ class SimpleSensorData : public DataFeedBase {
 
   uint32_t GetAudioSourceCount() override { return 0; }
 
-  uint32_t GetSensorCount() override { return 4; }
-
   std::vector<uint8_t> types_;
 
-  std::vector<chreSensorInfo> GetSensors() override {
+  const std::vector<chreSensorInfo> GetSensors() override {
     std::vector<chreSensorInfo> ret(4);
 
     for (int i = 0; i < 4; i++) {
@@ -2197,7 +2278,7 @@ chrePalSensorCallbacks* GetSensorCallbacks() {
       auto final_timestamp = new_data->header.baseTimestamp;
       for (int i = 0; i < new_data->header.readingCount; i++)
         final_timestamp += new_data->readings->timestampDelta;
-      SimulatorCoreTest::data_->push_back(VerificationData{
+      getCurrentTest()->data_->push_back(VerificationData{
           .event_type = kSensor,
           .time = final_timestamp,
           .payload = static_cast<uint64_t>(new_data->header.readingCount),
@@ -2208,7 +2289,7 @@ chrePalSensorCallbacks* GetSensorCallbacks() {
       auto final_timestamp = new_data->header.baseTimestamp;
       for (int i = 0; i < new_data->header.readingCount; i++)
         final_timestamp += new_data->readings->timestampDelta;
-      SimulatorCoreTest::data_->push_back(VerificationData{
+      getCurrentTest()->data_->push_back(VerificationData{
           .event_type = kSensor,
           .time = final_timestamp,
           .payload = static_cast<uint64_t>(new_data->header.readingCount),
@@ -2219,7 +2300,7 @@ chrePalSensorCallbacks* GetSensorCallbacks() {
       auto final_timestamp = new_data->header.baseTimestamp;
       for (int i = 0; i < new_data->header.readingCount; i++)
         final_timestamp += new_data->readings->timestampDelta;
-      SimulatorCoreTest::data_->push_back(VerificationData{
+      getCurrentTest()->data_->push_back(VerificationData{
           .event_type = kSensor,
           .time = final_timestamp,
           .payload = static_cast<uint64_t>(new_data->header.readingCount),
@@ -2230,7 +2311,7 @@ chrePalSensorCallbacks* GetSensorCallbacks() {
       auto final_timestamp = new_data->header.baseTimestamp;
       for (int i = 0; i < new_data->header.readingCount; i++)
         final_timestamp += new_data->readings->timestampDelta;
-      SimulatorCoreTest::data_->push_back(VerificationData{
+      getCurrentTest()->data_->push_back(VerificationData{
           .event_type = kSensor,
           .time = final_timestamp,
           .payload = static_cast<uint64_t>(new_data->header.readingCount),
@@ -2242,7 +2323,7 @@ chrePalSensorCallbacks* GetSensorCallbacks() {
   callbacks->biasEventCallback = [](uint32_t sensorInfoIndex, void* data) {
     if (sensorInfoIndex == 0) {
       auto new_data = static_cast<chreSensorThreeAxisData*>(data);
-      SimulatorCoreTest::data_->push_back(VerificationData{
+      getCurrentTest()->data_->push_back(VerificationData{
           .event_type = kBiasEvent,
           .time = new_data->header.baseTimestamp,
           .payload = 0,
@@ -2250,7 +2331,7 @@ chrePalSensorCallbacks* GetSensorCallbacks() {
       });
     } else if (sensorInfoIndex == 1) {
       auto new_data = static_cast<chreSensorOccurrenceData*>(data);
-      SimulatorCoreTest::data_->push_back(VerificationData{
+      getCurrentTest()->data_->push_back(VerificationData{
           .event_type = kBiasEvent,
           .time = new_data->header.baseTimestamp,
           .payload = 0,
@@ -2258,7 +2339,7 @@ chrePalSensorCallbacks* GetSensorCallbacks() {
       });
     } else if (sensorInfoIndex == 2) {
       auto new_data = static_cast<chreSensorFloatData*>(data);
-      SimulatorCoreTest::data_->push_back(VerificationData{
+      getCurrentTest()->data_->push_back(VerificationData{
           .event_type = kBiasEvent,
           .time = new_data->header.baseTimestamp,
           .payload = 0,
@@ -2266,7 +2347,7 @@ chrePalSensorCallbacks* GetSensorCallbacks() {
       });
     } else if (sensorInfoIndex == 3) {
       auto new_data = static_cast<chreSensorByteData*>(data);
-      SimulatorCoreTest::data_->push_back(VerificationData{
+      getCurrentTest()->data_->push_back(VerificationData{
           .event_type = kBiasEvent,
           .time = new_data->header.baseTimestamp,
           .payload = 0,
@@ -2282,20 +2363,27 @@ chrePalSensorCallbacks* GetSensorCallbacks() {
   callbacks->flushCompleteCallback = [](uint32_t sensorInfoIndex,
                                         uint32_t flushRequestId,
                                         uint8_t /* errorCode */) {
-    SimulatorCoreTest::flush_responses_->push_back(
+    getCurrentTest()->flush_responses_->push_back(
         std::make_pair(sensorInfoIndex, flushRequestId));
   };
 
   return callbacks;
 }
 
-TEST_F(SimulatorCoreTest, SimulatorCore_SimpleSensorWorks) {
-  auto callbacks = GetSensorCallbacks();
-  SimpleSensorData data;
-  ASSERT_TRUE(sim_->InitializeDataFeed(&data));
+class SimulatorSensorTest : public SimulatorCoreTest {
+ protected:
+  void SetUp() override {
+    SimulatorCoreTest::SetUp();
+    ASSERT_TRUE(sim_->InitializeDataFeed(&simple_data_));
+  }
+  SimpleSensorData simple_data_;
+};
 
-  auto sensor_api = chrePalSensorGetApi(12);
-  EXPECT_EQ(sensor_api->open(nullptr, callbacks), true);
+TEST_F(SimulatorSensorTest, SimulatorCore_SimpleSensorWorks) {
+  std::unique_ptr<chrePalSensorCallbacks> callbacks(GetSensorCallbacks());
+
+  auto sensor_api = chrePalSensorGetApi(CHRE_PAL_SENSOR_API_CURRENT_VERSION);
+  EXPECT_EQ(sensor_api->open(nullptr, callbacks.get()), true);
 
   const chreSensorInfo* sensors = nullptr;
   uint32_t count;
@@ -2304,7 +2392,7 @@ TEST_F(SimulatorCoreTest, SimulatorCore_SimpleSensorWorks) {
   ASSERT_NE(sensors, nullptr);
   for (int i = 0; i < count; i++) {
     EXPECT_EQ(sensors[i].isOneShot, i % 2);
-    EXPECT_EQ(sensors[i].sensorType, data.types_[i]);
+    EXPECT_EQ(sensors[i].sensorType, simple_data_.types_[i]);
   }
 
   sensor_api->configureSensor(0, CHRE_SENSOR_CONFIGURE_MODE_CONTINUOUS, 100,
@@ -2316,18 +2404,18 @@ TEST_F(SimulatorCoreTest, SimulatorCore_SimpleSensorWorks) {
   sensor_api->configureSensor(3, CHRE_SENSOR_CONFIGURE_MODE_ONE_SHOT, 900,
                               1000);
 
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 150);
   sensor_api->configureSensor(0, CHRE_SENSOR_CONFIGURE_MODE_DONE, 100, 1000);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 300);
   sensor_api->configureSensor(1, CHRE_SENSOR_CONFIGURE_MODE_DONE, 100, 1000);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 400);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 450);
   EXPECT_FALSE(sim_->dying_);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_TRUE(sim_->dying_);
 
   auto ds = (*data_);
@@ -2349,17 +2437,13 @@ TEST_F(SimulatorCoreTest, SimulatorCore_SimpleSensorWorks) {
   EXPECT_EQ(ds[3].sensor_type, kSensorByteData);
   EXPECT_EQ(ds[3].time, 450);
   EXPECT_EQ(ds[3].payload, 1);
-
-  delete callbacks;
 }
 
-TEST_F(SimulatorCoreTest, SimulatorCore_SensorFlowWorks) {
-  auto callbacks = GetSensorCallbacks();
-  SimpleSensorData data;
-  ASSERT_TRUE(sim_->InitializeDataFeed(&data));
+TEST_F(SimulatorSensorTest, SimulatorCore_SensorFlowWorks) {
+  std::unique_ptr<chrePalSensorCallbacks> callbacks(GetSensorCallbacks());
 
-  auto sensor_api = chrePalSensorGetApi(12);
-  EXPECT_EQ(sensor_api->open(nullptr, callbacks), true);
+  auto sensor_api = chrePalSensorGetApi(CHRE_PAL_SENSOR_API_CURRENT_VERSION);
+  EXPECT_EQ(sensor_api->open(nullptr, callbacks.get()), true);
 
   const chreSensorInfo* sensors = nullptr;
   uint32_t count;
@@ -2367,28 +2451,28 @@ TEST_F(SimulatorCoreTest, SimulatorCore_SensorFlowWorks) {
 
   sensor_api->configureSensor(0, CHRE_SENSOR_CONFIGURE_MODE_CONTINUOUS, 100,
                               1000);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 150);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 300);
   sensor_api->configureSensor(2, CHRE_SENSOR_CONFIGURE_MODE_CONTINUOUS, 110,
                               1000);
   sensor_api->configureSensor(1, CHRE_SENSOR_CONFIGURE_MODE_ONE_SHOT, 200,
                               1000);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 400);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 450);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 465);
   sensor_api->configureSensor(1, CHRE_SENSOR_CONFIGURE_MODE_ONE_SHOT, 200,
                               1000);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 565);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 600);
   sensor_api->configureSensor(0, CHRE_SENSOR_CONFIGURE_MODE_DONE, 100, 1000);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 465 + 165);
   sensor_api->configureSensor(2, CHRE_SENSOR_CONFIGURE_MODE_DONE, 100, 1000);
 
@@ -2404,17 +2488,15 @@ TEST_F(SimulatorCoreTest, SimulatorCore_SensorFlowWorks) {
   EXPECT_EQ(ds[6].sensor_type, kSensorThreeAxisData);
   EXPECT_EQ(ds[7].sensor_type, kSensorFloatData);
 
-  delete callbacks;
+  sim_->AllEventsProcessedFromTest();
 }
 
-TEST_F(SimulatorCoreTest, SimulatorCore_SensorPalRequestsMonitoringWorks) {
-  auto callbacks = GetSensorCallbacks();
-  SimpleSensorData data;
-  ASSERT_TRUE(sim_->InitializeDataFeed(&data));
+TEST_F(SimulatorSensorTest, SimulatorCore_SensorPalRequestsMonitoringWorks) {
+  std::unique_ptr<chrePalSensorCallbacks> callbacks(GetSensorCallbacks());
   sim_->SetNanoappLoadedForTest(true);
 
-  auto sensor_api = chrePalSensorGetApi(12);
-  EXPECT_EQ(sensor_api->open(nullptr, callbacks), true);
+  auto sensor_api = chrePalSensorGetApi(CHRE_PAL_SENSOR_API_CURRENT_VERSION);
+  EXPECT_EQ(sensor_api->open(nullptr, callbacks.get()), true);
 
   const chreSensorInfo* sensors = nullptr;
   uint32_t count;
@@ -2424,7 +2506,7 @@ TEST_F(SimulatorCoreTest, SimulatorCore_SensorPalRequestsMonitoringWorks) {
 
   sensor_api->configureSensor(0, CHRE_SENSOR_CONFIGURE_MODE_ONE_SHOT, 100,
                               1000);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   sensor_api->configureSensor(1, CHRE_SENSOR_CONFIGURE_MODE_ONE_SHOT, 200,
                               1000);
 
@@ -2436,17 +2518,17 @@ TEST_F(SimulatorCoreTest, SimulatorCore_SensorPalRequestsMonitoringWorks) {
   EXPECT_EQ(pal_requests[1].second, kRequestTypeConfigureSensor);
   EXPECT_EQ(pal_requests[2].first, 50);
   EXPECT_EQ(pal_requests[2].second, kRequestTypeConfigureSensor);
+  sim_->AllEventsProcessedFromTest();
 
-  delete callbacks;
+  sensor_api->close();
+  sim_->AllEventsProcessedFromTest();
 }
 
-TEST_F(SimulatorCoreTest, SimulatorCore_SensorFlushTest) {
-  auto callbacks = GetSensorCallbacks();
-  SimpleSensorData data;
-  ASSERT_TRUE(sim_->InitializeDataFeed(&data));
+TEST_F(SimulatorSensorTest, SimulatorCore_SensorFlushTest) {
+  std::unique_ptr<chrePalSensorCallbacks> callbacks(GetSensorCallbacks());
 
-  auto sensor_api = chrePalSensorGetApi(12);
-  EXPECT_EQ(sensor_api->open(nullptr, callbacks), true);
+  auto sensor_api = chrePalSensorGetApi(CHRE_PAL_SENSOR_API_CURRENT_VERSION);
+  EXPECT_EQ(sensor_api->open(nullptr, callbacks.get()), true);
 
   const chreSensorInfo* sensors = nullptr;
   uint32_t count;
@@ -2469,37 +2551,37 @@ TEST_F(SimulatorCoreTest, SimulatorCore_SensorFlushTest) {
   // call, we don't expect any data to have been collected, so we should get a
   // response with 0 readings.
   sensor_api->flush(0, &request_id);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(request_id, 2);
 
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 100);  // one shot finished.
   // flush sensor with handle 1. Flush is at t = 100, with a reading every 50ms,
   // so expect 2 readings.
   sensor_api->flush(1, &request_id);
   EXPECT_EQ(request_id, 3);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
 
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 150);  // sensor with handle 0's second round.
   sensor_api->configureSensor(0, CHRE_SENSOR_CONFIGURE_MODE_DONE, 100, 1000);
 
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_, 250);  // sensor with handle 1's second round.
   sensor_api->configureSensor(1, CHRE_SENSOR_CONFIGURE_MODE_DONE, 100, 1000);
 
   sim_->current_time_ = 270;          // sensor with handle 2 should finsih now.
   sensor_api->flush(2, &request_id);  // we should get the full 3 readings.
   EXPECT_EQ(request_id, 4);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
 
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_EQ(sim_->current_time_,
             270 * 2);  // sensor with handle 2's second round.
   sensor_api->configureSensor(2, CHRE_SENSOR_CONFIGURE_MODE_DONE, 100, 1000);
 
   EXPECT_FALSE(sim_->dying_);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_TRUE(sim_->dying_);
 
   auto ds = (*data_);
@@ -2538,8 +2620,6 @@ TEST_F(SimulatorCoreTest, SimulatorCore_SensorFlushTest) {
   EXPECT_EQ(fr[2].second, 3);
   EXPECT_EQ(fr[3].first, 2);
   EXPECT_EQ(fr[3].second, 4);
-
-  delete callbacks;
 }
 
 class BiasTestOne : public SimpleSensorData {
@@ -2574,28 +2654,35 @@ class BiasTestOne : public SimpleSensorData {
   }
 };
 
-TEST_F(SimulatorCoreTest, SimulatorCore_SensorBiasTest) {
-  auto callbacks = GetSensorCallbacks();
-  BiasTestOne data;
-  ASSERT_TRUE(sim_->InitializeDataFeed(&data));
+class SimulatorBiasTest : public SimulatorCoreTest {
+ protected:
+  void SetUp() override {
+    SimulatorCoreTest::SetUp();
+    ASSERT_TRUE(sim_->InitializeDataFeed(&bias_data_));
+  }
+  BiasTestOne bias_data_;
+};
 
-  auto sensor_api = chrePalSensorGetApi(12);
-  EXPECT_EQ(sensor_api->open(nullptr, callbacks), true);
+TEST_F(SimulatorBiasTest, SimulatorCore_SensorBiasTest) {
+  std::unique_ptr<chrePalSensorCallbacks> callbacks(GetSensorCallbacks());
+
+  auto sensor_api = chrePalSensorGetApi(CHRE_PAL_SENSOR_API_CURRENT_VERSION);
+  EXPECT_EQ(sensor_api->open(nullptr, callbacks.get()), true);
 
   // activate sensor 0 but not 1.
   sensor_api->configureSensor(0, CHRE_SENSOR_CONFIGURE_MODE_CONTINUOUS, 20,
                               200);
 
-  sim_->AllEventsProcessed();  // t = 30, bias for 0
+  sim_->AllEventsProcessedFromTest();  // t = 30, bias for 0
 
   // bias for 0 should turn on, but not 1 since sensor 1 isn't active.
   sensor_api->configureBiasEvents(0, true, 10);
   sensor_api->configureBiasEvents(1, true, 10);
 
-  sim_->AllEventsProcessed();  // t= 60, bias for 0 sent at 30.
-  sim_->AllEventsProcessed();  // t = 80, bias for 0
-  sim_->AllEventsProcessed();  // t = 90
-  sim_->AllEventsProcessed();  // t = 120, skip bias for 1
+  sim_->AllEventsProcessedFromTest();  // t= 60, bias for 0 sent at 30.
+  sim_->AllEventsProcessedFromTest();  // t = 80, bias for 0
+  sim_->AllEventsProcessedFromTest();  // t = 90
+  sim_->AllEventsProcessedFromTest();  // t = 120, skip bias for 1
 
   // activate sensor 1, and disable bias events for 0, enable for 1.
   sensor_api->configureSensor(1, CHRE_SENSOR_CONFIGURE_MODE_CONTINUOUS, 1000,
@@ -2603,13 +2690,13 @@ TEST_F(SimulatorCoreTest, SimulatorCore_SensorBiasTest) {
   sensor_api->configureBiasEvents(0, false, 10);
   sensor_api->configureBiasEvents(1, true, 10);
 
-  sim_->AllEventsProcessed();  // t = 150. bias for 1 sent at 120.
-  sim_->AllEventsProcessed();  // t = 160, bias event for 1.
-  sim_->AllEventsProcessed();  // t = 180, skip bias event for 0.
+  sim_->AllEventsProcessedFromTest();  // t = 150. bias for 1 sent at 120.
+  sim_->AllEventsProcessedFromTest();  // t = 160, bias event for 1.
+  sim_->AllEventsProcessedFromTest();  // t = 180, skip bias event for 0.
 
   sensor_api->configureSensor(0, CHRE_SENSOR_CONFIGURE_MODE_DONE, 0, 0);
   sensor_api->configureSensor(1, CHRE_SENSOR_CONFIGURE_MODE_DONE, 0, 0);
-  sim_->AllEventsProcessed();
+  sim_->AllEventsProcessedFromTest();
   EXPECT_TRUE(sim_->dying_);
 
   auto resp_data = (*data_);
@@ -2629,8 +2716,6 @@ TEST_F(SimulatorCoreTest, SimulatorCore_SensorBiasTest) {
       bias_index++;
     }
   }
-
-  delete callbacks;
 }
 
 }  // namespace

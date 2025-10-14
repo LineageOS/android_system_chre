@@ -34,7 +34,7 @@ DataFeedBase::~DataFeedBase() {
     if (d.second != nullptr) delete d.second;
   for (auto d : wifi_scan_events_)
     if (d.second != nullptr) delete d.second;
-  for (const auto &m : sensor_bias_events_) {
+  for (const auto& m : sensor_bias_events_) {
     for (auto d : m) {
       if (d.second != nullptr) delete d.second;
     }
@@ -42,12 +42,12 @@ DataFeedBase::~DataFeedBase() {
 }
 
 void DataFeedBase::ReceivedMessageFromNanoapp(
-    uint64_t /*t_ns*/, const SafeChreMessageToHostData & /*message*/) {}
+    uint64_t /*t_ns*/, const SafeChreMessageToHostData& /*message*/) {}
 
-SafeChreBleAdvertisementEvent *absl_nullable
+SafeChreBleAdvertisementEvent* absl_nullable
 DataFeedBase::ReceivedBleAdvertisementEventRequestAtTime(
     uint64_t /*t_ns*/, uint64_t /*latency*/,
-    const SafeChreBleScanFilter & /*filter*/) {
+    const SafeChreBleScanFilter& /*filter*/) {
   return nullptr;
 }
 
@@ -56,41 +56,41 @@ std::optional<chreBleReadRssiEvent> DataFeedBase::ReceivedBleRssiRequestAtTime(
   return std::nullopt;
 }
 
-SafeChreGnssLocationEvent *absl_nullable
+SafeChreGnssLocationEvent* absl_nullable
 DataFeedBase::ReceivedGnssLocationEventRequestAtTime(
     uint64_t /*t_ns*/, uint32_t /*min_interval_ms*/,
     uint32_t /*min_time_to_next_fix_ms*/) {
   return nullptr;
 }
 
-SafeChreGnssDataEvent *absl_nullable
+SafeChreGnssDataEvent* absl_nullable
 DataFeedBase::ReceivedGnssDataEventRequestAtTime(uint64_t /*t_ns*/,
                                                  uint32_t /*min_interval_ms*/) {
   return nullptr;
 }
 
-SafeChreWwanCellInfoResult *absl_nullable
+SafeChreWwanCellInfoResult* absl_nullable
 DataFeedBase::ReceivedWwanCallInfoResultRequestAtTime(uint64_t /*t*/) {
   return nullptr;
 }
 
-SafeChreWifiScanEvent *absl_nullable
+SafeChreWifiScanEvent* absl_nullable
 DataFeedBase::ReceivedWifiScanEventRequestAtTime(
-    uint64_t /*t_ns*/, const SafeChreWifiScanParams & /*params*/) {
+    uint64_t /*t_ns*/, const SafeChreWifiScanParams& /*params*/) {
   return nullptr;
 }
 
-SafeChreWifiRangingEvent *absl_nullable
+SafeChreWifiRangingEvent* absl_nullable
 DataFeedBase::ReceivedWifiRangingEventRequestAtTime(
-    uint64_t /*t*/, const SafeChreWifiRangingParams & /*params*/) {
+    uint64_t /*t*/, const SafeChreWifiRangingParams& /*params*/) {
   return nullptr;
 }
 
-std::vector<chreSensorInfo> DataFeedBase::GetSensors() {
+const std::vector<chreSensorInfo> DataFeedBase::GetSensors() {
   return std::vector<chreSensorInfo>();
 }
 
-SafeChreSensorSamplingStatus *absl_nullable
+SafeChreSensorSamplingStatus* absl_nullable
 DataFeedBase::GetSamplingStatusUpdate(uint64_t /*t_ns*/,
                                       uint32_t /*sensor_info_index*/,
                                       uint64_t /*requested_interval_ns*/,
@@ -98,65 +98,65 @@ DataFeedBase::GetSamplingStatusUpdate(uint64_t /*t_ns*/,
   return nullptr;
 }
 
-SafeChreSensorData *absl_nullable DataFeedBase::ConfigureSensor(
+SafeChreSensorData* absl_nullable DataFeedBase::ConfigureSensor(
     uint64_t /*t_ns*/, uint32_t /*sensor_info_index*/, bool /*is_oneshot*/,
     uint64_t /*interval_ns*/, uint64_t /*latency_ns*/) {
   return nullptr;
 }
 
-SafeChreBleAdvertisementEvent *DataFeedBase::EmptyChreBleAdvertisementEvent() {
+SafeChreBleAdvertisementEvent* DataFeedBase::EmptyChreBleAdvertisementEvent() {
   auto ble_event = new chreBleAdvertisementEvent;
   std::memset(ble_event, 0, sizeof(*ble_event));
   ble_event->reports = nullptr;
 
-  return static_cast<SafeChreBleAdvertisementEvent *>(ble_event);
+  return static_cast<SafeChreBleAdvertisementEvent*>(ble_event);
 }
 
-SafeChreGnssLocationEvent *DataFeedBase::EmptyChreGnssLocationEvent(
+SafeChreGnssLocationEvent* DataFeedBase::EmptyChreGnssLocationEvent(
     uint64_t t_ns) {
   auto loc_event = new chreGnssLocationEvent;
   std::memset(loc_event, 0, sizeof(*loc_event));
   loc_event->timestamp = t_ns / kMillisToNano;
 
-  return static_cast<SafeChreGnssLocationEvent *>(loc_event);
+  return static_cast<SafeChreGnssLocationEvent*>(loc_event);
 }
 
-SafeChreGnssDataEvent *DataFeedBase::EmptyChreGnssDataEvent(uint64_t t_ns) {
+SafeChreGnssDataEvent* DataFeedBase::EmptyChreGnssDataEvent(uint64_t t_ns) {
   auto data_event = new chreGnssDataEvent;
   std::memset(data_event, 0, sizeof(*data_event));
   data_event->measurement_count = 0;
   data_event->measurements = nullptr;
   data_event->clock.time_ns = t_ns;
 
-  return static_cast<SafeChreGnssDataEvent *>(data_event);
+  return static_cast<SafeChreGnssDataEvent*>(data_event);
 }
 
-SafeChreWwanCellInfoResult *DataFeedBase::EmptyChreWwanCellInfoResult() {
+SafeChreWwanCellInfoResult* DataFeedBase::EmptyChreWwanCellInfoResult() {
   auto cell_info = new chreWwanCellInfoResult;
   std::memset(cell_info, 0, sizeof(*cell_info));
   cell_info->cellInfoCount = 0;
   cell_info->cells = nullptr;
 
-  return static_cast<SafeChreWwanCellInfoResult *>(cell_info);
+  return static_cast<SafeChreWwanCellInfoResult*>(cell_info);
 }
 
-SafeChreWifiScanEvent *DataFeedBase::EmptyChreWifiScanEvent(uint64_t t_ns) {
+SafeChreWifiScanEvent* DataFeedBase::EmptyChreWifiScanEvent(uint64_t t_ns) {
   auto scan_event = new chreWifiScanEvent;
   std::memset(scan_event, 0, sizeof(chreWifiScanEvent));
   scan_event->scannedFreqList = nullptr;
   scan_event->results = nullptr;
   scan_event->referenceTime = t_ns;
 
-  return static_cast<SafeChreWifiScanEvent *>(scan_event);
+  return static_cast<SafeChreWifiScanEvent*>(scan_event);
 }
 
-SafeChreWifiRangingEvent *DataFeedBase::EmptyChreWifiRangingEvent() {
+SafeChreWifiRangingEvent* DataFeedBase::EmptyChreWifiRangingEvent() {
   auto ranging_event = new SafeChreWifiRangingEvent;
-  std::memset(static_cast<chreWifiRangingEvent *>(ranging_event), 0,
+  std::memset(static_cast<chreWifiRangingEvent*>(ranging_event), 0,
               sizeof(chreWifiRangingEvent));
   ranging_event->results = nullptr;
 
-  return static_cast<SafeChreWifiRangingEvent *>(ranging_event);
+  return static_cast<SafeChreWifiRangingEvent*>(ranging_event);
 }
 
 }  // namespace lbs::contexthub::testing

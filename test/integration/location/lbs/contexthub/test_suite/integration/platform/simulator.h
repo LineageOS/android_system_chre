@@ -68,14 +68,11 @@ const char kVerifyDataReceivedWwanCallInfoResultRequestAtTimeError[] =
 const char kVerifyDataReceivedWifiRangingEventRequestAtTime[] =
     "[***INVALID DATA***]: CHRE_WIFI_CAPABILITIES_RTT_RANGING is set, but "
     "ReceivedWifiRangingEventRequestAtTime is not defined.";
-const char kVerifyDataReceivedSensorGetSensorsAtTime[] =
-    "[***INVALID DATA***]: GetSensorCount returns a non-zero number, but "
-    "GetSensors returns a vector with a different number of elements.";
 const char kVerifyDataReceivedSensorGetSamplingStatusUpdateAtTime[] =
-    "[***INVALID DATA***]: GetSensorCount returns a non-zero number, but "
+    "[***INVALID DATA***]: GetSensors().size() returns a non-zero number, but "
     "GetSamplingStatusUpdate is not defined.";
 const char kVerifyDataReceivedSensorConfigureSensorAtTime[] =
-    "[***INVALID DATA***]: GetSensorCount returns a non-zero number, but "
+    "[***INVALID DATA***]: GetSensors().size() returns a non-zero number, but "
     "ConfigureSensor is not defined.";
 const char kVerifyBiasVectorInitializedCorrectly[] =
     "[***INVALID DATA***]: The bias vector 'sensor_bias_events_' is "
@@ -111,9 +108,9 @@ enum DataType {
 struct DataRequestParams {
   uint64_t min_interval_ms = 0;
   uint64_t min_time_to_next_fix_ms = 0;
-  SafeChreWifiScanParams *wifi_scan_params = nullptr;
-  SafeChreWifiRangingParams *wifi_ranging_params = nullptr;
-  SafeChreBleScanFilter *ble_scan_filter = nullptr;
+  SafeChreWifiScanParams* wifi_scan_params = nullptr;
+  SafeChreWifiRangingParams* wifi_ranging_params = nullptr;
+  SafeChreBleScanFilter* ble_scan_filter = nullptr;
   uint32_t sensor_index = 0;
   uint64_t latency_ns = 0;
 };
@@ -169,12 +166,12 @@ struct LatestControlParams {
   uint64_t next_expected_delivery;
   uint64_t latency;
   uint32_t with_flush_id;
-  SafeChreBleScanFilter *ble_scan_filter = nullptr;
+  SafeChreBleScanFilter* ble_scan_filter = nullptr;
 };
 
 // ScheduledDataComp is a helper class to allow sorting ScheduledData
 struct ScheduledDataComp {
-  bool operator()(const ScheduledData &tr1, const ScheduledData &tr2) {
+  bool operator()(const ScheduledData& tr1, const ScheduledData& tr2) {
     return tr1.delivery_time_ns > tr2.delivery_time_ns;
   }
 };
@@ -182,7 +179,7 @@ struct ScheduledDataComp {
 class Simulator {
  public:
   // singleton functions.
-  static Simulator *GetInstance();
+  static Simulator* GetInstance();
   static void ResetInstance();
 
   // the simulator version to differentiate it from other platforms.
@@ -191,15 +188,19 @@ class Simulator {
   // verifies that the data object is valid, ie that any functions that we
   // expect to be overridden (based on capabilities) are overridden and that
   // messages to host are non-empty unless explicitly specified as empty.
-  static bool VerifyValidData(DataFeedBase *data);
+  static bool VerifyValidData(DataFeedBase* data);
 
   // sets the data feed object after verifying if it's valid. Returns true if
   // the object is valid, false otherwise.
-  bool InitializeDataFeed(DataFeedBase *data);
+  bool InitializeDataFeed(DataFeedBase* data);
 
   // starts the simulator by initializing the chre and platform. This function
   // holds until the scenario/simulation finishes.
   void Run(std::string nanoapps);
+
+  // Waits until the CHRE event loop has started running, or the timeout
+  // expires. Returns true if the event loop is running, false otherwise.
+  bool WaitForChreEventLoop(absl::Duration timeout);
 
   // Adds a PAL request to the simulator's verification data.
   void AddNanoappPlatformRequest(uint64_t timestamp,
@@ -214,21 +215,32 @@ class Simulator {
   // memory management.
   // These do not have to be mutex locked as they're set only once with the
   // platform initialization and all subsequent memory access are read-access.
-  const struct chrePalBleCallbacks *ble_callbacks_;
-  const struct chrePalGnssCallbacks *gnss_callbacks_;
-  const struct chrePalWwanCallbacks *wwan_callbacks_;
-  const struct chrePalWifiCallbacks *wifi_callbacks_;
-  const struct chrePalSensorCallbacks *sensor_callbacks_;
+  const struct chrePalBleCallbacks* ble_callbacks_;
+  const struct chrePalGnssCallbacks* gnss_callbacks_;
+  const struct chrePalWwanCallbacks* wwan_callbacks_;
+  const struct chrePalWifiCallbacks* wifi_callbacks_;
+  const struct chrePalSensorCallbacks* sensor_callbacks_;
 
   // when the power monitor is notified of a change, it subsequently notifies us
   // so that we can move to the next point in time.
   // Exported for testing.
   void AllEventsProcessed();
 
+  // Signals that all pending events from a test have been processed.
+  void AllEventsProcessedFromTest();
+
+  // Enables test mode. When test mode is enabled, the simulator will not move
+  // to the next time unless AllEventsProcessedFromTest is called.
+  void EnableTestMode(bool enabled);
+
   uint64_t GetCurrentTime();
 
   // This mutex guards all variables that could be accessed/set at the same time
   absl::Mutex guard_;
+
+  // Flag indicating if test mode is active, protected by the 'guard_' mutex for
+  // thread safety.
+  std::atomic_bool test_mode_enabled_ = false;
 
   // tracks the current "point in time". This is in ns.
   std::atomic<uint64_t> current_time_;
@@ -306,25 +318,25 @@ class Simulator {
   // public access to allow adding to received_messages_. This method will allow
   // the simulator class to take control of the msg, and will thus be
   // responsible for freeing the memory later.
-  void AddHostMessage(SafeChreMessageToHostData *msg);
+  void AddHostMessage(SafeChreMessageToHostData* msg);
 
   std::map<int8_t, std::vector<SafeChreMessageFromHostData>>
       received_host_message_fragments_;
 
   // provides a source for all data that we will read.
-  DataFeedBase *data_source_;
+  DataFeedBase* data_source_;
 
   // all_timer_trigger_data_ maps the different initialized timers by "id" to
   // the time they're intended to trigger and the callback they're intended to
   // call. Whenever a timer trigger event is found on top of the queue by the
   // simulator, it scans this map for all timers that should trigger at that
   // time (as there could be multiple at the same time).
-  absl::node_hash_map<void *, TimerTriggerData> all_timer_trigger_data_;
+  absl::node_hash_map<void*, TimerTriggerData> all_timer_trigger_data_;
 
   // called by the PAL and the simulator run loop to call one of the
   // ReceivedRequest<...>AtTime form the DataFeed, as well as manage the result
   // and placing it into the queue.
-  void RequestNewDataLocked(DataType type, const DataRequestParams &params);
+  void RequestNewDataLocked(DataType type, const DataRequestParams& params);
 
   // returns whether the WiFi PAL is available.
   bool GetRequestWifiScanAvailable();
@@ -340,7 +352,7 @@ class Simulator {
  private:
   // Simulator is a singleton. It can only be constructed via GetInstance.
   Simulator();
-  static Simulator *sim_instance_;
+  static Simulator* sim_instance_;
 
   // moves to the next "point in time"
   void MoveToNextTime();
@@ -359,11 +371,11 @@ class Simulator {
   // instance of ScheduledData across all passive data maps.
   // if no such data is available, the function does not modify data.
   // Only returns non-consumed data.
-  void GetNextPassiveScheduledData(ScheduledData &data);
+  void GetNextPassiveScheduledData(ScheduledData& data);
 
   // marks the ScheduledData as consumed so that it will not be returned by the
   // above Get function.
-  void ConsumePassiveScheduledData(const ScheduledData &data);
+  void ConsumePassiveScheduledData(const ScheduledData& data);
 
   // returns whether there are any remaning unconsumed passive scheduled data.
   bool UnconsumedPassiveScheduledDataExist();
@@ -399,6 +411,13 @@ class Simulator {
   absl::flat_hash_set<uint16_t> connected_host_endpoints_;
   // All host endpoints that have been disconnected.
   absl::flat_hash_set<uint16_t> disconnected_host_endpoints_;
+
+  // Mutex to guard chre_running_cv_ and is_chre_running_.
+  absl::Mutex chre_running_mutex_;
+  // Condition variable to signal when the CHRE event loop is running.
+  absl::CondVar chre_running_cv_;
+  // Flag to indicate if the CHRE event loop is running.
+  bool is_chre_running_ ABSL_GUARDED_BY(chre_running_mutex_) = false;
 };
 
 }  // namespace lbs::contexthub::testing

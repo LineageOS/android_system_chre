@@ -40,20 +40,19 @@
 #include "absl/log/check.h"
 #include "absl/strings/str_split.h"
 #include "absl/synchronization/mutex.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/nanoapp.h"
 #include "chre/platform/linux/platform_log.h"
 #include "chre/platform/shared/init.h"
 #include "chre_api/chre.h"
 #include "core/include/chre/core/settings.h"
-#ifdef SIMULATION_LOAD_STATIC
 #include "core/include/chre/core/static_nanoapps.h"
-#endif  // SIMULATION_LOAD_STATIC
 #include "location/lbs/contexthub/test_suite/integration/data_feed/data_feed_base.h"
 #include "location/lbs/contexthub/test_suite/integration/data_feed/fragment.h"
 #include "location/lbs/contexthub/test_suite/integration/data_feed/safe_chre_structs.h"
 #include "platform/linux/include/chre/target_platform/log.h"
-#include "util/include/chre/util/dynamic_vector.h"
 #include "util/include/chre/util/unique_ptr.h"
 
 namespace lbs::contexthub::testing {
@@ -256,7 +255,26 @@ bool Simulator::UnconsumedPassiveScheduledDataExist() {
   return false;
 }
 
-void Simulator::AllEventsProcessed() { MoveToNextTime(); }
+void Simulator::EnableTestMode(bool enabled) {
+  test_mode_enabled_.store(enabled);
+}
+
+void Simulator::AllEventsProcessedFromTest() {
+  if (!test_mode_enabled_) {
+    return;
+  }
+
+  MoveToNextTime();
+}
+
+// Run the simulator during its normal, non-test operation.
+void Simulator::AllEventsProcessed() {
+  if (test_mode_enabled_) {
+    return;
+  }
+
+  MoveToNextTime();
+}
 
 void Simulator::MoveToNextTime() {
   absl::MutexLock lock(&guard_);
@@ -619,6 +637,20 @@ bool Simulator::InitializeDataFeed(DataFeedBase* data) {
   return true;
 }
 
+bool Simulator::WaitForChreEventLoop(absl::Duration timeout) {
+  const absl::Time deadline = absl::Now() + timeout;
+  absl::MutexLock lock(&chre_running_mutex_);
+
+  while (!is_chre_running_) {
+    if (absl::Now() > deadline) {
+      LOGE("Timed out waiting for CHRE event loop to run");
+      return false;
+    }
+    chre_running_cv_.WaitWithDeadline(&chre_running_mutex_, deadline);
+  }
+  return is_chre_running_;
+}
+
 void Simulator::Run(std::string nanoapps_str) {
   // Initialize the system.
   chre::PlatformLogSingleton::init();
@@ -632,20 +664,23 @@ void Simulator::Run(std::string nanoapps_str) {
 
     // Load the nanoapps specified in the flag..
     nanoapps_loaded_ = true;
-#ifdef SIMULATION_LOAD_STATIC
-    (void)nanoapps_str;
     chre::loadStaticNanoapps();
-#else
-    chre::DynamicVector<chre::UniquePtr<chre::Nanoapp>> nanoapps;
     std::vector<std::string> v = absl::StrSplit(nanoapps_str, ',');
     for (const auto& nanoapp_file : v) {
-      nanoapps.push_back(chre::MakeUnique<chre::Nanoapp>());
-      nanoapps.back()->loadFromFile(nanoapp_file);
+      if (nanoapp_file.empty()) {
+        continue;
+      }
+      LOGI("Loading nanoapp from file: %s", nanoapp_file.c_str());
+      auto nanoapp = chre::MakeUnique<chre::Nanoapp>();
+      nanoapp->loadFromFile(nanoapp_file);
       chre::EventLoopManagerSingleton::get()->getEventLoop().startNanoapp(
-          nanoapps.back());
+          std::move(nanoapp));
     }
-#endif  //  SIMULATION_LOAD_STATIC
-
+    {
+      absl::MutexLock lock(&chre_running_mutex_);
+      is_chre_running_ = true;
+    }
+    chre_running_cv_.Signal();
     chre::EventLoopManagerSingleton::get()->getEventLoop().run();
   });
 
@@ -722,28 +757,23 @@ bool Simulator::VerifyValidData(DataFeedBase* data) {
   }
   delete wifi_ranging;
 
-  if (data->GetSensorCount() != 0 &&
-      data->GetSensorCount() != data->GetSensors().size()) {
-    std::cerr << kVerifyDataReceivedSensorGetSensorsAtTime << '\n';
-    valid = false;
-  }
-
+  uint32_t sensor_count = data->GetSensors().size();
   auto sensor_sampling_status = data->GetSamplingStatusUpdate(0, 0, 500, 500);
-  if (data->GetSensorCount() != 0 && sensor_sampling_status == nullptr) {
+  if (sensor_count != 0 && sensor_sampling_status == nullptr) {
     std::cerr << kVerifyDataReceivedSensorGetSamplingStatusUpdateAtTime << '\n';
     valid = false;
   }
   delete sensor_sampling_status;
 
   auto sensors_configure_sensor = data->ConfigureSensor(0, 0, true, 1000, 0);
-  if (data->GetSensorCount() != 0 && sensors_configure_sensor == nullptr) {
+  if (sensor_count != 0 && sensors_configure_sensor == nullptr) {
     std::cerr << kVerifyDataReceivedSensorConfigureSensorAtTime << '\n';
     valid = false;
   }
   delete sensors_configure_sensor;
 
-  if (data->GetSensorCount() != 0 && !data->sensor_bias_events_.empty() &&
-      data->sensor_bias_events_.size() != data->GetSensorCount()) {
+  if (sensor_count != 0 && !data->sensor_bias_events_.empty() &&
+      data->sensor_bias_events_.size() != sensor_count) {
     std::cerr << kVerifyBiasVectorInitializedCorrectly << '\n';
     valid = false;
   }

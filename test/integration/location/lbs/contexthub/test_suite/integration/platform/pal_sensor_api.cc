@@ -29,29 +29,27 @@
 
 namespace lbs::contexthub::testing {
 
-bool openSensor(const struct chrePalSystemApi * /*systemApi*/,
-                const struct chrePalSensorCallbacks *callbacks) {
+bool openSensor(const struct chrePalSystemApi* /*systemApi*/,
+                const struct chrePalSensorCallbacks* callbacks) {
   // we always use our own systemApi.
   Simulator::GetInstance()->sensor_callbacks_ = callbacks;
   return true;
 }
 
-void closeSensor() {
-  Simulator::GetInstance()->sensor_callbacks_ = nullptr;
-}
+void closeSensor() { Simulator::GetInstance()->sensor_callbacks_ = nullptr; }
 
-bool getSensors(const chreSensorInfo **sensors, uint32_t *arraySize) {
+bool getSensors(const chreSensorInfo** sensors, uint32_t* arraySize) {
   auto sim = Simulator::GetInstance();
   absl::MutexLock lock(&sim->guard_);
   sim->AddNanoappPlatformRequest(sim->current_time_.load(),
                                  kRequestTypeGetSensors);
 
-  if (sim->data_source_->GetSensorCount() == 0) {
+  if (sim->data_source_->GetSensors().empty()) {
     *arraySize = 0;
   } else {
     auto resp = new SafeChreGetSensorsResponse(sim->data_source_->GetSensors());
     *arraySize = resp->size;
-    chreSensorInfo **variable_sensors = const_cast<chreSensorInfo **>(sensors);
+    chreSensorInfo** variable_sensors = const_cast<chreSensorInfo**>(sensors);
     *variable_sensors = resp->sensors;
     sim->get_sensors_response_container_.reset(resp);
   }
@@ -110,7 +108,7 @@ bool configureSensor(uint32_t sensorInfoIndex,
   return true;
 }
 
-bool flushSensor(uint32_t sensorInfoIndex, uint32_t *flushRequestId) {
+bool flushSensor(uint32_t sensorInfoIndex, uint32_t* flushRequestId) {
   auto sim = Simulator::GetInstance();
   absl::MutexLock lock(&sim->guard_);
   sim->AddNanoappPlatformRequest(sim->current_time_.load(),
@@ -140,7 +138,7 @@ bool flushSensor(uint32_t sensorInfoIndex, uint32_t *flushRequestId) {
     int i = 0;
     for (; i < to_return->sample_data.size(); i++) {
       std::visit(
-          [&so_far_time](auto const &e) { so_far_time += e.timestampDelta; },
+          [&so_far_time](auto const& e) { so_far_time += e.timestampDelta; },
           to_return->sample_data[i]);
       if (so_far_time > curr_time) break;
     }
@@ -160,9 +158,9 @@ bool flushSensor(uint32_t sensorInfoIndex, uint32_t *flushRequestId) {
   return true;
 }
 
-void *GetLastBiasEvent(const Simulator &sim, uint32_t idx, uint64_t t_ns) {
+void* GetLastBiasEvent(const Simulator& sim, uint32_t idx, uint64_t t_ns) {
   auto curr_time = sim.current_time_.load();
-  SafeChreBiasEvent *last_best = nullptr;
+  SafeChreBiasEvent* last_best = nullptr;
   for (auto it = sim.data_source_->sensor_bias_events_[idx].begin();
        it != sim.data_source_->sensor_bias_events_[idx].end(); it++) {
     if (it->first <= curr_time)
@@ -218,7 +216,7 @@ bool configureBiasEventsSensor(uint32_t sensorInfoIndex, bool enable,
 }
 
 bool getThreeAxisBiasSensor(uint32_t sensorInfoIndex,
-                            struct chreSensorThreeAxisData *bias) {
+                            struct chreSensorThreeAxisData* bias) {
   auto sim = Simulator::GetInstance();
   absl::MutexLock lock(&sim->guard_);
   sim->AddNanoappPlatformRequest(sim->current_time_.load(),
@@ -233,11 +231,11 @@ bool getThreeAxisBiasSensor(uint32_t sensorInfoIndex,
   return true;
 }
 
-void releaseSensorDataEventSensor(void * /* data */) {
+void releaseSensorDataEventSensor(void* /* data */) {
   // we'll release it on our own so we can ignore this call.
 }
 
-void releaseSamplingStatusEventSensor(chreSensorSamplingStatus *status) {
+void releaseSamplingStatusEventSensor(chreSensorSamplingStatus* status) {
   auto sim = Simulator::GetInstance();
   absl::MutexLock lock(&sim->guard_);
 
@@ -245,11 +243,11 @@ void releaseSamplingStatusEventSensor(chreSensorSamplingStatus *status) {
     sim->sampling_status_container_.reset();
 }
 
-void releaseBiasEventSensor(void * /* bias */) {}
+void releaseBiasEventSensor(void* /* bias */) {}
 
 }  // namespace lbs::contexthub::testing
 
-const struct chrePalSensorApi *chrePalSensorGetApi(
+const struct chrePalSensorApi* chrePalSensorGetApi(
     uint32_t requestedApiVersion) {
   auto sim = lbs::contexthub::testing::Simulator::GetInstance();
   absl::MutexLock lock(&sim->guard_);
