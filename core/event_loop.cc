@@ -356,37 +356,46 @@ bool EventLoop::postLowPriorityEventOrFree(
       targetGroupMask);
 }
 
-bool EventLoop::postEvent(Event *event) {
+bool EventLoop::postEvent(Event *event, bool isLowPriority) {
   if (!mRunning) {
     return false;
   }
-
-  if (event != nullptr && !event->isLowPriority &&
-      hasNoSpaceForHighPriorityEvent()) {
-    CHRE_HANDLE_EVENT_QUEUE_FULL_DURING_SYSTEM_POST(
-        this, event->eventType, event->eventData, event->callback,
-        event->extraData);
-    FATAL_ERROR("Failed to post critical system event 0x%" PRIx16
-                ": Full of high priority "
-                "events",
-                event->eventType);
+  if (event == nullptr) {
+    // TODO(b/454046664): Clean up the macro to remove unused args.
+    if (!isLowPriority) {
+      CHRE_HANDLE_FAILED_SYSTEM_EVENT_ENQUEUE(
+          this, /* eventType = */ 0, /* eventData = */ nullptr,
+          /* freeCallback = */ nullptr, /* senderInstanceId = */ 0,
+          /* targetInstanceId = */ 0, /* targetGroupMask = */ 0);
+    } else {
+      CHRE_HANDLE_LOW_PRIORITY_ENQUEUE_FAILURE(
+          this, /* eventType = */ 0, /* eventData = */ nullptr,
+          /* freeCallback = */ nullptr, /* senderInstanceId = */ 0,
+          /* targetInstanceId = */ 0,
+          /* targetGroupMask = */ 0);
+      ++mNumDroppedLowPriEvents;
+    }
+    return false;
   }
 
-  bool success = (event != nullptr) && mEvents.push(event);
-  if (!success && event != nullptr) {
+  if (!event->isLowPriority && hasNoSpaceForHighPriorityEvent()) {
+    CHRE_HANDLE_EVENT_QUEUE_FULL_DURING_SYSTEM_POST(
+        this, event->eventType, event->eventData, event->systemEventCallback,
+        event->extraData);
+  }
+
+  const bool success = mEvents.push(event);
+  if (!success) {
     if (!event->isLowPriority) {
       CHRE_HANDLE_FAILED_SYSTEM_EVENT_ENQUEUE(
-          this, event->eventType, event->eventData, event->callback,
+          this, event->eventType, event->eventData, event->systemEventCallback,
           event->senderInstanceId, event->targetInstanceId,
-          event->targetGroupMask);
-      FATAL_ERROR("Failed to post critical system event 0x%" PRIx16
-                  ": out of memory",
-                  event->eventType);
+          event->targetAppGroupMask);
     } else {
       CHRE_HANDLE_LOW_PRIORITY_ENQUEUE_FAILURE(
           this, event->eventType, event->eventData, event->freeCallback,
           event->senderInstanceId, event->targetInstanceId,
-          event->targetGroupMask);
+          event->targetAppGroupMask);
       ++mNumDroppedLowPriEvents;
     }
   }

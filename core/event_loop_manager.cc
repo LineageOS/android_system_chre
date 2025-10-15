@@ -71,8 +71,8 @@ void EventLoopManager::postEventOrDie(uint16_t eventType, void *eventData,
     Event *event = mEventPool.allocate(
         eventType, eventData, freeCallback, /* isLowPriority= */ false,
         kSystemInstanceId, targetInstanceId, targetGroupMask);
-    if (!mEventLoop.postEvent(event) && event != nullptr) {
-      mEventPool.deallocate(event);
+    if (!mEventLoop.postEvent(event)) {
+      FATAL_ERROR("Failed to post critical system event 0x%" PRIx16, eventType);
     }
   } else if (freeCallback != nullptr) {
     freeCallback(eventType, eventData);
@@ -84,11 +84,12 @@ bool EventLoopManager::postSystemEvent(uint16_t eventType, void *eventData,
                                        void *extraData) {
   if (!mEventLoop.isRunning()) return false;
   Event *event = mEventPool.allocate(eventType, eventData, callback, extraData);
-  bool success = mEventLoop.postEvent(event);
-  if (!success && event != nullptr) {
-    mEventPool.deallocate(event);
+  if (!mEventLoop.postEvent(event)) {
+    FATAL_ERROR("Failed to post critical system event 0x%" PRIx16
+                ": out of memory",
+                eventType);
   }
-  return success;
+  return true;
 }
 
 bool EventLoopManager::postLowPriorityEventOrFree(
@@ -101,7 +102,7 @@ bool EventLoopManager::postLowPriorityEventOrFree(
     Event *event = mEventPool.allocate(
         eventType, eventData, freeCallback, /* isLowPriority= */ true,
         senderInstanceId, targetInstanceId, targetGroupMask);
-    eventPosted = mEventLoop.postEvent(event);
+    eventPosted = mEventLoop.postEvent(event, /* isLowPriority= */ true);
     if (!eventPosted && event != nullptr) {
       mEventPool.deallocate(event);
     }
