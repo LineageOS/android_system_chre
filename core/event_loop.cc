@@ -373,7 +373,7 @@ bool EventLoop::postEvent(Event *event) {
   }
 
   bool success = (event != nullptr) && mEvents.push(event);
-  if (!success) {
+  if (!success && event != nullptr) {
     if (!event->isLowPriority) {
       CHRE_HANDLE_FAILED_SYSTEM_EVENT_ENQUEUE(
           this, event->eventType, event->eventData, event->callback,
