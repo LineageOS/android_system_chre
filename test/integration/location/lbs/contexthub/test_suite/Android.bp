@@ -1,0 +1,102 @@
+/*
+ * Copyright (C) 2025 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+cc_library_static {
+    name: "nanoapp_unit_test_lib",
+    srcs: [
+        "chre_fake_api/*.cc",
+        "chre_fake_api/helpers/*.cc",
+        "chre_unit_test.cc",
+    ],
+    include_dirs: [
+        "external/abseil-cpp/",
+    ],
+    export_include_dirs: [
+        "chre_fake_api",
+        "chre_fake_api/helpers",
+    ],
+    header_libs: [
+        "chre_api",
+        "chre_integration_headers",
+        "chre_flatbuffers",
+        "emboss_runtime_headers",
+        "pw_bluetooth_emboss_group",
+    ],
+    static_libs: [
+        "absl_flags_flag",
+        "chre_linux_nanoapp_unit_test",
+        "chre_linux_integration",
+        "libgmock",
+        "libgtest",
+        "pw_allocator",
+    ],
+    shared_libs: [
+        "libbase",
+        "libutils",
+    ],
+    defaults: [
+        "chre_linux_integration_cflags",
+        "pw_android_common_backends",
+        "pw_rpc_cflags_chre",
+    ],
+    host_supported: true,
+}
+
+cc_test_host {
+    name: "nanoapp_unit_test",
+    srcs: [
+        "chre_fake_api/chre_api_ble_fake_test.cc",
+        "chre_fake_api/chre_api_fake_provider_test.cc",
+        "chre_fake_api/chre_api_re_fake_test.cc",
+        "chre_fake_api/helpers/ble_helpers_test.cc",
+        "chre_fake_api/helpers/event_helpers_test.cc",
+        "chre_fake_api/helpers/gnss_helpers_test.cc",
+        "chre_fake_api/helpers/re_helpers_test.cc",
+        "chre_fake_api/helpers/sensor_helpers_test.cc",
+        "chre_fake_api/helpers/wifi_helpers_test.cc",
+        "chre_fake_api/helpers/wwan_helpers_test.cc",
+        "nanoapp_unit_test/sample/sample_unit_test.cc",
+    ],
+    include_dirs: [
+        "external/abseil-cpp/",
+    ],
+    header_libs: [
+        "chre_api",
+        "chre_flatbuffers",
+        "chre_integration_headers",
+        "emboss_runtime_headers",
+        "pw_bluetooth_emboss_group",
+    ],
+    defaults: [
+        "chre_linux_integration_cflags",
+        "pw_android_common_backends",
+        "pw_rpc_cflags_chre",
+    ],
+    static_libs: [
+        "absl_flags_flag",
+        "nanoapp_unit_test_lib",
+        "chre_linux_nanoapp_unit_test",
+        "chre_linux_integration",
+        "libgmock",
+        "libgtest",
+        "pw_allocator",
+    ],
+    shared_libs: [
+        "libbase",
+        "libutils",
+    ],
+    test_suites: ["general-tests"],
+}
