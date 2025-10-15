@@ -121,3 +121,17 @@ flag {
     purpose: PURPOSE_BUGFIX
   }
 }
+
+flag {
+  name: "fmcq_api"
+  namespace: "context_hub"
+  description: "Enables ContextHub APIs for fast multiple-consumer queues"
+  bug: "452127514"
+}
+
+flag {
+  name: "fmcq_implementation"
+  namespace: "context_hub"
+  description: "Enables support for ContextHub APIs for fast multiple-consumer queues"
+  bug: "452127514"
+}
