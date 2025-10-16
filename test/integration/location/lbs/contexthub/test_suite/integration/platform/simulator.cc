@@ -45,6 +45,7 @@
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/nanoapp.h"
 #include "chre/platform/linux/platform_log.h"
+#include "chre/platform/linux/thread_context.h"
 #include "chre/platform/shared/init.h"
 #include "chre_api/chre.h"
 #include "core/include/chre/core/settings.h"
@@ -660,6 +661,8 @@ void Simulator::Run(std::string nanoapps_str) {
   std::signal(SIGINT, signalHandler);
 
   std::thread chre_thread([&]() {
+    chre::registerThreadContext(
+        &chre::EventLoopManagerSingleton::get()->getEventLoop());
     chre::EventLoopManagerSingleton::get()->lateInit();
 
     // Load the nanoapps specified in the flag..
