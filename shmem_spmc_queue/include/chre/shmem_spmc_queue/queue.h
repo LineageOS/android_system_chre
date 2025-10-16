@@ -596,7 +596,7 @@ class Consumer : protected internal::ConsumerBase {
     PW_TRY_ASSIGN(pw::ConstByteSpan bytes,
                   Base::peek(count * sizeof(ElementType)));
     return pw::span<const ElementType>(
-        reinterpret_cast<ElementType *>(bytes.data()),
+        reinterpret_cast<const ElementType *>(bytes.data()),
         bytes.size() / sizeof(ElementType));
   }
 
@@ -620,6 +620,13 @@ class Consumer : protected internal::ConsumerBase {
    */
   pw::Status pop(pw::span<ElementType> elements) {
     return Base::pop(pw::as_writable_bytes(elements));
+  }
+
+  /** @return On success, the element popped from the head of the queue. */
+  pw::Result<ElementType> pop() {
+    pw::Result<ElementType> result(ElementType{});
+    PW_TRY(pop(pw::span<ElementType>{&*result, 1}));
+    return result;
   }
 
   /**
@@ -651,6 +658,7 @@ class Consumer : protected internal::ConsumerBase {
            internal::ConsumerDesc &desc, RemoteNotifyFn remoteNotifyFn,
            MemoryAccess *memAccess, std::optional<size_t> overwriteResetOffset)
       : Base(shmemBase, shmemSize, queue, desc,
+             internal::blockLayout<ElementType>(0),
              offsetof(internal::Block<ElementType>, data),
              std::move(remoteNotifyFn), memAccess, overwriteResetOffset) {}
 };

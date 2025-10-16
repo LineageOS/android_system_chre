@@ -330,17 +330,17 @@ TEST_F(QueueTest, ConsumerCreateRemoteAndDestroy) {
   // ConsumerManager::forAllConsumers() cleans up gracefully removed Consumers
   // as expected.
   setRemote();
-  RemoteNotifyArgs args = {getEmptyRemoteNotifyFn(), .id = {std::byte(0)}};
+  RemoteNotifyArgs args = {.fn = getEmptyRemoteNotifyFn(), .id = {std::byte(0)}};
   auto producer = createRemoteProducer(std::move(args));
   ASSERT_EQ(producer.status(), pw::OkStatus());
 
   ConsumerPolicyBuilder policyBuilder;
-  args = {.fn = [](pw::ConstByteSpan /*id*/) { return; }, .id = {std::byte(1)}};
+  args = {.fn = getEmptyRemoteNotifyFn(), .id = {std::byte(1)}};
   EXPECT_EQ(createRemoteConsumer(std::move(args), policyBuilder).status(),
             pw::OkStatus());
 }
 
-TEST_F(QueueTest, PushNonoverwritableConsumer) {
+TEST_F(QueueTest, PushPopNonoverwritableConsumer) {
   std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
       {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
   initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
@@ -350,9 +350,12 @@ TEST_F(QueueTest, PushNonoverwritableConsumer) {
   EXPECT_EQ(mProducer->push(1), pw::OkStatus());
   EXPECT_EQ(mProducer->size(), 1);
   EXPECT_RESULT_EQ(mConsumers[0].size(), 1);
+  EXPECT_RESULT_EQ(mConsumers[0].pop(), 1);
+  EXPECT_EQ(mProducer->size(), 0);
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 0);
 }
 
-TEST_F(QueueTest, PushOverwritableConsumer) {
+TEST_F(QueueTest, PushPopOverwritableConsumer) {
   std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
       {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setOverwritable()}};
   initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
@@ -362,6 +365,9 @@ TEST_F(QueueTest, PushOverwritableConsumer) {
   EXPECT_EQ(mProducer->push(1), pw::OkStatus());
   EXPECT_EQ(mProducer->size(), 1);
   EXPECT_RESULT_EQ(mConsumers[0].size(), 1);
+  EXPECT_RESULT_EQ(mConsumers[0].pop(), 1);
+  EXPECT_EQ(mProducer->size(), 0);
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 0);
 }
 
 TEST_F(QueueTest, PushBlockedNonOverwritableConsumer) {
@@ -372,12 +378,19 @@ TEST_F(QueueTest, PushBlockedNonOverwritableConsumer) {
   // Fill the queue to the point of blocking the producer. Pushing a single
   // element after should fail.
   std::vector<int> data(mProducer->capacity());
+  for (int i = 0; i < data.size(); ++i) {
+    data[i] = i;
+  }
   auto res = mProducer->push(data);
   EXPECT_EQ(res.status(), pw::OkStatus());
   EXPECT_EQ(res.value(), data.size());
   EXPECT_EQ(mProducer->size(), mProducer->capacity());
-  EXPECT_EQ(mProducer->push(1), pw::Status::ResourceExhausted());
+  EXPECT_EQ(mProducer->push(1), pw::Status::Unavailable());
   EXPECT_RESULT_EQ(mConsumers[0].size(), mProducer->capacity());
+  std::vector<int> output(data.size());
+  EXPECT_EQ(mConsumers[0].pop(output), pw::OkStatus());
+  EXPECT_EQ(output, data);
+  EXPECT_EQ(mProducer->size(), 0);
 }
 
 TEST_F(QueueTest, PushBlockedOverwritableConsumer) {
@@ -412,7 +425,7 @@ TEST_F(QueueTest, ConsumerChangeOverwritePolicy) {
   EXPECT_RESULT_EQ(mProducer->push(data), data.size());
   EXPECT_EQ(mProducer->size(), mProducer->capacity());
   EXPECT_RESULT_EQ(mConsumers[0].size(), mProducer->capacity());
-  EXPECT_EQ(mProducer->push(1), pw::Status::ResourceExhausted());
+  EXPECT_EQ(mProducer->push(1), pw::Status::Unavailable());
   EXPECT_EQ(
       mConsumers[0].updatePolicy(ConsumerPolicyBuilder().setOverwritable()),
       pw::OkStatus());
@@ -511,7 +524,7 @@ TEST_F(QueueTest, ReserveBlockedNonOverwritableConsumer) {
   EXPECT_EQ(res.status(), pw::OkStatus());
   EXPECT_EQ(res.value(), data.size());
   EXPECT_EQ(mProducer->size(), mProducer->capacity());
-  EXPECT_EQ(mProducer->reserve(1).status(), pw::Status::ResourceExhausted());
+  EXPECT_EQ(mProducer->reserve(1).status(), pw::Status::Unavailable());
   EXPECT_RESULT_EQ(mConsumers[0].size(), mProducer->capacity());
 }
 
@@ -551,6 +564,123 @@ TEST_F(QueueTest, ReservationBrokenUpAcrossBlocks) {
   EXPECT_EQ(mProducer->commit(total), pw::OkStatus());
   EXPECT_EQ(mProducer->size(), mProducer->size(/*includeReserved=*/true));
   EXPECT_RESULT_EQ(mConsumers[0].size(), mProducer->size());
+}
+
+TEST_F(QueueTest, PopLessThanAvailable) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  ASSERT_EQ(mProducer->push(1), pw::OkStatus());
+  ASSERT_EQ(mProducer->push(2), pw::OkStatus());
+  EXPECT_RESULT_EQ(mConsumers[0].pop(), 1);
+  EXPECT_EQ(mProducer->size(), 1);
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 1);
+}
+
+TEST_F(QueueTest, PopFailsNoData) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  std::vector<int> data(1);
+  EXPECT_EQ(mConsumers[0].pop(data), pw::Status::Unavailable());
+}
+
+TEST_F(QueueTest, PopFailsWithPeekedData) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  ASSERT_EQ(mProducer->push(1), pw::OkStatus());
+  ASSERT_EQ(mProducer->push(2), pw::OkStatus());
+  ASSERT_EQ(mConsumers[0].peek(1).status(), pw::OkStatus());
+  std::vector<int> data(1);
+  EXPECT_EQ(mConsumers[0].pop(data), pw::Status::FailedPrecondition());
+}
+
+TEST_F(QueueTest, ReserveCommitPeekRelease) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  auto maybeReserve = mProducer->reserve(1);
+  ASSERT_EQ(maybeReserve.status(), pw::OkStatus());
+  EXPECT_EQ(maybeReserve.value().size(), 1);
+  maybeReserve.value().data()[0] = 1;
+  EXPECT_EQ(mProducer->commit(1), pw::OkStatus());
+  auto maybePeeked = mConsumers[0].peek(1);
+  ASSERT_EQ(maybePeeked.status(), pw::OkStatus());
+  EXPECT_EQ(maybeReserve.value().data(), maybePeeked.value().data());
+  EXPECT_EQ(maybePeeked.value().size(), 1);
+  EXPECT_EQ(maybePeeked.value()[0], 1);
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 1);
+  EXPECT_EQ(mConsumers[0].release(1), pw::OkStatus());
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 0);
+}
+
+TEST_F(QueueTest, PushPeekMultipleReleaseSingle) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  ASSERT_EQ(mProducer->push(1), pw::OkStatus());
+  ASSERT_EQ(mProducer->push(2), pw::OkStatus());
+  auto maybePeeked = mConsumers[0].peek(1);
+  ASSERT_EQ(maybePeeked.status(), pw::OkStatus());
+  EXPECT_EQ(maybePeeked.value().size(), 1);
+  EXPECT_EQ(maybePeeked.value()[0], 1);
+  maybePeeked = mConsumers[0].peek(1);
+  ASSERT_EQ(maybePeeked.status(), pw::OkStatus());
+  EXPECT_EQ(maybePeeked.value().size(), 1);
+  EXPECT_EQ(maybePeeked.value()[0], 2);
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 2);
+  EXPECT_EQ(mConsumers[0].release(2), pw::OkStatus());
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 0);
+}
+
+TEST_F(QueueTest, PushPeekSingleReleaseMultiple) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  ASSERT_EQ(mProducer->push(1), pw::OkStatus());
+  ASSERT_EQ(mProducer->push(2), pw::OkStatus());
+  auto maybePeeked = mConsumers[0].peek(2);
+  ASSERT_EQ(maybePeeked.status(), pw::OkStatus());
+  EXPECT_EQ(maybePeeked.value().size(), 2);
+  EXPECT_EQ(maybePeeked.value()[0], 1);
+  EXPECT_EQ(maybePeeked.value()[1], 2);
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 2);
+  EXPECT_EQ(mConsumers[0].release(1), pw::OkStatus());
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 1);
+  EXPECT_EQ(mConsumers[0].release(1), pw::OkStatus());
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 0);
+}
+
+TEST_F(QueueTest, PeekAcrossBlocks) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  // Fill the queue to the point of blocking the producer. Pushing a single
+  // element after should fail.
+  std::vector<int> data(mProducer->capacity());
+  for (int i = 0; i < data.size(); ++i) {
+    data[i] = i;
+  }
+  EXPECT_RESULT_EQ(mProducer->push(data), data.size());
+  EXPECT_RESULT_EQ(mConsumers[0].size(), data.size());
+  auto remainder = data.size();
+  while (remainder) {
+    auto maybePeeked = mConsumers[0].peek(remainder);
+    ASSERT_EQ(maybePeeked.status(), pw::OkStatus());
+    EXPECT_EQ(std::memcmp(maybePeeked.value().data(),
+                          data.data() + data.size() - remainder,
+                          maybePeeked.value().size()),
+              0);
+    remainder -= maybePeeked.value().size();
+  }
 }
 
 }  // namespace

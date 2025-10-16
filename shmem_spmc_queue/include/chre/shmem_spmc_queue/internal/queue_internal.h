@@ -468,11 +468,16 @@ class ConsumerBase {
         mRemoteNotifyFn = std::move(other.mRemoteNotifyFn);
         mMemAccess = other.mMemAccess;
         mOverwriteResetOffset = other.mOverwriteResetOffset;
+        kBlockLayout = other.kBlockLayout;
         kBlockCapacity = other.kBlockCapacity;
         kDataOffset = other.kDataOffset;
         mAvailable = other.mAvailable;
         mPeeked = other.mPeeked;
+        mHeadBlock = other.mHeadBlock;
+        mCurrBlock = other.mCurrBlock;
+        mCurrBlockIndex = other.mCurrBlockIndex;
         mEpoch = other.mEpoch;
+        mCurrentFlags = other.mCurrentFlags;
         mActive = true;
       }
       other.mActive = false;
@@ -567,13 +572,15 @@ class ConsumerBase {
    *
    * @param queue The Queue metadata in shared memory.
    * @param desc The ConsumerDesc in shared memory.
+   * @param baseBlockLayout Layout for allocating Blocks.
    * @param dataOffset The offset of the data from the start of BlockHeader.
    * @param remoteNotifyFn Function for notifying Consumers out-of-band only for
    * remote queues.
    */
   ConsumerBase(uintptr_t shmemBase, uint32_t shmemSize, Queue &queue,
-               ConsumerDesc &desc, uint32_t dataOffset,
-               RemoteNotifyFn remoteNotifyFn, MemoryAccess *memAccess,
+               ConsumerDesc &desc, pw::allocator::Layout baseBlockLayout,
+               uint32_t dataOffset, RemoteNotifyFn remoteNotifyFn,
+               MemoryAccess *memAccess,
                std::optional<size_t> overwriteResetOffset);
 
   /**
@@ -587,8 +594,33 @@ class ConsumerBase {
   pw::Status initialize(IdOrNotifyFn idOrNotifyFn,
                         ConsumerPolicyBuilder &policyBuilder);
 
-  /** Recalculates mAvailable based on the current state in shared memory. */
-  void updateAvailable();
+  /**
+   * Checks whether the queue has enough data to read.
+   *
+   * @param count The number of bytes to read.
+   * @return pw::OkStatus() on success.
+   */
+  pw::Status checkAvailable(size_t count);
+
+  /**
+   * Advances the read index, possibly copying data out of the queue.
+   *
+   * @param count The number of bytes to advance.
+   * @param buf [optional] The buffer to copy data into. The size is greater
+   * than or equal to count.
+   */
+  void advanceReadIndex(size_t count, std::optional<pw::ByteSpan> buf);
+
+  /**
+   * Updates mAvailable based on the current state in shared memory.
+   *
+   * @return pw::OkStatus() on success. See {@link #ConsumerBase::checkState()}
+   * for error conditions.
+   */
+  pw::Status updateAvailable();
+
+  /** Syncs to the producer. */
+  pw::Status syncToProducer();
 
   /** @return On success, the current producer descriptor. */
   pw::Result<ProducerDesc *> getProducerDesc();
@@ -600,15 +632,12 @@ class ConsumerBase {
    */
   void notifyProducer(ProducerDesc &producerDesc);
 
-  /**
-   * Clears the producer flags.
-   *
-   * @param flag The value loaded from ConsumerDesc.producerFlags.
-   */
-  void clearFlag(uint32_t flag);
+  /** Clears the producer flags. */
+  void clearFlags();
 
   // Members fixed on construction.
   RemoteNotifyFn mRemoteNotifyFn;
+  pw::allocator::Layout kBlockLayout;
   uintptr_t kShmemBase;
   Queue *mQueue;
   ConsumerDesc *mDesc;
@@ -618,9 +647,13 @@ class ConsumerBase {
   uint32_t kBlockCapacity;
   uint32_t kDataOffset;
 
+  BlockHeader *mHeadBlock;
+  BlockHeader *mCurrBlock;
   size_t mAvailable = 0;
   size_t mPeeked = 0;
+  uint32_t mCurrBlockIndex = 0;
   uint32_t mEpoch;
+  uint32_t mCurrentFlags = static_cast<uint32_t>(ProducerFlags::kNone);
   bool mActive = true;
 };
 
