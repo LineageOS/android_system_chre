@@ -27,6 +27,14 @@
 namespace chre::shmem_spmc_queue {
 namespace {
 
+// Checks that a Result<T> is OK and its value equals an expected one.
+#define EXPECT_RESULT_EQ(res, expected)         \
+  do {                                          \
+    auto result = (res);                        \
+    ASSERT_EQ(result.status(), pw::OkStatus()); \
+    EXPECT_EQ(*result, (expected));             \
+  } while (0)
+
 constexpr LocalNotifyArgs kEmptyLocalNotifyArgs = {
     .fn = [](void * /*context*/) { return; }, .ctx = nullptr};
 
@@ -338,8 +346,10 @@ TEST_F(QueueTest, PushNonoverwritableConsumer) {
   initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
 
   EXPECT_EQ(mProducer->size(), 0);
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 0);
   EXPECT_EQ(mProducer->push(1), pw::OkStatus());
   EXPECT_EQ(mProducer->size(), 1);
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 1);
 }
 
 TEST_F(QueueTest, PushOverwritableConsumer) {
@@ -348,8 +358,10 @@ TEST_F(QueueTest, PushOverwritableConsumer) {
   initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
 
   EXPECT_EQ(mProducer->size(), 0);
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 0);
   EXPECT_EQ(mProducer->push(1), pw::OkStatus());
   EXPECT_EQ(mProducer->size(), 1);
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 1);
 }
 
 TEST_F(QueueTest, PushBlockedNonOverwritableConsumer) {
@@ -365,6 +377,7 @@ TEST_F(QueueTest, PushBlockedNonOverwritableConsumer) {
   EXPECT_EQ(res.value(), data.size());
   EXPECT_EQ(mProducer->size(), mProducer->capacity());
   EXPECT_EQ(mProducer->push(1), pw::Status::ResourceExhausted());
+  EXPECT_RESULT_EQ(mConsumers[0].size(), mProducer->capacity());
 }
 
 TEST_F(QueueTest, PushBlockedOverwritableConsumer) {
@@ -380,8 +393,31 @@ TEST_F(QueueTest, PushBlockedOverwritableConsumer) {
   EXPECT_EQ(res.status(), pw::OkStatus());
   EXPECT_EQ(res.value(), data.size());
   EXPECT_EQ(mProducer->size(), mProducer->capacity());
+  EXPECT_RESULT_EQ(mConsumers[0].size(), mProducer->capacity());
   EXPECT_EQ(mProducer->push(1), pw::OkStatus());
   EXPECT_EQ(mProducer->size(), 0);
+  EXPECT_EQ(mConsumers[0].size().status(), pw::Status::DataLoss());
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 0);
+}
+
+TEST_F(QueueTest, ConsumerChangeOverwritePolicy) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  // Fill the queue to the point of overwriting the consumer. Pushing a single
+  // element should succeed, overwriting the consumer. Since the consumer is
+  // overwritten, it is ignored for calculation of the queue size.
+  std::vector<int> data(mProducer->capacity());
+  EXPECT_RESULT_EQ(mProducer->push(data), data.size());
+  EXPECT_EQ(mProducer->size(), mProducer->capacity());
+  EXPECT_RESULT_EQ(mConsumers[0].size(), mProducer->capacity());
+  EXPECT_EQ(mProducer->push(1), pw::Status::ResourceExhausted());
+  EXPECT_EQ(
+      mConsumers[0].updatePolicy(ConsumerPolicyBuilder().setOverwritable()),
+      pw::OkStatus());
+  EXPECT_EQ(mProducer->push(1), pw::OkStatus());
+  EXPECT_EQ(mConsumers[0].checkState(), pw::Status::DataLoss());
 }
 
 TEST_F(QueueTest, NewConsumerSyncsToProducer) {
@@ -402,9 +438,11 @@ TEST_F(QueueTest, ReserveAndCommit) {
   auto maybeRes = mProducer->reserve(1);
   ASSERT_EQ(maybeRes.status(), pw::OkStatus());
   EXPECT_EQ(mProducer->size(), 0);
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 0);
   EXPECT_EQ(mProducer->size(/*includeReserved=*/true), 1);
   EXPECT_EQ(mProducer->commit(1), pw::OkStatus());
   EXPECT_EQ(mProducer->size(), 1);
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 1);
 }
 
 TEST_F(QueueTest, PushFailsWithReservation) {
@@ -474,6 +512,7 @@ TEST_F(QueueTest, ReserveBlockedNonOverwritableConsumer) {
   EXPECT_EQ(res.value(), data.size());
   EXPECT_EQ(mProducer->size(), mProducer->capacity());
   EXPECT_EQ(mProducer->reserve(1).status(), pw::Status::ResourceExhausted());
+  EXPECT_RESULT_EQ(mConsumers[0].size(), mProducer->capacity());
 }
 
 TEST_F(QueueTest, ReserveBlockedOverwritableConsumer) {
@@ -491,6 +530,8 @@ TEST_F(QueueTest, ReserveBlockedOverwritableConsumer) {
   EXPECT_EQ(mProducer->size(), mProducer->capacity());
   EXPECT_EQ(mProducer->reserve(1).status(), pw::OkStatus());
   EXPECT_EQ(mProducer->size(), 0);
+  EXPECT_EQ(mConsumers[0].size().status(), pw::Status::DataLoss());
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 0);
 }
 
 TEST_F(QueueTest, ReservationBrokenUpAcrossBlocks) {
@@ -506,8 +547,10 @@ TEST_F(QueueTest, ReservationBrokenUpAcrossBlocks) {
     EXPECT_EQ(maybeRes.value().size(), kBlockCapacity);
     count -= maybeRes.value().size();
   }
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 0);
   EXPECT_EQ(mProducer->commit(total), pw::OkStatus());
   EXPECT_EQ(mProducer->size(), mProducer->size(/*includeReserved=*/true));
+  EXPECT_RESULT_EQ(mConsumers[0].size(), mProducer->size());
 }
 
 }  // namespace

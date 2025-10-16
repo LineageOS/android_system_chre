@@ -570,7 +570,7 @@ pw::Status ConsumerBase::initialize(IdOrNotifyFn idOrNotifyFn,
 }
 
 ConsumerBase::~ConsumerBase() {
-  if (!mStatus.ok()) {
+  if (!mActive) {
     return;
   }
   mDesc->consumerFlags.store(static_cast<uint32_t>(ConsumerFlags::kFinished));
@@ -579,19 +579,54 @@ ConsumerBase::~ConsumerBase() {
   }
 }
 
-pw::Status ConsumerBase::updatePolicy(
-    ConsumerPolicyBuilder & /*policyBuilder*/) {
-  // TODO(b/445967147): Implement.
-  return pw::Status::Unimplemented();
+pw::Status ConsumerBase::updatePolicy(ConsumerPolicyBuilder &policyBuilder) {
+  PW_TRY(checkState());
+  mDesc->policy.store(policyBuilder.build().rawValue);
+  return pw::OkStatus();
 }
 
 void ConsumerBase::disable() {
-  // TODO(b/445967147): Implement.
+  mActive = false;
 }
 
 pw::Status ConsumerBase::checkState() {
-  // TODO(b/445967147): Implement.
-  return pw::Status::Unimplemented();
+  if (!mActive) {
+    return pw::Status::NotFound();
+  }
+  auto producerFlags = mDesc->producerFlags.load();
+  auto consumerFlags = mDesc->consumerFlags.load();
+  auto flagValue = getAndCheckProducerFlags(producerFlags, consumerFlags);
+  switch (flagValue) {
+    case ProducerFlags::kPendingInit:
+      // This should not happen and may indicate that this instance has outlived
+      // the producer that it was registered with. Handle it accordingly.
+      [[fallthrough]];
+    case ProducerFlags::kReset:
+      mActive = false;
+      return pw::Status::Aborted();
+    case ProducerFlags::kOverwrite: {
+      PW_TRY_ASSIGN(auto *producerDesc, getProducerDesc());
+      // TODO(b/445967147): Only sync to the producer if the epoch has changed.
+      // Otherwise try to catch up until mOverwriteResetOffset.
+      mEpoch = producerDesc->epoch.load();
+      mDesc->readIndex.store(producerDesc->writeIndex.load());
+      mDesc->indexCorrection = producerDesc->indexCorrection;
+      mAvailable = 0;
+      mPeeked = 0;
+      clearFlag(producerFlags);
+      return pw::Status::DataLoss();
+    }
+    case ProducerFlags::kBlocking:
+      // This state is used to trigger a notification to the producer on a read.
+      // Since we can't force the user to read, it isn't worth surfacing to the
+      // user.
+      [[fallthrough]];
+    case ProducerFlags::kNone:
+      return pw::OkStatus();
+    default:  // Unexpected flag value. Clear it.
+      clearFlag(producerFlags);
+      return pw::OkStatus();
+  }
 }
 
 pw::Result<pw::ConstByteSpan> ConsumerBase::peek(size_t /*count*/) {
@@ -614,22 +649,20 @@ pw::Status ConsumerBase::resync(size_t /*offset*/) {
   return pw::Status::Unimplemented();
 }
 
-size_t ConsumerBase::size() {
-  // TODO(b/445967147): Implement.
-  return 0;
-}
-
-bool ConsumerBase::empty() {
-  // TODO(b/445967147): Implement.
-  return true;
+pw::Result<size_t> ConsumerBase::size() {
+  PW_TRY(checkState());
+  PW_TRY_ASSIGN(auto *producerDesc, getProducerDesc());
+  mAvailable =
+      writeReadDiff(producerDesc->writeIndex.load(), mDesc->readIndex.load());
+  return mAvailable;
 }
 
 pw::Result<ProducerDesc *> ConsumerBase::getProducerDesc() {
   auto *producerDesc = fromOffset<ProducerDesc>(kShmemBase, kShmemSize,
                                                 mQueue->producerOffset.load());
   if (!producerDesc) {
-    mStatus = pw::Status::Aborted();
-    return mStatus;
+    mActive = false;
+    return pw::Status::Aborted();
   }
   return producerDesc;
 }

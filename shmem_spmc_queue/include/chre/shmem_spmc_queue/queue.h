@@ -633,9 +633,14 @@ class Consumer : protected internal::ConsumerBase {
     return Base::resync(offset * sizeof(ElementType));
   }
 
-  /** @return the number of elements currently in the queue. */
-  size_t size() {
-    return Base::size() / sizeof(ElementType);
+  /**
+   * @return On success, the number of elements available for reading.
+   * Otherwise, returns an error status indicating why the size could not be
+   * returned. See {@link #checkState()} for possible errors.
+   */
+  pw::Result<size_t> size() {
+    PW_TRY_ASSIGN(auto size, Base::size());
+    return size / sizeof(ElementType);
   }
 
   /** @return true iff the queue is empty. */

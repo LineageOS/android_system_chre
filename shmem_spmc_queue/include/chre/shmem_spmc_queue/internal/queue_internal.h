@@ -26,6 +26,7 @@
 #include "pw_bytes/span.h"
 #include "pw_result/result.h"
 #include "pw_status/status.h"
+#include "pw_status/try.h"
 
 namespace chre::shmem_spmc_queue {
 
@@ -400,8 +401,8 @@ class ProducerBase {
    * block the producer, flagging them accordingly. The optional increment is
    * used to determine whether a push()/reserve() would result in these states.
    *
-   * Consumers in exceptional states (overwritten, blocking, etc.) except for
-   * blocking the producer are excluded from the available space calculations.
+   * Consumers in that are overwritten or would block the producer are excluded
+   * from the available space calculations.
    *
    * @param increment The size of a prospective push/reserve operation,
    * otherwise 0.
@@ -459,7 +460,7 @@ class ConsumerBase {
   }
   ConsumerBase &operator=(ConsumerBase &&other) {
     if (&other != this) {
-      if (other.mStatus.ok()) {
+      if (other.mActive) {
         kShmemBase = other.kShmemBase;
         kShmemSize = other.kShmemSize;
         mQueue = other.mQueue;
@@ -469,10 +470,12 @@ class ConsumerBase {
         mOverwriteResetOffset = other.mOverwriteResetOffset;
         kBlockCapacity = other.kBlockCapacity;
         kDataOffset = other.kDataOffset;
+        mAvailable = other.mAvailable;
+        mPeeked = other.mPeeked;
         mEpoch = other.mEpoch;
-        mStatus = pw::OkStatus();
+        mActive = true;
       }
-      other.mStatus = pw::Status::NotFound();
+      other.mActive = false;
     }
     return *this;
   }
@@ -499,8 +502,7 @@ class ConsumerBase {
    * @return pw::OkStatus() if state is ok. The following errors may be
    * returned:
    * - pw::Status::DataLoss(): The Consumer has been overwritten.
-   * - pw::Status::Aborted(): The Producer is gone. The Consumer is not safe to
-   * use.
+   * - pw::Status::Aborted(): The Producer is gone or this instance is empty.
    */
   pw::Status checkState();
 
@@ -513,7 +515,7 @@ class ConsumerBase {
   pw::Result<pw::ConstByteSpan> peek(size_t count);
 
   /**
-   * Releases the count bytes previously peek()ed.
+   * Releases count bytes starting with bytes which have been peek()ed.
    *
    * @param count The number of bytes to release.
    * @return pw::OkStatus() on success. See checkState() for error conditions.
@@ -538,10 +540,13 @@ class ConsumerBase {
   pw::Status resync(size_t offset);
 
   /** @return the number of bytes available to read from the queue. */
-  size_t size();
+  pw::Result<size_t> size();
 
   /** @return true iff the queue is empty. */
-  bool empty();
+  pw::Result<bool> empty() {
+    PW_TRY_ASSIGN(auto res, size());
+    return res == 0;
+  }
 
  protected:
   /**
@@ -582,6 +587,9 @@ class ConsumerBase {
   pw::Status initialize(IdOrNotifyFn idOrNotifyFn,
                         ConsumerPolicyBuilder &policyBuilder);
 
+  /** Recalculates mAvailable based on the current state in shared memory. */
+  void updateAvailable();
+
   /** @return On success, the current producer descriptor. */
   pw::Result<ProducerDesc *> getProducerDesc();
 
@@ -610,8 +618,10 @@ class ConsumerBase {
   uint32_t kBlockCapacity;
   uint32_t kDataOffset;
 
+  size_t mAvailable = 0;
+  size_t mPeeked = 0;
   uint32_t mEpoch;
-  pw::Status mStatus = pw::OkStatus();
+  bool mActive = true;
 };
 
 // Returns the offset of the object from base.
