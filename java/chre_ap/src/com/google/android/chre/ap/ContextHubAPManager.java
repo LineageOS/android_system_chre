@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.google.android.chre.aptester;
+package com.google.android.chre.ap;
 
 import android.annotation.CallbackExecutor;
 import android.annotation.NonNull;
@@ -54,7 +54,7 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
     private static final String TAG = "ContextHubAPManager";
 
     // Used to ensure callbacks are executed on the main thread
-    private final Handler mMainHandler;
+    private final Handler mMainHandler = new Handler(Looper.getMainLooper());
 
     private static volatile ContextHubAPManager sInstance;
 
@@ -65,17 +65,6 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
             new ConcurrentHashMap<Integer, ContextHubAPClient>();
 
     private ContextHubAPManager() {
-        // Init the CHRE AP environment
-        int initRes = Native.init();
-
-        if (initRes != 0) {
-            Log.e(TAG, "Failed to initialize native CHRE AP environment: " + initRes);
-            throw new RuntimeException("CHRE AP environment initialization failed.");
-        }
-
-        mMainHandler = new Handler(Looper.getMainLooper());
-        nativeRegister(this);
-        Log.i(TAG, "ContextHubAPManager initialized successfully.");
     }
 
     /**
@@ -95,12 +84,34 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
         return sInstance;
     }
 
-    private native void nativeRegister(ContextHubAPManager instance);
+    /**
+     * Initializes the CHRE AP environment.
+     *
+     * @throws RuntimeException if the initialization fails.
+     */
+    public void init() {
+        // Init the CHRE AP environment
+        int initRes = ContextHubAPNative.init();
+        if (initRes != 0) {
+            Log.e(TAG, "Failed to initialize native CHRE AP environment: " + initRes);
+            throw new RuntimeException("CHRE AP environment initialization failed.");
+        }
+        ContextHubAPNative.nativeRegister(this);
+        Log.i(TAG, "ContextHubAPManager initialized successfully.");
+    }
+
+    /**
+     * Destroys the CHRE AP environment.
+     */
+    public void destroy() {
+        ContextHubAPNative.destroy();
+    }
+
 
     /**
      * Creates and registers a client to communicate with a simulated nanoapp.
      *
-     * @param context The context of caller.
+     * @param context  The context of caller.
      * @param executor The executor used to invoke callbacks (typically the main thread executor).
      * @param callback The callback to receive messages and events from the nanoapp.
      * @return The ContextHubClient instance.
@@ -154,7 +165,7 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
      * @return {@code true} if the nanoapp was loaded successfully, {@code false} otherwise.
      */
     public boolean loadNanoApp(String filename) {
-        boolean success = Native.loadNanoAppFromFile(filename);
+        boolean success = ContextHubAPNative.loadNanoAppFromFile(filename);
         if (!success) {
             Log.d(TAG, "Load nano app failed for " + filename);
         }
@@ -165,7 +176,7 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
     @Override
     public ContextHubTransaction<Void> unloadNanoApp(
             @NonNull ContextHubInfo hubInfo, long nanoAppInstanceId) {
-        boolean unloadRes = Native.unloadNanoApp(nanoAppInstanceId);
+        boolean unloadRes = ContextHubAPNative.unloadNanoApp(nanoAppInstanceId);
         if (!unloadRes) {
             Log.d(TAG, "Unload nano app failed for instance id: " + nanoAppInstanceId);
         }
@@ -197,8 +208,9 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
      * JNI callback method called by the C/C++ simulator This is invoked when a nanoapp sends a
      * message and is usually executed on a JNI thread.
      *
-     * @param nanoAppId The ID of the nanoapp that sent the message.
-     * @param messageData The message data sent by the nanoapp.
+     * @param nanoAppId   The ID of the nanoapp that sent the message.
+     * @param messageType The type of the message.
+     * @param messageBody The message data sent by the nanoapp.
      */
     public void onMessageFromNanoApp(long nanoAppId, int messageType, byte[] messageBody) {
         var message =

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.google.android.chre.aptester;
+package com.google.android.chre.ap;
 
 import android.annotation.NonNull;
 import android.hardware.location.ContextHubInfo;
@@ -90,8 +90,8 @@ public interface ContextHubClientInterface extends Closeable {
      * @param message the message object to send
      * @return the result of sending the message defined as in ContextHubTransaction.Result
      * @throws NullPointerException if NanoAppMessage is null
-     * @throws SecurityException if this client doesn't have permissions to send a message to the
-     *     nanoapp.
+     * @throws SecurityException    if this client doesn't have permissions to send a message to the
+     *                              nanoapp.
      * @see NanoAppMessage
      * @see ContextHubTransaction.Result
      */

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.google.android.chre.aptester;
+package com.google.android.chre.ap;
 
 import android.annotation.CallbackExecutor;
 import android.annotation.NonNull;

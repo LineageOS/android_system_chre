@@ -14,38 +14,46 @@
  * limitations under the License.
  */
 
-package com.google.android.chre.aptester;
+package com.google.android.chre.ap;
 
-
-public class Native {
+public class ContextHubAPNative {
     static {
         // The runtime will add "lib" on the front and ".so" on the end of
         // the name supplied to loadLibrary.
         System.loadLibrary("chre_jni");
     }
 
-    public static class NanoAppInfo {
-        long mInstanceId;
-        String mName;
-    }
-
     static native int init();
 
     static native void destroy();
+
+    static native void nativeRegister(ContextHubAPManager instance);
 
     static native boolean loadNanoAppFromFile(String filename);
 
     static native boolean unloadNanoApp(long nanoAppInstanceId);
 
-    static native NanoAppInfo[] listNanoapps();
+    /**
+     * List running nanoapps on CHRE AP.
+     *
+     * @return NanoAppInfo array
+     */
+    public static native NanoAppInfo[] listNanoapps();
 
+    /**
+     * Send message to nanoapp.
+     *
+     * @param nanoAppId   NanoApp ID
+     * @param messageType Message type
+     * @param message     Message body
+     * @param messageSize Message size
+     * @return {@code true} if the message was sent successfully, {@code false} otherwise.
+     */
     static native boolean sendMessage(
             long nanoAppId, int messageType, byte[] message, int messageSize);
 
-    /**
-     * Called by native JNI library.
-     */
-    public static void onMessageReceived(long nanoAppId, int messageType, byte[] messageBody) {
+    // Called by native JNI library.
+    static void onMessageReceived(long nanoAppId, int messageType, byte[] messageBody) {
         ContextHubAPManager.getInstance().onMessageFromNanoApp(nanoAppId, messageType, messageBody);
     }
 }

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.google.android.chre.aptester;
+package com.google.android.chre.ap;
 
 import android.annotation.IntRange;
 import android.annotation.NonNull;
@@ -47,7 +47,7 @@ public final class ContextHubAPClient implements ContextHubClientInterface {
     /**
      * Constructor.
      *
-     * @param id The ID of the client.
+     * @param id       The ID of the client.
      * @param executor The executor for invoking callbacks.
      * @param callback The message receiving callback.
      */
@@ -73,7 +73,7 @@ public final class ContextHubAPClient implements ContextHubClientInterface {
 
         // Core: Send the message to the native simulator via JNI
         boolean success =
-                Native.sendMessage(
+                ContextHubAPNative.sendMessage(
                         message.getNanoAppId(),
                         message.getMessageType(),
                         message.getMessageBody(),

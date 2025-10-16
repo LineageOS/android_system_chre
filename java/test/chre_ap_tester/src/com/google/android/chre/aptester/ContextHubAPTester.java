@@ -20,6 +20,7 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.pm.ApplicationInfo;
 import android.hardware.location.ContextHubInfo;
+import android.hardware.location.ContextHubTransaction;
 import android.hardware.location.NanoAppMessage;
 import android.os.Bundle;
 import android.os.Handler;
@@ -33,16 +34,22 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.google.android.chre.ap.ContextHubAPManager;
+import com.google.android.chre.ap.ContextHubAPNative;
+import com.google.android.chre.ap.NanoAppInfo;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-@SuppressLint("SetTextI18n")
+@SuppressLint({"SetTextI18n", "DefaultLocale"})
 public class ContextHubAPTester extends Activity {
     private static final String TAG = "ContextHubAPTester";
 
@@ -105,7 +112,7 @@ public class ContextHubAPTester extends Activity {
         mMainHandler.postDelayed(() -> {
             mNanoAppListLayout.removeAllViews();
 
-            Native.NanoAppInfo[] nanoAppInfos = Native.listNanoapps();
+            NanoAppInfo[] nanoAppInfos = ContextHubAPNative.listNanoapps();
 
             if (nanoAppInfos == null || nanoAppInfos.length == 0) {
                 TextView emptyView = new TextView(this);
@@ -115,7 +122,7 @@ public class ContextHubAPTester extends Activity {
                 return;
             }
 
-            for (Native.NanoAppInfo nanoAppInfo : nanoAppInfos) {
+            for (NanoAppInfo nanoAppInfo : nanoAppInfos) {
                 LinearLayout rowLayout = new LinearLayout(this);
                 rowLayout.setOrientation(LinearLayout.HORIZONTAL);
                 rowLayout.setLayoutParams(new LinearLayout.LayoutParams(
@@ -139,14 +146,25 @@ public class ContextHubAPTester extends Activity {
 
                 unloadButton.setOnClickListener(v -> {
                     long idToUnload = nanoAppInfo.mInstanceId;
-                    boolean success = Native.unloadNanoApp(idToUnload);
+                    ContextHubTransaction<Void> transaction =
+                            ContextHubAPManager.getInstance().unloadNanoApp(
+                                    new ContextHubInfo(), idToUnload);
 
-                    if (success) {
+                    ContextHubTransaction.Response<Void> response = null;
+                    try {
+                        response = transaction.waitForResponse(/* timeout= */1, TimeUnit.SECONDS);
+                    } catch (TimeoutException | InterruptedException e) {
+                        mResultTextView.setText("Unload timed out for instance: " + idToUnload);
+                        return;
+                    }
+
+                    if (response != null
+                            && response.getResult() == ContextHubTransaction.RESULT_SUCCESS) {
                         mResultTextView.setText("Unload successful for instance: " + idToUnload);
-                        populateNanoAppListView();
                     } else {
                         mResultTextView.setText("Unload failed for instance: " + idToUnload);
                     }
+                    populateNanoAppListView();
                 });
 
                 rowLayout.addView(infoTextView);
@@ -177,13 +195,13 @@ public class ContextHubAPTester extends Activity {
 
         initButton.setOnClickListener(v -> {
             // Start the CHRE environment.
-            ContextHubAPManager.getInstance();
+            ContextHubAPManager.getInstance().init();
             mResultTextView.setText("CHRE AP: Started");
             populateNanoAppListView();
         });
 
         destroyButton.setOnClickListener(v -> {
-            Native.destroy();
+            ContextHubAPManager.getInstance().destroy();
             mResultTextView.setText("CHRE AP: Destroyed");
             mNanoAppListLayout.removeAllViews();
         });
@@ -211,7 +229,7 @@ public class ContextHubAPTester extends Activity {
             var result = client.sendMessageToNanoApp(message);
             mMessageTextView.setText(
                     "Sent message to Message World Nanoapp with res: "
-                    + result);
+                            + result);
         });
     }
 }

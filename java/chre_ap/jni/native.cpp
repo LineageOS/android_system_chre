@@ -147,8 +147,7 @@ static jobjectArray listNanoapps(JNIEnv *env, jclass /*clazz*/) {
   chre::EventLoopManagerSingleton::get()->getEventLoop().forEachNanoapp(
       nanoappCallback, &nanoappInfoList);
 
-  const char *nanoAppInfoClassName =
-      "com/google/android/chre/aptester/Native$NanoAppInfo";
+  const char *nanoAppInfoClassName = "com/google/android/chre/ap/NanoAppInfo";
   jclass nanoAppInfoClass = env->FindClass(nanoAppInfoClassName);
   if (nanoAppInfoClass == nullptr) {
     ALOGE("Failed to find class '%s'", nanoAppInfoClassName);
@@ -202,12 +201,13 @@ static JNINativeMethod methods[] = {
      "(Ljava/lang/String;)Z",
      (void *)loadNanoAppFromFile},
     {"unloadNanoApp", "(J)Z", (void *)unloadNanoApp},
-    {"listNanoapps", "()[Lcom/google/android/chre/aptester/Native$NanoAppInfo;",
+    {"listNanoapps", "()[Lcom/google/android/chre/ap/NanoAppInfo;",
      (void *)listNanoapps},
     {"sendMessage", "(JI[BI)Z", (void *)sendMessage}};
 
 // Register native methods for all classes we know about.
-static const char *classPathName = "com/google/android/chre/aptester/Native";
+static const char *classPathName =
+    "com/google/android/chre/ap/ContextHubAPNative";
 
 static int registerNatives(JNIEnv *env) {
   auto clazz = env->FindClass(classPathName);
@@ -252,7 +252,7 @@ jint JNI_OnLoad(JavaVM *vm, void * /*reserved*/) {
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_google_android_chre_aptester_ContextHubAPManager_nativeRegister(
+Java_com_google_android_chre_ap_ContextHubAPNative_nativeRegister(
     JNIEnv *env, jobject, jobject instance) {
   if (g_contextHubAPManagerInstance != nullptr) {
     env->DeleteGlobalRef(g_contextHubAPManagerInstance);
