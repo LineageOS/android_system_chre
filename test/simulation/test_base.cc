@@ -23,7 +23,6 @@
 #include "chre/platform/linux/task_util/task_manager.h"
 #include "chre/platform/linux/thread_context.h"
 #include "chre/platform/shared/init.h"
-#include "chre/util/system/message_router.h"
 #include "chre/util/time.h"
 #include "chre_api/chre/version.h"
 #include "inc/test_util.h"
@@ -33,21 +32,10 @@
 #include "pw_containers/vector.h"
 #include "pw_function/function.h"
 
-using ::chre::message::MessageRouter;
-using ::chre::message::MessageRouterSingleton;
-using ::chre::message::Session;
 using pw::bluetooth::proxy::H4PacketWithH4;
 using pw::bluetooth::proxy::H4PacketWithHci;
 
 namespace chre {
-namespace {
-
-constexpr size_t kMaxMessageHubs = 5;
-constexpr size_t kMaxSessions = 25;
-pw::Vector<MessageRouter::MessageHubRecord, kMaxMessageHubs> gMessageHubs;
-pw::Vector<Session, kMaxSessions> gSessions;
-
-}  // anonymous namespace
 
 /**
  * This base class initializes and runs the event loop.
@@ -66,7 +54,6 @@ pw::Vector<Session, kMaxSessions> gSessions;
 void TestBase::SetUp() {
   setWaitTimeout(getTimeoutNs() / 2);
 
-  MessageRouterSingleton::init(gMessageHubs, gSessions);
   chre::PlatformLogSingleton::init();
   TaskManagerSingleton::init();
   TestEventQueueSingleton::init();
@@ -109,7 +96,6 @@ void TestBase::TearDown() {
   deleteNanoappInfos();
   unregisterAllTestNanoapps();
   chre::PlatformLogSingleton::deinit();
-  MessageRouterSingleton::deinit();
 }
 
 TEST_F(TestBase, CanLoadAndStartSingleNanoapp) {
