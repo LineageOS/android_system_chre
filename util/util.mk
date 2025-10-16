@@ -24,6 +24,7 @@ COMMON_CFLAGS += -I$(PIGWEED_DIR)/pw_containers/public
 COMMON_CFLAGS += -I$(PIGWEED_DIR)/pw_function/public
 COMMON_CFLAGS += -I$(PIGWEED_DIR)/pw_intrusive_ptr/public
 COMMON_CFLAGS += -I$(PIGWEED_DIR)/pw_log/public
+COMMON_CFLAGS += -I$(PIGWEED_DIR)/pw_multibuf/public
 COMMON_CFLAGS += -I$(PIGWEED_DIR)/pw_numeric/public
 COMMON_CFLAGS += -I$(PIGWEED_DIR)/pw_polyfill/public
 COMMON_CFLAGS += -I$(PIGWEED_DIR)/pw_preprocessor/public
