@@ -410,7 +410,9 @@ TEST_F(QueueTest, PushBlockedOverwritableConsumer) {
   EXPECT_EQ(mProducer->push(1), pw::OkStatus());
   EXPECT_EQ(mProducer->size(), 0);
   EXPECT_EQ(mConsumers[0].size().status(), pw::Status::DataLoss());
-  EXPECT_RESULT_EQ(mConsumers[0].size(), 0);
+  // Check that the consumer catches up to the queue capacity / 2.
+  EXPECT_RESULT_EQ(mConsumers[0].size(), mProducer->capacity() / 2);
+  EXPECT_EQ(mProducer->size(), mProducer->capacity() / 2);
 }
 
 TEST_F(QueueTest, ConsumerChangeOverwritePolicy) {
@@ -544,7 +546,9 @@ TEST_F(QueueTest, ReserveBlockedOverwritableConsumer) {
   EXPECT_EQ(mProducer->reserve(1).status(), pw::OkStatus());
   EXPECT_EQ(mProducer->size(), 0);
   EXPECT_EQ(mConsumers[0].size().status(), pw::Status::DataLoss());
-  EXPECT_RESULT_EQ(mConsumers[0].size(), 0);
+  // Check that the consumer catches up to the queue capacity / 2.
+  EXPECT_RESULT_EQ(mConsumers[0].size(), mProducer->capacity() / 2);
+  EXPECT_EQ(mProducer->size(), mProducer->capacity() / 2);
 }
 
 TEST_F(QueueTest, ReservationBrokenUpAcrossBlocks) {
@@ -681,6 +685,28 @@ TEST_F(QueueTest, PeekAcrossBlocks) {
               0);
     remainder -= maybePeeked.value().size();
   }
+}
+
+TEST_F(QueueTest, ConsumerResyncSuccess) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  std::vector<int> data(mProducer->capacity());
+  for (int i = 0; i < data.size(); ++i) {
+    data[i] = i;
+  }
+  EXPECT_RESULT_EQ(mProducer->push(data), data.size());
+  EXPECT_EQ(mConsumers[0].resync(data.size() / 2), pw::OkStatus());
+  EXPECT_RESULT_EQ(mConsumers[0].size(), data.size() / 2);
+}
+
+TEST_F(QueueTest, ConsumerResyncFailsOffsetTooLarge) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  EXPECT_EQ(mConsumers[0].resync(1), pw::Status::OutOfRange());
 }
 
 }  // namespace

@@ -20,6 +20,7 @@
 #include "chre/shmem_spmc_queue/queue_defs.h"
 #include "pw_allocator/layout.h"
 #include "pw_assert/assert.h"
+#include "pw_status/status.h"
 
 namespace chre::shmem_spmc_queue {
 namespace internal {
@@ -195,16 +196,18 @@ constexpr uint32_t ringDiff(uint32_t end, uint32_t begin, uint32_t size) {
  *
  * @param desc The producer descriptor to initialize.
  * @param idOrNotifyFn Id for remote notification or local callback.
+ * @param writeIndex The current write index.
+ * @param correction The correction to the write index for calculating the index
+ * within Block::data.
  * @param tailBlock The tail block.
  * @param shmemBase The base address of the shared memory.
  */
 void initProducerDesc(ProducerDesc &desc, IdOrNotifyFn idOrNotifyFn,
-                      uint32_t writeIndex, uint32_t correction, uint32_t epoch,
+                      uint32_t writeIndex, uint32_t correction,
                       BlockHeader *tailBlock, uintptr_t shmemBase) {
   desc.idOrNotifyFn = idOrNotifyFn;
   desc.writeIndex.store(writeIndex);
   desc.indexCorrection = correction;
-  desc.epoch.store(epoch);
   desc.tailBlockOffset = toOffset(shmemBase, tailBlock);
 }
 
@@ -309,8 +312,8 @@ pw::Status ProducerBase::initialize(uintptr_t shmemBase, uint32_t shmemSize,
                                   blockCapacity, minBlockCount));
   auto &desc = tailBlock->producerDesc;
   initProducerDesc(desc, idOrNotifyFn, /*writeIndex=*/0, /*correction=*/0,
-                   getBlockListEpoch(minBlockCount, /*epoch=*/0), tailBlock,
-                   shmemBase);
+                   tailBlock, shmemBase);
+  queue->blockListEpoch.store(getBlockListEpoch(minBlockCount, /*epoch=*/0));
   queue->producerOffset = toOffset(shmemBase, &desc);
   return pw::OkStatus();
 }
@@ -500,7 +503,7 @@ void ProducerBase::updateWriteIndex(BlockHeader *tailBlock, uint32_t writeIndex,
     // Initialize the descriptor in the new tail block, then link it.
     auto &newDesc = tailBlock->producerDesc;
     initProducerDesc(newDesc, mDesc->idOrNotifyFn, writeIndex, correction,
-                     mDesc->epoch.load(), tailBlock, kShmemBase);
+                     tailBlock, kShmemBase);
     mQueue->producerOffset.store(toOffset(kShmemBase, &newDesc));
     mDesc = &newDesc;
   }
@@ -573,8 +576,7 @@ ConsumerBase::ConsumerBase(uintptr_t shmemBase, uint32_t shmemSize,
                            Queue &queue, ConsumerDesc &desc,
                            pw::allocator::Layout baseBlockLayout,
                            uint32_t dataOffset, RemoteNotifyFn remoteNotifyFn,
-                           MemoryAccess *memAccess,
-                           std::optional<size_t> overwriteResetOffset)
+                           MemoryAccess *memAccess)
     : mRemoteNotifyFn(std::move(remoteNotifyFn)),
       kBlockLayout{baseBlockLayout.size() + queue.blockCapacity,
                    baseBlockLayout.alignment()},
@@ -582,14 +584,13 @@ ConsumerBase::ConsumerBase(uintptr_t shmemBase, uint32_t shmemSize,
       mQueue(&queue),
       mDesc(&desc),
       mMemAccess(memAccess),
-      mOverwriteResetOffset(
-          overwriteResetOffset.value_or(queue.blockCapacity / 2)),
       kShmemSize(shmemSize),
       kBlockCapacity(queue.blockCapacity),
       kDataOffset(dataOffset) {}
 
-pw::Status ConsumerBase::initialize(IdOrNotifyFn idOrNotifyFn,
-                                    ConsumerPolicyBuilder &policyBuilder) {
+pw::Status ConsumerBase::initialize(
+    IdOrNotifyFn idOrNotifyFn, ConsumerPolicyBuilder &policyBuilder,
+    std::optional<size_t> overwriteResetOffset) {
   auto consumerFlags = mDesc->consumerFlags.load();
   mCurrentFlags = mDesc->producerFlags.load();
   if (getAndCheckProducerFlags(mCurrentFlags, consumerFlags) !=
@@ -599,6 +600,7 @@ pw::Status ConsumerBase::initialize(IdOrNotifyFn idOrNotifyFn,
   mDesc->idOrNotifyFn = idOrNotifyFn;
   mDesc->policy.store(policyBuilder.build().rawValue);
   PW_TRY(syncToProducer());
+  mOverwriteResetOffset = overwriteResetOffset.value_or(capacity() / 2);
   clearFlags();
   return pw::OkStatus();
 }
@@ -639,14 +641,7 @@ pw::Status ConsumerBase::checkState() {
       mActive = false;
       return pw::Status::Aborted();
     case ProducerFlags::kOverwrite: {
-      PW_TRY_ASSIGN(auto *producerDesc, getProducerDesc());
-      // TODO(b/445967147): Only sync to the producer if the epoch has changed.
-      // Otherwise try to catch up until mOverwriteResetOffset.
-      mEpoch = producerDesc->epoch.load();
-      mDesc->readIndex.store(producerDesc->writeIndex.load());
-      mDesc->indexCorrection = producerDesc->indexCorrection;
-      mAvailable = 0;
-      mPeeked = 0;
+      PW_TRY(handleOverwrite());
       clearFlags();
       return pw::Status::DataLoss();
     }
@@ -656,6 +651,8 @@ pw::Status ConsumerBase::checkState() {
       // user.
       [[fallthrough]];
     case ProducerFlags::kNone:
+      // As long as we're in a good state, keep the epoch in sync.
+      mBlockListEpoch = mQueue->blockListEpoch.load();
       return pw::OkStatus();
     default:  // Unexpected flag value. Clear it.
       clearFlags();
@@ -665,6 +662,11 @@ pw::Status ConsumerBase::checkState() {
 
 pw::Result<pw::ConstByteSpan> ConsumerBase::peek(size_t count) {
   PW_TRY(checkAvailable(count));
+  if (!mPeeked) {
+    mCurrBlock = mHeadBlock;
+    mCurrBlockIndex =
+        (mDesc->readIndex.load() + mDesc->indexCorrection) % kBlockCapacity;
+  }
   mPeeked += count;
   const auto *data = blockData(mCurrBlock, kDataOffset) + mCurrBlockIndex;
   uint32_t advance = count;
@@ -710,9 +712,16 @@ pw::Status ConsumerBase::pop(pw::ByteSpan data) {
   return pw::OkStatus();
 }
 
-pw::Status ConsumerBase::resync(size_t /*offset*/) {
-  // TODO(b/445967147): Implement.
-  return pw::Status::Unimplemented();
+pw::Status ConsumerBase::resync(size_t offset) {
+  PW_TRY(checkState());
+  PW_TRY(updateAvailable());
+  if (offset > mAvailable) {
+    return pw::Status::OutOfRange();
+  }
+  advanceReadIndex(mAvailable - offset, /*buf=*/std::nullopt);
+  mAvailable -= offset;
+  mPeeked = 0;  // Reset the current block/index to the new head.
+  return pw::OkStatus();
 }
 
 pw::Result<size_t> ConsumerBase::size() {
@@ -723,11 +732,10 @@ pw::Result<size_t> ConsumerBase::size() {
 
 pw::Status ConsumerBase::checkAvailable(size_t count) {
   PW_TRY(checkState());
-  if (count > mQueue->blockCapacity * blockCountForEpoch(mEpoch)) {
+  if (count > capacity()) {
     // If the epoch has changed, check against the updated capacity.
-    PW_TRY_ASSIGN(auto *producerDesc, getProducerDesc());
-    mEpoch = producerDesc->epoch.load();
-    if (count > mQueue->blockCapacity * blockCountForEpoch(mEpoch)) {
+    mBlockListEpoch = mQueue->blockListEpoch.load();
+    if (count > capacity()) {
       return pw::Status::OutOfRange();
     }
   }
@@ -762,12 +770,13 @@ void ConsumerBase::advanceReadIndex(size_t count,
     }
     pending -= advance;
     if (toNextBlock) {
-      mHeadBlock = fromOffset<BlockHeader>(kShmemBase, kShmemSize,
-                                           mHeadBlock->nextBlockOffset.load(),
-                                           kBlockLayout);
-      blockIndex = mHeadBlock->baseIndex.load();
+      auto *nextBlock = fromOffset<BlockHeader>(
+          kShmemBase, kShmemSize, mHeadBlock->nextBlockOffset.load(),
+          kBlockLayout);
       correction +=
-          indexCorrectionIncrement(mHeadBlock, mHeadBlock, kBlockCapacity);
+          indexCorrectionIncrement(mHeadBlock, nextBlock, kBlockCapacity);
+      mHeadBlock = nextBlock;
+      blockIndex = mHeadBlock->baseIndex.load();
     }
   }
   mDesc->readIndex.store(readIndex + count);
@@ -778,6 +787,31 @@ void ConsumerBase::advanceReadIndex(size_t count,
     }
     clearFlags();
   }
+}
+
+pw::Status ConsumerBase::handleOverwrite() {
+  // If the epoch has changed, just sync to the producer.
+  if (mQueue->blockListEpoch.load() != mBlockListEpoch) {
+    return syncToProducer();
+  }
+  // Update mAvailable to determine how much to fast-forward.
+  PW_TRY(updateAvailable());
+  // Cap the offset from the write index to half the current queue capacity.
+  // This avoids fast-forwarding by such a small amount that the consumer gets
+  // overwritten again quickly.
+  auto offset = std::min(mOverwriteResetOffset, capacity() / 2);
+  // It should not be possible for mAvailable to be smaller than the offset, as
+  // that would require the capacity to have increased (meaning the epoch would
+  // have changed).
+  PW_ASSERT(mAvailable >= offset);
+  advanceReadIndex(mAvailable - offset, /*buf=*/std::nullopt);
+  mAvailable -= offset;
+  // If the epoch changed since we attempted to fast forward, the fast forward
+  // is invalidated. Sync to the producer.
+  if (mQueue->blockListEpoch.load() != mBlockListEpoch) {
+    return syncToProducer();
+  }
+  return pw::OkStatus();
 }
 
 pw::Status ConsumerBase::updateAvailable() {
@@ -794,9 +828,7 @@ pw::Status ConsumerBase::syncToProducer() {
   mDesc->indexCorrection = producerDesc->indexCorrection;
   mHeadBlock = fromOffset<BlockHeader>(
       kShmemBase, kShmemSize, producerDesc->tailBlockOffset, kBlockLayout);
-  mCurrBlock = mHeadBlock;
-  mCurrBlockIndex = (readIndex + mDesc->indexCorrection) % kBlockCapacity;
-  mEpoch = producerDesc->epoch.load();
+  mBlockListEpoch = mQueue->blockListEpoch.load();
   return pw::OkStatus();
 }
 
@@ -808,6 +840,10 @@ pw::Result<ProducerDesc *> ConsumerBase::getProducerDesc() {
     return pw::Status::Aborted();
   }
   return producerDesc;
+}
+
+size_t ConsumerBase::capacity() {
+  return mQueue->blockCapacity * blockCountForEpoch(mBlockListEpoch);
 }
 
 void ConsumerBase::notifyProducer(ProducerDesc &producerDesc) {

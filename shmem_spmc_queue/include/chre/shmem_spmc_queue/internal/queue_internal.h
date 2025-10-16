@@ -73,8 +73,6 @@ struct ProducerDesc {
   uint32_t indexCorrection;
   // Offset of the block containing the current write index in shared memory.
   uint32_t tailBlockOffset;
-  // Counter incremented by the producer before any change to the block list.
-  std::atomic<uint32_t> epoch;  // { 0-15: epoch counter | 16-31: block count }
 };
 
 /**
@@ -132,6 +130,10 @@ struct Queue {
   std::atomic<uint32_t> producerOffset;
   // List of dynamic consumers.
   uint32_t dynamicConsumersHeadOffset;
+  // Captures the current epoch of the block list and the block count. Updated
+  // by the producer.
+  // Format: { 0-15: epoch counter | 16-31: block count }
+  std::atomic<uint32_t> blockListEpoch;
   // Block capacity (in elements).
   uint32_t blockCapacity;
   // Element alignment. Used to check Consumer compatibility.
@@ -476,7 +478,7 @@ class ConsumerBase {
         mHeadBlock = other.mHeadBlock;
         mCurrBlock = other.mCurrBlock;
         mCurrBlockIndex = other.mCurrBlockIndex;
-        mEpoch = other.mEpoch;
+        mBlockListEpoch = other.mBlockListEpoch;
         mCurrentFlags = other.mCurrentFlags;
         mActive = true;
       }
@@ -572,7 +574,8 @@ class ConsumerBase {
    *
    * @param queue The Queue metadata in shared memory.
    * @param desc The ConsumerDesc in shared memory.
-   * @param baseBlockLayout Layout for allocating Blocks.
+   * @param baseBlockLayout The layout of a block with 0 elements. This is
+   * modified using the capacity obtained from queue and stored.
    * @param dataOffset The offset of the data from the start of BlockHeader.
    * @param remoteNotifyFn Function for notifying Consumers out-of-band only for
    * remote queues.
@@ -580,8 +583,7 @@ class ConsumerBase {
   ConsumerBase(uintptr_t shmemBase, uint32_t shmemSize, Queue &queue,
                ConsumerDesc &desc, pw::allocator::Layout baseBlockLayout,
                uint32_t dataOffset, RemoteNotifyFn remoteNotifyFn,
-               MemoryAccess *memAccess,
-               std::optional<size_t> overwriteResetOffset);
+               MemoryAccess *memAccess);
 
   /**
    * One-time post-construction initialization.
@@ -589,13 +591,18 @@ class ConsumerBase {
    * @param idOrNotifyFn The new instance's id for remote notifications or the
    * LocalNotifyFn for notifying it.
    * @param policyBuilder Builder for the consumer's policy.
+   * @param overwriteResetOffset [optional] When recovering from being
+   * overwritten, the offset from the write index to attempt to sync to.
    * @return pw::OkStatus() on success.
    */
   pw::Status initialize(IdOrNotifyFn idOrNotifyFn,
-                        ConsumerPolicyBuilder &policyBuilder);
+                        ConsumerPolicyBuilder &policyBuilder,
+                        std::optional<size_t> overwriteResetOffset);
 
   /**
    * Checks whether the queue has enough data to read.
+   *
+   * On success, reduces mAvailable by count.
    *
    * @param count The number of bytes to read.
    * @return pw::OkStatus() on success.
@@ -612,6 +619,17 @@ class ConsumerBase {
   void advanceReadIndex(size_t count, std::optional<pw::ByteSpan> buf);
 
   /**
+   * Attempts to restore this instance to a valid state after being overwritten.
+   *
+   * If the block list epoch has not changed, attempts to fast forward the read
+   * index. Otherwise, resyncs state to the producer, minus
+   * mOverwriteResetOffset.
+   *
+   * @return pw::OkStatus() on success.
+   */
+  pw::Status handleOverwrite();
+
+  /**
    * Updates mAvailable based on the current state in shared memory.
    *
    * @return pw::OkStatus() on success. See {@link #ConsumerBase::checkState()}
@@ -624,6 +642,9 @@ class ConsumerBase {
 
   /** @return On success, the current producer descriptor. */
   pw::Result<ProducerDesc *> getProducerDesc();
+
+  /** @return The current queue capacity in bytes. */
+  size_t capacity();
 
   /**
    * Notifies the Producer.
@@ -652,7 +673,7 @@ class ConsumerBase {
   size_t mAvailable = 0;
   size_t mPeeked = 0;
   uint32_t mCurrBlockIndex = 0;
-  uint32_t mEpoch;
+  uint32_t mBlockListEpoch;
   uint32_t mCurrentFlags = static_cast<uint32_t>(ProducerFlags::kNone);
   bool mActive = true;
 };

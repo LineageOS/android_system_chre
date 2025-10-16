@@ -515,9 +515,9 @@ class Consumer : protected internal::ConsumerBase {
     PW_TRY_ASSIGN(auto queueAndDesc,
                   checkArgs(base, shmemSize, queueOffset, descOffset));
     Consumer consumer(base, shmemSize, *queueAndDesc.first,
-                      *queueAndDesc.second, /*remoteNotifyFn=*/{}, memAccess,
-                      overwriteResetOffset);
-    PW_TRY(consumer.initialize({.localNotify = notifyArgs}, policyBuilder));
+                      *queueAndDesc.second, /*remoteNotifyFn=*/{}, memAccess);
+    PW_TRY(consumer.initialize({.localNotify = notifyArgs}, policyBuilder,
+                               overwriteResetOffset));
     return consumer;
   }
 
@@ -541,9 +541,10 @@ class Consumer : protected internal::ConsumerBase {
     PW_TRY_ASSIGN(auto queueAndDesc,
                   checkArgs(base, shmemSize, queueOffset, descOffset));
     Consumer consumer(base, shmemSize, *queueAndDesc.first,
-                      *queueAndDesc.second, std::move(notifyArgs.fn), memAccess,
-                      overwriteResetOffset);
-    PW_TRY(consumer.initialize({.remoteId = notifyArgs.id}, policyBuilder));
+                      *queueAndDesc.second, std::move(notifyArgs.fn),
+                      memAccess);
+    PW_TRY(consumer.initialize({.remoteId = notifyArgs.id}, policyBuilder,
+                               overwriteResetOffset));
     return consumer;
   }
 
@@ -656,11 +657,11 @@ class Consumer : protected internal::ConsumerBase {
  protected:
   Consumer(uintptr_t shmemBase, uint32_t shmemSize, internal::Queue &queue,
            internal::ConsumerDesc &desc, RemoteNotifyFn remoteNotifyFn,
-           MemoryAccess *memAccess, std::optional<size_t> overwriteResetOffset)
+           MemoryAccess *memAccess)
       : Base(shmemBase, shmemSize, queue, desc,
              internal::blockLayout<ElementType>(0),
              offsetof(internal::Block<ElementType>, data),
-             std::move(remoteNotifyFn), memAccess, overwriteResetOffset) {}
+             std::move(remoteNotifyFn), memAccess) {}
 };
 
 /** Layout used to allocate queue metadata in shared memory. */
