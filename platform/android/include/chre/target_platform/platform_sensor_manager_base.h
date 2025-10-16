@@ -68,11 +68,15 @@ class PlatformSensorManagerBase {
 
   // The struct used to store the CHRE event returned when processing a batch of
   // sensor events.
-  struct chreEvent {
+  struct Event {
     // The real event data.
-    void *event = nullptr;
+    union {
+      void *data = nullptr;  // Used for accessing void* type of this union.
+      chreSensorThreeAxisData *threeAxisData;
+      chreSensorFloatData *floatData;
+    };
     // Context of the sensor that this event belongs to.
-    struct SensorContext *context;
+    struct SensorContext *context = nullptr;
     // The data sample size in the chre event.
     size_t dataSize = 0;
     // The index used to fill in the chre event.
@@ -80,11 +84,8 @@ class PlatformSensorManagerBase {
   };
 
   static void fillAccelerometerEvent(const ASensorEvent &event,
-                                     chreEvent &chreEvent,
-                                     struct chreSensorThreeAxisData **pEvent);
-  static void fillBarometerEvent(const ASensorEvent &event,
-                                 chreEvent &chreEvent,
-                                 struct chreSensorFloatData **pEvent);
+                                     Event &chreEvent);
+  static void fillBarometerEvent(const ASensorEvent &event, Event &chreEvent);
 };
 
 }  // namespace chre
