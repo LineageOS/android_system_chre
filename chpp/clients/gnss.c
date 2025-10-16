@@ -79,7 +79,7 @@ struct ChppGnssClientState {
 // instance of the CHPP GNSS client at a time.
 struct ChppGnssClientState gGnssClientContext;
 static const struct chrePalSystemApi *gSystemApi;
-static const struct chrePalGnssCallbacks *gCallbacks;
+static const struct chrePalGnssCallbacks *gCallbacks = NULL;
 
 /**
  * Configuration parameters for this client
@@ -186,6 +186,11 @@ static enum ChppAppErrorCode chppDispatchGnssResponse(void *clientContext,
   struct ChppGnssClientState *gnssClientContext =
       (struct ChppGnssClientState *)clientContext;
   enum ChppAppErrorCode error = CHPP_APP_ERROR_NONE;
+
+  if (gCallbacks == NULL) {
+    CHPP_LOGW("PAL callbacks not yet initialized");
+    return CHPP_APP_ERROR_NOT_READY;
+  }
 
   if (rxHeader->command > CHPP_GNSS_CLIENT_REQUEST_MAX) {
     error = CHPP_APP_ERROR_INVALID_COMMAND;
