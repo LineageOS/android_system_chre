@@ -135,3 +135,13 @@ flag {
   description: "Enables support for ContextHub APIs for fast multiple-consumer queues"
   bug: "452127514"
 }
+
+flag {
+  name: "high_number_host_endpoint_fix"
+  namespace: "context_hub"
+  description: "Flag guarding the fix for high number host endpoints"
+  bug: "450934734"
+  metadata {
+    purpose: PURPOSE_BUGFIX
+  }
+}
