@@ -15,12 +15,22 @@
  */
 
 #include "chre/platform/context.h"
+#include "chre/core/event_loop.h"
+#include "chre/core/event_loop_manager.h"
+#include "chre/variant/config.h"
 
 namespace chre {
 
 bool inEventLoopThread() {
   // TODO(b/445584823): Implement this.
   return true;
+}
+
+EventLoop *getCurrentEventLoop() {
+  static_assert(CHRE_MULTI_THREADING_ENABLED == 0,
+                "CHRE multi-threading is not implemented on this platform");
+  return inEventLoopThread() ? &EventLoopManagerSingleton::get()->getEventLoop()
+                             : nullptr;
 }
 
 }  // namespace chre
