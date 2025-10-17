@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 The Android Open Source Project
+ * Copyright (C) 2025 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,16 +14,17 @@
  * limitations under the License.
  */
 
-#ifndef CHRE_PLATFORM_LINUX_ATOMIC_BASE_H_
-#define CHRE_PLATFORM_LINUX_ATOMIC_BASE_H_
+#ifndef CHRE_PLATFORM_SHARED_PUBLIC_STD_ATOMIC_ATOMIC_BASE_H_
+#define CHRE_PLATFORM_SHARED_PUBLIC_STD_ATOMIC_ATOMIC_BASE_H_
 
 #include <atomic>
+
 #include "chre/variant/config.h"
 
 namespace chre {
 
 /**
- * The Linux implementation of AtomicBase.
+ * The CHRE shared implementation of AtomicBase that uses std::atomic.
  */
 template <typename AtomicType>
 class AtomicBase {
@@ -44,4 +45,4 @@ typedef AtomicBase<uint32_t> AtomicUint32Base;
 
 }  // namespace chre
 
-#endif  // CHRE_PLATFORM_LINUX_ATOMIC_BASE_H_
+#endif  // CHRE_PLATFORM_SHARED_PUBLIC_STD_ATOMIC_ATOMIC_BASE_H_
