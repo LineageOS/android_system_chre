@@ -18,6 +18,7 @@
 #define CHRE_PLATFORM_ANDROID_ATOMIC_BASE_IMPL_H_
 
 #include "chre/platform/atomic.h"
+#include "chre/variant/config.h"
 
 namespace chre {
 

@@ -19,6 +19,8 @@
 
 #include <atomic>
 
+#include "chre/variant/config.h"
+
 namespace chre {
 
 /**
