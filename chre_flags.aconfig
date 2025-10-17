@@ -75,16 +75,6 @@ flag {
 }
 
 flag {
-  name: "simplify_service_transaction_lock"
-  namespace: "context_hub"
-  description: "Flag guarding the simplification of the ContextHubService transaction lock"
-  bug: "433754168"
-  metadata {
-    purpose: PURPOSE_BUGFIX
-  }
-}
-
-flag {
   name: "hal_client_new_connect_in_background"
   namespace: "context_hub"
   description: "Use the new implementation for HalClient::connectInBackground"
