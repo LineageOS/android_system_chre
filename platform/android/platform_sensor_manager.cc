@@ -69,6 +69,12 @@ std::string eventKey(const ASensorEvent &event) {
 }  // namespace
 
 PlatformSensorManager::~PlatformSensorManager() {
+  // Destroy event queue.
+  if (mSensorManager != nullptr && mSharedEventQueue != nullptr) {
+    ASensorManager_destroyEventQueue(mSensorManager, mSharedEventQueue);
+    mSharedEventQueue = nullptr;
+  }
+
   // Stop mLooper thread.
   if (mIsLooperRunning.exchange(false, std::memory_order_relaxed)) {
     if (mLooper != nullptr) {
@@ -81,11 +87,6 @@ PlatformSensorManager::~PlatformSensorManager() {
   }
   mLooper = nullptr;
   mLooperReady = false;
-
-  if (mSensorManager != nullptr && mSharedEventQueue != nullptr) {
-    ASensorManager_destroyEventQueue(mSensorManager, mSharedEventQueue);
-    mSharedEventQueue = nullptr;
-  }
 
   mAndroidHandleToChreHandleMap.clear();
 }
