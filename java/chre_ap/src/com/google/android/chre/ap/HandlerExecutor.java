@@ -16,7 +16,20 @@
 
 package com.google.android.chre.ap;
 
-public class NanoAppInfo {
-    public long mInstanceId;
-    public String mName;
+import android.os.Handler;
+
+import java.util.concurrent.Executor;
+
+/** An {@link Executor} which posts to a {@link Handler}. */
+public class HandlerExecutor implements Executor {
+    private final Handler mHandler;
+
+    public HandlerExecutor(Handler handler) {
+        this.mHandler = handler;
+    }
+
+    @Override
+    public void execute(Runnable runnable) {
+        mHandler.post(runnable);
+    }
 }

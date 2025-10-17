@@ -147,7 +147,7 @@ static jobjectArray listNanoapps(JNIEnv *env, jclass /*clazz*/) {
   chre::EventLoopManagerSingleton::get()->getEventLoop().forEachNanoapp(
       nanoappCallback, &nanoappInfoList);
 
-  const char *nanoAppInfoClassName = "com/google/android/chre/ap/NanoAppInfo";
+  const char *nanoAppInfoClassName = "com/google/android/chre/ap/NanoAppState";
   jclass nanoAppInfoClass = env->FindClass(nanoAppInfoClassName);
   if (nanoAppInfoClass == nullptr) {
     ALOGE("Failed to find class '%s'", nanoAppInfoClassName);
@@ -156,7 +156,7 @@ static jobjectArray listNanoapps(JNIEnv *env, jclass /*clazz*/) {
 
   jmethodID constructor = env->GetMethodID(nanoAppInfoClass, "<init>", "()V");
   jfieldID instanceIdField =
-      env->GetFieldID(nanoAppInfoClass, "mInstanceId", "J");
+      env->GetFieldID(nanoAppInfoClass, "mNanoAppId", "J");
   jfieldID nameField =
       env->GetFieldID(nanoAppInfoClass, "mName", "Ljava/lang/String;");
 
@@ -194,16 +194,15 @@ static jobjectArray listNanoapps(JNIEnv *env, jclass /*clazz*/) {
 }
 
 static JNINativeMethod methods[] = {
-    {"init", "()I", (void *)init},
-    {"destroy", "()V", (void *)destroy},
-    {"loadNanoAppFromFile",
-     ""
-     "(Ljava/lang/String;)Z",
+    {(char *)"init", (char *)"()I", (void *)init},
+    {(char *)"destroy", (char *)"()V", (void *)destroy},
+    {(char *)"loadNanoAppFromFile", (char *)"(Ljava/lang/String;)Z",
      (void *)loadNanoAppFromFile},
-    {"unloadNanoApp", "(J)Z", (void *)unloadNanoApp},
-    {"listNanoapps", "()[Lcom/google/android/chre/ap/NanoAppInfo;",
+    {(char *)"unloadNanoApp", (char *)"(J)Z", (void *)unloadNanoApp},
+    {(char *)"listNanoapps",
+     (char *)"()[Lcom/google/android/chre/ap/NanoAppState;",
      (void *)listNanoapps},
-    {"sendMessage", "(JI[BI)Z", (void *)sendMessage}};
+    {(char *)"sendMessage", (char *)"(JI[BI)Z", (void *)sendMessage}};
 
 // Register native methods for all classes we know about.
 static const char *classPathName =

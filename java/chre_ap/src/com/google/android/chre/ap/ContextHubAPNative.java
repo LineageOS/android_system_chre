@@ -38,7 +38,7 @@ public class ContextHubAPNative {
      *
      * @return NanoAppInfo array
      */
-    public static native NanoAppInfo[] listNanoapps();
+    public static native NanoAppState[] listNanoapps();
 
     /**
      * Send message to nanoapp.
