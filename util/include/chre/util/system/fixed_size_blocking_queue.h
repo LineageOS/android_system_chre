@@ -34,7 +34,7 @@ namespace blocking_queue_internal {
  * provide thread safety.
  *
  * The queue storage must provide the following APIs:
- *    empty(), size(), push(), front(), pop(), remove(), operator[].
+ *    empty(), full(),  size(), push(), front(), pop(), remove(), operator[].
  */
 template <typename ElementType, class QueueStorageType>
 class BlockingQueueCore : public QueueStorageType {
@@ -46,6 +46,11 @@ class BlockingQueueCore : public QueueStorageType {
    * Determines whether or not the BlockingQueue is empty.
    */
   bool empty();
+
+  /**
+   * Determines whether or not the BlockingQueue is full.
+   */
+  bool full();
 
   /**
    * Determines the current size of the BlockingQueue.
