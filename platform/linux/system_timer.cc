@@ -47,7 +47,9 @@ void SystemTimerBase::systemTimerNotifyCallback(union sigval cookie) {
   std::lock_guard<std::mutex> globalLock(gGlobalTimerMutex);
   if (gActiveTimerInstances.find(sysTimer) != gActiveTimerInstances.end()) {
     std::lock_guard<std::mutex> lock(sysTimer->mMutex);
-    sysTimer->mCallback(sysTimer->mData);
+    if (sysTimer->mCallback != nullptr) {
+      sysTimer->mCallback(sysTimer->mData);
+    }
   }
 }
 
