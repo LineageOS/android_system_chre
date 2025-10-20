@@ -241,6 +241,16 @@ void validateCenterFreq(const chreWifiScanResult &result, uint32_t apiVersion) {
   }
 }
 
+void validateVenueInfo(const chreWifiScanResult &result) {
+  // Flag an error if venueGroup or venueType is a reserved value
+  // For a given venueGroup, flag an error if the venueType is a reserved value.
+  uint8_t firstReservedValueTable[13] = {1, 16, 10, 4, 2, 6, 6, 5, 1, 1, 8, 7, 6};
+  EXPECT_LT_OR_RETURN(result.venueGroup, 13, "venueGroup is a reserved value");
+  EXPECT_LT_OR_RETURN(result.venueType,
+                      firstReservedValueTable[result.venueGroup],
+                      "venueType is a reserved value for the given venueGroup");
+}
+
 /**
  * Validates that RSSI is within sane limits.
  */
@@ -249,6 +259,9 @@ void validateRssi(int8_t rssi) {
   // right next to a high-power AP (e.g. transmitting at 20 dBm),
   // in which case RSSI will be < 20 dBm. Place a high threshold to check
   // against values likely to be erroneous (36 dBm/4W).
+  if (rssi >= 36) {
+    LOGE("Received unexpected RSSI value: %" PRId8, rssi);
+  }
   EXPECT_LT_OR_RETURN(rssi, 36, "RSSI is greater than 36");
 }
 
@@ -628,6 +641,13 @@ void BasicWifiTest::validateWifiScanResult(uint8_t count,
     validateFreqAndChannel(results[i].primaryChannel, results[i].band,
                            mApiVersion);
     validateCenterFreq(results[i], mApiVersion);
+    if (mWifiCapabilities & CHRE_WIFI_CAPABILITIES_VENUE_INFO) {
+      validateVenueInfo(results[i]);
+    } else if (mApiVersion >= CHRE_API_VERSION_1_12) {
+      EXPECT_EQ_OR_RETURN(
+          results[i].venueInfo, 0,
+          "Received non-zero venue info when capability not set");
+    }
   }
 }
 

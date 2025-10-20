@@ -1,5 +1,6 @@
 include($ENV{PW_ROOT}/pw_build/pigweed.cmake)
 
+add_subdirectory(apps)
 add_subdirectory(chre_api)
 add_subdirectory(core)
 add_subdirectory(pal)

@@ -63,7 +63,7 @@ class Manager {
   DynamicVector<chreWifiScanResult> mChreScanResults;
 
   // The expected max chre scan results to be validated. This number is an
-  // arbritray number we assume that CHRE can handle. It is perfectly fine for
+  // arbitrary number we assume that CHRE can handle. It is perfectly fine for
   // CHRE to receive more result.
   uint8_t mExpectedMaxChreResultCanHandle = 100;
 

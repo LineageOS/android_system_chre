@@ -393,7 +393,7 @@ void SegmentedQueue<ElementType, kBlockSize>::doMove(size_t srcIndex,
 
 template <typename ElementType, size_t kBlockSize>
 size_t SegmentedQueue<ElementType, kBlockSize>::relativeIndexToAbsolute(
-    size_t index) {
+    size_t index) const {
   size_t absoluteIndex = mHead + index;
   if (absoluteIndex >= capacity()) {
     absoluteIndex -= capacity();
@@ -403,7 +403,7 @@ size_t SegmentedQueue<ElementType, kBlockSize>::relativeIndexToAbsolute(
 
 template <typename ElementType, size_t kBlockSize>
 size_t SegmentedQueue<ElementType, kBlockSize>::absoluteIndexToRelative(
-    size_t index) {
+    size_t index) const {
   if (mHead > index) {
     index += capacity();
   }
@@ -450,6 +450,12 @@ ElementType &SegmentedQueue<ElementType, kBlockSize>::locateDataAddress(
 }
 
 template <typename ElementType, size_t kBlockSize>
+const ElementType &SegmentedQueue<ElementType, kBlockSize>::locateDataAddress(
+    size_t index) const {
+  return mRawStoragePtrs[index / kBlockSize].get()->data()[index % kBlockSize];
+}
+
+template <typename ElementType, size_t kBlockSize>
 size_t SegmentedQueue<ElementType, kBlockSize>::advanceOrWrapAround(
     size_t index) {
   return index >= capacity() - 1 ? 0 : index + 1;
@@ -488,6 +494,42 @@ void SegmentedQueue<ElementType, kBlockSize>::resetEmptyQueue() {
 
   mHead = 0;
   mTail = capacity() - 1;
+}
+
+template <typename ElementType, size_t kBlockSize>
+typename SegmentedQueue<ElementType, kBlockSize>::iterator
+SegmentedQueue<ElementType, kBlockSize>::begin() {
+  return iterator(this, 0);
+}
+
+template <typename ElementType, size_t kBlockSize>
+typename SegmentedQueue<ElementType, kBlockSize>::const_iterator
+SegmentedQueue<ElementType, kBlockSize>::begin() const {
+  return const_iterator(this, 0);
+}
+
+template <typename ElementType, size_t kBlockSize>
+typename SegmentedQueue<ElementType, kBlockSize>::const_iterator
+SegmentedQueue<ElementType, kBlockSize>::cbegin() const {
+  return const_iterator(this, 0);
+}
+
+template <typename ElementType, size_t kBlockSize>
+typename SegmentedQueue<ElementType, kBlockSize>::iterator
+SegmentedQueue<ElementType, kBlockSize>::end() {
+  return iterator(this, size());
+}
+
+template <typename ElementType, size_t kBlockSize>
+typename SegmentedQueue<ElementType, kBlockSize>::const_iterator
+SegmentedQueue<ElementType, kBlockSize>::end() const {
+  return const_iterator(this, size());
+}
+
+template <typename ElementType, size_t kBlockSize>
+typename SegmentedQueue<ElementType, kBlockSize>::const_iterator
+SegmentedQueue<ElementType, kBlockSize>::cend() const {
+  return const_iterator(this, size());
 }
 
 }  // namespace chre

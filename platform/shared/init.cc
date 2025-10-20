@@ -23,6 +23,7 @@
 #include "chre/platform/log.h"
 #include "chre/platform/system_time.h"
 #include "chre/platform/version.h"
+#include "chre/util/system/message_router.h"
 
 /**
  * @file This file provides a shareable example of the instantiation of manager
@@ -54,6 +55,11 @@
  * Platforms may also perform additional platform-specific initialization steps
  * at any point along the way as needed.
  */
+
+using ::chre::message::MessageRouter;
+using ::chre::message::MessageRouterSingleton;
+using ::chre::message::Session;
+using ::chre::message::SessionId;
 
 namespace chre {
 
@@ -96,9 +102,31 @@ std::optional<WwanRequestManager> gWwanRequestManager;
 #endif  // CHRE_WWAN_SUPPORT_ENABLED
 
 #ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
+
+#ifndef CHRE_MESSAGE_ROUTER_MAX_MESSAGE_HUBS
+#error "CHRE_MESSAGE_ROUTER_MAX_MESSAGE_HUBS must be defined"
+#endif  // CHRE_MESSAGE_ROUTER_MAX_MESSAGE_HUBS
+#ifndef CHRE_MESSAGE_ROUTER_MAX_SESSIONS
+#error "CHRE_MESSAGE_ROUTER_MAX_SESSIONS must be defined"
+#endif  // CHRE_MESSAGE_ROUTER_MAX_SESSIONS
+#ifndef CHRE_MESSAGE_ROUTER_RESERVED_SESSION_ID
+#error "CHRE_MESSAGE_ROUTER_RESERVED_SESSION_ID must be defined"
+#endif  // CHRE_MESSAGE_ROUTER_RESERVED_SESSION_ID
+
 #ifndef CHRE_MESSAGE_ROUTER_MEMORY_REGION
 #define CHRE_MESSAGE_ROUTER_MEMORY_REGION
 #endif  // CHRE_MESSAGE_ROUTER_MEMORY_REGION
+
+constexpr size_t kMaxMessageHubs = CHRE_MESSAGE_ROUTER_MAX_MESSAGE_HUBS;
+constexpr size_t kMaxSessions = CHRE_MESSAGE_ROUTER_MAX_SESSIONS;
+constexpr SessionId kReservedSessionId =
+    CHRE_MESSAGE_ROUTER_RESERVED_SESSION_ID;
+
+CHRE_MESSAGE_ROUTER_MEMORY_REGION
+pw::Vector<MessageRouter::MessageHubRecord, kMaxMessageHubs> gMessageHubs;
+
+CHRE_MESSAGE_ROUTER_MEMORY_REGION
+pw::Vector<Session, kMaxSessions> gSessions;
 
 CHRE_MESSAGE_ROUTER_MEMORY_REGION
 std::optional<ChreMessageHubManager> gChreMessageHubManager;
@@ -200,12 +228,26 @@ void deinitHostMessageHubManager() {
 #endif  // CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
 }
 
+void initMessageRouter() {
+#ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
+  MessageRouterSingleton::init(gMessageHubs, gSessions, kReservedSessionId);
+#endif  // CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
+}
+
+void deinitMessageRouter() {
+#ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
+  MessageRouterSingleton::deinit();
+#endif  // CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
+}
+
 }  // namespace
 
 void initCommon() {
   LOGI("CHRE init, version: %s", kChreVersionString);
 
   SystemTime::init();
+
+  initMessageRouter();
 
   EventLoopManagerSingleton::init(
       getBleSocketManager(), initAndGetGnssManager(),
@@ -214,8 +256,6 @@ void initCommon() {
 }
 
 void deinitCommon() {
-  EventLoopManagerSingleton::deinit();
-
   deinitBleSocketManager();
   deinitGnssManager();
   deinitWifiRequestManager();
@@ -223,6 +263,9 @@ void deinitCommon() {
   deinitChreMessageHubManager();
   deinitHostMessageHubManager();
 
+  EventLoopManagerSingleton::deinit();
+
+  deinitMessageRouter();
   LOGD("CHRE deinit");
 }
 

@@ -18,6 +18,7 @@
 #define CHRE_PLATFORM_ZEPHYR_ATOMIC_BASE_H_
 
 #include <zephyr/sys/atomic.h>
+#include "chre/variant/config.h"
 
 namespace chre {
 
@@ -27,6 +28,9 @@ class AtomicBase {
 };
 
 typedef AtomicBase AtomicBoolBase;
+#if CHRE_ATOMIC_UINT8_ENABLED
+typedef AtomicBase AtomicUint8Base;
+#endif  // CHRE_ATOMIC_UINT8_ENABLED
 typedef AtomicBase AtomicUint32Base;
 
 }  // namespace chre

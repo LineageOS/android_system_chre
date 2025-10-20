@@ -39,23 +39,48 @@ popd > /dev/null
 #   None
 #######################################
 _setup_pyenv() {
-    # Check for pyenv
-    if ! command -v pyenv &> /dev/null; then
-        echo "pyenv is not installed. Please install pyenv and try again."
-        return 1
-    fi
+  # Force PYENV_ROOT to the user's home directory
+  export PYENV_ROOT="$HOME/.pyenv"
 
-    # Install Python version if not already present.
-    # sudo is used because it's possible that the user doesn't have permission to modify
-    # /usr/share/pyenv/versions. Once the python version is installed sudo permission is not needed.
-    if ! sudo pyenv versions | grep -q "$CHRE_PYTHON_VERSION"; then
-        echo "Python version $CHRE_PYTHON_VERSION not found. Installing..."
-        sudo pyenv install "$CHRE_PYTHON_VERSION"
-    fi
+  # Add pyenv's bin directory to PATH if it's not already there
+  if [ -d "$PYENV_ROOT/bin" ]; then
+    case ":$PATH:" in
+      *:"$PYENV_ROOT/bin":*)
+        ;; # Already in PATH, do nothing
+      *)
+        export PATH="$PYENV_ROOT/bin:$PATH"
+        ;;
+    esac
+  fi
 
-    # Make sure the correct python version is used to set up virtual environment
-    sudo pyenv local $CHRE_PYTHON_VERSION
-    export PATH=$HOME/.pyenv/shims:$PATH
+  # Run `pyenv init` only if the shims aren't already on the PATH
+  # This prevents adding the shims directory to your PATH multiple times.
+  if ! [[ ":$PATH:" == *":$PYENV_ROOT/shims:"* ]]; then
+      eval "$(pyenv init -)"
+  fi
+
+  # Install Python version if not already present. We use `grep -q` for a quiet check.
+  if [[ -n "$CHRE_PYTHON_VERSION" ]] && ! pyenv versions | grep -q "$CHRE_PYTHON_VERSION"; then
+      echo "Python version $CHRE_PYTHON_VERSION not found. Installing..."
+      pyenv install "$CHRE_PYTHON_VERSION"
+  else
+    local current_global=$(pyenv global 2>/dev/null)
+    local default_global="3.11.11"
+    # Check if a global version is either not set or is set to "system".
+    if [[ -z "$current_global" ]] || [[ "$current_global" == "system" ]]; then
+      # Check if the target version is already installed by pyenv.
+      if ! pyenv versions --bare | grep -q "^${default_global}$"; then
+        echo "Installing global default version ${default_global} now..."
+        # Install the desired version. This may take a few minutes.
+        pyenv install "$default_global"
+      fi
+      # Set the desired version as the global default.
+      echo "Setting global Python version to ${default_global}..."
+      pyenv global "$default_global"
+    else
+      echo "Global Python version is already set to '${current_global}'."
+    fi
+  fi
 }
 
 #######################################
@@ -87,10 +112,10 @@ _install_py_pkgs() {
 #######################################
 # Sets up a Python virtual environment for CHRE development.
 #
-# This function checks if a virtual environment is active. If not, it prompts
-# the user to create one. It handles using `pyenv` to switch to the correct
-# Python version if necessary before creating the virtual environment and
-# installing packages.
+# This function orchestrates the setup of a Python virtual environment. It
+# checks for an active virtual environment, and if none is found, it attempts
+# to activate an existing one or create a new one. It ensures that the
+# environment uses the Python version specified in the CHRE configuration.
 # Globals:
 #   CHRE_PYTHON_VERSION
 #   CHRE_DEV_SCRIPT_PATH
@@ -99,45 +124,109 @@ _install_py_pkgs() {
 #   None
 #######################################
 _setup_python_virtual_env() {
-  local current_py_version=$(python --version | awk '{print $2}')
-  if [[ -n "$CHRE_PYTHON_VERSION" && "$current_py_version" != "$CHRE_PYTHON_VERSION" ]]; then
-    local need_a_different_py_version=true
+  echo "Preparing to install python packages..."
+
+  if [[ -n "$VIRTUAL_ENV" ]]; then
+    deactivate
   fi
 
-  echo "Preparing to install python packages..."
-  if [[ -z "$VIRTUAL_ENV" ]]; then
-    echo "The installation of python packages must be done in a virtual environment."
-    echo -n "Shall we create one for you? [Y/n] "
-    read user_response
-    if [[ "$user_response" == "y" || "$user_response" == "Y" || "$user_response" == "" ]]; then
-      if [[ "$need_a_different_py_version" == "true" ]]; then
-        echo "setting up pyenv..."
-        _setup_pyenv || return 1
-      fi
-      # Create and activate the virtual environment
-      local chre_venv_path="/tmp/chre_venv"
-      if [[ -d "$chre_venv_path" ]]; then
-        echo "'${chre_venv_path}' exists. Removing it..."
-        rm -rf "$chre_venv_path"
-      fi
-      echo "Creating a new virtual environment '${chre_venv_path}' with Python $CHRE_PYTHON_VERSION..."
-      python -m venv "$chre_venv_path" || return 1
-      echo "Activating virtual environment..."
-      source ${chre_venv_path}/bin/activate
+  _activate_or_create_venv || return 1
+  _install_py_pkgs || return 1
+}
+
+#######################################
+# Activates an existing or creates a new Python virtual environment.
+#
+# This function first checks for an existing CHRE virtual environment. If it
+# finds one with the correct Python version, it activates it. Otherwise, it
+# prompts the user to create a new one.
+# Globals:
+#   CHRE_DEV_PATH
+#   CHRE_PYTHON_VERSION
+# Arguments:
+#   None
+#######################################
+_activate_or_create_venv() {
+  local chre_py_venv_path=$CHRE_DEV_PATH/$CHRE_PLATFORM-$CHRE_TARGET_TYPE
+  if [[ -f "$chre_py_venv_path/bin/python" ]]; then
+    local venv_py_version=$($chre_py_venv_path/bin/python --version | awk '{print $2}')
+    if [[ -z "$CHRE_PYTHON_VERSION" || "$venv_py_version" == "$CHRE_PYTHON_VERSION" ]]; then
+      echo "Activating existing virtual environment under $chre_py_venv_path"
+      source "$chre_py_venv_path/bin/activate"
+      return 0
     else
-      echo -e "\nPlease create a virtual environment and try again."
-      return 1
-    fi
-  else
-    echo "It looks like you are already in a virtual environment ${VIRTUAL_ENV}. Great!"
-    if [[ "$need_a_different_py_version" == "true" ]]; then
-      echo "The virtual environment has python version $current_py_version but $CHRE_PYTHON_VERSION is required."
+      echo "The virtual environment under $chre_py_venv_path has python version $venv_py_version but $CHRE_PYTHON_VERSION is required."
       echo "Please deactivate the current virtual environment and try again."
       return 1
     fi
   fi
 
-  _install_py_pkgs || return 1
+  echo "The installation of python packages must be done in a virtual environment."
+  echo -n "Shall we create a new one for you? [Y/n] "
+  read user_response
+  if [[ "$user_response" == "y" || "$user_response" == "Y" || "$user_response" == "" ]]; then
+    _create_new_venv
+  else
+    echo -e "\nPlease create a virtual environment and try again."
+    return 1
+  fi
+}
+
+#######################################
+# Creates a new Python virtual environment.
+#
+# This function sets up a new Python virtual environment. If a Python version
+# is specified in the CHRE configuration, it uses `pyenv` to manage that
+# version. Otherwise, it falls back to using `pyenv`'s default Python version.
+# Globals:
+#   CHRE_DEV_PATH
+#   CHRE_PYTHON_VERSION
+# Arguments:
+#   None
+#######################################
+_create_new_venv() {
+  local chre_py_venv_path=$CHRE_DEV_PATH/$CHRE_PLATFORM-$CHRE_TARGET_TYPE
+  echo "Setting up pyenv..."
+  _setup_pyenv || return 1
+  pushd $CHRE_DEV_PATH > /dev/null
+  if [[ -n "$CHRE_PYTHON_VERSION" ]]; then
+    pyenv local "$CHRE_PYTHON_VERSION"
+  fi
+  python -m venv "$chre_py_venv_path"
+  local success=$?
+  popd > /dev/null
+  if [[ $success -ne 0 ]]; then
+    return 1
+  fi
+  echo "Activating virtual environment..."
+  source "$chre_py_venv_path/bin/activate"
+}
+
+print_binary_size() {
+  local TOTAL=0
+  local IFS=$'\n'
+  local SEGMENTS="$($CHRE_TARGET_ELF_READER -l $1 | grep LOAD)"
+  # Save current IFS to restore later.
+  local CURR_IFS=$IFS
+  for LINE in $SEGMENTS; do
+    # Headers: Type Offset VirtAddr PhysAddr FileSiz MemSiz Flg Align
+    IFS=" " HEADERS=(${LINE})
+    LEN=${#HEADERS[@]}
+
+    MEMSIZE=$(( HEADERS[5] ))
+    # Flg can have a space in it, 'R E', for example.
+    ALIGN=$(( HEADERS[LEN - 1] ))
+    # Rounded up to the next integral multiple of Align.
+    QUOTIENT=$(( (MEMSIZE + ALIGN - 1) / ALIGN ))
+    PADDED=$(( ALIGN * QUOTIENT ))
+    PADDING=$(( PADDED - MEMSIZE ))
+
+    printf '  MemSize:0x%x Align:0x%x Padded:0x%x Padding:%d\n' $MEMSIZE $ALIGN $PADDED $PADDING
+    TOTAL=$(( TOTAL + PADDED ))
+  done
+
+  IFS=$CURR_IFS
+  printf 'Total Padded MemSize: 0x%x (%d)\n' $TOTAL $TOTAL
 }
 
 #######################################
@@ -160,20 +249,36 @@ chre_make() {
   if [[ $1 == "-C" ]]; then
     shift
     make clean && \
-    python3 $CHRE_DEV_SCRIPT_PATH/cml_gen.py -c "make -n $CHRE_BUILD_TARGET" -o out "$@" && \
-    mkdir out/build && \
-    pushd out/build > /dev/null
+    python3 $CHRE_DEV_SCRIPT_PATH/cml_gen.py -c "make -n $CHRE_BUILD_TARGET" -o out/$CHRE_BUILD_TARGET "$@" && \
+    mkdir out/$CHRE_BUILD_TARGET/build && \
+    pushd out/$CHRE_BUILD_TARGET/build > /dev/null
     if [[ $? -eq 0 ]]; then
       cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON ../ && \
-      mv compile_commands.json ../ && \
-      rm -rf out/build
+      mv compile_commands.json ../
+      echo "CMakeLists.txt and compile_commands.json have been generated at out/$CHRE_BUILD_TARGET"
+    else
+      return
     fi
-    popd > /dev/null
+    popd > /dev/null && \
+    rm -rf out/$CHRE_BUILD_TARGET/build
     return
   fi
 
-  make $CHRE_BUILD_TARGET || return 1
+  if [[ $# > 1 || $1 != "-a" && $# == 1 ]]; then
+    echo "Only -a and -C are supported options, mutual exclusive"
+    return
+  elif [[ $1 == "-a" ]]; then
+    echo ""
+    echo "WARN: accumulative build. Be aware that some of the changes like header files or make files might not be caught"
+    echo ""
+  else
+    make clean
+  fi
 
+  # Making the target
+  make OPT_LEVEL=s $CHRE_BUILD_TARGET || return 1
+
+  # Getting the .so file
   local so_files=(./out/$CHRE_BUILD_TARGET/*.so)
   if [[ ${#so_files[@]} -eq 0 ]]; then
     echo "Error: No .so file found in ./out/$CHRE_BUILD_TARGET/" >&2
@@ -184,18 +289,49 @@ chre_make() {
     return 1
   fi
   local so_file="${so_files[0]}"
-  signed_path="./out/$CHRE_BUILD_TARGET/signed"
 
-  if [[ ! -f "$so_file" ]]; then
-    return 1
+  # Stripping unneeded symbols
+  llvm-strip $so_file --strip-unneeded
+
+  # Checking external symbols
+  if [[ $CHRE_TARGET_TYPE == "nanoapp" ]]; then
+    python3 "$CHRE_DEV_SCRIPT_PATH/check_nanoapp_symbols.py" --nanoapp "$so_file"
   fi
 
+  # Signing
+  signed_path="./out/$CHRE_BUILD_TARGET/signed"
   if [[ ! -d $signed_path ]]; then
     mkdir -p $signed_path
   fi
+  if [ -n "$CHRE_SIGNER_PATH" ]; then
+    local signed_so_file="$signed_path/$(basename "$so_file")"
+    echo "Signing $so_file -> $signed_so_file"
+    if "$CHRE_SIGNER_PATH" "$so_file" "$signed_so_file"; then
+      echo "Signing successful!"
+    else
+      echo "Error: Signing failed." >&2
+      return 1
+    fi
+  else
+    echo "Warning: No signer configured for platform '$CHRE_PLATFORM'. Skipping signing."
+  fi
 
-  # TODO(b/374392644) - Add support for signing
-  # TODO(b/374392644) - Add support for external symbols checking
+  # Printing the size
+  echo -e "\nPrinting binary size of ${so_file}..."
+  print_binary_size "$so_file" || return 1
+}
+
+#######################################
+# Builds and flashes a CHRE target to a device.
+#
+# This function first calls `chre_make` to build the target and then invokes
+# the `flash.py` script to perform the flashing operation.
+# Arguments:
+#   All arguments are passed directly to the flash.py script.
+#######################################
+chre_flash() {
+  chre_make || return 1
+  python3 "$CHRE_DEV_SCRIPT_PATH/flash.py" "$@"
 }
 
 #######################################
@@ -229,20 +365,20 @@ chre_lunch() {
   echo "NOTE: A default value is provided in the parenthesis when possible"
   echo ""
 
-  commands=`python3 $CHRE_DEV_SCRIPT_PATH/env_setup.py -p "$@"` && \
+  # Clear out existing CHRE environment variables to prevent pollution
+  if [[ -n "${CHRE_ENVS[*]}" ]]; then
+    echo "Clearing existing CHRE environment variables..."
+    for env_var in "${CHRE_ENVS[@]}"; do
+      unset "$env_var"
+    done
+  fi
+
+  commands=`python3 $CHRE_DEV_SCRIPT_PATH/env_setup.py "$@"` && \
   echo "exporting environment variables..." && \
   while read -r -u 3 command; do  # Read from fd 3 to save stdin for user input
-    if [[ "$command" == "action_"* ]]; then
-      python3 $CHRE_DEV_SCRIPT_PATH/env_setup.py --action $command
-    elif [[ "$command" == "export "* ]]; then
-      # Using eval to make spaces and parenthesis in the array definition work
-      eval $command
-    else
-      echo "Unknown command '$command'"
-      onExit && return 1
-    fi
-
+    eval "export $command"
     if [[ $? -ne 0 ]]; then
+      echo "Error evaluating export $command" >&2
       onExit && return 1
     fi
   done 3<<< "$commands" && \

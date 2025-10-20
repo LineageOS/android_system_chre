@@ -22,9 +22,9 @@
 
 namespace nearby {
 
-bool MatchFastPair(const nearby_BleFilter &filter,
-                   const BleScanRecord &scan_record,
-                   nearby_BleFilterResult *result);
+bool MatchFastPair(const nearby_BleFilter& filter,
+                   const BleScanRecord& scan_record,
+                   nearby_BleFilterResult* result);
 
 }  // namespace nearby
 

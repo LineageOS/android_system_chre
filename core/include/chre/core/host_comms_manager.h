@@ -24,12 +24,14 @@
 #include "chre/core/timer_pool.h"
 #include "chre/platform/atomic.h"
 #include "chre/platform/host_link.h"
+#include "chre/platform/mutex.h"
 #include "chre/util/buffer.h"
 #include "chre/util/duplicate_message_detector.h"
 #include "chre/util/non_copyable.h"
 #include "chre/util/system/synchronized_memory_pool.h"
 #include "chre/util/system/transaction_manager.h"
 #include "chre/util/time.h"
+#include "chre/variant/config.h"
 #include "chre_api/chre/event.h"
 
 namespace chre {
@@ -259,7 +261,15 @@ class HostCommsManager : public HostLink, private TransactionManagerCallback {
   DuplicateMessageDetector mDuplicateMessageDetector;
 
   //! The transaction manager for reliable messages.
-  TransactionManager<kMaxOutstandingMessages, TimerPool> mTransactionManager;
+  TransactionManager<kMaxOutstandingMessages, TimerPool> mTransactionManager
+#if CHRE_MULTI_THREADING_ENABLED
+      CHRE_GUARDED_BY(mTransactionManagerMutex);
+
+  //! The lock for mTransactionManager
+  Mutex mTransactionManagerMutex;
+#else
+      ;
+#endif  // CHRE_MULTI_THREADING_ENABLED
 #endif  // CHRE_RELIABLE_MESSAGE_SUPPORT_ENABLED
 
   /**

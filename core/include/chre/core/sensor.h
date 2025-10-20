@@ -229,6 +229,8 @@ class Sensor : public PlatformSensor {
     return SensorTypeHelpers::getLastEventSize(getSensorType());
   }
 
+  void moveFrom(Sensor &other);
+
   //! Mutex used to lock setting / getting the sampling status information for
   //! sensors. Share it among all sensors since nanoapps can only request a
   //! single sensor status at a time.

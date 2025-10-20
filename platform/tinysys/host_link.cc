@@ -767,7 +767,8 @@ DRAM_REGION_FUNCTION bool HostLink::sendBtSocketGetCapabilitiesResponse(
       rfcommMaxFrameSize};
 
   auto msgBuilder = [](ChreFlatBufferBuilder &builder, void *cookie) {
-    const auto data = static_cast<const BtSocketOpenResponseData *>(cookie);
+    const auto data =
+        static_cast<const BtSocketCapabilitiesResponseData *>(cookie);
     HostProtocolChre::encodeBtSocketGetCapabilitiesResponse(
         builder, data->leCocNumberOfSupportedSockets, data->leCocMtu,
         data->rfcommNumberOfSupportedSockets, data->rfcommMaxFrameSize);
@@ -798,8 +799,8 @@ DRAM_REGION_FUNCTION bool HostLink::sendBtSocketOpenResponse(
                                 msgBuilder, &btSocketOpenResponseData);
 }
 
-DRAM_REGION_FUNCTION bool HostLink::sendBtSocketCloseToHost(
-    uint64_t socketId, const char *reason) {
+DRAM_REGION_FUNCTION bool HostLink::sendBtSocketClose(uint64_t socketId,
+                                                      const char *reason) {
   struct BtSocketCloseData {
     uint64_t socketId;
     const char *reason;

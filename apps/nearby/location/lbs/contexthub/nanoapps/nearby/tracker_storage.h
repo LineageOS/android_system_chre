@@ -7,6 +7,7 @@
 
 #include "chre_api/chre.h"
 #include "third_party/contexthub/chre/util/include/chre/util/dynamic_vector.h"
+#include "third_party/contexthub/chre/util/include/chre/util/segmented_queue.h"
 #include "third_party/contexthub/chre/util/include/chre/util/unique_ptr.h"
 
 namespace nearby {
@@ -22,18 +23,18 @@ class TrackerStorageCallbackInterface {
 
 struct TrackerBatchConfig {
   // Minimum sampling interval to update tracker history.
-  uint32_t sample_interval_ms = {60000};
+  uint32_t sample_interval_ms = { 60000 };
   // Maximum number of tracker reports that can be stored in storage.
-  uint32_t max_tracker_count = {30};
+  uint32_t max_tracker_count = { 30 };
   // Notification threshold of the number of tracker reports, which should be
   // equal to or smaller than max_tracker_count.
-  uint32_t notify_threshold_tracker_count = {28};
+  uint32_t notify_threshold_tracker_count = { 28 };
   // Maximum number of tracker histories that can be stored in tracker report.
-  uint32_t max_history_count = {20};
+  uint32_t max_history_count = { 20 };
   // Timeout for tracker history to be considered lost.
-  uint32_t lost_timeout_ms = {60000};
+  uint32_t lost_timeout_ms = { 60000 };
   // Time based threshold for opportunistic flush of tracker reports.
-  uint32_t opportunistic_flush_threshold_time_ms = {4294967295};
+  uint32_t opportunistic_flush_threshold_time_ms = { 4294967295 };
 };
 
 enum class TrackerState {
@@ -92,8 +93,14 @@ struct TrackerReport {
 
 class TrackerStorage {
  public:
+  // Block size for tracker reports in segmented queue.
+  static constexpr size_t kTrackerReportsBlockSize = 10;
+  // Max blocks for tracker reports in segmented queue to hold up to 30 tracker
+  // reports defined in TrackerBatchConfig.
+  static constexpr size_t kTrackerReportsMaxBlocks = 3;
+
   // Constructs tracker storage.
-  TrackerStorage() = default;
+  TrackerStorage() : tracker_reports_(kTrackerReportsMaxBlocks) {}
 
   // Adds advertise report to tracker storage.
   void Push(const chreBleAdvertisingReport &report,
@@ -104,11 +111,12 @@ class TrackerStorage {
 
   // Clears tracker storage.
   void Clear() {
-    tracker_reports_.clear();
+    while (!tracker_reports_.empty()) tracker_reports_.pop_front();
   }
 
   // Return tracker batch reports in storage.
-  chre::DynamicVector<TrackerReport> &GetBatchReports() {
+  chre::SegmentedQueue<TrackerReport, kTrackerReportsBlockSize>
+      &GetBatchReports() {
     return tracker_reports_;
   }
 
@@ -122,9 +130,8 @@ class TrackerStorage {
   static constexpr size_t kDefaultTrackerHistorySize = 2;
 
   // Tracker batch reports.
-  // TODO(b/341757839): Optimize tracker storage memory using
-  // chre::SegmentedQueue to minimize heap fragmentation.
-  chre::DynamicVector<TrackerReport> tracker_reports_;
+  chre::SegmentedQueue<TrackerReport, kTrackerReportsBlockSize>
+      tracker_reports_;
 
   // Tracker storage event callback.
   TrackerStorageCallbackInterface *callback_ = nullptr;
@@ -150,7 +157,7 @@ class TrackerStorage {
   // If the advertising data is the same as the previous one, it will not do
   // anything.
   void AddOrUpdateAdvertisingData(TrackerReport &tracker_report,
-                                  const chreBleAdvertisingReport &report);
+                             const chreBleAdvertisingReport &report);
 
   // Returns whether the tracker report is exempt from updating advertising
   // data.
@@ -160,7 +167,7 @@ class TrackerStorage {
 
   // Returns whether advertising address is same.
   bool IsEqualAddress(const TrackerReport &tracker_report,
-                      const chreBleAdvertisingReport &report) const;
+                     const chreBleAdvertisingReport &report) const;
 
   // Returns current time in milliseconds.
   uint32_t GetCurrentTimeMs() const;

@@ -180,7 +180,8 @@ class SegmentedQueue : public NonCopyable {
       typename std::conditional<std::is_pointer<ElementType>::value ||
                                     std::is_fundamental<ElementType>::value,
                                 bool(ElementType, void *, void *),
-                                bool(ElementType &, void *, void *)>::type;
+                                bool(const ElementType &, void *,
+                                     void *)>::type;
 
   using FreeFunction =
       typename std::conditional<std::is_pointer<ElementType>::value ||
@@ -221,8 +222,80 @@ class SegmentedQueue : public NonCopyable {
                                FreeFunction *freeFunction = nullptr,
                                void *extraDataForFreeFunction = nullptr);
 
+  /**
+   * A forward iterator for the SegmentedQueue.
+   *
+   * Note that this iterator is invalidated if the underlying SegmentedQueue is
+   * modified (e.g., by calling push_back, pop_front, remove, etc.) while the
+   * iterator is in use. Using an invalidated iterator will result in undefined
+   * behavior. It is the user's responsibility to ensure the queue is not
+   * modified during iteration. Note that this implementation aligns with our
+   * other container as well as std containers.
+   */
+  template <bool kIsConst>
+  class Iterator {
+   public:
+    using QueueType = typename std::conditional<kIsConst, const SegmentedQueue,
+                                                SegmentedQueue>::type;
+    using value_type = ElementType;
+    using difference_type = std::ptrdiff_t;
+    using pointer = typename std::conditional<kIsConst, const ElementType *,
+                                              ElementType *>::type;
+    using reference = typename std::conditional<kIsConst, const ElementType &,
+                                                ElementType &>::type;
+    using iterator_category = std::forward_iterator_tag;
+
+    Iterator(QueueType *queue, size_t index) : mQueue(queue), mIndex(index) {}
+
+    reference operator*() const {
+      CHRE_ASSERT(mIndex < mQueue->size());
+      return (*mQueue)[mIndex];
+    }
+
+    pointer operator->() const {
+      CHRE_ASSERT(mIndex < mQueue->size());
+      return &(*mQueue)[mIndex];
+    }
+
+    Iterator &operator++() {
+      CHRE_ASSERT(mIndex < mQueue->size());
+      mIndex++;
+      return *this;
+    }
+
+    Iterator operator++(int) {
+      Iterator old = *this;
+      operator++();
+      return old;
+    }
+
+    bool operator!=(const Iterator &other) const {
+      return mQueue != other.mQueue || mIndex != other.mIndex;
+    }
+
+    bool operator==(const Iterator &other) const {
+      return mQueue == other.mQueue && mIndex == other.mIndex;
+    }
+
+   private:
+    QueueType *const mQueue;
+    size_t mIndex;
+  };
+
+  using iterator = Iterator<false>;
+  using const_iterator = Iterator<true>;
+
+  iterator begin();
+  const_iterator begin() const;
+  const_iterator cbegin() const;
+  iterator end();
+  const_iterator end() const;
+  const_iterator cend() const;
+
  private:
-  size_t maxBlockCount() const { return mRawStoragePtrs.capacity(); }
+  size_t maxBlockCount() const {
+    return mRawStoragePtrs.capacity();
+  }
 
   /**
    * Push a new block to the end of storage to add storage space.
@@ -297,7 +370,7 @@ class SegmentedQueue : public NonCopyable {
    * @param index: Relative index in the range [0, mSize - 1].
    * @return size_t: The offset index in range [0, capacity() - 1].
    */
-  size_t relativeIndexToAbsolute(size_t index);
+  size_t relativeIndexToAbsolute(size_t index) const;
 
   /**
    * Prepare push by pushing new blocks if needed and update mTail to point at
@@ -334,6 +407,7 @@ class SegmentedQueue : public NonCopyable {
    * @return ElementType&: Reference to the data.
    */
   ElementType &locateDataAddress(size_t index);
+  const ElementType &locateDataAddress(size_t index) const;
 
   /**
    * Removes all the elements of the queue.
@@ -356,7 +430,7 @@ class SegmentedQueue : public NonCopyable {
    * @param index: Absolute index in the range [0, capacity() - 1].
    * @return size_t: Relative index in the range [0, mSize - 1].
    */
-  size_t absoluteIndexToRelative(size_t index);
+  size_t absoluteIndexToRelative(size_t index) const;
 
   /**
    * Resets the current queue to its initial state if the queue is empty.

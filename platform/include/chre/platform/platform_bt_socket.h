@@ -37,6 +37,15 @@ enum class SocketEvent : uint8_t {
  */
 class PlatformBtSocket : public PlatformBtSocketBase {
  public:
+  /**
+   * Constructs a new Platform Bt Socket object and initializes the socket.
+   * Callers can verify the socket has been initialized successfully by calling
+   * isInitialized().
+   *
+   * @param socketData Socket data for initializing the socket.
+   * @param platformBtSocketResources Platform resources for initializing the
+   *        socket.
+   */
   PlatformBtSocket(const BleL2capCocSocketData &socketData,
                    PlatformBtSocketResources &platformBtSocketResources)
       : PlatformBtSocketBase(socketData, platformBtSocketResources) {}
@@ -66,6 +75,12 @@ class PlatformBtSocket : public PlatformBtSocketBase {
     mInstanceId = instanceId;
   }
 
+  /**
+   * Checks whether the socket has been initialized successfully by the
+   * constructor.
+   *
+   * @return true if socket was initialized successfully.
+   */
   bool isInitialized();
 
   /**

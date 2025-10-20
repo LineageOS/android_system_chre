@@ -18,6 +18,7 @@
 
 #include <zephyr/kernel.h>
 #include "chre/target_platform/init.h"
+#include "chre/variant/config.h"
 
 namespace chre {
 
@@ -26,6 +27,13 @@ bool inEventLoopThread() {
   k_tid_t currentTaskId = k_current_get();
 
   return (evtLoopTaskId == currentTaskId);
+}
+
+EventLoop *getCurrentEventLoop() {
+  static_assert(CHRE_MULTI_THREADING_ENABLED == 0,
+                "CHRE multi-threading is not implemented on this platform");
+  return inEventLoopThread() ? &EventLoopManagerSingleton::get()->getEventLoop()
+                             : nullptr;
 }
 
 }  // namespace chre

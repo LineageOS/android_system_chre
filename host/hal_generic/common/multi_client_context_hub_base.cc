@@ -19,12 +19,15 @@
 #include <chre/platform/shared/host_protocol_common.h>
 #include <chre_host/generated/host_messages_generated.h>
 #include <chre_host/log.h>
+#include "android-base/parseint.h"
 #include "chre/common.h"
 #include "chre/event.h"
 #include "chre_host/config_util.h"
 #include "chre_host/fragmented_load_transaction.h"
 #include "chre_host/hal_error.h"
 #include "chre_host/host_protocol_host.h"
+#include "chre_host/time_util.h"
+
 #include "error_util.h"
 #include "hal_client_id.h"
 #include "permissions_util.h"
@@ -32,6 +35,10 @@
 #include <android_chre_flags.h>
 #include <system/chre/core/chre_metrics.pb.h>
 #include <chrono>
+#include <cstdint>
+#include <optional>
+#include <regex>
+#include <sstream>
 
 namespace android::hardware::contexthub::common::implementation {
 
@@ -112,6 +119,80 @@ inline ScopedAStatus fromServiceError(HalError errorCode) {
 inline ScopedAStatus fromResult(bool result) {
   return result ? ScopedAStatus::ok()
                 : fromServiceError(HalError::OPERATION_FAILED);
+}
+
+std::optional<int64_t> tryExtractEstimatedHostOffset(const std::string &str) {
+  std::regex offset_regex("estimatedHostTimeOffset=(-?\\d+)");
+  auto it = std::sregex_iterator(str.begin(), str.end(), offset_regex);
+  if (it == std::sregex_iterator()) {
+    return std::nullopt;
+  }
+  std::smatch match = *it;
+  if (match.size() > 1) {
+    int64_t host_offset = 0;
+    if (base::ParseInt(match[1].str(), &host_offset)) {
+      return host_offset;
+    }
+  }
+  return std::nullopt;
+}
+
+/**
+ * Appends a human-readable wall time to nanosecond timestamps in a
+ * string.
+ *
+ * This function searches for nanosecond timestamp in format like "ts=%d",
+ * "time=%d", "time(ns)=%d" where <nanoseconds> is a numerical value not
+ * followed by "ms". For each match, it calculates the corresponding wall time
+ * and appends it in brackets. It also formats the nanosecond timestamp for
+ * better readability. The nanosecond timestamps are assumed to be generated
+ * by a source like SystemClock.elapsedRealtimeNanos().
+ */
+std::string appendWalltimeToTimestamp(const std::string &str,
+                                      std::optional<int64_t> hostOffset) {
+  // Regex to find timestamp keys ('ts=', 'time=', 'time(ns)=') followed by
+  // digits. The negative lookahead `(?!ms)` ensures we skip timestamps
+  // explicitly in milliseconds.
+  std::regex ts_regex(R"(\b(ts=|time=|time\(ns\)=)(\d+)(?!ms))");
+  auto it = std::sregex_iterator(str.begin(), str.end(), ts_regex);
+  auto end = std::sregex_iterator();
+
+  if (it == end) {
+    return str;  // No matches, return original string
+  }
+
+  std::ostringstream ss;
+  size_t last_pos = 0;
+  for (; it != end; ++it) {
+    std::smatch match = *it;
+    if (match.size() < 3) {
+      continue;
+    }
+    ss << str.substr(last_pos, match.position() - last_pos);
+
+    uint64_t ts_val = 0;
+    bool success = base::ParseUint(match[2].str(), &ts_val);
+    if (!success) {
+      continue;
+    }
+    ss << "ts=" << chre::formatNanos(ts_val);
+
+    if (hostOffset.has_value()) {
+      ts_val += hostOffset.value();
+      ss << " [" << chre::realtimeNsToWallclockTime(ts_val) << "]";
+    }
+    last_pos = match.position() + match.length();
+
+    if (last_pos + 1 < str.size() && str.substr(last_pos, 2) == "ns") {
+      last_pos += 2;
+    }
+  }
+  // Append the remainder of the string after the last match
+  if (last_pos < str.size()) {
+    ss << str.substr(last_pos);
+  }
+
+  return ss.str();
 }
 
 }  // anonymous namespace
@@ -224,7 +305,8 @@ bool MultiClientContextHubBase::sendFragmentedLoadRequest(
       builder, request, /* respondBeforeStart= */ false);
   HostProtocolHost::mutateHostClientId(builder.GetBufferPointer(),
                                        builder.GetSize(), clientId);
-  return mConnection->sendMessage(builder);
+  return mConnection->sendMessage(builder,
+                                  mConnection->getLoadRequestTimeout());
 }
 
 ScopedAStatus MultiClientContextHubBase::unloadNanoapp(int32_t contextHubId,
@@ -778,11 +860,16 @@ void MultiClientContextHubBase::onDebugDumpData(
     const ::chre::fbs::DebugDumpDataT &data) {
   auto str = std::string(reinterpret_cast<const char *>(data.debug_str.data()),
                          data.debug_str.size());
+  if (mEstimatedHostTimeOffset == std::nullopt) {
+    mEstimatedHostTimeOffset = tryExtractEstimatedHostOffset(str);
+  }
+  str = appendWalltimeToTimestamp(str, mEstimatedHostTimeOffset);
   debugDumpAppend(str);
 }
 
 void MultiClientContextHubBase::onDebugDumpComplete(
     const ::chre::fbs::DebugDumpResponseT &response) {
+  mEstimatedHostTimeOffset = std::nullopt;
   if (!response.success) {
     LOGE("Dumping debug information fails");
   }
@@ -1101,6 +1188,7 @@ binder_status_t MultiClientContextHubBase::dump(int fd,
 }
 
 bool MultiClientContextHubBase::requestDebugDump() {
+  mEstimatedHostTimeOffset = std::nullopt;
   flatbuffers::FlatBufferBuilder builder;
   HostProtocolHost::encodeDebugDumpRequest(builder);
   return mConnection->sendMessage(builder);

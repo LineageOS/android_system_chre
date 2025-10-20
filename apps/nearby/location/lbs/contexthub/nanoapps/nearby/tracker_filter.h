@@ -40,60 +40,44 @@ class TrackerFilter {
   // reconfiguring scan configuration whenever hardsare scan filters are
   // updated. If config_response->result is not CHREX_NEARBY_RESULT_OK, the
   // returned generic_filters should be ignored.
-  void Update(const chreHostEndpointInfo &host_info,
-              const nearby_extension_ExtConfigRequest_TrackerFilterConfig
-                  &filter_config,
-              chre::DynamicVector<chreBleGenericFilter> *generic_filters,
-              nearby_extension_ExtConfigResponse *config_response);
+  void Update(const chreHostEndpointInfo& host_info,
+              const nearby_extension_ExtConfigRequest_TrackerFilterConfig&
+                  filter_config,
+              chre::DynamicVector<chreBleGenericFilter>* generic_filters,
+              nearby_extension_ExtConfigResponse* config_response);
 
   // Matches BLE advertisements and pushes the matched advertisements to
   // tracker storage.
   void MatchAndSave(
-      const chre::DynamicVector<chreBleAdvertisingReport> &ble_adv_reports,
-      TrackerStorage &tracker_storage);
+      const chre::DynamicVector<chreBleAdvertisingReport>& ble_adv_reports,
+      TrackerStorage& tracker_storage);
 
   // Whether tracker filter is empty. Currently, we're checking only hardware
   // scan filters used for tracker filter.
-  bool IsEmpty() const {
-    return scan_filter_config_.hardware_filters.empty();
-  }
+  bool IsEmpty() const { return scan_filter_config_.hardware_filters.empty(); }
 
   // Returns host end point for tracker filter.
-  uint16_t GetHostEndPoint() const {
-    return host_info_.hostEndpointId;
-  }
+  uint16_t GetHostEndPoint() const { return host_info_.hostEndpointId; }
 
   // Returns batch configuration for tracker filter.
-  TrackerBatchConfig GetBatchConfig() const {
-    return batch_config_;
-  }
+  TrackerBatchConfig GetBatchConfig() const { return batch_config_; }
 
   // Encodes a single tracker report into data_buf.
-  static bool EncodeTrackerReport(TrackerReport &tracker_report,
-                                  ByteArray data_buf, size_t *encoded_size);
+  static bool EncodeTrackerReport(TrackerReport& tracker_report,
+                                  ByteArray data_buf, size_t* encoded_size);
 
   // Sets tracker scan filter active state.
-  void SetActiveState() {
-    is_active_ = true;
-  }
+  void SetActiveState() { is_active_ = true; }
 
   // Clears tracker scan filter active state.
-  void ClearActiveState() {
-    is_active_ = false;
-  }
+  void ClearActiveState() { is_active_ = false; }
 
   // Returns whether tracker scan filter is active.
-  bool IsActive() {
-    return is_active_;
-  }
+  bool IsActive() { return is_active_; }
 
-  Timer &GetActiveIntervalTimer() {
-    return active_interval_timer_;
-  }
+  Timer &GetActiveIntervalTimer() { return active_interval_timer_; }
 
-  Timer &GetActiveWindowTimer() {
-    return active_window_timer_;
-  }
+  Timer &GetActiveWindowTimer() { return active_window_timer_; }
 
  private:
   TrackerScanFilterConfig scan_filter_config_;

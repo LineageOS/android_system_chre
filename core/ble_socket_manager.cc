@@ -113,11 +113,11 @@ void BleSocketManager::handleSocketOpenedByHostSync(
       mBtSockets.deallocate(btSocket);
     }
   }
+  bool success = (errorReason == nullptr);
+  const char *reason = success ? "success" : errorReason;
   EventLoopManagerSingleton::get()
       ->getHostCommsManager()
-      .sendBtSocketOpenResponse(socketData.socketId,
-                                /*success=*/errorReason == nullptr,
-                                /*reason=*/errorReason);
+      .sendBtSocketOpenResponse(socketData.socketId, success, reason);
 }
 
 bool BleSocketManager::acceptBleSocket(uint64_t socketId) {

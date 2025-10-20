@@ -99,7 +99,7 @@ struct ChppWifiClientState {
 // instance of the CHPP WiFi client at a time.
 struct ChppWifiClientState gWifiClientContext;
 static const struct chrePalSystemApi *gSystemApi;
-static const struct chrePalWifiCallbacks *gCallbacks;
+static const struct chrePalWifiCallbacks *gCallbacks = NULL;
 
 /**
  * Configuration parameters for this client
@@ -212,6 +212,11 @@ static enum ChppAppErrorCode chppDispatchWifiResponse(void *clientContext,
   struct ChppWifiClientState *wifiClientContext =
       (struct ChppWifiClientState *)clientContext;
   enum ChppAppErrorCode error = CHPP_APP_ERROR_NONE;
+
+  if (gCallbacks == NULL) {
+    CHPP_LOGW("PAL callbacks not yet initialized");
+    return CHPP_APP_ERROR_NOT_READY;
+  }
 
   if (rxHeader->command > CHPP_WIFI_CLIENT_REQUEST_MAX) {
     error = CHPP_APP_ERROR_INVALID_COMMAND;

@@ -49,11 +49,38 @@ public class ContextHubMultiDeviceBleBeaconTestExecutor extends ContextHubBleTes
 
     private static final int NUM_EVENT_CYCLES_TO_GATHER = 5;
 
+    private static final int CHRE_BLE_EVENT_TYPE_CONNECTABLE_BIT = 0x01;
+
+    private static final int CHRE_BLE_EVENT_TYPE_FLAG_LEGACY = 0x10;
+
+    private static final int CHRE_BLE_EVENT_MASK_DATA_STATUS = 0x60;
+
     /**
      * The minimum offset in bytes of a BLE advertisement report which includes the length
      * and type of the report.
      */
     private static final int BLE_ADVERTISEMENT_DATA_HEADER_OFFSET = 2;
+
+    /**
+     * Parses the connectable flag from the CHRE eventTypeAndDataStatus field.
+     */
+    private boolean parseIsConnectableFromStatus(int eventTypeAndDataStatus) {
+        return (eventTypeAndDataStatus & CHRE_BLE_EVENT_TYPE_CONNECTABLE_BIT) != 0;
+    }
+
+    /**
+     * Parses the legacy flag from the CHRE eventTypeAndDataStatus field.
+     */
+    private boolean parseIsLegacyFromStatus(int eventTypeAndDataStatus) {
+        return (eventTypeAndDataStatus & CHRE_BLE_EVENT_TYPE_FLAG_LEGACY) != 0;
+    }
+
+    /**
+     * Parses the data status from the CHRE eventTypeAndDataStatus field.
+     */
+    private int parseDataStatusFromStatus(int eventTypeAndDataStatus) {
+        return (eventTypeAndDataStatus & CHRE_BLE_EVENT_MASK_DATA_STATUS) >> 5;
+    }
 
     public ContextHubMultiDeviceBleBeaconTestExecutor(NanoAppBinary nanoapp) {
         super(nanoapp);
@@ -320,7 +347,7 @@ public class ContextHubMultiDeviceBleBeaconTestExecutor extends ContextHubBleTes
      */
     public void chreBleStartScanSyncWithBroadcasterAddressFilter(
                                                 String macAddress) throws Exception {
-        chreBleStartScanSync(getBroadcasterAddressFilter(macAddress));
+        chreBleStartScanSyncV1_9(getBroadcasterAddressFilter(macAddress));
     }
 
      /**
@@ -416,6 +443,77 @@ public class ContextHubMultiDeviceBleBeaconTestExecutor extends ContextHubBleTes
                 Log.e(TAG, "Error power at index: " + i);
                 return false;
             }
+
+            int androidPrimaryPhy = androidResult.getPrimaryPhy();
+            int chrePrimaryPhy = chreReport.getPrimaryPhy();
+            if (androidPrimaryPhy != chrePrimaryPhy) {
+                Log.e(TAG, "Primary PHY mismatch for MAC "
+                        + androidMac + ". Android=" + androidPrimaryPhy
+                        + ", CHRE=" + chrePrimaryPhy);
+                return false;
+            }
+
+            int androidSecondaryPhy = androidResult.getSecondaryPhy();
+            int chreSecondaryPhy = chreReport.getSecondaryPhy();
+            if (androidSecondaryPhy != chreSecondaryPhy) {
+                Log.e(TAG, "Secondary PHY mismatch for MAC "
+                        + androidMac + ". Android=" + androidSecondaryPhy
+                        + ", CHRE=" + chreSecondaryPhy);
+                return false;
+            }
+
+            int androidSid = androidResult.getAdvertisingSid();
+            int chreSid = chreReport.getAdvertisingSid();
+            if (androidSid != chreSid) {
+                Log.e(TAG, "Advertising SID mismatch for MAC "
+                        + androidMac + ". Android=" + androidSid
+                        + ", CHRE=" + chreSid);
+                return false;
+            }
+
+            int androidInterval = androidResult.getPeriodicAdvertisingInterval();
+            int chreInterval = chreReport.getPeriodicAdvertisingInterval();
+            if (androidInterval != chreInterval) {
+                Log.e(TAG, "Periodic Interval mismatch for MAC "
+                        + androidMac + ". Android=" + androidInterval
+                        + ", CHRE=" + chreInterval);
+                return false;
+            }
+
+            boolean androidIsConnectable = androidResult.isConnectable();
+            boolean chreIsConnectable =
+                        parseIsConnectableFromStatus(chreReport.getEventTypeAndDataStatus());
+            if (androidIsConnectable != chreIsConnectable) {
+                Log.e(TAG, "Connectability mismatch for MAC "
+                        + androidMac + ". Android=" + androidIsConnectable
+                        + ", CHRE=" + chreIsConnectable);
+                return false;
+            }
+
+            boolean androidIsLegacy = androidResult.isLegacy();
+            boolean chreIsLegacy = parseIsLegacyFromStatus(chreReport.getEventTypeAndDataStatus());
+            if (androidIsLegacy != chreIsLegacy) {
+                Log.e(TAG, "Legacy status mismatch for MAC "
+                        + androidMac + ". Android=" + androidIsLegacy
+                        + ", CHRE=" + chreIsLegacy);
+                return false;
+            }
+
+            int androidDataStatus = androidResult.getDataStatus();
+            int chreDataStatus = parseDataStatusFromStatus(chreReport.getEventTypeAndDataStatus());
+            if (androidDataStatus != chreDataStatus) {
+                Log.e(TAG, "Data status mismatch for MAC "
+                        + androidMac + ". Android=" + androidDataStatus
+                        + ", CHRE=" + chreDataStatus);
+                return false;
+            }
+
+            /**
+             * Note: Android's ScanResult does not expose the direct address, so we cannot
+             * compare it against the direct address provided in the CHRE report.
+             * Note: The RSSI check is intentionally excluded. RSSI is an unstable metric that
+             * can fluctuate significantly making it unreliable for a deterministic test.
+             */
         }
 
         return true;

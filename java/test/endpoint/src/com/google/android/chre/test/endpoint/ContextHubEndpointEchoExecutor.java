@@ -29,6 +29,7 @@ import android.hardware.contexthub.HubServiceInfo;
 import android.hardware.location.ContextHubInfo;
 import android.hardware.location.ContextHubManager;
 import android.hardware.location.ContextHubTransaction;
+import android.hardware.location.HubInfo;
 import android.hardware.location.NanoAppBinary;
 import android.hardware.location.NanoAppState;
 import android.util.Log;
@@ -46,13 +47,18 @@ import com.google.protobuf.Empty;
 import com.google.protobuf.MessageLite;
 
 import org.junit.Assert;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.anyOf;
+import static org.hamcrest.Matchers.is;
 import org.junit.Assume;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executor;
@@ -161,7 +167,9 @@ public class ContextHubEndpointEchoExecutor {
         @Override
         public void onMessageReceived(HubEndpointSession session, HubMessage message) {
             Log.d(TAG, "onMessageReceived: session=" + session + ", message=" + message);
-            mMessageQueue.add(message);
+            if (!mMessageQueue.offer(message)) {
+                Log.e(TAG, "Message queue is full. Dropping message from session: " + session);
+            }
         }
 
         public HubMessage waitForMessage() throws InterruptedException {
@@ -175,7 +183,9 @@ public class ContextHubEndpointEchoExecutor {
         @Override
         public void onEndpointsStarted(@NonNull List<HubDiscoveryInfo> discoveryInfoList) {
             Log.d(TAG, "onEndpointsStarted: discovery size=" + discoveryInfoList.size());
-            mEndpointStartedQueue.add(discoveryInfoList);
+            if (!mEndpointStartedQueue.offer(discoveryInfoList)) {
+                Log.e(TAG, "Endpoint 'started' queue is full! Dropping event.");
+            }
         }
 
         @Override
@@ -183,11 +193,13 @@ public class ContextHubEndpointEchoExecutor {
                 @NonNull List<HubDiscoveryInfo> discoveryInfoList, int reason) {
             Log.d(
                     TAG,
-                    "onEndpointsStarted: discovery size="
+                    "onEndpointsStopped: discovery size="
                             + discoveryInfoList.size()
                             + ", reason="
                             + reason);
-            mEndpointStoppedQueue.add(Pair.create(discoveryInfoList, reason));
+            if (!mEndpointStoppedQueue.offer(Pair.create(discoveryInfoList, reason))) {
+                Log.e(TAG, "Endpoint 'stopped' queue is full. Dropping event.");
+            }
         }
 
         public List<HubDiscoveryInfo> waitForStarted() throws InterruptedException {
@@ -413,7 +425,6 @@ public class ContextHubEndpointEchoExecutor {
                             manager.registerEndpointDiscoveryCallback(
                                     callback, ECHO_SERVICE_DESCRIPTOR));
         }
-        callback.clear();
 
         checkDynamicEndpointDiscovery(callback);
         checkApiSupport((manager) -> manager.unregisterEndpointDiscoveryCallback(callback));
@@ -492,6 +503,30 @@ public class ContextHubEndpointEchoExecutor {
         Assert.assertTrue(status.getErrorMessage(), status.getStatus());
 
         unregisterRegisteredEndpoint();
+    }
+
+    /**
+     * A test to see if the getHubs API returns a valid list of hubs.
+     */
+    public void testGetHubs() throws Exception {
+        List<HubInfo> hubs = mContextHubManager.getHubs();
+        Assert.assertNotNull(hubs);
+        Set<Long> hubIds = new HashSet<>();
+        for (HubInfo hub : hubs) {
+            Log.d(TAG, "Found hub: " + hub);
+            assertThat(
+                    "Hub type is invalid",
+                     hub.getType(),
+                     anyOf(is(HubInfo.TYPE_CONTEXT_HUB), is(HubInfo.TYPE_VENDOR_HUB)));
+            Assert.assertFalse("Hub ID 0x" + Long.toHexString(hub.getId())
+                                + " is not unique", hubIds.contains(hub.getId()));
+            if (hub.getType() == HubInfo.TYPE_CONTEXT_HUB) {
+                Assert.assertNotNull("ContextHubInfo is null", hub.getContextHubInfo());
+            } else if (hub.getType() == HubInfo.TYPE_VENDOR_HUB) {
+                Assert.assertNotNull("VendorHubInfo is null", hub.getVendorHubInfo());
+            }
+            hubIds.add(hub.getId());
+        }
     }
 
     private void printHubDiscoveryInfo(HubDiscoveryInfo info) {
@@ -596,12 +631,14 @@ public class ContextHubEndpointEchoExecutor {
             return;
         }
 
+        callback.clear();
         loadEchoNanoapp();
         List<HubDiscoveryInfo> discoveryList = callback.waitForStarted();
         Assert.assertNotNull(discoveryList);
         Assert.assertNotEquals(discoveryList.size(), 0);
         Assert.assertTrue(checkNanoappInDiscoveryList(discoveryList));
 
+        callback.clear();
         unloadEchoNanoapp();
         Pair<List<HubDiscoveryInfo>, Integer> discoveryListAndReason = callback.waitForStopped();
         Assert.assertNotNull(discoveryListAndReason);

@@ -15,6 +15,7 @@
  */
 #include "chre_host/hal_client.h"
 
+#include <future>
 #include <unordered_set>
 #include <utility>
 
@@ -26,11 +27,15 @@
 namespace android::chre {
 
 namespace {
+using aidl::android::hardware::contexthub::AsyncEventType;
 using aidl::android::hardware::contexthub::ContextHubMessage;
+using aidl::android::hardware::contexthub::EndpointId;
+using aidl::android::hardware::contexthub::EndpointInfo;
 using aidl::android::hardware::contexthub::HostEndpointInfo;
 using aidl::android::hardware::contexthub::IContextHub;
 using aidl::android::hardware::contexthub::IContextHubCallbackDefault;
 using aidl::android::hardware::contexthub::IContextHubDefault;
+using aidl::android::hardware::contexthub::Service;
 
 using ndk::ScopedAStatus;
 
@@ -48,17 +53,88 @@ using std::chrono::operator""ms;
 using HostEndpointId = char16_t;
 constexpr HostEndpointId kEndpointId = 0x10;
 
+class MockContextHub : public IContextHubDefault {
+ public:
+  MOCK_METHOD(ScopedAStatus, onHostEndpointConnected,
+              (const HostEndpointInfo &info), (override));
+  MOCK_METHOD(ScopedAStatus, onHostEndpointDisconnected,
+              (HostEndpointId endpointId), (override));
+  MOCK_METHOD(ScopedAStatus, queryNanoapps, (int32_t icontextHubId),
+              (override));
+  MOCK_METHOD(ScopedAStatus, sendMessageToHub,
+              (int32_t contextHubId, const ContextHubMessage &message),
+              (override));
+};
+
+class MockBackgroundConnectionCallback
+    : public HalClient::BackgroundConnectionCallback {
+ public:
+  MOCK_METHOD(void, onInitialization, (bool), (override));
+};
+
+class HalClientTestCallback : public BnContextHubCallback {
+ public:
+  ScopedAStatus handleNanoappInfo(
+      const std::vector<NanoappInfo> & /*appInfo*/) override {
+    return ScopedAStatus::ok();
+  }
+
+  ScopedAStatus handleContextHubMessage(
+      const ContextHubMessage & /*message*/,
+      const std::vector<std::string> & /*msgContentPerms*/) override {
+    return ScopedAStatus::ok();
+  }
+
+  ScopedAStatus handleContextHubAsyncEvent(AsyncEventType /*event*/) override {
+    return ScopedAStatus::ok();
+  }
+
+  ScopedAStatus handleTransactionResult(int32_t /*transactionId*/,
+                                        bool /*success*/) override {
+    return ScopedAStatus::ok();
+  }
+
+  ScopedAStatus handleNanSessionRequest(
+      const NanSessionRequest & /*request*/) override {
+    return ScopedAStatus::ok();
+  }
+
+  ScopedAStatus handleMessageDeliveryStatus(
+      char16_t /*hostEndPointId*/,
+      const MessageDeliveryStatus & /*messageDeliveryStatus*/) override {
+    return ScopedAStatus::ok();
+  }
+
+  ScopedAStatus getUuid(std::array<uint8_t, 16> * /*outUuid*/) override {
+    return ScopedAStatus::ok();
+  }
+
+  ScopedAStatus getName(std::string *outName) override {
+    *outName = kName;
+    return ScopedAStatus::ok();
+  }
+
+ private:
+  const std::string kName{"HalClientForTest"};
+};
+
 class HalClientForTest : public HalClient {
  public:
   HalClientForTest(const std::shared_ptr<IContextHub> &contextHub,
                    const std::vector<HostEndpointId> &connectedEndpoints,
                    const std::shared_ptr<IContextHubCallback> &callback =
-                       ndk::SharedRefBase::make<IContextHubCallbackDefault>())
+                       ndk::SharedRefBase::make<HalClientTestCallback>())
       : HalClient(callback) {
     mContextHub = contextHub;
-    mIsHalConnected = contextHub != nullptr;
     for (const HostEndpointId &endpointId : connectedEndpoints) {
       mConnectedEndpoints[endpointId] = {.hostEndpointId = endpointId};
+    }
+  }
+
+  ~HalClientForTest() override {
+    std::lock_guard bgConnectionLock(mBgConnectionMutex);
+    if (mBgConnectionFuture.valid()) {
+      EXPECT_EQ(mBgConnectionFuture.wait_for(2s), std::future_status::ready);
     }
   }
 
@@ -92,19 +168,16 @@ class HalClientForTest : public HalClient {
     mWatchdogTask = std::thread(&HalClientForTest::runWatchdogTask, this,
                                 timeThreshold, action);
   }
-};
 
-class MockContextHub : public IContextHubDefault {
- public:
-  MOCK_METHOD(ScopedAStatus, onHostEndpointConnected,
-              (const HostEndpointInfo &info), (override));
-  MOCK_METHOD(ScopedAStatus, onHostEndpointDisconnected,
-              (HostEndpointId endpointId), (override));
-  MOCK_METHOD(ScopedAStatus, queryNanoapps, (int32_t icontextHubId),
-              (override));
-  MOCK_METHOD(ScopedAStatus, sendMessageToHub,
-              (int32_t contextHubId, const ContextHubMessage &message),
-              (override));
+ protected:
+  bool isNewConnectInBackgroundEnabled() const override {
+    return true;
+  }
+
+  HalError initConnection() override {
+    mIsHalConnected = mContextHub != nullptr;
+    return HalError::SUCCESS;  // Always succeed for test
+  }
 };
 
 }  // namespace
@@ -241,6 +314,7 @@ TEST(HalClientTest, IsConnected) {
       mockContextHub,
       std::vector<HostEndpointId>{kEndpointId, kEndpointId + 1});
 
+  halClient->connect();
   EXPECT_THAT(halClient->isConnected(), true);
 }
 
@@ -286,6 +360,48 @@ TEST(HalClientTest, WatchdogTakeAction) {
   // Wait for kTimeout + 500ms
   std::this_thread::sleep_for(kTimeout + 500ms);
   EXPECT_EQ(isTriggered, true);
+}
+
+TEST(HalClientTest, ConnectInBackgroundSuccess) {
+  auto mockContextHub = ndk::SharedRefBase::make<MockContextHub>();
+  auto halClient = std::make_unique<HalClientForTest>(
+      mockContextHub, std::vector<HostEndpointId>{});
+  auto callback = std::make_shared<MockBackgroundConnectionCallback>();
+  std::promise<void> promise;
+  auto future = promise.get_future();
+
+  EXPECT_CALL(*callback, onInitialization(true)).WillOnce([&]() {
+    promise.set_value();
+  });
+
+  halClient->connectInBackground(*callback);
+  EXPECT_EQ(future.wait_for(1s), std::future_status::ready);
+}
+
+TEST(HalClientTest, ConnectInBackgroundMultipleCallbacks) {
+  auto mockContextHub = ndk::SharedRefBase::make<MockContextHub>();
+  auto halClient = std::make_unique<HalClientForTest>(
+      mockContextHub, std::vector<HostEndpointId>{});
+  std::vector<std::shared_ptr<MockBackgroundConnectionCallback>> callbacks;
+  std::vector<std::future<void>> futures;
+  std::vector<std::promise<void>> promises(
+      HalClient::kMaxPendingConnectionCallbacks);
+
+  for (size_t i = 0; i < promises.size(); ++i) {
+    callbacks.push_back(std::make_shared<MockBackgroundConnectionCallback>());
+    futures.push_back(promises[i].get_future());
+    EXPECT_CALL(*callbacks[i], onInitialization(true)).WillOnce([&, i]() {
+      promises[i].set_value();
+    });
+  }
+
+  for (const auto &callback : callbacks) {
+    EXPECT_TRUE(halClient->connectInBackground(*callback));
+  }
+
+  for (auto &future : futures) {
+    EXPECT_EQ(future.wait_for(1s), std::future_status::ready);
+  }
 }
 
 /** =================== Tests for EndpointInfoBuilder =================== */

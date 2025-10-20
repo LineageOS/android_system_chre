@@ -96,7 +96,8 @@ bool HostProtocolChre::decodeMessageFromHost(const void *message,
         const auto *status = static_cast<const fbs::MessageDeliveryStatus *>(
             container->message());
         HostMessageHandlers::handleMessageDeliveryStatus(
-            status->message_sequence_number(), status->error_code());
+            status->message_sequence_number(),
+            static_cast<uint8_t>(status->error_code()));
         break;
       }
 
@@ -281,7 +282,7 @@ bool HostProtocolChre::decodeMessageFromHost(const void *message,
         LOGD("Received BT Socket close response for socketId=%" PRIu64,
              btSocketCloseResponse->socketId());
         HostMessageHandlers::handleBtSocketClosed(
-            btSocketCloseResponse->socketId());
+            static_cast<uint64_t>(btSocketCloseResponse->socketId()));
         success = true;
         break;
       }
@@ -485,7 +486,8 @@ void HostProtocolChre::encodeNanoappTokenDatabaseInfo(
     ChreFlatBufferBuilder &builder, uint16_t instanceId, uint64_t appId,
     uint32_t tokenDatabaseOffset, size_t tokenDatabaseSize) {
   auto response = fbs::CreateNanoappTokenDatabaseInfo(
-      builder, instanceId, appId, tokenDatabaseOffset, tokenDatabaseSize);
+      builder, instanceId, appId, tokenDatabaseOffset,
+      static_cast<uint32_t>(tokenDatabaseSize));
   finalize(builder, fbs::ChreMessage::NanoappTokenDatabaseInfo,
            response.Union());
 }
@@ -587,7 +589,7 @@ void HostProtocolChre::encodeBtSocketOpenResponse(
     const char *reason) {
   auto reasonOffset = addStringAsByteVector(builder, reason);
   auto socketOpenResponse = fbs::CreateBtSocketOpenResponse(
-      builder, socketId,
+      builder, static_cast<int64_t>(socketId),
       success ? fbs::BtSocketOpenStatus::SUCCESS
               : fbs::BtSocketOpenStatus::FAILURE,
       reasonOffset);
@@ -599,7 +601,8 @@ void HostProtocolChre::encodeBtSocketClose(ChreFlatBufferBuilder &builder,
                                            uint64_t socketId,
                                            const char *reason) {
   auto reasonOffset = addStringAsByteVector(builder, reason);
-  auto socketClose = fbs::CreateBtSocketClose(builder, socketId, reasonOffset);
+  auto socketClose = fbs::CreateBtSocketClose(
+      builder, static_cast<int64_t>(socketId), reasonOffset);
   finalize(builder, fbs::ChreMessage::BtSocketClose, socketClose.Union());
 }
 
@@ -608,9 +611,11 @@ void HostProtocolChre::encodeBtSocketGetCapabilitiesResponse(
     uint32_t leCocMtu, uint32_t rfcommNumberOfSupportedSockets,
     uint32_t rfcommMaxFrameSize) {
   auto leCocCapabilities = fbs::CreateBtSocketLeCocCapabilities(
-      builder, leCocNumberOfSupportedSockets, leCocMtu);
+      builder, static_cast<int32_t>(leCocNumberOfSupportedSockets),
+      static_cast<int32_t>(leCocMtu));
   auto rfcommCapabilities = fbs::CreateBtSocketRfcommCapabilities(
-      builder, rfcommNumberOfSupportedSockets, rfcommMaxFrameSize);
+      builder, static_cast<int32_t>(rfcommNumberOfSupportedSockets),
+      static_cast<int32_t>(rfcommMaxFrameSize));
   auto socketCapabilitiesResponse = fbs::CreateBtSocketCapabilitiesResponse(
       builder, leCocCapabilities, rfcommCapabilities);
   finalize(builder, fbs::ChreMessage::BtSocketCapabilitiesResponse,
@@ -673,7 +678,7 @@ void HostProtocolChre::encodeRegisterMessageHub(ChreFlatBufferBuilder &builder,
                                                 const MessageHubInfo &hub) {
   auto vendorHub = fbs::CreateVendorHubInfo(
       builder, addStringAsByteVector(builder, hub.name));
-  auto fbsHub = fbs::CreateMessageHub(builder, hub.id,
+  auto fbsHub = fbs::CreateMessageHub(builder, static_cast<int64_t>(hub.id),
                                       fbs::MessageHubDetails::VendorHubInfo,
                                       vendorHub.Union());
   auto msg = fbs::CreateRegisterMessageHub(builder, fbsHub);
@@ -682,14 +687,15 @@ void HostProtocolChre::encodeRegisterMessageHub(ChreFlatBufferBuilder &builder,
 
 void HostProtocolChre::encodeUnregisterMessageHub(
     ChreFlatBufferBuilder &builder, MessageHubId id) {
-  auto msg = fbs::CreateUnregisterMessageHub(builder, id);
+  auto msg = fbs::CreateUnregisterMessageHub(builder, static_cast<int64_t>(id));
   finalize(builder, fbs::ChreMessage::UnregisterMessageHub, msg.Union());
 }
 
 void HostProtocolChre::encodeRegisterEndpoint(ChreFlatBufferBuilder &builder,
                                               MessageHubId hub,
                                               const EndpointInfo &endpoint) {
-  auto id = fbs::CreateEndpointId(builder, hub, endpoint.id);
+  auto id = fbs::CreateEndpointId(builder, static_cast<int64_t>(hub),
+                                  static_cast<int64_t>(endpoint.id));
   auto info = fbs::CreateEndpointInfo(
       builder, id, static_cast<fbs::EndpointType>(endpoint.type),
       addStringAsByteVector(builder, endpoint.name), endpoint.version,
@@ -701,7 +707,8 @@ void HostProtocolChre::encodeRegisterEndpoint(ChreFlatBufferBuilder &builder,
 void HostProtocolChre::encodeAddServiceToEndpoint(
     ChreFlatBufferBuilder &builder, MessageHubId hub, EndpointId endpoint,
     const ServiceInfo &service) {
-  auto id = fbs::CreateEndpointId(builder, hub, endpoint);
+  auto id = fbs::CreateEndpointId(builder, static_cast<int64_t>(hub),
+                                  static_cast<int64_t>(endpoint));
   auto serviceDescriptor =
       addStringAsByteVector(builder, service.serviceDescriptor);
   auto fbsService = fbs::CreateService(
@@ -714,7 +721,8 @@ void HostProtocolChre::encodeAddServiceToEndpoint(
 void HostProtocolChre::encodeEndpointReady(ChreFlatBufferBuilder &builder,
                                            MessageHubId hub,
                                            EndpointId endpoint) {
-  auto id = fbs::CreateEndpointId(builder, hub, endpoint);
+  auto id = fbs::CreateEndpointId(builder, static_cast<int64_t>(hub),
+                                  static_cast<int64_t>(endpoint));
   auto msg = fbs::CreateEndpointReady(builder, id);
   finalize(builder, fbs::ChreMessage::EndpointReady, msg.Union());
 }
@@ -722,7 +730,8 @@ void HostProtocolChre::encodeEndpointReady(ChreFlatBufferBuilder &builder,
 void HostProtocolChre::encodeUnregisterEndpoint(ChreFlatBufferBuilder &builder,
                                                 MessageHubId hub,
                                                 EndpointId endpoint) {
-  auto id = fbs::CreateEndpointId(builder, hub, endpoint);
+  auto id = fbs::CreateEndpointId(builder, static_cast<int64_t>(hub),
+                                  static_cast<int64_t>(endpoint));
   auto msg = fbs::CreateUnregisterEndpoint(builder, id);
   finalize(builder, fbs::ChreMessage::UnregisterEndpoint, msg.Union());
 }
@@ -730,26 +739,31 @@ void HostProtocolChre::encodeUnregisterEndpoint(ChreFlatBufferBuilder &builder,
 void HostProtocolChre::encodeOpenEndpointSessionRequest(
     ChreFlatBufferBuilder &builder, const Session &session) {
   auto fromEndpoint = fbs::CreateEndpointId(
-      builder, session.initiator.messageHubId, session.initiator.endpointId);
-  auto toEndpoint = fbs::CreateEndpointId(builder, session.peer.messageHubId,
-                                          session.peer.endpointId);
+      builder, static_cast<int64_t>(session.initiator.messageHubId),
+      static_cast<int64_t>(session.initiator.endpointId));
+  auto toEndpoint = fbs::CreateEndpointId(
+      builder, static_cast<int64_t>(session.peer.messageHubId),
+      static_cast<int64_t>(session.peer.endpointId));
   auto msg = fbs::CreateOpenEndpointSessionRequest(
-      builder, session.peer.messageHubId, session.sessionId, fromEndpoint,
-      toEndpoint, addStringAsByteVector(builder, session.serviceDescriptor));
+      builder, static_cast<int64_t>(session.peer.messageHubId),
+      session.sessionId, fromEndpoint, toEndpoint,
+      addStringAsByteVector(builder, session.serviceDescriptor));
   finalize(builder, fbs::ChreMessage::OpenEndpointSessionRequest, msg.Union());
 }
 
 void HostProtocolChre::encodeEndpointSessionOpened(
     ChreFlatBufferBuilder &builder, MessageHubId hub, SessionId session) {
-  auto msg = fbs::CreateEndpointSessionOpened(builder, hub, session);
+  auto msg = fbs::CreateEndpointSessionOpened(
+      builder, static_cast<int64_t>(hub), session);
   finalize(builder, fbs::ChreMessage::EndpointSessionOpened, msg.Union());
 }
 
 void HostProtocolChre::encodeEndpointSessionClosed(
     ChreFlatBufferBuilder &builder, MessageHubId hub, SessionId session,
     Reason reason) {
-  auto msg = fbs::CreateEndpointSessionClosed(builder, hub, session,
-                                              static_cast<fbs::Reason>(reason));
+  auto msg = fbs::CreateEndpointSessionClosed(
+      builder, static_cast<int64_t>(hub), session,
+      static_cast<fbs::Reason>(reason));
   finalize(builder, fbs::ChreMessage::EndpointSessionClosed, msg.Union());
 }
 
@@ -758,18 +772,18 @@ void HostProtocolChre::encodeEndpointSessionMessage(
     pw::UniquePtr<std::byte[]> &&data, uint32_t type, uint32_t permissions) {
   auto dataVec = builder.CreateVector(reinterpret_cast<uint8_t *>(data.get()),
                                       data.size());
-  auto msg = fbs::CreateEndpointSessionMessage(builder, hub, session, type,
-                                               permissions, dataVec);
+  auto msg = fbs::CreateEndpointSessionMessage(
+      builder, static_cast<int64_t>(hub), session, type, permissions, dataVec);
   finalize(builder, fbs::ChreMessage::EndpointSessionMessage, msg.Union());
 }
 
 void HostProtocolChre::encodeEndpointSessionMessageDeliveryStatus(
     ChreFlatBufferBuilder &builder, message::MessageHubId hub,
     message::SessionId session, uint32_t messageId, uint8_t status) {
-  auto messageDeliveryStatus =
-      fbs::CreateMessageDeliveryStatus(builder, messageId, status);
+  auto messageDeliveryStatus = fbs::CreateMessageDeliveryStatus(
+      builder, messageId, static_cast<int8_t>(status));
   auto msg = fbs::CreateEndpointSessionMessageDeliveryStatus(
-      builder, hub, session, messageDeliveryStatus);
+      builder, static_cast<int64_t>(hub), session, messageDeliveryStatus);
   finalize(builder, fbs::ChreMessage::EndpointSessionMessageDeliveryStatus,
            msg.Union());
 }

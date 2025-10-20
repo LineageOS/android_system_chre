@@ -20,17 +20,19 @@
 #include <cstddef>
 #include <type_traits>
 
+#include "chre/util/default_allocator_provider.h"
 #include "chre/util/non_copyable.h"
 
 namespace chre {
 
 /**
  * Wraps a pointer to a dynamically allocated object and manages the underlying
- * memory. The goal is to be similar to std::unique_ptr, but we do not support
- * custom deleters - deletion is always done via memoryFree().
+ * memory. The goal is to be similar to std::unique_ptr, but using CHRE
+ * allocation functions by default, thereby minimizing overhead.
  */
-template <typename ObjectOrArrayType>
-class UniquePtr : public NonCopyable {
+template <typename ObjectOrArrayType,
+          typename AllocatorProviderT = DefaultAllocatorProvider>
+class UniquePtr : public NonCopyable, protected AllocatorProviderT {
   // For array types (e.g. char[]) we need to drop the [] to get to the actual
   // type used with pointers. If ObjectOrArrayType is not an array, then the
   // type is the same.
@@ -68,7 +70,7 @@ class UniquePtr : public NonCopyable {
    *
    * @param other UniquePtr instance to move into this object
    */
-  UniquePtr(UniquePtr<ObjectOrArrayType> &&other);
+  UniquePtr(UniquePtr<ObjectOrArrayType, AllocatorProviderT> &&other);
 
   /**
    * Constructs a new UniquePtr via moving the Object from another UniquePtr.
@@ -78,12 +80,24 @@ class UniquePtr : public NonCopyable {
    * @param other UniquePtr instance to move and convert into this object.
    */
   template <typename OtherObjectOrArrayType>
-  UniquePtr(UniquePtr<OtherObjectOrArrayType> &&other);
+  UniquePtr(UniquePtr<OtherObjectOrArrayType, AllocatorProviderT> &&other);
 
   /**
    * Deconstructs the object (if necessary) and releases associated memory.
    */
   ~UniquePtr();
+
+  //! Helper for MakeUnique() which allocates, constructs, and takes ownership
+  //! of a new object
+  template <typename... Args>
+  void emplace(Args &&...args);
+
+  //! Helper for MakeUniqueArray() which allocates and default initializes an
+  //! array of objects
+  void makeArray(size_t count);
+
+  //! Helper for MakeUniqueZeroFill() which allocates and zeros out an object
+  void makeZeroFill();
 
   /**
    * Determines if this UniquePtr owns an object, or references null.
@@ -146,7 +160,8 @@ class UniquePtr : public NonCopyable {
    * @param other The other object being moved.
    * @return A reference to the newly moved object.
    */
-  UniquePtr<ObjectOrArrayType> &operator=(UniquePtr<ObjectOrArrayType> &&other);
+  UniquePtr<ObjectOrArrayType, AllocatorProviderT> &operator=(
+      UniquePtr<ObjectOrArrayType, AllocatorProviderT> &&other);
 
   /**
    * Two unique_ptr compare equal (==) if their stored pointers compare equal,
@@ -156,7 +171,8 @@ class UniquePtr : public NonCopyable {
    * @return true if the other's pointer is same as the underlying pointer,
    * otherwise false.
    */
-  bool operator==(const UniquePtr<ObjectOrArrayType> &other) const;
+  bool operator==(
+      const UniquePtr<ObjectOrArrayType, AllocatorProviderT> &other) const;
 
   /**
    * Two unique_ptr compare equal (==) if their stored pointers compare equal,
@@ -166,7 +182,8 @@ class UniquePtr : public NonCopyable {
    * @return true if the other's pointer is different than the underlying
    * pointer, otherwise false.
    */
-  bool operator!=(const UniquePtr<ObjectOrArrayType> &other) const;
+  bool operator!=(
+      const UniquePtr<ObjectOrArrayType, AllocatorProviderT> &other) const;
 
   //! @defgroup Alternative approaches for null testing
   //! @{
@@ -184,7 +201,7 @@ class UniquePtr : public NonCopyable {
  private:
   // Befriend this class to itself to allow the templated conversion constructor
   // permission to access mObject below.
-  template <typename OtherObjectOrArrayType>
+  template <typename OtherObjectOrArrayType, typename OtherAllocatorProviderT>
   friend class UniquePtr;
 
   ObjectType *mObject;
@@ -203,8 +220,10 @@ UniquePtr(ObjectType *) -> UniquePtr<ObjectType>;
  *
  * @param args The arguments to pass to the object's constructor.
  */
-template <typename ObjectType, typename... Args>
-UniquePtr<ObjectType> MakeUnique(Args &&... args);
+template <typename ObjectType,
+          typename AllocatorProviderT = DefaultAllocatorProvider,
+          typename... Args>
+UniquePtr<ObjectType, AllocatorProviderT> MakeUnique(Args &&...args);
 
 /**
  * Allocates an array of objects of type ObjectType on the heap, and returns a
@@ -218,16 +237,18 @@ UniquePtr<ObjectType> MakeUnique(Args &&... args);
  *
  * @param count The size of the array
  */
-template <typename ObjectArrayType>
-UniquePtr<ObjectArrayType> MakeUniqueArray(size_t count);
+template <typename ObjectArrayType,
+          typename AllocatorProviderT = DefaultAllocatorProvider>
+UniquePtr<ObjectArrayType, AllocatorProviderT> MakeUniqueArray(size_t count);
 
 /**
  * Just like MakeUnique(), except it zeros out any allocated memory. Intended to
  * be used for creating objects that have trivial constructors (e.g. C structs)
  * but should start with a known state.
  */
-template <typename ObjectType>
-UniquePtr<ObjectType> MakeUniqueZeroFill();
+template <typename ObjectType,
+          typename AllocatorProviderT = DefaultAllocatorProvider>
+UniquePtr<ObjectType, AllocatorProviderT> MakeUniqueZeroFill();
 
 }  // namespace chre
 

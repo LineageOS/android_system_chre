@@ -104,8 +104,7 @@ class ExynosChreConnection : public ChreConnection {
   // Max overhead of the nanoapp binary payload caused by the fbs encapsulation
   static constexpr uint32_t kMaxPayloadOverheadBytes = 1024;
 
-  // TODO(b/425474601) - The placeholder path to CHRE file descriptor.
-  static constexpr char kChreFileDescriptorPath[] = "/dev/exynos_chre_fd";
+  static constexpr char kChreFileDescriptorPath[] = "/dev/exynos_chre";
 
   // Wrapper for a message sent to CHRE
   struct MessageToChre {
@@ -201,6 +200,8 @@ class ExynosChreConnection : public ChreConnection {
   [[nodiscard]] int getChreFileDescriptor() const {
     return mChreFileDescriptor;
   }
+
+  bool isChreRestarted();
 
   // The file descriptor for communication with CHRE
   int mChreFileDescriptor = 0;

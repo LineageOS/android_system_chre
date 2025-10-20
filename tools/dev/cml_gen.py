@@ -29,14 +29,7 @@ import argparse
 import os
 import re
 import subprocess
-import sys
-
-
-# TODO(b/374392644) - Have a common util for helper functions like _fatal_error
-def _fatal_error(message: str):
-  """Prints an error message in red to stderr and exits the script."""
-  print(f"\033[31m{message}\033[0m\n", file=sys.stderr)
-  sys.exit(1)
+from shell_util import fatal_error, init_file
 
 
 def _write_header(output, project_name):
@@ -178,8 +171,10 @@ def _parse_compilation_output(args: argparse.Namespace, result: list[str]):
   inc_paths = set()
   macros = dict()
   flags = dict()
+  output_file = os.path.join(args.output_path, 'CMakeLists.txt')
 
-  with open(os.path.join(args.output_path, 'CMakeLists.txt'), 'w') as output:
+  init_file(output_file)
+  with open(output_file, 'w') as output:
     _write_header(output, args.project_name)
 
     for line in result:
@@ -291,7 +286,7 @@ def main():
   ).stdout.splitlines()
 
   if result[-1].endswith('Stop.'):
-    _fatal_error(f'Failed to build the project:\n{result[-1]}\n')
+    fatal_error(f'Failed to build the project:\n{result[-1]}\n')
 
   _parse_compilation_output(args, result)
 

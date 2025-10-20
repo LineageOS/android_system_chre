@@ -36,7 +36,8 @@ inline bool IsDultTagAdvertisingData(const uint8_t *data, uint16_t length) {
 
 void TrackerStorage::Push(const chreBleAdvertisingReport &report,
                           const TrackerBatchConfig &config) {
-  for (auto &tracker_report : tracker_reports_) {
+  for (size_t i = 0; i < tracker_reports_.size(); ++i) {
+    auto &tracker_report = tracker_reports_[i];
     if (IsEqualAddress(tracker_report, report)) {
       UpdateTrackerReport(tracker_report, config, report);
       return;
@@ -50,7 +51,8 @@ void TrackerStorage::Refresh(const TrackerBatchConfig &config) {
   if (config.lost_timeout_ms == 0) {
     return;
   }
-  for (auto &tracker_report : tracker_reports_) {
+  for (size_t i = 0; i < tracker_reports_.size(); ++i) {
+    auto &tracker_report = tracker_reports_[i];
     if (tracker_report.historian.empty()) {
       LOGW("Empty tracker history found in tracker report");
       continue;
@@ -68,7 +70,8 @@ void TrackerStorage::Refresh(const TrackerBatchConfig &config) {
 }
 
 void TrackerStorage::UpdateTrackerReport(
-    TrackerReport &tracker_report, const TrackerBatchConfig &config,
+    TrackerReport &tracker_report,
+    const TrackerBatchConfig &config,
     const chreBleAdvertisingReport &report) {
   LOGD_SENSITIVE_INFO(
       "Received tracker report, tracker address: %02X:%02X:%02X:%02X:%02X:%02X",

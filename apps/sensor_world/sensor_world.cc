@@ -280,6 +280,9 @@ uint16_t getNextLfsrState() {
 
 const char *getSensorName(uint32_t sensorHandle) {
   for (size_t i = 0; i < ARRAY_SIZE(sensors); i++) {
+    if (!sensors[i].isInitialized) {
+      continue;
+    }
     if (sensors[i].handle == sensorHandle) {
       return sensors[i].info.sensorName;
     }
@@ -428,8 +431,12 @@ bool nanoappStart() {
     SensorState &sensor = sensors[i];
     sensor.isInitialized =
         chreSensorFind(sensor.type, sensor.sensorIndex, &sensor.handle);
-    LOGI("Sensor %zu initialized: %s with handle %" PRIu32, i,
-         sensor.isInitialized ? "true" : "false", sensor.handle);
+    if (sensor.isInitialized) {
+      LOGI("Sensor %zu initialized with handle %" PRIu32, i, sensor.handle);
+    } else {
+      LOGW("Sensor %zu (type 0x%x, index %" PRIu8 ") init failed",
+           i, sensor.type, sensor.sensorIndex);
+    }
 
     if (sensor.type == CHRE_SENSOR_TYPE_INSTANT_MOTION_DETECT) {
       motionSensorIndices[static_cast<size_t>(MotionMode::Instant)] = i;
@@ -578,5 +585,5 @@ void nanoappEnd() {
 #include "chre/util/system/napp_permissions.h"
 
 CHRE_STATIC_NANOAPP_INIT(SensorWorld, chre::kSensorWorldAppId, 0,
-                         chre::NanoappPermissions::CHRE_PERMS_NONE);
+                         chre::NanoappPermissions::CHRE_PERMS_NONE)
 #endif  // CHRE_NANOAPP_INTERNAL

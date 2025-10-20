@@ -17,16 +17,24 @@
 #ifndef CHRE_PLATFORM_CONTEXT_H_
 #define CHRE_PLATFORM_CONTEXT_H_
 
+#include "chre/core/event_loop.h"
+
 namespace chre {
 
-// TODO: Consider removing this. The event loop should be interacted with by
-// posting an event to the EventLoop thread to avoid synchronization issues.
 /**
  * @return true to indicate that the current thread is the thread that is
  * currently blocked by the event loop. This is used by the event loop to
  * determine whether it needs to lock shared data structures or not.
+ *
+ * TODO(b/435246073): Deprecate this API in favor of getCurrentEventLoop().
  */
 bool inEventLoopThread();
+
+/**
+ * @return A reference to the EventLoop that is running on the current thread.
+ * Null if there is no event loop running on this thread.
+ */
+EventLoop *getCurrentEventLoop();
 
 }  // namespace chre
 

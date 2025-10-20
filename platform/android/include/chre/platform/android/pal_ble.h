@@ -1,0 +1,73 @@
+/*
+ * Copyright (C) 2025 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#ifndef CHRE_PLATFORM_ANDROID_PAL_BLE_H_
+#define CHRE_PLATFORM_ANDROID_PAL_BLE_H_
+
+#include <chrono>
+
+namespace chre {
+
+struct BtSocketCapabilities {
+  uint32_t leCocNumberOfSupportedSockets;
+  uint32_t leCocMtu;
+  uint32_t rfcommNumberOfSupportedSockets;
+  uint32_t rfcommMaxFrameSize;
+};
+
+/**
+ * @return true if the BLE PAL is enabled.
+ */
+bool chrePalIsBleEnabled();
+
+/**
+ * Delay starting a BLE scan. Callers should use this function to delay the BLE
+ * start scan async response until startBleScan is called.
+ *
+ * @param delay true if the scan should be delayed.
+ */
+void delayBleScanStart(bool delay);
+
+/**
+ * Starts a BLE scan. This function is intended to be used after delaying the
+ * PAL's async response via delayBleScanStart and after chrePalBleStartScan is
+ * called.
+ *
+ * @return true if the scan was start successfully.
+ */
+bool startBleScan();
+
+void resetSocketVariables();
+
+void incrementSocketClosureCount();
+
+uint32_t getSocketClosureCount();
+
+void setSocketOpenSuccess(bool success);
+
+bool getSocketOpenSuccess();
+
+void setSocketOpenFailureReason(const char *reason);
+
+const char *getSocketOpenFailureReason();
+
+void setSocketCapabilities(BtSocketCapabilities capabilities);
+
+BtSocketCapabilities getSocketCapabilities();
+
+}  // namespace chre
+
+#endif  // CHRE_PLATFORM_ANDROID_PAL_BLE_H_

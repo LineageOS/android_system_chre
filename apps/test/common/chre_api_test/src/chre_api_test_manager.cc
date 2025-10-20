@@ -15,6 +15,7 @@
  */
 
 #include <algorithm>
+#include <cinttypes>
 #include <cstdint>
 
 #include "chre_api_test_manager.h"
@@ -100,6 +101,15 @@ void sendFailureAndFinishCloseWriter<chre_rpc_GeneralEventsMessage>(
   gGeneralEventsMessage.status = false;
   sendFinishAndCloseWriter(writer, gGeneralEventsMessage);
 }
+
+chre_rpc_ChreBleSocketDisconnectionEvent getSocketDisconnectionEvent(
+    uint64_t socketId) {
+  return chre_rpc_ChreBleSocketDisconnectionEvent{
+      .status = true,
+      .socketId = socketId,
+  };
+}
+
 }  // namespace
 
 // Start ChreApiTestService RPC generated functions
@@ -223,6 +233,16 @@ pw::Status ChreApiTestService::ChreGetHostEndpointInfo(
              : pw::Status::InvalidArgument();
 }
 
+pw::Status ChreApiTestService::ChreBleSocketSend(
+    const chre_rpc_ChreBleSocketPacket &request,
+    chre_rpc_ChreBleSocketSendStatus &response) {
+  ChreApiTestManagerSingleton::get()->setPermissionForNextMessage(
+      CHRE_MESSAGE_PERMISSION_NONE);
+  return validateInputAndCallChreBleSocketSend(request, response)
+             ? pw::OkStatus()
+             : pw::Status::InvalidArgument();
+}
+
 // End ChreApiTestService RPC generated functions
 
 // Start ChreApiTestService RPC sync functions
@@ -239,16 +259,42 @@ void ChreApiTestService::ChreBleStartScanSync(
   }
 
   mWriter = std::move(writer);
-  CHRE_ASSERT(mSyncTimerHandle == CHRE_TIMER_INVALID);
   mRequestType = CHRE_BLE_REQUEST_TYPE_START_SCAN;
 
   chre_rpc_Status status;
   if (!validateInputAndCallChreBleStartScanAsync(request, status) ||
-      !status.status || !startSyncTimer()) {
+      !status.status) {
+    LOGE("ChreBleStartScanSync: status: false (error)");
     sendFailureAndFinishCloseWriter(mWriter);
-    mSyncTimerHandle = CHRE_TIMER_INVALID;
-    LOGD("ChreBleStartScanSync: status: false (error)");
+    return;
   }
+
+  startRpcSyncTimer(mWriter);
+}
+
+void ChreApiTestService::ChreBleStartScanSyncV1_9(
+    const chre_rpc_ChreBleStartScanAsyncInputV1_9 &request,
+    ServerWriter<chre_rpc_GeneralSyncMessage> &writer) {
+  if (mWriter.has_value()) {
+    ChreApiTestManagerSingleton::get()->setPermissionForNextMessage(
+        CHRE_MESSAGE_PERMISSION_NONE);
+    writer.Finish();
+    LOGE("ChreBleStartScanSyncV1_9: a sync message already exists");
+    return;
+  }
+
+  mWriter = std::move(writer);
+  mRequestType = CHRE_BLE_REQUEST_TYPE_START_SCAN;
+
+  chre_rpc_Status status;
+  if (!validateInputAndCallChreBleStartScanAsyncV1_9(request, status) ||
+      !status.status) {
+    LOGE("ChreBleStartScanSyncV1_9: status: false (error)");
+    sendFailureAndFinishCloseWriter(mWriter);
+    return;
+  }
+
+  startRpcSyncTimer(mWriter);
 }
 
 void ChreApiTestService::ChreBleStopScanSync(
@@ -263,16 +309,111 @@ void ChreApiTestService::ChreBleStopScanSync(
   }
 
   mWriter = std::move(writer);
-  CHRE_ASSERT(mSyncTimerHandle == CHRE_TIMER_INVALID);
   mRequestType = CHRE_BLE_REQUEST_TYPE_STOP_SCAN;
 
   chre_rpc_Status status;
   if (!validateInputAndCallChreBleStopScanAsync(request, status) ||
-      !status.status || !startSyncTimer()) {
+      !status.status) {
+    LOGE("ChreBleStopScanSync: status: false (error)");
     sendFailureAndFinishCloseWriter(mWriter);
-    mSyncTimerHandle = CHRE_TIMER_INVALID;
-    LOGD("ChreBleStopScanSync: status: false (error)");
+    return;
   }
+
+  startRpcSyncTimer(mWriter);
+}
+
+void ChreApiTestService::ChreBleReadRssiSync(
+    const chre_rpc_ChreBleReadRssiRequest &request,
+    ServerWriter<chre_rpc_ChreBleReadRssiEvent> &writer) {
+  if (mRssiWriter.has_value()) {
+    ChreApiTestManagerSingleton::get()->setPermissionForNextMessage(
+        CHRE_MESSAGE_PERMISSION_NONE);
+    writer.Finish();
+    LOGE("ChreBleReadRssiSync: a sync message already exits");
+    return;
+  }
+
+  mRssiWriter = std::move(writer);
+  chre_rpc_Status status;
+  if (!validateInputAndCallChreBleReadRssiAsync(request, status) ||
+      !status.status) {
+    LOGE("ChreBleReadRssiSync: status false (error)");
+    sendFailureAndFinishCloseWriter(mRssiWriter);
+    return;
+  }
+
+  startRpcSyncTimer(mRssiWriter);
+}
+
+void ChreApiTestService::ChreBleSocketOpenedSync(
+    const google_protobuf_Empty &,
+    ServerWriter<chre_rpc_ChreBleSocketConnectionEvent> &writer) {
+  if (mSocketOpenedWriter.has_value()) {
+    ChreApiTestManagerSingleton::get()->setPermissionForNextMessage(
+        CHRE_MESSAGE_PERMISSION_NONE);
+    writer.Finish();
+    LOGE("ChreBleSocketOpenedSync: a sync message already exits");
+    return;
+  }
+
+  mSocketOpenedWriter = std::move(writer);
+  if (mSocketTracker.has_value()) {
+    sendFinishAndCloseWriter(mSocketOpenedWriter, mSocketTracker->socketInfo);
+    return;
+  }
+
+  startRpcSyncTimer(mSocketOpenedWriter);
+}
+
+void ChreApiTestService::ChreBleSocketReceiveSync(
+    const google_protobuf_Empty &,
+    ServerWriter<chre_rpc_ChreBleSocketPacketEvent> &writer) {
+  if (mSocketReceiveWriter.has_value()) {
+    ChreApiTestManagerSingleton::get()->setPermissionForNextMessage(
+        CHRE_MESSAGE_PERMISSION_NONE);
+    writer.Finish();
+    LOGE("ChreBleSocketReceiveSync: a sync message already exits");
+    return;
+  }
+  mSocketReceiveWriter = std::move(writer);
+
+  if (mSocketReceivePacket.has_value()) {
+    sendFinishAndCloseWriter(mSocketReceiveWriter,
+                             mSocketReceivePacket.value());
+    mSocketReceivePacket.reset();
+    return;
+  }
+
+  startRpcSyncTimer(mSocketReceiveWriter);
+}
+
+void ChreApiTestService::ChreBleSocketClosedSync(
+    const google_protobuf_Empty &,
+    ServerWriter<chre_rpc_ChreBleSocketDisconnectionEvent> &writer) {
+  if (mSocketClosedWriter.has_value()) {
+    ChreApiTestManagerSingleton::get()->setPermissionForNextMessage(
+        CHRE_MESSAGE_PERMISSION_NONE);
+    writer.Finish();
+    LOGE("ChreBleSocketClosedSync: a sync message already exits");
+    return;
+  }
+
+  mSocketClosedWriter = std::move(writer);
+  if (!mSocketTracker.has_value()) {
+    LOGE(
+        "ChreBleSocketClosedSync: socket has not been opened or socket closure "
+        "has already been checked");
+    sendFailureAndFinishCloseWriter(mSocketClosedWriter);
+    return;
+  }
+  if (!mSocketTracker->connected) {
+    sendFinishAndCloseWriter(
+        mSocketClosedWriter,
+        getSocketDisconnectionEvent(mSocketTracker->socketInfo.socketId));
+    mSocketTracker.reset();
+    return;
+  }
+  startRpcSyncTimer(mSocketClosedWriter);
 }
 
 // End ChreApiTestService RPC sync functions
@@ -328,29 +469,6 @@ void ChreApiTestService::GatherEvents(
     LOGD("GatherEvents: mEventTypeCount: %" PRIu32
          " mEventExpectedCount: %" PRIu32,
          mEventTypeCount, mEventExpectedCount);
-  }
-}
-
-void ChreApiTestService::ChreBleReadRssiSync(
-    const chre_rpc_ChreBleReadRssiRequest &request,
-    ServerWriter<chre_rpc_ChreBleReadRssiEvent> &writer) {
-  if (mRssiWriter.has_value()) {
-    ChreApiTestManagerSingleton::get()->setPermissionForNextMessage(
-        CHRE_MESSAGE_PERMISSION_NONE);
-    writer.Finish();
-    LOGE("ChreBleReadRssiSync: a sync message already exits");
-    return;
-  }
-
-  mRssiWriter = std::move(writer);
-  CHRE_ASSERT(mSyncTimerHandle == CHRE_TIMER_INVALID);
-
-  chre_rpc_Status status;
-  if (!validateInputAndCallChreBleReadRssiAsync(request, status) ||
-      !status.status || !startSyncTimer()) {
-    sendFailureAndFinishCloseWriter(mRssiWriter);
-    mSyncTimerHandle = CHRE_TIMER_INVALID;
-    LOGD("ChreBleReadRssiSync: status false (error)");
   }
 }
 
@@ -697,6 +815,15 @@ void ChreApiTestService::handleTimerEvent(const void *cookie) {
     } else if (mRssiWriter.has_value()) {
       sendFailureAndFinishCloseWriter(mRssiWriter);
       LOGD("RSSI sync function: status = false (timeout)");
+    } else if (mSocketOpenedWriter.has_value()) {
+      sendFailureAndFinishCloseWriter(mSocketOpenedWriter);
+      LOGD("Socket opened sync function: status = false (timeout)");
+    } else if (mSocketReceiveWriter.has_value()) {
+      sendFailureAndFinishCloseWriter(mSocketReceiveWriter);
+      LOGD("Socket receive sync function: status = false (timeout)");
+    } else if (mSocketClosedWriter.has_value()) {
+      sendFailureAndFinishCloseWriter(mSocketClosedWriter);
+      LOGD("Socket closed sync function: status = false (timeout)");
     }
     mSyncTimerHandle = CHRE_TIMER_INVALID;
   } else if (mEventWriter.has_value() && cookie == &mEventTimerHandle) {
@@ -706,10 +833,110 @@ void ChreApiTestService::handleTimerEvent(const void *cookie) {
   }
 }
 
-bool ChreApiTestService::startSyncTimer() {
+template <typename T>
+void ChreApiTestService::startRpcSyncTimer(
+    Optional<ChreApiTestService::ServerWriter<T>> &writer) {
+  CHRE_ASSERT(mSyncTimerHandle == CHRE_TIMER_INVALID);
   mSyncTimerHandle = chreTimerSet(
       kSyncFunctionTimeout, &mSyncTimerHandle /* cookie */, true /* oneShot */);
-  return mSyncTimerHandle != CHRE_TIMER_INVALID;
+  if (mSyncTimerHandle == CHRE_TIMER_INVALID) {
+    LOGE("Cannot set the sync timer for RPC request");
+    sendFailureAndFinishCloseWriter(writer);
+  }
+}
+
+void ChreApiTestService::handleBleSocketConnectionEvent(
+    const chreBleSocketConnectionEvent *data) {
+  mSocketTracker = SocketTracker{
+      .socketInfo = chre_rpc_ChreBleSocketConnectionEvent{},
+      .connected = true,
+  };
+  mSocketTracker->socketInfo.status = true;
+  mSocketTracker->socketInfo.socketId = data->socketId;
+  if (data->socketName != nullptr) {
+    mSocketTracker->socketInfo.socketName.size =
+        MIN(100, sizeof(data->socketName));
+    std::memcpy(mSocketTracker->socketInfo.socketName.bytes, data->socketName,
+                mSocketTracker->socketInfo.socketName.size);
+  } else {
+    mSocketTracker->socketInfo.socketName.size = 0;
+  }
+  mSocketTracker->socketInfo.maxTxPacketLength = data->maxTxPacketLength;
+  mSocketTracker->socketInfo.maxRxPacketLength = data->maxRxPacketLength;
+
+  LOGI("Accepting socketId: %" PRIu64, mSocketTracker->socketInfo.socketId);
+  chreBleSocketAccept(mSocketTracker->socketInfo.socketId);
+  if (mSocketOpenedWriter.has_value()) {
+    chreTimerCancel(mSyncTimerHandle);
+    mSyncTimerHandle = CHRE_TIMER_INVALID;
+
+    chre_rpc_ChreBleSocketConnectionEvent message = mSocketTracker->socketInfo;
+    sendFinishAndCloseWriter(mSocketOpenedWriter, message);
+  }
+}
+
+void ChreApiTestService::handleBleSocketPacketEvent(
+    const chreBleSocketPacketEvent *event) {
+  if (!mSocketTracker.has_value()) {
+    LOGE(
+        "Received socket packet event for untracked socket with "
+        "socketId: %" PRIu64,
+        event->socketId);
+    return;
+  }
+  if (event->socketId != mSocketTracker->socketInfo.socketId) {
+    LOGE("Received socket packet for socketId: %" PRIu64
+         ", expecting socketId: %" PRIu64,
+         event->socketId, mSocketTracker->socketInfo.socketId);
+    return;
+  }
+  LOGD("Received socket packet for socketId %" PRIu64, event->socketId);
+
+  mSocketReceivePacket = chre_rpc_ChreBleSocketPacketEvent{
+      .status = true,
+      .packet = chre_rpc_ChreBleSocketPacket{},
+  };
+  mSocketReceivePacket->packet.socketId = event->socketId;
+  mSocketReceivePacket->packet.data.size = MIN(event->length, 2048);
+  std::memcpy(mSocketReceivePacket->packet.data.bytes, event->data,
+              mSocketReceivePacket->packet.data.size);
+
+  if (mSocketReceiveWriter.has_value()) {
+    chreTimerCancel(mSyncTimerHandle);
+    mSyncTimerHandle = CHRE_TIMER_INVALID;
+
+    sendFinishAndCloseWriter(mSocketReceiveWriter,
+                             mSocketReceivePacket.value());
+    mSocketReceivePacket.reset();
+  }
+}
+
+void ChreApiTestService::handleBleSocketDisconnectionEvent(
+    const chreBleSocketDisconnectionEvent *data) {
+  if (!mSocketTracker.has_value()) {
+    LOGE(
+        "Received socket disconnection event for untracked socket with "
+        "socketId: %" PRIu64,
+        data->socketId);
+    return;
+  }
+  if (mSocketTracker->socketInfo.socketId != data->socketId) {
+    LOGE("Received socket disconnection event for socketId: %" PRIu64
+         ", expecting socketId: %" PRIu64,
+         data->socketId, mSocketTracker->socketInfo.socketId);
+    return;
+  }
+  LOGD("Received socket disconnection event for socketId: %" PRIu64,
+       data->socketId);
+  mSocketTracker->connected = false;
+  if (mSocketClosedWriter.has_value()) {
+    chreTimerCancel(mSyncTimerHandle);
+    mSyncTimerHandle = CHRE_TIMER_INVALID;
+
+    sendFinishAndCloseWriter(mSocketClosedWriter,
+                             getSocketDisconnectionEvent(data->socketId));
+    mSocketTracker.reset();
+  }
 }
 
 // Start ChreApiTestManager functions
@@ -750,6 +977,18 @@ void ChreApiTestManager::handleEvent(uint32_t senderInstanceId,
       break;
     case CHRE_EVENT_TIMER:
       mChreApiTestService.handleTimerEvent(eventData);
+      break;
+    case CHRE_EVENT_BLE_SOCKET_CONNECTION:
+      mChreApiTestService.handleBleSocketConnectionEvent(
+          static_cast<const chreBleSocketConnectionEvent *>(eventData));
+      break;
+    case CHRE_EVENT_BLE_SOCKET_PACKET:
+      mChreApiTestService.handleBleSocketPacketEvent(
+          static_cast<const chreBleSocketPacketEvent *>(eventData));
+      break;
+    case CHRE_EVENT_BLE_SOCKET_DISCONNECTION:
+      mChreApiTestService.handleBleSocketDisconnectionEvent(
+          static_cast<const chreBleSocketDisconnectionEvent *>(eventData));
       break;
     default: {
       // ignore

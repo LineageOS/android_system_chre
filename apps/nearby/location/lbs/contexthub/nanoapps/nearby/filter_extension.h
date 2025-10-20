@@ -44,12 +44,12 @@ struct FilterExtensionResult {
     }
   }
 
-  FilterExtensionResult(FilterExtensionResult &&src)
+  FilterExtensionResult(FilterExtensionResult&& src)
       : end_point(src.end_point) {
     this->reports = std::move(src.reports);
   }
 
-  FilterExtensionResult &operator=(FilterExtensionResult &&src) {
+  FilterExtensionResult& operator=(FilterExtensionResult&& src) {
     if (this != &src) {
       end_point = src.end_point;
       this->reports = std::move(src.reports);
@@ -58,35 +58,29 @@ struct FilterExtensionResult {
   }
 
   // Deconstructs FilterExtensionResult and releases all resources.
-  ~FilterExtensionResult() {
-    Clear();
-  }
+  ~FilterExtensionResult() { Clear(); }
 
   // Releases all resources {cache element, heap memory}.
-  void Clear() {
-    reports.Clear();
-  }
+  void Clear() { reports.Clear(); }
 
   // Removes advertising reports older than the cache timeout if the cache size
   // hits a threshold.
-  void RefreshIfNeeded() {
-    reports.RefreshIfNeeded();
-  }
+  void RefreshIfNeeded() { reports.RefreshIfNeeded(); }
 
   // Returns advertise reports in cache.
-  chre::DynamicVector<chreBleAdvertisingReport> &GetAdvReports() {
+  chre::DynamicVector<chreBleAdvertisingReport>& GetAdvReports() {
     return reports.GetAdvReports();
   }
 
   // Logic operator to compare host end point.
-  friend bool operator==(const FilterExtensionResult &c1,
-                         const FilterExtensionResult &c2) {
+  friend bool operator==(const FilterExtensionResult& c1,
+                         const FilterExtensionResult& c2) {
     return c1.end_point == c2.end_point;
   }
 
   // Logic operator to compare host end point.
-  friend bool operator!=(const FilterExtensionResult &c1,
-                         const FilterExtensionResult &c2) {
+  friend bool operator!=(const FilterExtensionResult& c1,
+                         const FilterExtensionResult& c2) {
     return !(c1 == c2);
   }
 };
@@ -98,52 +92,50 @@ class FilterExtension {
   // If config_response->result is not CHREX_NEARBY_RESULT_OK, the returned
   // generic_filters should be ignored.
   void Update(
-      const chreHostEndpointInfo &host_info,
-      const nearby_extension_ExtConfigRequest_FilterConfig &filter_config,
-      chre::DynamicVector<chreBleGenericFilter> *generic_filters,
-      chre::DynamicVector<FilterExtensionResult> *screen_on_filter_results,
-      nearby_extension_ExtConfigResponse *config_response);
+      const chreHostEndpointInfo& host_info,
+      const nearby_extension_ExtConfigRequest_FilterConfig& filter_config,
+      chre::DynamicVector<chreBleGenericFilter>* generic_filters,
+      chre::DynamicVector<FilterExtensionResult>* screen_on_filter_results,
+      nearby_extension_ExtConfigResponse* config_response);
 
   // Configures OEM service data.
   void ConfigureService(
-      const chreHostEndpointInfo &host_info,
-      const nearby_extension_ExtConfigRequest_ServiceConfig &service_config,
-      nearby_extension_ExtConfigResponse *config_response);
+      const chreHostEndpointInfo& host_info,
+      const nearby_extension_ExtConfigRequest_ServiceConfig& service_config,
+      nearby_extension_ExtConfigResponse* config_response);
 
   // Matches BLE advertisements. Returns matched advertisements in
   // filter_results. If the results is only delivered when screen is on,
   // returned in screen_on_filter_results.
   void Match(
-      const chre::DynamicVector<chreBleAdvertisingReport> &ble_adv_list,
-      chre::DynamicVector<FilterExtensionResult> *filter_results,
-      chre::DynamicVector<FilterExtensionResult> *screen_on_filter_results);
+      const chre::DynamicVector<chreBleAdvertisingReport>& ble_adv_list,
+      chre::DynamicVector<FilterExtensionResult>* filter_results,
+      chre::DynamicVector<FilterExtensionResult>* screen_on_filter_results);
 
   // Serializes extended config response into data_buf. The encoded size is
   // filled in encoded_size. Returns true for successful encoding.
   static bool EncodeConfigResponse(
-      const nearby_extension_ExtConfigResponse &config_response,
-      ByteArray data_buf, size_t *encoded_size);
+      const nearby_extension_ExtConfigResponse& config_response,
+      ByteArray data_buf, size_t* encoded_size);
 
   // Encodes a single report into data_buf. The report are converted to
   // nearby_extension_FilterResult before the serialization.
-  static bool EncodeAdvReport(chreBleAdvertisingReport &report,
-                              ByteArray data_buf, size_t *encoded_size);
+  static bool EncodeAdvReport(chreBleAdvertisingReport& report,
+                              ByteArray data_buf, size_t* encoded_size);
 
   // Whether host list is empty. The host which doesn't have filter
   // configuration or was disconnected should be removed in the host list.
-  bool IsEmpty() const {
-    return host_list_.empty();
-  }
+  bool IsEmpty() const { return host_list_.empty(); }
 
   // Returns the index of the host if exists or could create.
   // Otherwise, returns -1.
-  int32_t FindOrCreateHostIndex(const chreHostEndpointInfo &host_info);
+  int32_t FindOrCreateHostIndex(const chreHostEndpointInfo& host_info);
 
  private:
   // Removes a host from host list and filter_results.
   void RemoveHostAndFilterResults(
       size_t host_index,
-      chre::DynamicVector<FilterExtensionResult> *filter_results);
+      chre::DynamicVector<FilterExtensionResult>* filter_results);
 
   chre::DynamicVector<HostEndpointInfo> host_list_;
 };

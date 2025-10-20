@@ -31,12 +31,23 @@ PlatformBtSocketBase::PlatformBtSocketBase(
     const BleL2capCocSocketData &socketData,
     PlatformBtSocketResources &platformBtSocketResources)
     : mId(socketData.socketId) {
+  if (socketData.rxConfig.mps == 0) {
+    LOGE("Rx MPS cannot be 0");
+    return;
+  }
+  uint16_t rxCredits =
+      MIN(kMaxRxMultibufs, kRxMultiBufAreaSize / socketData.rxConfig.mps);
+  if (rxCredits < socketData.rxConfig.credits) {
+    LOGE(
+        "Socket allocated more Rx credits to the remote device than CHRE is "
+        "capable of supporting");
+    return;
+  }
   pw::bluetooth::proxy::L2capCoc::CocConfig pwRxConfig = {
       .cid = socketData.rxConfig.cid,
       .mtu = socketData.rxConfig.mtu,
       .mps = socketData.rxConfig.mps,
-      .credits = static_cast<uint16_t>(
-          MIN(kMaxRxMultibufs, kRxMultiBufAreaSize / socketData.rxConfig.mps)),
+      .credits = socketData.rxConfig.credits,
   };
   pw::bluetooth::proxy::L2capCoc::CocConfig pwTxConfig = {
       .cid = socketData.txConfig.cid,
@@ -56,6 +67,23 @@ PlatformBtSocketBase::PlatformBtSocketBase(
     return;
   }
   mL2capCoc.emplace(std::move(result.value()));
+  // CHRE expects the socket has not allocated Rx credits to the remote device
+  // prior to being offloaded to CHRE. If CHRE receives a socket open request
+  // with the Rx credits value populated, it assumes these have already been
+  // allocated to the remote device.
+  if (socketData.rxConfig.credits > 0) {
+    LOGW("Assuming socket allocated %" PRIu16
+         " Rx credits to remote device prior to being offloaded to CHRE",
+         socketData.rxConfig.credits);
+    rxCredits -= socketData.rxConfig.credits;
+  }
+  if (rxCredits > 0) {
+    pw::Status status = mL2capCoc->SendAdditionalRxCredits(rxCredits);
+    if (!status.ok()) {
+      LOGE("SendAdditionalRxCredits failed: %s", status.str());
+      mL2capCoc.reset();
+    }
+  }
 }
 
 PlatformBtSocket::~PlatformBtSocket() {

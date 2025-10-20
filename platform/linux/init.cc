@@ -26,6 +26,7 @@
 #include "chre/platform/fatal_error.h"
 #include "chre/platform/linux/platform_log.h"
 #include "chre/platform/linux/task_util/task_manager.h"
+#include "chre/platform/linux/thread_context.h"
 #include "chre/platform/log.h"
 #include "chre/platform/shared/init.h"
 #include "chre/platform/system_timer.h"
@@ -107,6 +108,7 @@ int main(int argc, char **argv) {
     // Load any static nanoapps and start the event loop.
     std::thread chreThread([&]() {
       EventLoopManagerSingleton::get()->lateInit();
+      registerThreadContext(&EventLoopManagerSingleton::get()->getEventLoop());
 
       // Load static nanoapps unless they are disabled by a command-line flag.
       if (!noStaticNanoappsArg.getValue()) {
@@ -114,12 +116,11 @@ int main(int argc, char **argv) {
       }
 
       // Load dynamic nanoapps specified on the command-line.
-      chre::DynamicVector<chre::UniquePtr<chre::Nanoapp>> dynamicNanoapps;
-      for (const auto &nanoapp : nanoappsArg.getValue()) {
-        dynamicNanoapps.push_back(chre::MakeUnique<chre::Nanoapp>());
-        dynamicNanoapps.back()->loadFromFile(nanoapp);
+      for (const auto &argValue : nanoappsArg.getValue()) {
+        auto nanoapp = chre::MakeUnique<chre::Nanoapp>();
+        nanoapp->loadFromFile(argValue);
         EventLoopManagerSingleton::get()->getEventLoop().startNanoapp(
-            dynamicNanoapps.back());
+            std::move(nanoapp));
       }
 
       EventLoopManagerSingleton::get()->getEventLoop().run();

@@ -24,6 +24,9 @@
 #include <cerrno>
 #include <thread>
 
+#define EXYNOS_IOC_MAGIC 'e'
+#define EXYNOS_CHRE_IOC_GET_STAT _IOR(EXYNOS_IOC_MAGIC, 1, unsigned int)
+
 namespace aidl::android::hardware::contexthub {
 
 using namespace ::android::chre;
@@ -32,14 +35,14 @@ namespace fbs = ::chre::fbs;
 namespace {
 constexpr std::chrono::milliseconds kMessageHandlingTimeThreshold{1000};
 
-bool isChreRestarted() {
-  // TODO(b/425474601) - This is a dummy impl serving as a placeholder for a
-  //  function detecting if CHRE has restarted. In production, it should be
-  //  blockingly wait for a connection state change showing CHRE has gone
-  //  offline and then back online.
-  std::this_thread::sleep_for(std::chrono::seconds(10));
-  return false;
-}
+enum ChreState {
+  EXYNOS_CHRE_INIT = 0,
+  EXYNOS_CHRE_OFF = 4,
+  EXYNOS_CHRE_ON = 5,
+};
+
+ChreState chreCurrentState = EXYNOS_CHRE_INIT;
+
 }  // namespace
 
 bool ExynosChreConnection::init() {
@@ -99,10 +102,34 @@ void ExynosChreConnection::messageHandlerTask(
   }
 }
 
+bool ExynosChreConnection::isChreRestarted() {
+  uint32_t nextState = 0;
+  bool ret = false;
+
+  if (TEMP_FAILURE_RETRY(ioctl(mChreFileDescriptor, EXYNOS_CHRE_IOC_GET_STAT,
+                               &nextState)) < 0) {
+    LOGE("Unable to get an update for the CHRE state: errno=%d", errno);
+    return ret;
+  }
+
+  auto chreNextState = static_cast<ChreState>(nextState);
+
+  if (chreCurrentState != chreNextState) {
+    LOGI("CHRE state changes from %" PRIu32 " to %" PRIu32, chreCurrentState,
+         chreNextState);
+  }
+  if (chreCurrentState == EXYNOS_CHRE_OFF && chreNextState == EXYNOS_CHRE_ON) {
+    ret = true;
+  }
+  chreCurrentState = chreNextState;
+
+  return ret;
+}
+
 [[noreturn]] void ExynosChreConnection::chreStateMonitorTask(
     ExynosChreConnection *chreConnection) {
   while (true) {
-    if (isChreRestarted()) {
+    if (chreConnection->isChreRestarted()) {
       int64_t startTime = ::android::elapsedRealtime();
       chreConnection->waitChreBackOnline(
           /* timeoutMs= */ std::chrono::milliseconds(10000));

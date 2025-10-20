@@ -16,37 +16,38 @@
 
 """A script to set up the CHRE development environment.
 
-This script should only be incurred by a shell script and can be run in two modes:
+This script should only be incurred by a shell script.
 
-1. Interactive environment setup:
-   When run with a platform-target combination (e.g., `python env_setup.py -p <platform>-<target>`),
-   it interactively prompts the user for necessary environment variables based on
-   the env_config.json file. It then generates a series of 'export' commands
-   that can be executed by the shell to configure the environment, along with necessary action
-   function calls that can be incurred later (see below).
+When run with a platform-target combination (e.g., `python env_setup.py -p <platform>-<target>`),
+it interactively prompts the user for necessary environment variables based on
+the env_config.json file. It then generates a series of <name>-<value> pairs that can be
+exported by the shell to configure the environment. If a `default_action` is provided with a
+default value together the action will be incurred before exporting the default value.
 
-   The result is printed to stdout and piped into the shell to set the environment variables.
-
-2. Standalone actions:
-   When run with the --action flag (e.g., `python env_setup.py --action action_clone_repo ...`),
-   it performs specific, one-off tasks based on the action name provided.
+The result is printed to stdout and piped into the shell to set the environment variables.
 """
-import argparse
+
 import json
 import os
 import re
 import subprocess
 import sys
+from argparse import ArgumentParser
 from typing import Any
 
-
-def _fatal_error(message: str):
-  """Prints an error message in red to stderr and exits the script."""
-  print(f"\033[31m{message}\033[0m\n", file=sys.stderr)
-  sys.exit(1)
+from shell_util import log_i, log_w, log_e, init_file, fatal_error, check_dependencies
 
 
-def _get_input_from_shell(prompt: str) -> str:
+def _print_env_var_pair(env_var: str):
+  env_name, env_value = re.match(r"(.*)=(.*)", env_var).groups()
+  print(f"\033[32m{env_name}\033[0m = {env_value}", file=sys.stderr)
+
+
+def _get_canonical_path(path: str):
+  return os.path.expanduser(os.path.expandvars(path))
+
+
+def _get_input_from_shell(prompt: str, color: str = None) -> str:
   """Prompts the user for input from the shell and returns the response.
 
   Args:
@@ -55,6 +56,14 @@ def _get_input_from_shell(prompt: str) -> str:
   Returns:
     The string entered by the user.
   """
+  if color == 'green':
+    prompt = f"\033[32m{prompt}\033[0m"
+  elif color == 'yellow':
+    prompt = f"\033[33m{prompt}\033[0m"
+  elif color == 'red':
+    prompt = f"\033[31m{prompt}\033[0m"
+  else:
+    pass
   print(prompt, end="", file=sys.stderr, flush=True)
   return input()
 
@@ -69,11 +78,11 @@ def _action_clone_repo(url: str, branch: str, dest: str) -> None:
   """
   if os.path.exists(dest):
     answer = _get_input_from_shell(
-      f"{dest} already exists. Shall we override it? (y/N):")
+      f"{dest} already exists. Shall we override it? (y/N):", color="yellow")
     if not answer or answer.lower() == 'n':
-      print(f"Skipping clone operation for {dest}")
+      log_i(f"Skipping clone operation for {dest}")
       return
-    print(f"Removing existing directory: {dest}")
+    log_i(f"Removing existing directory: {dest}")
     subprocess.run(['rm', '-rf', dest], check=True)
 
   try:
@@ -82,11 +91,11 @@ def _action_clone_repo(url: str, branch: str, dest: str) -> None:
       ['git', 'clone', '--branch', branch, '--single-branch', url, dest],
       check=True
     )
-    print(f"Successfully cloned {url} (branch: {branch}) into {dest}")
+    log_i(f"Successfully cloned {url} (branch: {branch}) into {dest}")
   except subprocess.CalledProcessError:
-    _fatal_error('Error cloning repository')
+    fatal_error('Error cloning repository')
   except FileNotFoundError:
-    _fatal_error(
+    fatal_error(
       "Error: 'git' command not found. Please ensure Git is installed and in your PATH.")
 
 
@@ -106,61 +115,82 @@ def _assert_and_expand_env_variable(env_name, env_type: str, env_value: str):
   Returns:
     The expanded value of the environment variable.
   """
-  expanded_value = os.path.expanduser(os.path.expandvars(env_value))
-  if env_type == "path":
-    if not os.path.isdir(expanded_value):
-      _fatal_error(f"Path '{env_value}' does not exist.")
-  elif env_type == "file":
-    if not os.path.isfile(expanded_value):
-      _fatal_error(f"File '{env_value}' does not exist.")
-  elif env_type == "value":
-    if not re.match(r"^[\w\-]+$", env_value, flags=re.ASCII):
-      _fatal_error(
-        f"Invalid value '{env_value}'. Only dash and characters in [a-zA-Z0-9_] are allowed.")
-  else:
-    _fatal_error(f"Unknown value type '{env_type}' for env variable '{env_name}'")
 
+  def _check_single_value(value, v_type):
+    _expanded_value = _get_canonical_path(value)
+    if v_type == "path":
+      if not os.path.isdir(_expanded_value):
+        fatal_error(f"Path '{value}' does not exist.")
+    elif v_type == "file":
+      if not os.path.isfile(_expanded_value):
+        fatal_error(f"File '{value}' does not exist.")
+    elif v_type == "value":
+      if not re.match(r"^[\w\-]+$", value, flags=re.ASCII):
+        fatal_error(
+          f"Invalid value '{value}'. Only dash and characters in [a-zA-Z0-9_] are allowed.")
+    else:
+      fatal_error(f"Unknown value type '{v_type}' for value '{value}'")
+    return _expanded_value
+
+  matched_list_type = re.match(r"^list\[(.*)]$", env_type)
+  if matched_list_type:
+    expanded_value = ":".join(
+      _check_single_value(v, matched_list_type.group(1)) for v in env_value.split())
+  else:
+    expanded_value = _check_single_value(env_value, env_type)
   os.environ[env_name] = expanded_value
   return expanded_value
 
 
-class _CustomArgumentParser(argparse.ArgumentParser):
-  """A custom argument parser to override the default error handling."""
-
-  def error(self, message):
-    """Overrides the default error method to prevent printing errors to console"""
-    _fatal_error(
-      "The command requires exactly one argument in the format of"
-      f" <platform_name-target_name>\n{message}"
-    )
+def _run_action(action_and_args):
+  try:
+    func = getattr(sys.modules[__name__], "_" + action_and_args[0])
+    expanded_args = [_get_canonical_path(arg) for arg in action_and_args[1:]]
+    func(*expanded_args)
+  except AttributeError:
+    fatal_error(f"Unknown action: '{action_and_args[0]}'")
 
 
-def _load_config() -> Any:
+def _load_config(config_file: str = None) -> Any:
   """Loads and parses the configuration file.
 
-  The path to the directory containing this script must be set in the
-  CHRE_DEV_SCRIPT_PATH environment variable.
+  Args:
+    config_file: The file containing the config json file. When it's not provided the path to the
+    directory containing this script must be set in the CHRE_DEV_SCRIPT_PATH environment variable
+    so that the default config file can be retrieved.
 
   Returns:
     A dictionary containing the parsed JSON configuration data.
   """
-  if not os.getenv("CHRE_DEV_SCRIPT_PATH"):
-    _fatal_error("CHRE_DEV_SCRIPT_PATH must be set before calling this script")
 
-  config_file = os.path.join(os.getenv("CHRE_DEV_SCRIPT_PATH"), "env_config.json")
+  if config_file is None:
+    if not os.getenv("CHRE_DEV_SCRIPT_PATH"):
+      fatal_error("CHRE_DEV_SCRIPT_PATH must be set before calling this script")
+    config_file = os.path.join(os.getenv("CHRE_DEV_SCRIPT_PATH"), "env_config.json")
+  else:
+    config_file = _get_canonical_path(config_file)
+
   try:
     with open(config_file, "r") as f:
-      return json.load(f)
+      return json.load(f), config_file
   except FileNotFoundError:
-    _fatal_error(f"Error: Config file '{config_file}' not found")
+    fatal_error(f"Error: Config file '{config_file}' not found")
   except json.JSONDecodeError as e:
-    _fatal_error(f"Error: Invalid JSON format in '{config_file}'\n{e}")
+    fatal_error(f"Error: Invalid JSON format in '{config_file}'\n{e}")
 
+
+def _get_supported_combinations(config_data: Any) -> list[str]:
+  """Returns a sorted list of supported platform-target combinations."""
+  return sorted([
+    f"{entry.get('platform')}-{target.get('name')}"
+    for entry in config_data
+    for target in entry.get("targets", [])
+  ])
 
 def _parse_platform_and_target_configs(
     config_data: Any, platform_and_target: str
 ):
-  """Parses config data to find commands and env vars for a platform-target.
+  """Parses config data to find predefined env vars for a platform-target.
 
   Args:
     config_data: The parsed JSON configuration data.
@@ -168,128 +198,167 @@ def _parse_platform_and_target_configs(
 
   Returns:
     A tuple containing:
-      - A list of initial shell commands to export.
+      - A dictionary of predefined environment variables.
       - A list of environment variable definitions to be processed further.
   """
-  if not re.match(r"^\w+-\w+$", platform_and_target):
-    _fatal_error(
-      "platform and target must be in the format of"
-      " <platform_name-target_name>"
+  supported_combinations = _get_supported_combinations(config_data)
+
+  if not platform_and_target or not re.match(r"^\w+-\w+$", platform_and_target):
+    fatal_error(
+      "platform and target must be in the format of <platform_name-target_name>\n"
+      f"Supported choices are: {supported_combinations}"
     )
 
   platform_name, target_name = platform_and_target.split("-")
-  for entry in config_data:
+  for platform in config_data:
     try:
-      if entry["platform"] != platform_name:
+      if platform["platform"] != platform_name:
         continue
-      for target in entry["targets"]:
+      for target in platform["targets"]:
         if target["name"] != target_name:
           continue
-        commands = [f"export CHRE_PLATFORM={platform_name}",
-                    f"export CHRE_TARGET_TYPE={target_name}",
-                    f"export CHRE_BUILD_TARGET={target["build_target"]}",
-                    ]
-        if entry.get("python_version", ""):
-          commands.append(f"export CHRE_PYTHON_VERSION={entry.get("python_version")}")
-        envs = entry.get("common_env_variables", []) + target.get(
+        # Required configurations
+        env_map = {"CHRE_PLATFORM": platform_name,
+                   "CHRE_TARGET_TYPE": target_name,
+                   "CHRE_BUILD_TARGET": target["build_target"],
+                   "CHRE_DEV_PATH": _get_canonical_path(f"~/.chre_dev/{platform_name}-{target_name}")
+                   }
+        # Optional configurations
+        if platform.get("python_version"):
+          env_map["CHRE_PYTHON_VERSION"] = platform.get("python_version")
+        if platform.get("signer"):
+          env_map["CHRE_SIGNER_PATH"] = _get_canonical_path(platform.get("signer"))
+        if target.get("install_location"):
+          env_map["TARGET_INSTALL_LOCATION"] = target["install_location"]
+        if target.get("quick_flash_command"):
+          env_map["QUICK_FLASH_COMMAND"] = target["quick_flash_command"]
+        envs = platform.get("common_env_variables", []) + target.get(
           "env_variables", [])
-        return commands, envs
+        return env_map, envs
     except KeyError as e:
-      _fatal_error(
+      fatal_error(
         f"Malformed config for {platform_name}-{target_name}: '{e.args[0]}' field is not defined")
 
-  # No matching platform-target combination is found. Print supported combinations and exit.
-  supported_combinations = [
-    f"{entry.get('platform')}-{target.get('name')}"
-    for entry in config_data
-    for target in entry.get("targets", [])
-  ]
-  _fatal_error(
+  fatal_error(
     f"No platform-target combination found for '{platform_name}-{target_name}'\n"
     f"Supported choices are: {supported_combinations}"
   )
 
 
-def _parse_env_variable_fields(commands, env_vars):
+def _parse_env_variable_fields(env_vars, predefined_envs):
   """Interactively prompts for and processes environment variables.
 
   Iterates through a list of environment variable definitions, prompts the user
-  for values, validates them, and generates the necessary 'export' commands. If a
+  for values, validates them, and generates <name>=<value> pairs. If a
   default value is provided and no user input is given, the default value will
-  be used. Adds default action to the commands list too if it is specified.
+  be used. When a default action is provided, it will be executed if the default
+   value is used.
 
   Args:
-    commands: A list of shell commands to be appended to.
+    predefined_envs: A dict of environment variables pre-defined for the platform
+     and the target.
     env_vars: A list of dictionaries, where each dictionary defines an
-      environment variable to be set.
+      environment variable customizable by the user.
+
+  Returns:
+    A list of <name>=<value> pairs representing the environment variables.
   """
-  all_env_names = ["CHRE_PLATFORM", "CHRE_TARGET_TYPE", "CHRE_BUILD_TARGET"]
+  all_env_names = set(predefined_envs)
+  env_var_pairs = [f'{k}="{v}"' for k, v in predefined_envs.items()]
   for env_var in env_vars:
     try:
-      if env_var["name"] in all_env_names:
-        _fatal_error(f"Duplicate env variable name: {env_var["name"]}")
-      all_env_names.append(f"{env_var["name"]}")
-      default_value = env_var.get("default", "")
+      env_name = env_var["name"]
+      if env_name in all_env_names:
+        fatal_error(f"Duplicate env variable name: {env_name}")
+      all_env_names.add(f"{env_name}")
+      default_value = env_var.get("default")
       default_action = env_var.get("default_action", [])
-      prompt = f"{env_var["name"]} ({default_value})" if default_value else f"{env_var["name"]}"
-
-      print(f"\n{env_var["description"]}", file=sys.stderr)
+      prompt = f"{env_name}"
+      if default_value is not None:
+        prompt = "{} ({})".format(env_name, default_value if default_value else "EMPTY")
+      print("\n{}".format(env_var.get("description", "")), file=sys.stderr)
       user_entered_value = _get_input_from_shell(f"{prompt}: ").strip()
 
       if user_entered_value:
-        expanded_value = _assert_and_expand_env_variable(env_var["name"], env_var["type"],
+        expanded_value = _assert_and_expand_env_variable(env_name, env_var["type"],
                                                          user_entered_value)
-        commands.append(f"export {env_var["name"]}={expanded_value}")
+        env_var_pairs.append(f'{env_name}="{expanded_value}"')
         # User entered a value, skip the default action
         continue
 
       # Either user has to enter a value or default_value must be provided
-      if not default_value:
-        _fatal_error(f"{env_var["name"]} must be provided. Please try it again")
-      expanded_value = _assert_and_expand_env_variable(env_var["name"], env_var["type"],
-                                                       default_value)
+      if default_value is None:
+        fatal_error(f"{env_name} must be provided. Please try it again")
 
-      # Do whatever needed to make the default_value valid
       if default_action:
-        commands.append(" ".join(default_action))
-      commands.append(f"export {env_var["name"]}={expanded_value}")
-
+        _run_action(default_action)
+      # Default action is supposed to have made the default value valid
+      expanded_value = _assert_and_expand_env_variable(env_name, env_var["type"],
+                                                       default_value)
+      env_var_pairs.append(f'{env_name}="{expanded_value}"')
     except KeyError as e:
-      _fatal_error(f"The environment variable doesn't have the field '{e.args[0]}'")
+      fatal_error(f"The environment variable doesn't have the field '{e.args[0]}'")
 
   # Create CHRE_ENVS to record all the env variables to be created
-  commands.append("export CHRE_ENVS=(" + ' '.join(all_env_names) + ")")
+  env_var_pairs.append("CHRE_ENVS=(" + ' '.join(sorted(all_env_names)) + ")")
+  return env_var_pairs
+
 
 
 def main():
   """Parses command-line arguments and orchestrates the script's execution."""
-  arg_parser = _CustomArgumentParser(
+  check_dependencies(['cmake', 'llvm-strip', 'protoc', 'pyenv', 'xxd'])
+  arg_parser = ArgumentParser(
     description="CHRE development environment setup",
   )
   arg_parser.add_argument(
-    "-p",
-    "--platform_and_target",
+    "platform_and_target", nargs='?', default=None,
     type=str
   )
   arg_parser.add_argument(
-    "-a", "--action", type=str, nargs="+"
+    "-c", "--config", type=str
   )
+
   args = arg_parser.parse_args()
-  if args.action:
-    try:
-      func = getattr(sys.modules[__name__], "_" + args.action[0])
-      expanded_args = [os.path.expanduser(os.path.expandvars(arg)) for arg in args.action[1:]]
-      func(*expanded_args)
-    except AttributeError:
-      _fatal_error(f"Unknown action: '{args.action[0]}'")
-    return
+  config_data, config_file_path = _load_config(args.config)
+  if config_file_path:
+    os.environ["CHRE_CONFIG_DIR"] = os.path.dirname(config_file_path)
 
-  config_data = _load_config()
-  commands, envs = _parse_platform_and_target_configs(config_data,
-                                                      args.platform_and_target)
-  _parse_env_variable_fields(commands, envs)
+  if args.platform_and_target is None:
+    supported_combinations = _get_supported_combinations(config_data)
+    log_e("A platform-target combination must be provided. Usage: chre_lunch <platform-target>")
+    fatal_error(f"Supported choices are: {supported_combinations}")
 
-  print("\n".join(commands))
+  fixed_env_map, target_envs_configs = _parse_platform_and_target_configs(config_data,
+                                                                          args.platform_and_target)
+  os.environ.update(fixed_env_map)
+
+  env_vars_file = f"{fixed_env_map['CHRE_DEV_PATH']}/env_vars.txt"
+
+  if os.path.exists(env_vars_file):
+    with open(env_vars_file, "r") as f:
+      log_w("The following env variables are previously entered:\n")
+      predefined_vars = []
+      for env_var_pair in f:
+        _print_env_var_pair(env_var_pair)
+        predefined_vars.append(env_var_pair.strip())
+      answer = _get_input_from_shell("\nShall we keep using them? (Y/n):", color="yellow")
+      if not answer or answer.lower() == 'y':
+        print("\n".join(predefined_vars))
+        return
+      else:
+        log_w("Overriding the existing dev environment settings...\n")
+
+  env_var_pairs = _parse_env_variable_fields(target_envs_configs, fixed_env_map)
+
+  # env_vars_file is only created after parsing env variables successfully.
+  if not os.path.exists(env_vars_file):
+    init_file(env_vars_file)
+
+  with open(env_vars_file, "w") as f:
+    f.write("\n".join(env_var_pairs))
+
+  print("\n".join(env_var_pairs))
   return
 
 

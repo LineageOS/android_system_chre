@@ -24,14 +24,13 @@ static constexpr size_t kSaltSize = 2;
 class PresenceCryptoMicImpl : public Crypto {
  public:
   // Decrypts input with salt and key. Places the decrypted result in output.
-  bool decrypt(const ByteArray &input, const ByteArray &salt,
-               const ByteArray &key, ByteArray &output) const override;
+  bool decrypt(const ByteArray& input, const ByteArray& salt,
+               const ByteArray& key, ByteArray& output) const override;
   // Verifies the computed HMAC tag for metadata encryptionKey equal to the one
   // read from credential. Note currently we are not verifying the 16-bytes MIC
   // at the end of the advertisement.
-  bool verify(const ByteArray &input, const ByteArray &key,
-              const ByteArray &signature) const override;
-
+  bool verify(const ByteArray& input, const ByteArray& key,
+              const ByteArray& signature) const override;
  private:
   static constexpr char kAesKeyInfo[] = "Unsigned Section AES key";
   static constexpr size_t kAesKeySize = 16;

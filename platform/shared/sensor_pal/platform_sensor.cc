@@ -46,17 +46,26 @@ uint16_t PlatformSensor::getTargetGroupMask() const {
   return kDefaultTargetGroupMask;
 }
 
-PlatformSensor::PlatformSensor(PlatformSensor &&other) {
-  *this = std::move(other);
-}
+void PlatformSensorBase::moveFrom(PlatformSensorBase &other) {
+  // Don't call base class's move assignment operator in this class. It is not
+  // safe because of the possibly duplication moves. The move assignment
+  // operator may do things more than object moves, e.g. call base class's move
+  // assignment operator.
+  if (&other == this) {
+    return;
+  }
 
-PlatformSensor &PlatformSensor::operator=(PlatformSensor &&other) {
-  // Note: if this implementation is ever changed to depend on "this" containing
-  // initialized values, the move constructor implementation must be updated.
   mSensorHandle = other.mSensorHandle;
   mSensorInfo = other.mSensorInfo;
   other.mSensorInfo = nullptr;
+}
 
+PlatformSensor::PlatformSensor(PlatformSensor &&other) {
+  moveFrom(other);
+}
+
+PlatformSensor &PlatformSensor::operator=(PlatformSensor &&other) {
+  moveFrom(other);
   return *this;
 }
 

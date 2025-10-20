@@ -21,6 +21,7 @@
 #include <cstdint>
 
 #include "chre/re.h"
+#include "chre/util/dynamic_vector.h"
 #include "chre/util/pigweed/rpc_server.h"
 #include "chre/util/singleton.h"
 #include "chre_api/chre.h"
@@ -115,11 +116,25 @@ class ChreApiTestService final
       chre_rpc_ChreGetHostEndpointInfoOutput &response);
 
   /**
-   * Starts a BLE scan synchronously. Waits for the CHRE_EVENT_BLE_ASYNC_RESULT
-   * event.
+   * Sends a packet to the socket and gets the send status.
+   */
+  pw::Status ChreBleSocketSend(const chre_rpc_ChreBleSocketPacket &request,
+                               chre_rpc_ChreBleSocketSendStatus &response);
+
+  /**
+   * Starts a BLE scan synchronously. Waits for the
+   * CHRE_EVENT_BLE_ASYNC_RESULT event.
    */
   void ChreBleStartScanSync(const chre_rpc_ChreBleStartScanAsyncInput &request,
                             ServerWriter<chre_rpc_GeneralSyncMessage> &writer);
+
+  /**
+   * Starts a BLE scan synchronously using the v1.9 APIs. Waits for the
+   * CHRE_EVENT_BLE_ASYNC_RESULT event.
+   */
+  void ChreBleStartScanSyncV1_9(
+      const chre_rpc_ChreBleStartScanAsyncInputV1_9 &request,
+      ServerWriter<chre_rpc_GeneralSyncMessage> &writer);
 
   /**
    * Stops a BLE scan synchronously. Waits for the CHRE_EVENT_BLE_ASYNC_RESULT
@@ -129,17 +144,38 @@ class ChreApiTestService final
                            ServerWriter<chre_rpc_GeneralSyncMessage> &writer);
 
   /**
+   * Starts to read the RSSI
+   */
+  void ChreBleReadRssiSync(const chre_rpc_ChreBleReadRssiRequest &request,
+                           ServerWriter<chre_rpc_ChreBleReadRssiEvent> &writer);
+
+  /**
+   * Waits for the CHRE_EVENT_BLE_SOCKET_CONNECTION event.
+   */
+  void ChreBleSocketOpenedSync(
+      const google_protobuf_Empty &request,
+      ServerWriter<chre_rpc_ChreBleSocketConnectionEvent> &writer);
+
+  /**
+   * Waits for the CHRE_EVENT_BLE_SOCKET_PACKET event.
+   */
+  void ChreBleSocketReceiveSync(
+      const google_protobuf_Empty &request,
+      ServerWriter<chre_rpc_ChreBleSocketPacketEvent> &writer);
+
+  /**
+   * Waits for the CHRE_EVENT_BLE_SOCKET_DISCONNECTION event.
+   */
+  void ChreBleSocketClosedSync(
+      const google_protobuf_Empty &request,
+      ServerWriter<chre_rpc_ChreBleSocketDisconnectionEvent> &writer);
+
+  /**
    * Gathers events that match the input filter before the timeout in ns or
    * the max event count.
    */
   void GatherEvents(const chre_rpc_GatherEventsInput &request,
                     ServerWriter<chre_rpc_GeneralEventsMessage> &writer);
-
-  /**
-   * Starts to read the RSSI
-   */
-  void ChreBleReadRssiSync(const chre_rpc_ChreBleReadRssiRequest &request,
-                           ServerWriter<chre_rpc_ChreBleReadRssiEvent> &writer);
 
   /**
    * Handles a BLE event from CHRE.
@@ -178,13 +214,37 @@ class ChreApiTestService final
   void handleHostEndpointNotificationEvent(
       const chreHostEndpointNotification *data);
 
+  /**
+   * Handles BLE socket connection event from CHRE.
+   *
+   * @param data                the data from the event.
+   */
+  void handleBleSocketConnectionEvent(const chreBleSocketConnectionEvent *data);
+
+  /**
+   * Handles BLE socket packet event from CHRE.
+   *
+   * @param data                the data from the event.
+   */
+  void handleBleSocketPacketEvent(const chreBleSocketPacketEvent *data);
+
+  /**
+   * Handles BLE socket disconnection event from CHRE.
+   *
+   * @param data                the data from the event.
+   */
+  void handleBleSocketDisconnectionEvent(
+      const chreBleSocketDisconnectionEvent *data);
+
  private:
   /**
-   * Sets the synchronous timeout timer for the active sync message.
+   * Sets the synchronous timer for the active sync message. Sends a failure
+   * message and closes the writer if unsuccessful.
    *
-   * @return                     if the operation was successful.
+   * @param writer Writer to close if operation is unsuccessful.
    */
-  bool startSyncTimer();
+  template <typename T>
+  void startRpcSyncTimer(Optional<ChreApiTestService::ServerWriter<T>> &writer);
 
   /**
    * The following functions validate the RPC input: request, calls the
@@ -203,6 +263,10 @@ class ChreApiTestService final
 
   bool validateInputAndCallChreBleStartScanAsync(
       const chre_rpc_ChreBleStartScanAsyncInput &request,
+      chre_rpc_Status &response);
+
+  bool validateInputAndCallChreBleStartScanAsyncV1_9(
+      const chre_rpc_ChreBleStartScanAsyncInputV1_9 &request,
       chre_rpc_Status &response);
 
   bool validateInputAndCallChreBleStopScanAsync(
@@ -251,6 +315,10 @@ class ChreApiTestService final
   bool validateInputAndCallChreGetHostEndpointInfo(
       const chre_rpc_ChreGetHostEndpointInfoInput &request,
       chre_rpc_ChreGetHostEndpointInfoOutput &response);
+
+  bool validateInputAndCallChreBleSocketSend(
+      const chre_rpc_ChreBleSocketPacket &request,
+      chre_rpc_ChreBleSocketSendStatus &response);
 
   /**
    * Handle assigning the data to the GeneralEventsMessage proto received from
@@ -305,6 +373,13 @@ class ChreApiTestService final
   constexpr static uint32_t kMaxNumEventTypes =
       10;  // declared in chre_api_test.options
 
+  constexpr static size_t kMaxSocketDataLength = 2048;
+
+  struct SocketTracker {
+    chre_rpc_ChreBleSocketConnectionEvent socketInfo;
+    bool connected = true;
+  };
+
   /**
    * Used for sync API calls where a ChreAsyncResult is expected.
    * Only one sync API call may be made at a time.
@@ -325,6 +400,36 @@ class ChreApiTestService final
    * Used for synchronous RSSI requests.
    */
   Optional<ServerWriter<chre_rpc_ChreBleReadRssiEvent>> mRssiWriter;
+
+  /**
+   * Used for synchronous CHRE BLE Socket Opened request.
+   */
+  Optional<ServerWriter<chre_rpc_ChreBleSocketConnectionEvent>>
+      mSocketOpenedWriter;
+
+  /**
+   * Used for synchronous CHRE BLE Receive request.
+   */
+  Optional<ServerWriter<chre_rpc_ChreBleSocketPacketEvent>>
+      mSocketReceiveWriter;
+
+  /**
+   * Used for synchronous CHRE BLE Socket Closed request.
+   */
+  Optional<ServerWriter<chre_rpc_ChreBleSocketDisconnectionEvent>>
+      mSocketClosedWriter;
+
+  Optional<SocketTracker> mSocketTracker;
+
+  Optional<chre_rpc_ChreBleSocketPacket> mSocketSendPacket;
+
+  Optional<chre_rpc_ChreBleSocketPacketEvent> mSocketReceivePacket;
+
+  /**
+   * Whether the nanoapp has received a CHRE_EVENT_BLE_SOCKET_DISCONNECTION
+   * event.
+   */
+  bool mReceivedSocketDisconnect = false;
 
   /*
    * Variables to control synchronization for sync events calls.

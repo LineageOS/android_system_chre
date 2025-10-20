@@ -79,7 +79,7 @@ struct ChppWwanClientState {
 // instance of the CHPP WWAN client at a time.
 struct ChppWwanClientState gWwanClientContext;
 static const struct chrePalSystemApi *gSystemApi;
-static const struct chrePalWwanCallbacks *gCallbacks;
+static const struct chrePalWwanCallbacks *gCallbacks = NULL;
 
 /**
  * Configuration parameters for this client
@@ -168,6 +168,11 @@ static enum ChppAppErrorCode chppDispatchWwanResponse(void *clientContext,
   struct ChppWwanClientState *wwanClientContext =
       (struct ChppWwanClientState *)clientContext;
   enum ChppAppErrorCode error = CHPP_APP_ERROR_NONE;
+
+  if (gCallbacks == NULL) {
+    CHPP_LOGW("PAL callbacks not yet initialized");
+    return CHPP_APP_ERROR_NOT_READY;
+  }
 
   if (rxHeader->command > CHPP_WWAN_CLIENT_REQUEST_MAX) {
     error = CHPP_APP_ERROR_INVALID_COMMAND;

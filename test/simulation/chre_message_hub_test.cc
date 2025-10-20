@@ -16,6 +16,7 @@
 
 #include "chre/core/event_loop_manager.h"
 #include "chre/util/dynamic_vector.h"
+#include "chre/util/macros.h"
 #include "chre/util/system/message_common.h"
 #include "chre/util/system/message_router.h"
 #include "chre/util/system/napp_permissions.h"
@@ -779,6 +780,7 @@ TEST_F(ChreMessageHubTest, NanoappTriesToCloseNonPartySession) {
   uint64_t appId2 = loadNanoapp(MakeUnique<SessionAndMessageTestApp>(
       sessionId,
       TestNanoappInfo{.name = "TEST_OPEN_SESSION_NON_PARTY", .id = 0x1235}));
+  UNUSED_VAR(appId2);
   Nanoapp *nanoapp2 = getNanoappByAppId(appId);
   ASSERT_NE(nanoapp2, nullptr);
 
@@ -1482,6 +1484,7 @@ TEST_F(ChreMessageHubTest, NanoappUnloadUnregistersProvidedServices) {
       TestNanoappInfo{.name = "TEST_UNLOAD_UNREGISTERS_PROVIDED_SERVICES",
                       .id = kNanoappId}));
   Nanoapp *nanoapp = getNanoappByAppId(appId);
+  UNUSED_VAR(nanoapp);
   callback->setMessageHub(&(*messageHub));
 
   // Nanoapp publishes the service

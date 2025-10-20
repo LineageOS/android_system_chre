@@ -43,7 +43,7 @@ constexpr uint8_t kAccountKeyFirstByte[] = {
 constexpr size_t kMaxBloomFilterKeyLength = kFpAccountKeyLength + 48;
 
 // Returns true if data_element is Fast Pair account.
-bool IsAccountDataElement(const nearby_DataElement &data_element) {
+bool IsAccountDataElement(const nearby_DataElement& data_element) {
   return (data_element.has_key &&
           data_element.key ==
               nearby_DataElement_ElementType_DE_FAST_PAIR_ACCOUNT_KEY &&
@@ -53,8 +53,8 @@ bool IsAccountDataElement(const nearby_DataElement &data_element) {
 
 // Returns true if filter include Fast Pair initial pair.
 // Otherwise, returns false and saves account keys in account_keys.
-bool CheckFastPairFilter(const nearby_BleFilter &filter,
-                         chre::DynamicVector<const uint8_t *> *account_keys) {
+bool CheckFastPairFilter(const nearby_BleFilter& filter,
+                         chre::DynamicVector<const uint8_t*>* account_keys) {
   bool has_initial_pair = false;
   for (int i = 0; i < filter.data_element_count; i++) {
     if (IsAccountDataElement(filter.data_element[i])) {
@@ -68,7 +68,7 @@ bool CheckFastPairFilter(const nearby_BleFilter &filter,
         has_initial_pair = true;
       } else {
         account_keys->push_back(
-            static_cast<const uint8_t *>(filter.data_element[i].value));
+            static_cast<const uint8_t*>(filter.data_element[i].value));
       }
     }
   }
@@ -78,8 +78,8 @@ bool CheckFastPairFilter(const nearby_BleFilter &filter,
 // Fills a Fast Pair filtered result with service_data and account_key.
 // Passes account_key as nullptr for initial pair.
 // Returns false when filling failed due to memory overflow.
-bool FillResult(const BleServiceData &service_data, const uint8_t *account_key,
-                nearby_BleFilterResult *result) {
+bool FillResult(const BleServiceData& service_data, const uint8_t* account_key,
+                nearby_BleFilterResult* result) {
   if (result->data_element_count >= std::size(result->data_element)) {
     LOGE("Failed to fill Fast Pair result. Data Elements buffer full");
     return false;
@@ -129,8 +129,8 @@ bool FillResult(const BleServiceData &service_data, const uint8_t *account_key,
   return true;
 }
 
-bool MatchInitialFastPair(const BleServiceData &ble_service_data,
-                          nearby_BleFilterResult *result) {
+bool MatchInitialFastPair(const BleServiceData& ble_service_data,
+                          nearby_BleFilterResult* result) {
   if (ble_service_data.uuid != kFastPairUuid) {
     LOGD("Not Fast Pair service data.");
     return false;
@@ -145,9 +145,9 @@ bool MatchInitialFastPair(const BleServiceData &ble_service_data,
   return FillResult(ble_service_data, nullptr, result);
 }
 
-bool MatchSubsequentPair(const uint8_t *account_key,
-                         const BleServiceData &service_data,
-                         nearby_BleFilterResult *result) {
+bool MatchSubsequentPair(const uint8_t* account_key,
+                         const BleServiceData& service_data,
+                         nearby_BleFilterResult* result) {
   LOGD("MatchSubsequentPair");
   if (service_data.uuid != kFastPairUuid) {
     LOGD("service data uuid %x is not Fast Pair uuid %x", service_data.uuid,
@@ -161,7 +161,7 @@ bool MatchSubsequentPair(const uint8_t *account_key,
     return false;
   }
   FastPairAccountData account_data = FastPairAccountData::Parse(
-      ByteArray(const_cast<uint8_t *>(service_data.data), service_data.length));
+      ByteArray(const_cast<uint8_t*>(service_data.data), service_data.length));
   if (!account_data.is_valid) {
     return false;
   }
@@ -227,21 +227,21 @@ bool MatchSubsequentPair(const uint8_t *account_key,
   }
 }
 
-bool MatchFastPair(const nearby_BleFilter &filter,
-                   const BleScanRecord &scan_record,
-                   nearby_BleFilterResult *result) {
+bool MatchFastPair(const nearby_BleFilter& filter,
+                   const BleScanRecord& scan_record,
+                   nearby_BleFilterResult* result) {
   LOGD("MatchFastPair");
-  chre::DynamicVector<const uint8_t *> account_keys;
+  chre::DynamicVector<const uint8_t*> account_keys;
   if (CheckFastPairFilter(filter, &account_keys)) {
     LOGD("Fast Pair initial pair filter found.");
-    for (const auto &ble_service_data : scan_record.service_data) {
+    for (const auto& ble_service_data : scan_record.service_data) {
       if (MatchInitialFastPair(ble_service_data, result)) {
         return true;
       }
     }
   } else {
     for (const auto account_key : account_keys) {
-      for (const auto &ble_service_data : scan_record.service_data) {
+      for (const auto& ble_service_data : scan_record.service_data) {
         if (MatchSubsequentPair(account_key, ble_service_data, result)) {
           return true;
         }

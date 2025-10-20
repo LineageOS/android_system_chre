@@ -142,7 +142,7 @@ bool HostLink::sendBtSocketOpenResponse(uint64_t socketId, bool success,
                                     builder.GetSize());
 }
 
-bool HostLink::sendBtSocketCloseToHost(uint64_t socketId, const char *reason) {
+bool HostLink::sendBtSocketClose(uint64_t socketId, const char *reason) {
   constexpr size_t kFixedSizePortion = 52;
   ChreFlatBufferBuilder builder(kFixedSizePortion);
   HostProtocolChre::encodeBtSocketClose(builder, socketId, reason);

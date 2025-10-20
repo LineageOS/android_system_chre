@@ -15,6 +15,7 @@ COMMON_CFLAGS += -DCHRE_VERSION_STRING='"$(VERSION_STRING)"'
 # Supply a symbol to indicate that the build variant supplies the static
 # nanoapp list.
 COMMON_CFLAGS += -DCHRE_VARIANT_SUPPLIES_STATIC_NANOAPP_LIST
+COMMON_CFLAGS += -Ivariant/android/include
 
 # Optional Features ############################################################
 

@@ -30,9 +30,9 @@
 #define STR_LEN_NO_TERM(str) (ARRAY_SIZE(str) - 1)
 #define LOG_TAG "[NEARBY][PRESENCE_CRYPTO_V1]"
 namespace nearby {
-bool PresenceCryptoMicImpl::decrypt(const ByteArray &input,
-                                    const ByteArray &salt, const ByteArray &key,
-                                    ByteArray &output) const {
+bool PresenceCryptoMicImpl::decrypt(const ByteArray& input,
+                                    const ByteArray& salt, const ByteArray& key,
+                                    ByteArray& output) const {
   if (salt.length != kSaltSize && salt.length != kEncryptionInfoSize - 1) {
     LOGE("Invalid salt size");
     return false;
@@ -44,16 +44,16 @@ bool PresenceCryptoMicImpl::decrypt(const ByteArray &input,
 
   // Generate a 32 bytes decryption key from authenticity_key
   uint8_t decryption_key[kAesKeySize] = {0};
-  hkdf(reinterpret_cast<const uint8_t *>(kHkdfSalt), STR_LEN_NO_TERM(kHkdfSalt),
-       key.data, key.length, reinterpret_cast<const uint8_t *>(kAesKeyInfo),
+  hkdf(reinterpret_cast<const uint8_t*>(kHkdfSalt), STR_LEN_NO_TERM(kHkdfSalt),
+       key.data, key.length, reinterpret_cast<const uint8_t*>(kAesKeyInfo),
        STR_LEN_NO_TERM(kAesKeyInfo), decryption_key,
        ARRAY_SIZE(decryption_key));
 
   // Generate nonce
   uint8_t nonce[kAdvNonceSizeSaltDe] = {0};
-  hkdf(reinterpret_cast<const uint8_t *>(kHkdfSalt), STR_LEN_NO_TERM(kHkdfSalt),
+  hkdf(reinterpret_cast<const uint8_t*>(kHkdfSalt), STR_LEN_NO_TERM(kHkdfSalt),
        salt.data, salt.length,
-       reinterpret_cast<const uint8_t *>(kAdvNonceInfoSaltDe),
+       reinterpret_cast<const uint8_t*>(kAdvNonceInfoSaltDe),
        STR_LEN_NO_TERM(kAdvNonceInfoSaltDe), nonce, ARRAY_SIZE(nonce));
 
   // Decrypt the input cipher text using the decryption key
@@ -68,9 +68,9 @@ bool PresenceCryptoMicImpl::decrypt(const ByteArray &input,
 
 // Compares the calculated HMAC tag for the metadata encryption key (identity
 // value) with provided authenticity key, with the given value.
-bool PresenceCryptoMicImpl::verify(const ByteArray &metadataKey,
-                                   const ByteArray &authenticityKey,
-                                   const ByteArray &tag) const {
+bool PresenceCryptoMicImpl::verify(const ByteArray& metadataKey,
+                                   const ByteArray& authenticityKey,
+                                   const ByteArray& tag) const {
   UNUSED_VAR(authenticityKey);
   if (metadataKey.data == nullptr || tag.data == nullptr) {
     LOGE("Null pointer was found in input parameter");
@@ -82,7 +82,7 @@ bool PresenceCryptoMicImpl::verify(const ByteArray &metadataKey,
   }
   // Generates a 32 bytes HMAC tag from the data
   uint8_t hmac_key[kHmacKeySize] = {0};
-  hkdf(reinterpret_cast<const uint8_t *>(kHkdfSalt), STR_LEN_NO_TERM(kHkdfSalt),
+  hkdf(reinterpret_cast<const uint8_t*>(kHkdfSalt), STR_LEN_NO_TERM(kHkdfSalt),
        authenticityKey.data, authenticityKey.length, kMetadataKeyHmacKeyInfo,
        STR_LEN_NO_TERM(kMetadataKeyHmacKeyInfo), hmac_key,
        ARRAY_SIZE(hmac_key));

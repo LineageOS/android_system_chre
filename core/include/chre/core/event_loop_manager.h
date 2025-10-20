@@ -137,6 +137,96 @@ class EventLoopManager : public NonCopyable {
   static Nanoapp *validateChreApiCall(const char *functionName);
 
   /**
+   * Validates that the current thread is running the event loop for the given
+   * nanoapp and returns true if so.
+   *
+   * @param appId ID of the nanoapp to validate the context of
+   * @return true if the current thread is running the event loop for the given
+   *         nanoapp; false otherwise
+   */
+  static bool inEventLoopForNanoapp(uint64_t appId);
+
+  /**
+   * Posts an event to a nanoapp that is currently running (or all nanoapps if
+   * the target instance ID is kBroadcastInstanceId). A senderInstanceId cannot
+   * be provided to this method because it must only be used to post events
+   * sent by the system. If the event fails to post and the event loop thread is
+   * running, this is considered a fatal error. If the thread is not running
+   * (e.g. CHRE is shutting down), the event is silently dropped and the free
+   * callback is invoked prior to returning (if not null).
+   *
+   * Safe to call from any thread.
+   *
+   * @param eventType Event type identifier, which implies the type of eventData
+   * @param eventData The data being posted
+   * @param freeCallback Function to invoke to when the event has been processed
+   *        by all recipients; this must be safe to call immediately, to handle
+   *        the case where CHRE is shutting down
+   * @param targetInstanceId The instance ID of the destination of this event
+   * @param targetGroupMask Mask used to limit the recipients that are
+   *        registered to receive this event
+   *
+   * @see postLowPriorityEventOrFree
+   */
+  void postEventOrDie(uint16_t eventType, void *eventData,
+                      chreEventCompleteFunction *freeCallback,
+                      uint16_t targetInstanceId = kBroadcastInstanceId,
+                      uint16_t targetGroupMask = kDefaultTargetGroupMask);
+
+  /**
+   * Posts an event for processing by the system from within the context of the
+   * CHRE thread. Uses the same underlying event queue as is used for nanoapp
+   * events, but gives the ability to provide an additional data pointer. If the
+   * event loop is running and the system event can't be posted (i.e. queue is
+   * full), then a fatal error is raised.
+   *
+   * Safe to call from any thread.
+   *
+   * @param eventType Event type identifier, which is forwarded to the callback
+   * @param eventData Arbitrary data to pass to the callback
+   * @param callback Function to invoke from the context of the CHRE thread
+   * @param extraData Additional arbitrary data to provide to the callback
+   *
+   * @return true if successfully posted; false ONLY IF the CHRE event loop is
+   *         shutting down and not accepting any new events - in this case,
+   *         the callback will not be invoked and any allocated memory must be
+   *         cleaned up
+   *
+   * @see postEventOrDie
+   * @see deferCallback
+   */
+  bool postSystemEvent(uint16_t eventType, void *eventData,
+                       SystemEventCallbackFunction *callback, void *extraData);
+
+  /**
+   * Posts an event to a nanoapp that is currently running (or all nanoapps if
+   * the target instance ID is kBroadcastInstanceId). If the event fails to
+   * post, freeCallback is invoked prior to returning (if not null).
+   *
+   * Safe to call from any thread.
+   *
+   * @param eventType Event type identifier, which implies the type of eventData
+   * @param eventData The data being posted
+   * @param freeCallback Function to invoke to when the event has been processed
+   *        by all recipients; this must be safe to call immediately, to handle
+   *        the case where CHRE is shutting down
+   * @param senderInstanceId The instance ID of the sender of this event
+   * @param targetInstanceId The instance ID of the destination of this event
+   * @param targetGroupMask Mask used to limit the recipients that are
+   *        registered to receive this event
+   *
+   * @return true if the event was successfully added to the queue.
+   *
+   * @see chreSendEvent
+   */
+  bool postLowPriorityEventOrFree(
+      uint16_t eventType, void *eventData,
+      chreEventCompleteFunction *freeCallback,
+      uint16_t senderInstanceId = kSystemInstanceId,
+      uint16_t targetInstanceId = kBroadcastInstanceId,
+      uint16_t targetGroupMask = kDefaultTargetGroupMask);
+
+  /**
    * Leverages the event queue mechanism to schedule a CHRE system callback to
    * be invoked at some point in the future from within the context of the
    * "main" EventLoop. Which EventLoop is considered to be the "main" one is
@@ -155,8 +245,8 @@ class EventLoopManager : public NonCopyable {
   bool deferCallback(SystemCallbackType type, void *data,
                      SystemEventCallbackFunction *callback,
                      void *extraData = nullptr) {
-    return mEventLoop.postSystemEvent(static_cast<uint16_t>(type), data,
-                                      callback, extraData);
+    return postSystemEvent(static_cast<uint16_t>(type), data, callback,
+                           extraData);
   }
 
   /**
@@ -189,9 +279,9 @@ class EventLoopManager : public NonCopyable {
     // Pass the "inner" callback (the caller's callback) through to the "outer"
     // callback using the extraData parameter. Note that we're leveraging the
     // C++11 ability to cast a function pointer to void*
-    bool status = mEventLoop.postSystemEvent(
-        static_cast<uint16_t>(type), data.get(), outerCallback,
-        reinterpret_cast<void *>(callback));
+    bool status =
+        postSystemEvent(static_cast<uint16_t>(type), data.get(), outerCallback,
+                        reinterpret_cast<void *>(callback));
     if (status) {
       data.release();
     }
@@ -217,6 +307,15 @@ class EventLoopManager : public NonCopyable {
     static_assert(AlwaysFalse<T>::value,
                   "deferCallback(SystemCallbackType, UniquePtr<T>, nullptr) is "
                   "not allowed");
+  }
+
+  /**
+   * Deallocates an event from the event pool.
+   *
+   * @param event The event to deallocate
+   */
+  void deallocateEvent(Event *event) {
+    mEventPool.deallocate(event);
   }
 
   /**
@@ -404,6 +503,25 @@ class EventLoopManager : public NonCopyable {
   void lateInit();
 
  private:
+#ifdef CHRE_STATIC_EVENT_LOOP
+  //! The maximum number of events that can be active in the system.
+  static constexpr size_t kMaxEventCount = CHRE_MAX_EVENT_COUNT;
+
+  //! The memory pool to allocate incoming events from.
+  SynchronizedMemoryPool<Event, kMaxEventCount> mEventPool;
+
+#else
+  //! The maximum number of event that can be stored in a block in mEventPool.
+  static constexpr size_t kEventPerBlock = CHRE_EVENT_PER_BLOCK;
+
+  //! The maximum number of event blocks that mEventPool can hold.
+  static constexpr size_t kMaxEventBlock = CHRE_MAX_EVENT_BLOCKS;
+
+  //! The memory pool to allocate incoming events from.
+  SynchronizedExpandableMemoryPool<Event, kEventPerBlock, kMaxEventBlock>
+      mEventPool;
+#endif
+
   //! The instance ID generated by getNextInstanceId().
   AtomicUint32 mNextInstanceId{kSystemInstanceId + 1};
 

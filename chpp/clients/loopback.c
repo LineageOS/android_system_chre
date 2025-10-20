@@ -254,13 +254,14 @@ static bool chppRunLoopbackTestInternal(struct ChppAppState *appState,
 struct ChppLoopbackTestResult chppRunLoopbackTest(struct ChppAppState *appState,
                                                   const uint8_t *buf,
                                                   size_t len) {
+  CHPP_LOGI("%s: buffer size %zu", __func__, len);
   struct ChppLoopbackTestResult result;
   chppRunLoopbackTestInternal(appState, buf, len, /* sync= */ true, &result);
   return result;
 }
 
 enum ChppAppErrorCode chppRunLoopbackTestAsync(struct ChppAppState *appState) {
-  struct ChppLoopbackTestResult result;
+  struct ChppLoopbackTestResult result = {0};
   bool success = chppRunLoopbackTestInternal(
       appState, gLoopbackBuf, LOOPBACK_BUF_LEN, /* sync= */ false, &result);
   // Override the result for the success case because for async, the stored

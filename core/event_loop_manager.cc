@@ -18,6 +18,7 @@
 
 #include "chre/event.h"
 #include "chre/platform/atomic.h"
+#include "chre/platform/context.h"
 #include "chre/platform/fatal_error.h"
 #include "chre/platform/memory.h"
 #include "chre/util/lock_guard.h"
@@ -26,11 +27,23 @@
 namespace chre {
 
 Nanoapp *EventLoopManager::validateChreApiCall(const char *functionName) {
-  chre::Nanoapp *currentNanoapp =
-      EventLoopManagerSingleton::get()->getEventLoop().getCurrentNanoapp();
+  EventLoop *eventLoop = getCurrentEventLoop();
+  CHRE_ASSERT_LOG(eventLoop, "%s called with no CHRE context", functionName);
+
+  chre::Nanoapp *currentNanoapp = eventLoop->getCurrentNanoapp();
   CHRE_ASSERT_LOG(currentNanoapp, "%s called with no CHRE app context",
                   functionName);
   return currentNanoapp;
+}
+
+bool EventLoopManager::inEventLoopForNanoapp(uint64_t appId) {
+  EventLoop *eventLoop = getCurrentEventLoop();
+  if (!eventLoop) {
+    return false;
+  }
+
+  uint16_t instanceId;
+  return eventLoop->findNanoappInstanceIdByAppId(appId, &instanceId);
 }
 
 uint16_t EventLoopManager::getNextInstanceId() {
@@ -47,6 +60,58 @@ uint16_t EventLoopManager::getNextInstanceId() {
   }
 
   return instanceId;
+}
+
+// TODO(b/264108686): Refactor this function and postSystemEvent
+void EventLoopManager::postEventOrDie(uint16_t eventType, void *eventData,
+                                      chreEventCompleteFunction *freeCallback,
+                                      uint16_t targetInstanceId,
+                                      uint16_t targetGroupMask) {
+  if (mEventLoop.isRunning()) {
+    Event *event = mEventPool.allocate(
+        eventType, eventData, freeCallback, /* isLowPriority= */ false,
+        kSystemInstanceId, targetInstanceId, targetGroupMask);
+    if (!mEventLoop.postEvent(event) && event != nullptr) {
+      mEventPool.deallocate(event);
+    }
+  } else if (freeCallback != nullptr) {
+    freeCallback(eventType, eventData);
+  }
+}
+
+bool EventLoopManager::postSystemEvent(uint16_t eventType, void *eventData,
+                                       SystemEventCallbackFunction *callback,
+                                       void *extraData) {
+  if (!mEventLoop.isRunning()) return false;
+  Event *event = mEventPool.allocate(eventType, eventData, callback, extraData);
+  bool success = mEventLoop.postEvent(event);
+  if (!success && event != nullptr) {
+    mEventPool.deallocate(event);
+  }
+  return success;
+}
+
+bool EventLoopManager::postLowPriorityEventOrFree(
+    uint16_t eventType, void *eventData,
+    chreEventCompleteFunction *freeCallback, uint16_t senderInstanceId,
+    uint16_t targetInstanceId, uint16_t targetGroupMask) {
+  bool eventPosted = false;
+
+  if (mEventLoop.isRunning()) {
+    Event *event = mEventPool.allocate(
+        eventType, eventData, freeCallback, /* isLowPriority= */ true,
+        senderInstanceId, targetInstanceId, targetGroupMask);
+    eventPosted = mEventLoop.postEvent(event);
+    if (!eventPosted && event != nullptr) {
+      mEventPool.deallocate(event);
+    }
+  }
+
+  if (!eventPosted && freeCallback != nullptr) {
+    freeCallback(eventType, eventData);
+  }
+
+  return eventPosted;
 }
 
 void EventLoopManager::lateInit() {

@@ -19,6 +19,8 @@
 
 #include <cinttypes>
 
+#include "chre/variant/config.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -79,6 +81,44 @@ class AtomicBoolBase : public AtomicBase<bool> {
                             desired);
   }
 };
+
+#if CHRE_ATOMIC_UINT8_ENABLED
+/**
+ * Base class implementation for the Atomic Uint8 type.
+ */
+class AtomicUint8Base : public AtomicBase<uint8_t> {
+ public:
+  /**
+   * Atomically swap the stored 8-bit word with a new value.
+   *
+   * @param desired New value to be assigned to the stored 32-bit word.
+   * @return Previous value of the stored 32-bit word.
+   */
+  uint8_t swap(uint8_t desired) {
+    return atomic_swap_byte(&mValue, desired);
+  }
+
+  /**
+   * Atomically add a new value to the stored 8-bit word.
+   *
+   * @param arg Value to be added to the stored word.
+   * @return Pre-addition value of the stored word.
+   */
+  uint8_t add(uint8_t arg) {
+    return atomic_add_byte(&mValue, arg);
+  }
+
+  /**
+   * Atomically subtract a value from the stored 8-bit word.
+   *
+   * @param arg Value to be subtracted from the stored word.
+   * @return Pre-subtraction value of the stored word.
+   */
+  uint8_t sub(uint8_t arg) {
+    return atomic_add_byte(&mValue, ~arg + 1);
+  }
+};
+#endif  // CHRE_ATOMIC_UINT8_ENABLED
 
 /**
  * Base class implementation for the Atomic Uint32 type.

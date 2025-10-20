@@ -21,6 +21,7 @@
 #include <cstring>
 
 #include "chre/platform/log.h"
+#include "chre/platform/shared/nanoapp_support_lib_dso.h"
 
 namespace chre {
 
@@ -58,6 +59,12 @@ bool validateAppInfo(uint64_t expectedAppId, uint32_t expectedAppVersion,
     LOGE("App name is too long");
   } else if (strlen(appInfo->vendor) > CHRE_NSL_DSO_NANOAPP_STRING_MAX_LEN) {
     LOGE("App vendor is too long");
+  } else if (appInfo->structMinorVersion >=
+                 CHRE_NSL_NANOAPP_INFO_STRUCT_MINOR_VERSION_4 &&
+             appInfo->minChreApiVersion > chreGetApiVersion()) {
+    LOGE("CHRE API version (0x%" PRIx32
+         ") is lower than nanoapp required minimum API version(0x%" PRIx32 ")",
+         CHRE_API_VERSION, appInfo->minChreApiVersion);
   } else {
     success = true;
   }

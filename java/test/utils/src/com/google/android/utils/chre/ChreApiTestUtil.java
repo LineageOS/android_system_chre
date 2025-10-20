@@ -490,9 +490,29 @@ public class ChreApiTestUtil {
                         ChreApiTest.ChreBleStartScanAsyncInput.parser(),
                         ChreApiTest.GeneralSyncMessage.parser()),
                 Service.serverStreamingMethod(
+                        "ChreBleStartScanSyncV1_9",
+                        ChreApiTest.ChreBleStartScanAsyncInputV1_9.parser(),
+                        ChreApiTest.GeneralSyncMessage.parser()),
+                Service.serverStreamingMethod(
                         "ChreBleStopScanSync",
                         Empty.parser(),
                         ChreApiTest.GeneralSyncMessage.parser()),
+                Service.serverStreamingMethod(
+                        "ChreBleSocketOpenedSync",
+                        Empty.parser(),
+                        ChreApiTest.ChreBleSocketConnectionEvent.parser()),
+                Service.unaryMethod(
+                        "ChreBleSocketSend",
+                        ChreApiTest.ChreBleSocketPacket.parser(),
+                        ChreApiTest.ChreBleSocketSendStatus.parser()),
+                Service.serverStreamingMethod(
+                        "ChreBleSocketReceiveSync",
+                        Empty.parser(),
+                        ChreApiTest.ChreBleSocketPacketEvent.parser()),
+                Service.serverStreamingMethod(
+                        "ChreBleSocketClosedSync",
+                        Empty.parser(),
+                        ChreApiTest.ChreBleSocketDisconnectionEvent.parser()),
                 Service.unaryMethod(
                         "ChreSensorFindDefault",
                         ChreApiTest.ChreSensorFindDefaultInput.parser(),

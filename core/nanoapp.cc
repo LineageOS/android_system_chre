@@ -26,6 +26,7 @@
 #include "chre_api/chre/version.h"
 
 #include <algorithm>
+#include <cinttypes>
 #include <cstdint>
 
 #if CHRE_FIRST_SUPPORTED_API_VERSION < CHRE_API_VERSION_1_5
@@ -188,13 +189,14 @@ void Nanoapp::logStateToBuffer(DebugDumpWrapper &debugDump) const {
   debugDump.print(" Id=%" PRIu16 " 0x%016" PRIx64 " ", getInstanceId(),
                   getAppId());
   PlatformNanoapp::logStateToBuffer(debugDump);
+  uint32_t perm = getAppPermissions();
   debugDump.print(" v%" PRIu32 ".%" PRIu32 ".%" PRIu32 " tgtAPI=%" PRIu32
-                  ".%" PRIu32 "\n",
+                  ".%" PRIu32 " perm=0x%08" PRIx32 "\n",
                   CHRE_EXTRACT_MAJOR_VERSION(getAppVersion()),
                   CHRE_EXTRACT_MINOR_VERSION(getAppVersion()),
                   CHRE_EXTRACT_PATCH_VERSION(getAppVersion()),
                   CHRE_EXTRACT_MAJOR_VERSION(getTargetApiVersion()),
-                  CHRE_EXTRACT_MINOR_VERSION(getTargetApiVersion()));
+                  CHRE_EXTRACT_MINOR_VERSION(getTargetApiVersion()), perm);
 }
 
 void Nanoapp::logMemAndComputeHeader(DebugDumpWrapper &debugDump) const {

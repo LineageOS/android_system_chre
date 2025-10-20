@@ -582,7 +582,7 @@ void WifiRequestManager::handleNanServiceIdentifierEventSync(
         }
       }
 
-      EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+      EventLoopManagerSingleton::get()->postEventOrDie(
           CHRE_EVENT_WIFI_NAN_IDENTIFIER_RESULT, event, freeEventDataCallback,
           req.nanoappInstanceId);
     }
@@ -628,7 +628,7 @@ void WifiRequestManager::handleNanServiceDiscoveryEventSync(
   CHRE_ASSERT(event != nullptr);
   uint16_t nanoappInstanceId;
   if (getNappIdFromSubscriptionId(event->subscribeId, &nanoappInstanceId)) {
-    EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+    EventLoopManagerSingleton::get()->postEventOrDie(
         CHRE_EVENT_WIFI_NAN_DISCOVERY_RESULT, event,
         freeNanDiscoveryEventCallback, nanoappInstanceId);
   } else {
@@ -661,7 +661,7 @@ void WifiRequestManager::handleNanServiceLostEventSync(uint32_t subscriptionId,
     } else {
       event->id = subscriptionId;
       event->peerId = publisherId;
-      EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+      EventLoopManagerSingleton::get()->postEventOrDie(
           CHRE_EVENT_WIFI_NAN_SESSION_LOST, event, freeEventDataCallback,
           nanoappInstanceId);
     }
@@ -698,7 +698,7 @@ void WifiRequestManager::handleNanServiceTerminatedEventSync(
     } else {
       event->id = subscriptionId;
       event->reason = errorCode;
-      EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+      EventLoopManagerSingleton::get()->postEventOrDie(
           CHRE_EVENT_WIFI_NAN_SESSION_TERMINATED, event, freeEventDataCallback,
           nanoappInstanceId);
     }
@@ -993,7 +993,7 @@ bool WifiRequestManager::postScanMonitorAsyncResultEvent(
       LOGE("Undefined error in ScanMonitorAsyncResult: %" PRIu8, errorCode);
     }
 
-    EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+    EventLoopManagerSingleton::get()->postEventOrDie(
         CHRE_EVENT_WIFI_ASYNC_RESULT, event, freeEventDataCallback,
         nanoappInstanceId);
     eventPosted = true;
@@ -1050,7 +1050,7 @@ bool WifiRequestManager::postScanRequestAsyncResultEvent(
       LOGE("Undefined error in ScanRequestAsyncResult: %" PRIu8, errorCode);
     }
 
-    EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+    EventLoopManagerSingleton::get()->postEventOrDie(
         CHRE_EVENT_WIFI_ASYNC_RESULT, event, freeEventDataCallback,
         nanoappInstanceId);
     eventPosted = true;
@@ -1171,7 +1171,7 @@ void WifiRequestManager::postNanAsyncResultEvent(uint16_t nanoappInstanceId,
     event->errorCode = errorCode;
     event->success = success;
 
-    EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+    EventLoopManagerSingleton::get()->postEventOrDie(
         CHRE_EVENT_WIFI_ASYNC_RESULT, event, freeEventDataCallback,
         nanoappInstanceId);
   }
@@ -1241,7 +1241,7 @@ bool WifiRequestManager::postRangingAsyncResult(uint8_t errorCode) {
       event->reserved = 0;
       event->cookie = req.cookie;
 
-      EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+      EventLoopManagerSingleton::get()->postEventOrDie(
           CHRE_EVENT_WIFI_ASYNC_RESULT, event, freeEventDataCallback,
           req.nanoappInstanceId);
       eventPosted = true;
@@ -1350,7 +1350,7 @@ void WifiRequestManager::handleRangingEventSync(
         freeWifiRangingEventCallback(CHRE_EVENT_WIFI_RANGING_RESULT, event);
       }
     } else {
-      EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+      EventLoopManagerSingleton::get()->postEventOrDie(
           CHRE_EVENT_WIFI_RANGING_RESULT, event, freeWifiRangingEventCallback,
           mPendingRangingRequests.front().nanoappInstanceId);
     }
@@ -1488,7 +1488,7 @@ void WifiRequestManager::cancelNanSubscriptionsAndInformNanoapps() {
     } else {
       event->id = mNanoappSubscriptions[i].subscriptionId;
       event->reason = CHRE_ERROR_FUNCTION_DISABLED;
-      EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+      EventLoopManagerSingleton::get()->postEventOrDie(
           CHRE_EVENT_WIFI_NAN_SESSION_TERMINATED, event, freeEventDataCallback,
           mNanoappSubscriptions[i].nanoappInstanceId);
     }
@@ -1508,7 +1508,7 @@ void WifiRequestManager::cancelNanPendingRequestsAndInformNanoapps() {
       event->success = false;
       event->errorCode = CHRE_ERROR_FUNCTION_DISABLED;
       event->cookie = req.cookie;
-      EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+      EventLoopManagerSingleton::get()->postEventOrDie(
           CHRE_EVENT_WIFI_ASYNC_RESULT, event, freeEventDataCallback,
           req.nanoappInstanceId);
     }

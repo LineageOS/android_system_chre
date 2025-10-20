@@ -21,6 +21,7 @@ COMMON_CFLAGS += -DCHRE_VERSION_STRING="\"chre=embos@$(COMMIT_HASH)\""
 # Supply a symbol to indicate that the build variant supplies the static
 # nanoapp list.
 COMMON_CFLAGS += -DCHRE_VARIANT_SUPPLIES_STATIC_NANOAPP_LIST
+COMMON_CFLAGS += -Ivariant/exynos-embos/include
 
 # CHRE event count #############################################################
 

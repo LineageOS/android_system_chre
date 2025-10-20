@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <future>
+#include <optional>
 #include <string>
 #include "chre_host/fragmented_load_transaction.h"
 #include "hal_client_id.h"
@@ -47,6 +48,22 @@ class ChreConnection {
   virtual bool sendMessage(void *data, size_t length) = 0;
 
   /**
+   * Sends a message to CHRE with optional timeout.
+   *
+   * Defaults to the version without timeout.
+   *
+   * @param data Pointer to message buffer.
+   * @param length Size of message buffer.
+   * @param timeout [optional] Minimum duration to wait for success.
+   * @return true if success, otherwise false.
+   */
+  virtual bool sendMessage(
+      void *data, size_t length,
+      std::optional<std::chrono::milliseconds> /*timeout*/) {
+    return sendMessage(data, length);
+  }
+
+  /**
    * @return The nanoapp loading fragment size in bytes.
    */
   virtual size_t getLoadFragmentSizeBytes() const {
@@ -55,12 +72,21 @@ class ChreConnection {
   }
 
   /**
+   * @return Optional timeout to be used for nanoapp load requests.
+   */
+  virtual std::optional<std::chrono::milliseconds> getLoadRequestTimeout() {
+    return {};
+  }
+
+  /**
    * Sends a message encapsulated in a FlatBufferBuilder to CHRE.
    *
    * @return true if success, otherwise false.
    */
-  inline bool sendMessage(const flatbuffers::FlatBufferBuilder &builder) {
-    return sendMessage(builder.GetBufferPointer(), builder.GetSize());
+  inline bool sendMessage(
+      const flatbuffers::FlatBufferBuilder &builder,
+      std::optional<std::chrono::milliseconds> timeout = {}) {
+    return sendMessage(builder.GetBufferPointer(), builder.GetSize(), timeout);
   }
 
   /**

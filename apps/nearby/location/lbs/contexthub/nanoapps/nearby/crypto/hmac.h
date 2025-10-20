@@ -89,7 +89,8 @@ void hmacInit(struct HmacContext *ctx, const void *inKey, size_t keyLen);
  *
  * Returns:
  */
-void hmacUpdate(struct HmacContext *ctx, const void *inData, size_t dataLen);
+void hmacUpdate(struct HmacContext *ctx, const void *inData,
+                size_t dataLen);
 
 /**
  * hmacUpdateHashInit:

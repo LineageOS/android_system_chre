@@ -11,20 +11,20 @@ class HwFilter {
  public:
   // Matches BLE advertisement with a single hardware filter and returns the
   // result.
-  static bool Match(const chreBleGenericFilter &hardware_filter,
-                    const chreBleAdvertisingReport &report);
+  static bool Match(const chreBleGenericFilter& hardware_filter,
+                    const chreBleAdvertisingReport& report);
 
   // Matches BLE advertisement with multiple hardware filters and returns the
   // result.
   static bool Match(
-      const chre::DynamicVector<chreBleGenericFilter> &hardware_filters,
-      const chreBleAdvertisingReport &report);
+      const chre::DynamicVector<chreBleGenericFilter>& hardware_filters,
+      const chreBleAdvertisingReport& report);
 
   // Checks signal strength in the BLE advertisement report against RSSI
   // threshold in the scan filter. Returns true if the signal strength is
   // higher than the RSSI threshold or the RSSI threshold is CHRE_BLE_RSSI_NONE.
   static bool CheckRssi(int8_t rssi_threshold,
-                        const chreBleAdvertisingReport &report);
+                        const chreBleAdvertisingReport& report);
 };
 
 }  // namespace nearby

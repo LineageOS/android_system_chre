@@ -25,6 +25,7 @@ enum class PalWifiAsyncRequestTypes : uint8_t {
   SCAN,
   SCAN_MONITORING,
   RANGING,
+  SCAN_MONITORING_EVENT,
 
   // Must be last
   NUM_WIFI_REQUEST_TYPE,
@@ -34,6 +35,12 @@ enum class PalWifiAsyncRequestTypes : uint8_t {
  * @return whether scan monitoring is active.
  */
 bool chrePalWifiIsScanMonitoringActive();
+
+/**
+ * Trigger a synchronous posting of a scan monitor event after the delay
+ * configured for SCAN_MONITORING_EVENT (default 0).
+ */
+bool chrePalWifiTriggerScanMonitorEvent();
 
 /**
  * Sets how long each async request should hold before replying the result

@@ -25,6 +25,7 @@
 #include <android-base/properties.h>
 #include <android/binder_manager.h>
 #include <utils/SystemClock.h>
+#include <chrono>
 #include <thread>
 
 namespace android::chre {
@@ -33,7 +34,6 @@ using aidl::android::hardware::contexthub::IContextHub;
 using aidl::android::hardware::contexthub::IContextHubCallback;
 using base::GetBoolProperty;
 using base::ScopedLockAssertion;
-using flags::abort_if_client_callback_is_stuck;
 using ndk::ScopedAStatus;
 
 namespace {
@@ -45,6 +45,10 @@ constexpr std::chrono::milliseconds kWatchdogSleepInterval{500};
 
 constexpr std::chrono::seconds kBgConnectionFutureTimeout{1};
 }  // namespace
+
+bool HalClient::isNewConnectInBackgroundEnabled() const {
+  return flags::hal_client_new_connect_in_background();
+}
 
 HalClient::HalClient(const std::shared_ptr<IContextHubCallback> &callback,
                      int32_t contextHubId)
@@ -120,7 +124,7 @@ bool HalClient::connect() {
   const bool result = initConnection() == HalError::SUCCESS;
   // Check if mWatchdogTask can already be joined to make sure the watchdog task
   // is only created once.
-  if (abort_if_client_callback_is_stuck() && result) {
+  if (result) {
     std::lock_guard lock(mWatchdogCreationMutex);
     if (!mWatchdogTask.joinable()) {
       mWatchdogTask =
@@ -190,6 +194,82 @@ HalError HalClient::initConnection() {
   mIsHalConnected = true;
   LOGI("%s is successfully (re)connected to CHRE HAL", mClientName.c_str());
   return HalError::SUCCESS;
+}
+
+/**
+ * Connect to HAL in background.
+ *
+ * The states change in the following order:
+ *  1. mBgConnectionFuture is invalid.
+ *  2. The first callback is added into the mPendingBgConnectionCallbacks.
+ *  3. mBgConnectionFuture becomes valid after the call to std::async.
+ *  4. Below two actions can happen in any order but once b) has happened no
+ *     more callbacks are added to mPendingBgConnectionCallbacks because the
+ *     HAL is either connected or disconnected.
+ *       a) More callbacks are added to the mPendingBgConnectionCallbacks.
+ *       b) mPendingBgConnectionCallbacks are flushed and all the callbacks
+ *          queued are called.
+ */
+bool HalClient::connectInBackground(BackgroundConnectionCallback &callback) {
+  if (isNewConnectInBackgroundEnabled()) {
+    size_t numOfPendingCallbacks;
+    {
+      std::lock_guard lock(mBgConnectionMutex);
+      if (!mBgConnectionFuture.valid()) {
+        // First call. Launch the connecting async task.
+        mPendingBgConnectionCallbacks.push_back(&callback);
+        // Policy std::launch::async is required to avoid lazy evaluation which
+        // can postpone the execution until get() of the future returned by
+        // std::async is called.
+        mBgConnectionFuture = std::async(std::launch::async, [this]() {
+          connect();
+          std::vector<BackgroundConnectionCallback *> callbacks;
+          {
+            std::lock_guard lock(mBgConnectionMutex);
+            callbacks.swap(mPendingBgConnectionCallbacks);
+          }
+
+          for (int i = 0; i < callbacks.size(); ++i) {
+            LOGD("Invoking %d/%zu onInitialization callbacks for %s", i + 1,
+                 callbacks.size(), mClientName.c_str());
+            callbacks[i]->onInitialization(mIsHalConnected);
+          }
+        });
+        return true;
+      }
+
+      numOfPendingCallbacks = mPendingBgConnectionCallbacks.size();
+      if (numOfPendingCallbacks > 0 &&
+          numOfPendingCallbacks < kMaxPendingConnectionCallbacks) {
+        LOGD(
+            "A background HalClient connection is already in progress for %s. "
+            "Queuing callback #%zu",
+            mClientName.c_str(), numOfPendingCallbacks + 1);
+        mPendingBgConnectionCallbacks.push_back(&callback);
+        return true;
+      }
+    }
+
+    if (numOfPendingCallbacks == 0) {
+      LOGD("Hal is already %s. Invoking the callback directly",
+           mIsHalConnected ? "connected" : "disconnected");
+      callback.onInitialization(mIsHalConnected);
+      return true;
+    }
+
+    LOGE("Too many pending bg connecting requests from %s. Dropped",
+         mClientName.c_str());
+    callback.onInitialization(false);
+    return false;
+  } else {
+    std::lock_guard lock(mBackgroundConnectionFuturesLock);
+    // Policy std::launch::async is required to avoid lazy evaluation which
+    // can postpone the execution until get() of the future returned by
+    // std::async is called.
+    mBackgroundConnectionFutures.emplace_back(std::async(
+        std::launch::async, [&] { callback.onInitialization(connect()); }));
+  }
+  return true;
 }
 
 void HalClient::onHalDisconnected(void *cookie) {
@@ -276,8 +356,7 @@ ScopedAStatus HalClient::sendMessage(const ContextHubMessage &message) {
 void HalClient::tryReconnectEndpoints(HalClient *halClient) {
   LOGW("CHRE has restarted. Reconnecting endpoints of %s",
        halClient->mClientName.c_str());
-  std::lock_guard<std::shared_mutex> lockGuard(
-      halClient->mConnectedEndpointsLock);
+  std::lock_guard lockGuard(halClient->mConnectedEndpointsLock);
   for (const auto &[endpointId, endpointInfo] :
        halClient->mConnectedEndpoints) {
     if (!halClient
@@ -298,7 +377,17 @@ void HalClient::tryReconnectEndpoints(HalClient *halClient) {
 }
 
 HalClient::~HalClient() {
-  {
+  if (HalClient::isNewConnectInBackgroundEnabled()) {
+    std::lock_guard bgConnectionLock(mBgConnectionMutex);
+    if (mBgConnectionFuture.valid()) {
+      while (mBgConnectionFuture.wait_for(kBgConnectionFutureTimeout) !=
+             std::future_status::ready) {
+        LOGE(
+            "Failed to finish a background connection in time when HalClient "
+            "is being destructed. Waiting...");
+      }
+    }
+  } else {
     std::lock_guard bgConnectionLock(mBackgroundConnectionFuturesLock);
     for (const auto &future : mBackgroundConnectionFutures) {
       // Calling std::thread.join() has chance to hang if the background thread
@@ -309,8 +398,7 @@ HalClient::~HalClient() {
              std::future_status::ready) {
         LOGE(
             "Failed to finish a background connection in time when HalClient "
-            "is "
-            "being destructed. Waiting...");
+            "is being destructed. Waiting...");
       }
     }
   }

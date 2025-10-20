@@ -51,6 +51,11 @@ $(info "NANOAPP_IS_SYSTEM_NANOAPP not supplied, defaulting to 0.")
 NANOAPP_IS_SYSTEM_NANOAPP = 0
 endif
 
+ifeq ($(NANOAPP_REQUESTED_THREAD_PRIORITY),)
+$(info "NANOAPP_REQUESTED_THREAD_PRIORITY not supplied, defaulting to normal.")
+NANOAPP_REQUESTED_THREAD_PRIORITY = NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL
+endif
+
 ifeq ($(CHRE_PREFIX),)
 ifeq ($(ANDROID_BUILD_TOP),)
 $(error "You must run lunch, or specify an explicit CHRE_PREFIX environment \
@@ -123,6 +128,7 @@ COMMON_CFLAGS += -DNANOAPP_VERSION=$(NANOAPP_VERSION)
 COMMON_CFLAGS += -DNANOAPP_VENDOR_STRING=$(NANOAPP_VENDOR_STRING)
 COMMON_CFLAGS += -DNANOAPP_NAME_STRING=$(NANOAPP_NAME_STRING)
 COMMON_CFLAGS += -DNANOAPP_IS_SYSTEM_NANOAPP=$(NANOAPP_IS_SYSTEM_NANOAPP)
+COMMON_CFLAGS += -DNANOAPP_REQUESTED_THREAD_PRIORITY=$(NANOAPP_REQUESTED_THREAD_PRIORITY)
 
 # Unstable ID ##################################################################
 
@@ -133,7 +139,7 @@ COMMON_CFLAGS += -DNANOAPP_UNSTABLE_ID="\"$(NANOAPP_UNSTABLE_ID)\""
 
 # Optional tokenized logging support for nanoapps ##############################
 
-ifneq ($(CHRE_NANOAPP_TOKENIZED_LOGGING_ENABLED),)
+ifeq ($(CHRE_NANOAPP_TOKENIZED_LOGGING_ENABLED),true)
 COMMON_CFLAGS += -DCHRE_NANOAPP_TOKENIZED_LOGGING_ENABLED
 include $(CHRE_PREFIX)/external/pigweed/pw_tokenizer.mk
 endif
@@ -149,12 +155,6 @@ STACK_CHECK_SRCS =  $(SHARED_NANOAPP_LIB_PATH)/nanoapp_stack_check.cc
 # directory and symlinks to effectively hide them from nanoapps
 DSO_SUPPORT_LIB_CFLAGS = -I$(CHRE_PREFIX)/platform/shared/nanoapp/include
 
-GOOGLE_HEXAGONV62_SLPI_SRCS += $(DSO_SUPPORT_LIB_SRCS)
-GOOGLE_HEXAGONV62_SLPI-UIMG_SRCS += $(DSO_SUPPORT_LIB_SRCS)
-GOOGLE_HEXAGONV65_ADSP-SEE_SRCS += $(DSO_SUPPORT_LIB_SRCS)
-GOOGLE_HEXAGONV65_ADSP-SEE-UIMG_SRCS += $(DSO_SUPPORT_LIB_SRCS)
-GOOGLE_HEXAGONV65_SLPI-SEE_SRCS += $(DSO_SUPPORT_LIB_SRCS)
-GOOGLE_HEXAGONV65_SLPI-SEE-UIMG_SRCS += $(DSO_SUPPORT_LIB_SRCS)
 GOOGLE_HEXAGONV66_ADSP-SEE_SRCS += $(DSO_SUPPORT_LIB_SRCS)
 GOOGLE_HEXAGONV66_ADSP-SEE-UIMG_SRCS += $(DSO_SUPPORT_LIB_SRCS)
 GOOGLE_HEXAGONV66_SLPI-SEE_SRCS += $(DSO_SUPPORT_LIB_SRCS)
@@ -163,12 +163,6 @@ GOOGLE_HEXAGONV66_SLPI-QSH_SRCS += $(DSO_SUPPORT_LIB_SRCS)
 GOOGLE_ARM64_ANDROID_SRCS += $(DSO_SUPPORT_LIB_SRCS)
 GOOGLE_X86_LINUX_SRCS += $(DSO_SUPPORT_LIB_SRCS)
 
-GOOGLE_HEXAGONV62_SLPI_CFLAGS += $(DSO_SUPPORT_LIB_CFLAGS)
-GOOGLE_HEXAGONV62_SLPI-UIMG_CFLAGS += $(DSO_SUPPORT_LIB_CFLAGS)
-GOOGLE_HEXAGONV65_ADSP-SEE_CFLAGS += $(DSO_SUPPORT_LIB_CFLAGS)
-GOOGLE_HEXAGONV65_ADSP-SEE-UIMG_CFLAGS += $(DSO_SUPPORT_LIB_CFLAGS)
-GOOGLE_HEXAGONV65_SLPI-SEE_CFLAGS += $(DSO_SUPPORT_LIB_CFLAGS)
-GOOGLE_HEXAGONV65_SLPI-SEE-UIMG_CFLAGS += $(DSO_SUPPORT_LIB_CFLAGS)
 GOOGLE_HEXAGONV66_ADSP-SEE_CFLAGS += $(DSO_SUPPORT_LIB_CFLAGS)
 GOOGLE_HEXAGONV66_ADSP-SEE-UIMG_CFLAGS += $(DSO_SUPPORT_LIB_CFLAGS)
 GOOGLE_HEXAGONV66_SLPI-SEE_CFLAGS += $(DSO_SUPPORT_LIB_CFLAGS)
@@ -198,12 +192,6 @@ include $(CHRE_PREFIX)/build/variant/aosp_cm4_exynos-embos.mk
 include $(CHRE_PREFIX)/build/variant/aosp_riscv55e03_tinysys.mk
 include $(CHRE_PREFIX)/build/variant/aosp_riscv55e300_tinysys.mk
 include $(CHRE_PREFIX)/build/variant/google_arm64_android.mk
-include $(CHRE_PREFIX)/build/variant/google_hexagonv62_slpi.mk
-include $(CHRE_PREFIX)/build/variant/google_hexagonv62_slpi-uimg.mk
-include $(CHRE_PREFIX)/build/variant/google_hexagonv65_adsp-see.mk
-include $(CHRE_PREFIX)/build/variant/google_hexagonv65_adsp-see-uimg.mk
-include $(CHRE_PREFIX)/build/variant/google_hexagonv65_slpi-see.mk
-include $(CHRE_PREFIX)/build/variant/google_hexagonv65_slpi-see-uimg.mk
 include $(CHRE_PREFIX)/build/variant/google_hexagonv66_adsp-see.mk
 include $(CHRE_PREFIX)/build/variant/google_hexagonv66_adsp-see-uimg.mk
 include $(CHRE_PREFIX)/build/variant/google_hexagonv66_slpi-see.mk

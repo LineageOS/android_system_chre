@@ -21,8 +21,8 @@
 #include "chre/core/event_loop_manager.h"
 #include "chre/platform/linux/platform_log.h"
 #include "chre/platform/linux/task_util/task_manager.h"
+#include "chre/platform/linux/thread_context.h"
 #include "chre/platform/shared/init.h"
-#include "chre/util/system/message_router.h"
 #include "chre/util/time.h"
 #include "chre_api/chre/version.h"
 #include "inc/test_util.h"
@@ -32,21 +32,10 @@
 #include "pw_containers/vector.h"
 #include "pw_function/function.h"
 
-using ::chre::message::MessageRouter;
-using ::chre::message::MessageRouterSingleton;
-using ::chre::message::Session;
 using pw::bluetooth::proxy::H4PacketWithH4;
 using pw::bluetooth::proxy::H4PacketWithHci;
 
 namespace chre {
-namespace {
-
-constexpr size_t kMaxMessageHubs = 5;
-constexpr size_t kMaxSessions = 25;
-pw::Vector<MessageRouter::MessageHubRecord, kMaxMessageHubs> gMessageHubs;
-pw::Vector<Session, kMaxSessions> gSessions;
-
-}  // anonymous namespace
 
 /**
  * This base class initializes and runs the event loop.
@@ -65,7 +54,6 @@ pw::Vector<Session, kMaxSessions> gSessions;
 void TestBase::SetUp() {
   setWaitTimeout(getTimeoutNs() / 2);
 
-  MessageRouterSingleton::init(gMessageHubs, gSessions);
   chre::PlatformLogSingleton::init();
   TaskManagerSingleton::init();
   TestEventQueueSingleton::init();
@@ -79,8 +67,10 @@ void TestBase::SetUp() {
   chre::initCommon();
   EventLoopManagerSingleton::get()->lateInit();
 
-  mChreThread = std::thread(
-      []() { EventLoopManagerSingleton::get()->getEventLoop().run(); });
+  mChreThread = std::thread([]() {
+    registerThreadContext(&EventLoopManagerSingleton::get()->getEventLoop());
+    EventLoopManagerSingleton::get()->getEventLoop().run();
+  });
 
   auto callback = [](void *) {
     LOGE("Test timed out ...");
@@ -106,7 +96,6 @@ void TestBase::TearDown() {
   deleteNanoappInfos();
   unregisterAllTestNanoapps();
   chre::PlatformLogSingleton::deinit();
-  MessageRouterSingleton::deinit();
 }
 
 TEST_F(TestBase, CanLoadAndStartSingleNanoapp) {
@@ -177,6 +166,38 @@ TEST_F(TestBase, methods) {
   uint64_t appId = loadNanoapp(MakeUnique<App>(TestNanoappInfo{.id = 0x456}));
 
   sendEventToNanoapp(appId, SOME_EVENT);
+}
+
+// Basic test to ensure getting ID works on start and end
+TEST_F(TestBase, GetIdOnStartAndEnd) {
+  constexpr uint64_t kAppId = 0x1234567890abcdef;
+  class App : public TestNanoapp {
+   public:
+    explicit App(TestNanoappInfo info) : TestNanoapp(info) {}
+    bool start() override {
+      uint64_t appId = chreGetAppId();
+      uint16_t instanceId = chreGetInstanceId();
+      LOGI("start: id=0x%" PRIx64 " instance=%" PRIu16, appId, instanceId);
+      mInstanceId = instanceId;
+      mAppId = appId;
+      return kAppId == appId;
+    }
+
+    void end() override {
+      uint64_t appId = chreGetAppId();
+      uint16_t instanceId = chreGetInstanceId();
+      LOGI("end: id=0x%" PRIx64 " instance=%" PRIu16, appId, instanceId);
+      CHRE_ASSERT(mAppId == appId);
+      CHRE_ASSERT(mInstanceId == instanceId);
+    }
+
+   private:
+    uint64_t mAppId;
+    uint16_t mInstanceId;
+  };
+
+  uint64_t appId = loadNanoapp(MakeUnique<App>(TestNanoappInfo{.id = kAppId}));
+  unloadNanoapp(appId);
 }
 
 // Explicitly instantiate the TestEventQueueSingleton to reduce codesize.

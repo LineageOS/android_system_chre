@@ -55,23 +55,6 @@ flag {
 }
 
 flag {
-  name: "efw_xport_in_context_hub"
-  namespace: "context_hub"
-  description: "Flag guarding the use of the new EFW transport for ContextHub <-> CHRE comms"
-  bug: "369883034"
-}
-
-flag {
-  name: "bug_fix_remove_exit_call_in_hal"
-  namespace: "context_hub"
-  description: "Flag enabling multiclient HAL to gracefully handle connection to CHRE in init/restart"
-  bug: "374773993"
-  metadata {
-    purpose: PURPOSE_BUGFIX
-  }
-}
-
-flag {
   name: "hal_handle_nanoapp_query_test_mode"
   namespace: "context_hub"
   description: "Flag guarding the fix for nanoapp query handling when enabling test mode"
@@ -92,20 +75,10 @@ flag {
 }
 
 flag {
-  name: "abort_if_client_callback_is_stuck"
+  name: "hal_client_new_connect_in_background"
   namespace: "context_hub"
-  description: "Flag guarding the watchdog aborting the client process if the callback is hung"
-  bug: "421606181"
-  metadata {
-    purpose: PURPOSE_BUGFIX
-  }
-}
-
-flag {
-  name: "simplify_service_transaction_lock"
-  namespace: "context_hub"
-  description: "Flag guarding the simplification of the ContextHubService transaction lock"
-  bug: "433754168"
+  description: "Use the new implementation for HalClient::connectInBackground"
+  bug: "339117199"
   metadata {
     purpose: PURPOSE_BUGFIX
   }
@@ -116,6 +89,48 @@ flag {
   namespace: "context_hub"
   description: "Flag guarding use of separate RX ring buffer for nonwaking messages"
   bug: "432114430"
+  metadata {
+    purpose: PURPOSE_BUGFIX
+  }
+}
+
+flag {
+  name: "get_hubs_api"
+  namespace: "context_hub"
+  description: "Enables the generic getHubs APIs"
+  bug: "445766743"
+  is_exported: true
+}
+
+flag {
+  name: "optimize_service_transaction_lock"
+  namespace: "context_hub"
+  description: "Flag guarding the optimizing of the ContextHubService transaction lock"
+  bug: "444955194"
+  metadata {
+    purpose: PURPOSE_BUGFIX
+  }
+}
+
+flag {
+  name: "fmcq_api"
+  namespace: "context_hub"
+  description: "Enables ContextHub APIs for fast multiple-consumer queues"
+  bug: "452127514"
+}
+
+flag {
+  name: "fmcq_implementation"
+  namespace: "context_hub"
+  description: "Enables support for ContextHub APIs for fast multiple-consumer queues"
+  bug: "452127514"
+}
+
+flag {
+  name: "high_number_host_endpoint_fix"
+  namespace: "context_hub"
+  description: "Flag guarding the fix for high number host endpoints"
+  bug: "450934734"
   metadata {
     purpose: PURPOSE_BUGFIX
   }

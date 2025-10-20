@@ -45,8 +45,8 @@ void HostProtocolCommon::encodeNanoappMessage(
 void HostProtocolCommon::encodeMessageDeliveryStatus(
     FlatBufferBuilder &builder, uint32_t messageSequenceNumber,
     uint8_t errorCode) {
-  auto status = fbs::CreateMessageDeliveryStatus(builder, messageSequenceNumber,
-                                                 errorCode);
+  auto status = fbs::CreateMessageDeliveryStatus(
+      builder, messageSequenceNumber, static_cast<int8_t>(errorCode));
   finalize(builder, fbs::ChreMessage::MessageDeliveryStatus, status.Union());
 }
 

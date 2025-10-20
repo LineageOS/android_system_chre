@@ -18,6 +18,7 @@
 #define CHRE_UTIL_LOCK_GUARD_H_
 
 #include "chre/util/non_copyable.h"
+#include "chre/util/thread_annotations.h"
 
 namespace chre {
 
@@ -27,17 +28,17 @@ namespace chre {
  * std::lock_guard.
  */
 template <typename MutexType>
-class LockGuard : public NonCopyable {
+class CHRE_SCOPED_CAPABILITY LockGuard : public NonCopyable {
  public:
   /**
    * Constructs a LockGuard and acquires the lock.
    */
-  LockGuard(MutexType &mutex);
+  LockGuard(MutexType &mutex) CHRE_ACQUIRE(mutex);
 
   /**
    * Deconstructs a LockGuard and releases the lock.
    */
-  ~LockGuard();
+  ~LockGuard() CHRE_RELEASE();
 
  private:
   //! The mutex to lock and unlock on destruction.

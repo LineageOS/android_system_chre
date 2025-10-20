@@ -79,6 +79,7 @@ using ndk::ScopedAStatus;
 class HalClient {
  public:
   static constexpr int32_t kDefaultContextHubId = 0;
+  static constexpr size_t kMaxPendingConnectionCallbacks = 32;
 
   /** Callback interface for a background connection. */
   class BackgroundConnectionCallback {
@@ -151,7 +152,7 @@ class HalClient {
     EndpointInfo mEndpointInfo;
   };
 
-  ~HalClient();
+  virtual ~HalClient();
 
   /**
    * Create a HalClient unique pointer used to communicate with CHRE HAL.
@@ -173,15 +174,30 @@ class HalClient {
   /** Connects to CHRE HAL synchronously and returns true if successful. */
   bool connect();
 
-  /** Connects to CHRE HAL in background. */
-  void connectInBackground(BackgroundConnectionCallback &callback) {
-    std::lock_guard lock(mBackgroundConnectionFuturesLock);
-    // Policy std::launch::async is required to avoid lazy evaluation which can
-    // postpone the execution until get() of the future returned by std::async
-    // is called.
-    mBackgroundConnectionFutures.emplace_back(std::async(
-        std::launch::async, [&] { callback.onInitialization(connect()); }));
-  }
+  /**
+   * Connects to CHRE HAL in the background.
+   *
+   * This function initiates a connection to the CHRE HAL asynchronously. If a
+   * connection is already in progress, the provided callback will be queued
+   * and invoked once the connection attempt completes.
+   *
+   * Client Responsibilities:
+   * 1.  **Callback Queue Limit**: This function enforces a hard limit on the
+   *     number of pending connection callbacks to prevent unbounded resource
+   *     usage. Clients should avoid making an excessive number of calls while
+   *     a connection is pending. If the limit is reached, new requests will be
+   *     rejected.
+   * 2.  **Non-Blocking Callbacks**: The provided `onInitialization` callback
+   *     will be executed on a background thread if they are provided before the
+   *     connection is finished. In this situation callbacks are invoked
+   *     sequentially. A long-running callback will block subsequent callbacks
+   *     from being executed. Clients must ensure their callback logic is fast
+   *     and non-blocking.
+   *
+   * @param callback The callback to be invoked upon connection completion.
+   * @return true if the callback is successfully added.
+   */
+  bool connectInBackground(BackgroundConnectionCallback &callback);
 
   ScopedAStatus queryNanoapps() {
     return callIfConnected([&](const std::shared_ptr<IContextHub> &hub) {
@@ -321,7 +337,9 @@ class HalClient {
   /**
    * Initializes the connection to CHRE HAL.
    */
-  HalError initConnection();
+  virtual HalError initConnection();
+
+  [[nodiscard]] virtual bool isNewConnectInBackgroundEnabled() const;
 
   using HostEndpointId = char16_t;
 
@@ -434,9 +452,21 @@ class HalClient {
 
   std::string mClientName;
 
+  // The mutex guarding the background connection logic.
+  std::mutex mBgConnectionMutex;
+
+  // A future that becomes ready when a background connection attempt completes.
+  // A valid future indicates that a connection is in progress.
+  std::shared_future<void> mBgConnectionFuture GUARDED_BY(mBgConnectionMutex);
+
+  // Callbacks that have been queued up while a connection is in progress.
+  std::vector<BackgroundConnectionCallback *> mPendingBgConnectionCallbacks
+      GUARDED_BY(mBgConnectionMutex);
+
   // Lock guarding background connection threads.
   std::mutex mBackgroundConnectionFuturesLock;
-  std::vector<std::future<void>> mBackgroundConnectionFutures;
+  std::vector<std::future<void>> mBackgroundConnectionFutures
+      GUARDED_BY(mBackgroundConnectionFuturesLock);
 };
 
 }  // namespace android::chre

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 The Android Open Source Project
+ * Copyright (C) 2025 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,50 +15,45 @@
  */
 
 #include "chre/platform/shared/init.h"
+#include "chre/core/event_loop.h"
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/static_nanoapps.h"
-#include "chre/platform/android/host_link.h"
-#include "chre/platform/shared/platform_log.h"
-#include "chre_host/host_protocol_host.h"
+#include "chre/platform/android/platform_log.h"
+#include "chre/platform/log.h"
 
 #include <csignal>
 #include <thread>
 
-using android::chre::HostProtocolHost;
 using chre::EventLoopManagerSingleton;
 
 namespace {
 
-void onMessageReceivedFromClient(uint16_t clientId, void *data, size_t length) {
-  if (!HostProtocolHost::mutateHostClientId(data, length, clientId)) {
-    LOGE("Couldn't set host client ID in message container!");
-  } else {
-    LOGD("Delivering message from host (size %zu)", length);
-    if (!chre::handleMessageFromHost(data, length)) {
-      LOGE("Failed to decode message from host");
-    }
-  }
+extern "C" void signalHandler(int sig) {
+  (void)sig;
+  LOGI("Stop request received");
+  EventLoopManagerSingleton::get()->getEventLoop().stop();
 }
 
 }  // namespace
 
-int main(int argc, char **argv) {
-  // Initilize CHRE.
+int main(int /*argc*/, char ** /*argv*/) {
+  // Initialize the system.
   chre::initCommon();
-  chre::loadStaticNanoapps();
 
-  // Initialize the socket server.
-  chre::SocketServerSingleton::init();
+  // Register a signal handler.
+  std::signal(SIGINT, signalHandler);
 
-  // Setup the socket server for communications with the HAL.
-  std::thread socketServerThread([&]() {
-    chre::SocketServerSingleton::get()->run("chre", true,
-                                            onMessageReceivedFromClient);
-    EventLoopManagerSingleton::get()->getEventLoop().stop();
+  // Load any static nanoapps and start the event loop.
+  std::thread chreThread([&]() {
+    EventLoopManagerSingleton::get()->lateInit();
+
+    // Load static nanoapps unless they are disabled by a command-line flag.
+    chre::loadStaticNanoapps();
+
+    EventLoopManagerSingleton::get()->getEventLoop().run();
   });
-
-  EventLoopManagerSingleton::get()->getEventLoop().run();
-
+  chreThread.join();
   chre::deinitCommon();
+
   return 0;
 }

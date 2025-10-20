@@ -29,6 +29,25 @@ void PlatformSensorBase::initBase(uint8_t sensorType, uint64_t minInterval,
   mTargetGroupMask = targetGroupMask;
 }
 
+void PlatformSensorBase::moveFrom(PlatformSensorBase &other) {
+  // Don't call base class's move assignment operator in this class. It is not
+  // safe because of the possibly duplication moves. The move assignment
+  // operator may do things more than object moves, e.g. call base class's move
+  // assignment operator.
+  if (&other == this) {
+    return;
+  }
+
+  // Note: if this implementation is ever changed to depend on "this" containing
+  // initialized values, the move constructor implementation must be updated.
+  mSensorType = other.mSensorType;
+  mMinInterval = other.mMinInterval;
+  mPassiveSupported = other.mPassiveSupported;
+  mTargetGroupMask = other.mTargetGroupMask;
+
+  memcpy(mSensorName, other.mSensorName, kSensorNameMaxLen);
+}
+
 uint8_t PlatformSensor::getSensorType() const {
   return mSensorType;
 }
@@ -54,7 +73,7 @@ uint16_t PlatformSensor::getTargetGroupMask() const {
 }
 
 PlatformSensor::PlatformSensor(PlatformSensor &&other) {
-  *this = std::move(other);
+  moveFrom(other);
 }
 
 uint8_t PlatformSensor::getSensorIndex() const {
@@ -62,15 +81,7 @@ uint8_t PlatformSensor::getSensorIndex() const {
 }
 
 PlatformSensor &PlatformSensor::operator=(PlatformSensor &&other) {
-  // Note: if this implementation is ever changed to depend on "this" containing
-  // initialized values, the move constructor implementation must be updated.
-  mSensorType = other.mSensorType;
-  mMinInterval = other.mMinInterval;
-  mPassiveSupported = other.mPassiveSupported;
-  mTargetGroupMask = other.mTargetGroupMask;
-
-  memcpy(mSensorName, other.mSensorName, kSensorNameMaxLen);
-
+  moveFrom(other);
   return *this;
 }
 

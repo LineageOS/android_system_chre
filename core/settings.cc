@@ -55,7 +55,7 @@ void sendSettingChangedNotification(Setting setting, bool enabled) {
     eventData->settingState = enabled ? CHRE_USER_SETTING_STATE_ENABLED
                                       : CHRE_USER_SETTING_STATE_DISABLED;
 
-    EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+    EventLoopManagerSingleton::get()->postEventOrDie(
         eventType, eventData, freeEventDataCallback, kBroadcastInstanceId);
   } else {
     LOG_OOM();

@@ -27,6 +27,7 @@
 #include "chre/platform/host_link.h"
 #include "chre/platform/log.h"
 #include "chre/util/duplicate_message_detector.h"
+#include "chre/util/lock_guard.h"
 #include "chre/util/macros.h"
 #include "chre/util/nested_data_ptr.h"
 #include "chre/util/optional.h"
@@ -210,8 +211,13 @@ bool HostCommsManager::sendMessageToHostFromNanoapp(
   bool success = false;
   if (isReliable) {
 #ifdef CHRE_RELIABLE_MESSAGE_SUPPORT_ENABLED
-    success = mTransactionManager.add(nanoapp->getInstanceId(),
-                                      &msgToHost->messageSequenceNumber);
+    {
+#if CHRE_MULTI_THREADING_ENABLED
+      LockGuard<Mutex> lock(mTransactionManagerMutex);
+#endif  // CHRE_MULTI_THREADING_ENABLED
+      success = mTransactionManager.add(nanoapp->getInstanceId(),
+                                        &msgToHost->messageSequenceNumber);
+    }
 #endif  // CHRE_RELIABLE_MESSAGE_SUPPORT_ENABLED
   } else {
     success = doSendMessageToHostFromNanoapp(nanoapp, msgToHost);
@@ -402,13 +408,18 @@ MessageToHost *HostCommsManager::findMessageToHostBySeq(
 }
 
 void HostCommsManager::freeMessageToHost(MessageToHost *msgToHost) {
+  EventLoop *eventLoop = getCurrentEventLoop();
+  CHRE_ASSERT(eventLoop != nullptr);
   if (msgToHost->toHostData.nanoappFreeFunction != nullptr) {
-    EventLoopManagerSingleton::get()->getEventLoop().invokeMessageFreeFunction(
+    eventLoop->invokeMessageFreeFunction(
         msgToHost->appId, msgToHost->toHostData.nanoappFreeFunction,
         msgToHost->message.data(), msgToHost->message.size());
   }
 #ifdef CHRE_RELIABLE_MESSAGE_SUPPORT_ENABLED
   if (msgToHost->isReliable) {
+#if CHRE_MULTI_THREADING_ENABLED
+    LockGuard<Mutex> lock(mTransactionManagerMutex);
+#endif  // CHRE_MULTI_THREADING_ENABLED
     mTransactionManager.remove(msgToHost->messageSequenceNumber);
   }
 #endif  // CHRE_RELIABLE_MESSAGE_SUPPORT_ENABLED
@@ -499,7 +510,8 @@ void HostCommsManager::onMessageToHostCompleteInternal(
   // EventLoop context.
   if (msgToHost->toHostData.nanoappFreeFunction == nullptr) {
     mMessagePool.deallocate(msgToHost);
-  } else if (inEventLoopThread()) {
+  } else if (EventLoopManagerSingleton::get()->inEventLoopForNanoapp(
+                 msgToHost->appId)) {
     // If we're already within the event loop context, it is safe to call the
     // free callback synchronously.
     freeMessageToHost(msgToHost);

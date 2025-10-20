@@ -106,6 +106,7 @@ CHRE_PATCH_VERSION = $(shell echo $$(((`$(DATE_CMD) +%s` - $(EPOCH)) / (60 * 60)
 endif
 
 COMMON_CFLAGS += -DCHRE_PATCH_VERSION=$(CHRE_PATCH_VERSION)
+COMMON_CFLAGS += -DCHRE_USING_PURE_MAKEFILE
 
 # Makefile Includes ############################################################
 
@@ -121,6 +122,7 @@ include $(CHRE_PREFIX)/external/external.mk
 include $(CHRE_PREFIX)/pal/pal.mk
 include $(CHRE_PREFIX)/platform/platform.mk
 include $(CHRE_PREFIX)/util/util.mk
+include $(CHRE_PREFIX)/variant/variant.mk
 
 # Supported variants includes.
 ifneq ($(CHRE_TARGET_EXTENSION),)
@@ -130,12 +132,6 @@ include $(CHRE_PREFIX)/build/variant/aosp_cm4_exynos-embos.mk
 include $(CHRE_PREFIX)/build/variant/aosp_riscv55e03_tinysys.mk
 include $(CHRE_PREFIX)/build/variant/aosp_riscv55e300_tinysys.mk
 include $(CHRE_PREFIX)/build/variant/google_arm64_android.mk
-include $(CHRE_PREFIX)/build/variant/google_hexagonv62_slpi.mk
-include $(CHRE_PREFIX)/build/variant/google_hexagonv62_slpi-uimg.mk
-include $(CHRE_PREFIX)/build/variant/google_hexagonv65_adsp-see.mk
-include $(CHRE_PREFIX)/build/variant/google_hexagonv65_adsp-see-uimg.mk
-include $(CHRE_PREFIX)/build/variant/google_hexagonv65_slpi-see.mk
-include $(CHRE_PREFIX)/build/variant/google_hexagonv65_slpi-see-uimg.mk
 include $(CHRE_PREFIX)/build/variant/google_hexagonv66_adsp-see.mk
 include $(CHRE_PREFIX)/build/variant/google_hexagonv66_adsp-see-uimg.mk
 include $(CHRE_PREFIX)/build/variant/google_hexagonv66_slpi-see.mk

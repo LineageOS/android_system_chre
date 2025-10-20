@@ -5,7 +5,7 @@
 # Common Compiler Flags ########################################################
 
 # CHRE requires C++20 and C11 support.
-COMMON_CXX_CFLAGS += -std=c++2a
+COMMON_CXX_CFLAGS += -std=c++20
 COMMON_C_CFLAGS += -x c
 COMMON_C_CFLAGS += -std=c11
 

@@ -93,7 +93,7 @@ DLL_EXPORT bool chreSendEvent(uint16_t eventType, void *eventData,
     LOGW("Rejecting event from app instance %" PRIu16 " because it's stopping",
          nanoapp->getInstanceId());
   } else if (targetInstanceId <= UINT16_MAX) {
-    success = eventLoop.postLowPriorityEventOrFree(
+    success = EventLoopManagerSingleton::get()->postLowPriorityEventOrFree(
         eventType, eventData, freeCallback, nanoapp->getInstanceId(),
         static_cast<uint16_t>(targetInstanceId));
   }
