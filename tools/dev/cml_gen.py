@@ -28,6 +28,7 @@ and analysis.
 import argparse
 import os
 import re
+import shlex
 import subprocess
 from shell_util import fatal_error, init_file
 
@@ -178,15 +179,24 @@ def _parse_compilation_output(args: argparse.Namespace, result: list[str]):
     _write_header(output, args.project_name)
 
     for line in result:
-      # Only parse the line compiling a source file
-      src_file = re.search(r'-c (\S+) -o', line)
-      if not src_file:
+      # Only parse lines that appear to be compilation commands for a source file.
+      if ' -c ' not in line or ' -o ' not in line:
+        continue
+
+      tokens = shlex.split(line)
+      src_file_path = None
+      for token in tokens:
+        if re.search(r'\.(c|cc|cpp)$', token):
+          src_file_path = token
+          break  # Found it, stop searching
+
+      if not src_file_path:
         continue
       else:
-        print('Found src file: ' + src_file.group(1), flush=True)
+        print('Found src file: ' + src_file_path, flush=True)
 
       # Add source files
-      src_files.append(_convert_to_abs_path(src_file.group(1), args.src_path))
+      src_files.append(_convert_to_abs_path(src_file_path, args.src_path))
 
       # treat system include paths as general include paths
       line = re.sub(r' -isystem ', ' -I', line)
@@ -272,12 +282,15 @@ def main():
   )
 
   args = arg_parser.parse_args()
+  args.output_path = os.path.expanduser(args.output_path)
+  args.src_path = os.path.expanduser(args.src_path)
+
   print(args)
   print('command: ' + args.command)
 
   # build path should always be the current path. Source path can be different.
   result = subprocess.run(
-    args.command.split(),
+    shlex.split(args.command),
     stdout=subprocess.PIPE,
     cwd=os.getcwd(),
     stderr=subprocess.STDOUT,
