@@ -1028,6 +1028,7 @@ cc_library_static {
     cflags: [
         "-DCHRE_VARIANT_SUPPLIES_STATIC_NANOAPP_LIST",
         "-DCHRE_NANOAPP_INTERNAL",
+        "-DCHRE_AP_NANOAPP",
     ],
     defaults: [
         "chre_android_common_cflags",
