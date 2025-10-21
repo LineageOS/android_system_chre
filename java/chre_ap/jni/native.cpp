@@ -38,10 +38,9 @@ static jmethodID g_onMessageMethodID = nullptr;
 
 void messageCallback(int64_t nanoAppId, int32_t messageType, void *messageBody,
                      size_t messageBodyLen) {
-  ALOGD(
-      "Received nanoapp message, nanoAppid: %ld, messageType: %d, "
-      "message: %p, length: %lu",
-      nanoAppId, messageType, messageBody, messageBodyLen);
+  ALOGD("Received nanoapp message, nanoAppid: %" PRId64
+        ", messageType: %" PRId32 ", message: %p, length: %zu",
+        nanoAppId, messageType, messageBody, messageBodyLen);
 
   if (!g_javaVM || !g_contextHubAPManagerInstance || !g_onMessageMethodID) {
     ALOGE("JNI environment not ready to call Java method.");
