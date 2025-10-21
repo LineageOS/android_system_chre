@@ -15,7 +15,10 @@
  */
 
 #include "chre/platform/context.h"
+#include "chre/core/event_loop.h"
+#include "chre/core/event_loop_manager.h"
 #include "chre/platform/linux/thread_context.h"
+#include "chre/variant/config.h"
 
 namespace chre {
 
@@ -31,7 +34,10 @@ bool inEventLoopThread() {
 }
 
 EventLoop *getCurrentEventLoop() {
-  return gEventLoop;
+  static_assert(CHRE_MULTI_THREADING_ENABLED == 0,
+                "CHRE multi-threading is not implemented on this platform");
+  return inEventLoopThread() ? &EventLoopManagerSingleton::get()->getEventLoop()
+                             : gEventLoop;
 }
 
 void registerThreadContext(EventLoop *eventLoop) {
