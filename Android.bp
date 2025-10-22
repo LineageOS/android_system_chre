@@ -1044,6 +1044,7 @@ cc_library_static {
     name: "chre_ap",
     srcs: [
         "core/*.cc",
+        "platform/android/chre_api_re.cc",
         "platform/android/context.cc",
         "platform/android/fatal_error.cc",
         "platform/android/host_link.cc",

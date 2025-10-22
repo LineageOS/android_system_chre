@@ -78,15 +78,13 @@ static jint init(JNIEnv * /*env*/, jobject /*thiz*/) {
   }
   // Initialize the system.
   chre::initCommon();
+  chre::EventLoopManagerSingleton::get()->lateInit();
+  chre::EventLoopManagerSingleton::get()
+      ->getHostCommsManager()
+      .registerMessageCallback(messageCallback);
+  ALOGD("message callback function registered.");
 
   chreThread = std::make_unique<std::thread>([&]() {
-    chre::EventLoopManagerSingleton::get()->lateInit();
-
-    chre::EventLoopManagerSingleton::get()
-        ->getHostCommsManager()
-        .registerMessageCallback(messageCallback);
-    ALOGD("message callback function registered.");
-
     // Load static nanoapps unless they are disabled by a command-line flag.
     chre::loadStaticNanoapps();
     ALOGD("%zu nanoapps loaded", chre::EventLoopManagerSingleton::get()
