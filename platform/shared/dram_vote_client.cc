@@ -37,15 +37,11 @@ void DramVoteClient::voteDramAccess(bool enabled) {
   }
 }
 
-void DramVoteClient::incrementDramVoteCount() {
+void DramVoteClient::incrementDramVoteCount(bool expected) {
   LockGuard<Mutex> lock(mMutex);
 
   if (mDramVoteCount++ == 0) {
     mVoteCountStart = Milliseconds(SystemTime::getMonotonicTime());
-    // TODO(b/181172259): Change back to LOGW once buffered logging path is
-    // refactored.
-    // LOGW("DRAM vote count begins");
-    printf("CHRE: DRAM vote count begins\n");
 
     if (!mLastDramVote) {
       // Do not call voteDramAccess() directly as it will override
@@ -55,6 +51,14 @@ void DramVoteClient::incrementDramVoteCount() {
     }
   } else {
     checkDramDuration();
+  }
+
+  if (!expected && !mUnexpectedDramUsage) {
+    // TODO(b/181172259): Change back to LOGW once buffered logging path is
+    // refactored.
+    printf("CHRE: Unexpected DRAM vote begins\n");
+    // Don't highlight this again until DRAM vote returns to 0.
+    mUnexpectedDramUsage = true;
   }
 }
 
@@ -67,8 +71,11 @@ void DramVoteClient::decrementDramVoteCount() {
     // TODO(b/181172259): Change back to LOGW once buffered logging path is
     // refactored.
     // LOGW("DRAM vote count ends: %" PRIu64 " ms", checkDramDuration());
-    printf("CHRE: DRAM vote count ends: %" PRIu64 " ms\n",
-           checkDramDuration().getMilliseconds());
+    if (mUnexpectedDramUsage) {
+      printf("CHRE: DRAM vote count ends: %" PRIu64 " ms\n",
+             checkDramDuration().getMilliseconds());
+      mUnexpectedDramUsage = false;
+    }
 
     // There's no DRAM activity now, remove CHRE's DRAM access vote.
     if (!mLastDramRequest) {

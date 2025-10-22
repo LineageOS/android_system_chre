@@ -49,8 +49,10 @@ class DramVoteClient : public NonCopyable {
   /**
    * Increment the DRAM vote count when a client needs to perform some DRAM
    * activity. A DRAM vote is issued when the count increments from 0.
+   *
+   * @param expected Whether this vote was expected or if it should be logged.
    */
-  void incrementDramVoteCount();
+  void incrementDramVoteCount(bool expected = false);
 
   /**
    * Decrement the DRAM vote count when a client finishes some activity that has
@@ -64,6 +66,10 @@ class DramVoteClient : public NonCopyable {
   //! The maximum allowed duration to be voted into DRAM by
   //! incrementDramVoteCount before a FATAL_ERROR is triggered.
   static constexpr Seconds kMaxDramDuration = Seconds(300);
+
+  //! Tracks whether any DRAM requests have come from unexpected sources to
+  //! determine if we should log the behavior.
+  bool mUnexpectedDramUsage = false;
 
   //! Last DRAM request made through voteDramAccess().
   bool mLastDramRequest = false;
