@@ -15,6 +15,7 @@
  */
 
 #include "chre/platform/platform_sensor_manager.h"
+#include "chre/platform/android/looper.h"
 
 #include "chre/core/event.h"
 #include "chre/core/event_loop_manager.h"
@@ -71,18 +72,7 @@ PlatformSensorManager::~PlatformSensorManager() {
     mSharedEventQueue = nullptr;
   }
 
-  // Stop mLooper thread.
-  if (mIsLooperRunning.exchange(false, std::memory_order_relaxed)) {
-    if (mLooper != nullptr) {
-      // Awak the mLooper to exit it.
-      ALooper_wake(mLooper);
-    }
-    if (mLooperThread.joinable()) {
-      mLooperThread.join();
-    }
-  }
-  mLooper = nullptr;
-  mLooperReady = false;
+  Looper::deinit();
 
   mAndroidHandleToChreHandleMap.clear();
 }
@@ -90,56 +80,9 @@ PlatformSensorManager::~PlatformSensorManager() {
 void PlatformSensorManager::init() {
   mSensorManager = ASensorManager_getInstanceForPackage("");
 
-  // Starts mLooper thread.
-  mIsLooperRunning.store(true, std::memory_order_relaxed);
-  mLooperReady = false;
-  mLooperThread = std::thread([this]() {
-    // mLooper initialization must happen in the same thread.
-    // This is why the init() call should wait for Looper thread
-    // running.
-    mLooper = ALooper_prepare(ALOOPER_PREPARE_ALLOW_NON_CALLBACKS);
-
-    // Notify init() Looper initialization is ready.
-    {
-      std::lock_guard<std::mutex> lock(mLooperMutex);
-      mLooperReady = true;
-    }
-    mLooperCondVar.notify_one();
-    // Returns early if gLooper initialization failed.
-    if (mLooper == nullptr) {
-      return;
-    }
-
-    LOGI("Sensor PAL Looper thread started and polling.");
-    while (mIsLooperRunning.load(std::memory_order_relaxed)) {
-      int result =
-          ALooper_pollOnce(-1 /* timeoutMillis */, nullptr /* outFd */,
-                           nullptr /* outEvents */, nullptr /* outData */);
-
-      if (result == ALOOPER_POLL_WAKE) {
-        continue;  // Awaked by ALooper_wake()，loop checking mIsLooperRunning
-      }
-
-      if (result == ALOOPER_POLL_ERROR) {
-        LOGE("Sensor PAL: ALooper_pollOnce returned an error.");
-      }
-    }
-
-    LOGI("Sensor PAL Looper thread stopped.");
-  });
-
-  // Waits for mLooper thread ready.
-  {
-    std::unique_lock<std::mutex> lock(mLooperMutex);
-    mLooperCondVar.wait(lock, [this] { return mLooperReady; });
-  }
-
-  // Checks gLooper initialization states.
+  mLooper = Looper::init();
   if (mLooper == nullptr) {
-    LOGE("Failed to prepare ALooper in worker thread.");
-    if (mLooperThread.joinable()) {
-      mLooperThread.join();
-    }
+    LOGE("Failed to get main thread looper.");
     return;
   }
 

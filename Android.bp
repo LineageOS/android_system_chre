@@ -1048,6 +1048,10 @@ cc_library_static {
         "platform/android/context.cc",
         "platform/android/fatal_error.cc",
         "platform/android/host_link.cc",
+        // Choose a looper_*.cc for different implementation.
+        //  looper_thread.cc uses the ALooper* in a new thread
+        //  looper_main.cc uses the ALooper* in the main thread
+        "platform/android/looper_thread.cc",
         "platform/android/memory.cc",
         "platform/android/memory_manager.cc",
         "platform/android/platform_sensor.cc",
