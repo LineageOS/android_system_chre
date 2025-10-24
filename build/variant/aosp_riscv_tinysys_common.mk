@@ -16,6 +16,9 @@ ifneq ($(filter $(TARGET_NAME)% all, $(MAKECMDGOALS)),)
   TARGET_SO_LATE_LIBS = $(AOSP_RISCV_TINYSYS_LATE_LIBS)
 
   ifneq ($(IS_NANOAPP_BUILD),)
+    # Disable tokenized logging for nanoapps for now
+    COMMON_CFLAGS := $(filter-out -DCHRE_NANOAPP_TOKENIZED_LOGGING_ENABLED, $(COMMON_CFLAGS))
+
     # Inline functions of ctype.h for nanoapps
     COMMON_CFLAGS += -DUSE_CHARSET_ASCII
 
