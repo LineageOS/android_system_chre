@@ -43,6 +43,7 @@
 // stderr (vs the glibc style of matching the macro to the filename), in which
 // case we have to guard against those definitions as well (eg: _CSTD check
 // above).
+#undef stderr
 FILE *stderr = NULL;
 #endif
 
