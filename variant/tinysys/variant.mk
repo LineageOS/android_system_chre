@@ -78,7 +78,8 @@ CHRE_SENSORS_SUPPORT_ENABLED = true
 CHRE_WIFI_SUPPORT_ENABLED = true
 CHRE_WWAN_SUPPORT_ENABLED = true
 CHRE_BLE_SUPPORT_ENABLED = true
-
+CHRE_TOKENIZED_LOGGING_ENABLED = true
+CHRE_NANOAPP_TOKENIZED_LOGGING_SUPPORT_ENABLED = true
 # Common Source Files ##########################################################
 
 COMMON_SRCS += $(VARIANT_PREFIX)/tinysys/static_nanoapps.cc
