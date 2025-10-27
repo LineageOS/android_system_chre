@@ -18,10 +18,6 @@ package com.google.android.chre.ap;
 
 import android.annotation.IntRange;
 import android.annotation.NonNull;
-import android.hardware.location.ContextHubClientCallback;
-import android.hardware.location.ContextHubInfo;
-import android.hardware.location.ContextHubTransaction;
-import android.hardware.location.NanoAppMessage;
 import android.util.Log;
 
 import java.util.concurrent.Executor;
@@ -95,13 +91,6 @@ public final class ContextHubAPClient implements ContextHubClientInterface {
         transaction.setResponse(new ContextHubTransaction.Response<Void>(result, null));
 
         return transaction;
-    }
-
-    @Override
-    @NonNull
-    public ContextHubInfo getAttachedHub() {
-        // Not implemented for AP simulator
-        return new ContextHubInfo();
     }
 
     @Override

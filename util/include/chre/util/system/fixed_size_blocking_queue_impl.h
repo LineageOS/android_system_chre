@@ -32,6 +32,12 @@ bool BlockingQueueCore<ElementType, QueueStorageType>::empty() {
 }
 
 template <typename ElementType, typename QueueStorageType>
+bool BlockingQueueCore<ElementType, QueueStorageType>::full() {
+  LockGuard<Mutex> lock(mMutex);
+  return QueueStorageType::full();
+}
+
+template <typename ElementType, typename QueueStorageType>
 size_t BlockingQueueCore<ElementType, QueueStorageType>::size() {
   LockGuard<Mutex> lock(mMutex);
   return QueueStorageType::size();

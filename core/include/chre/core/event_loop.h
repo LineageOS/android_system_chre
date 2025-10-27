@@ -288,11 +288,15 @@ class EventLoop : public NonCopyable {
   /**
    * Posts a pre-allocated Event to the event loop.
    *
-   * @param event A pre-allocated Event pointer.
+   * @param event A pre-allocated Event pointer, or null if allocation failed,
+   *        which triggers failure handling.
+   * @param isLowPriority True if the event is low priority. This is a temporary
+   *        argument until b/454046664 is addressed to allow
+   *        event_loop_hooks.h macros to be invoked.
    *
    * @return true if the event was successfully posted to the event queue.
    */
-  bool postEvent(Event *event);
+  bool postEvent(Event *event, bool isLowPriority = false);
 
   bool isRunning() const {
     return mRunning;

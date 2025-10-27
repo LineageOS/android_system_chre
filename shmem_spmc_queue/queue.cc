@@ -20,6 +20,7 @@
 #include "chre/shmem_spmc_queue/queue_defs.h"
 #include "pw_allocator/layout.h"
 #include "pw_assert/assert.h"
+#include "pw_status/status.h"
 
 namespace chre::shmem_spmc_queue {
 namespace internal {
@@ -37,17 +38,15 @@ constexpr uint32_t kFlagCountMask = 0xffff0000;
  * @param layout The layout of the block ring.
  * @param head The head of the block ring to deallocate. May be nullptr.
  */
-void deallocateBlockRing(uintptr_t shmemBase, uint32_t shmemSize,
-                         pw::Allocator &allocator, pw::allocator::Layout layout,
-                         BlockHeader *head) {
+void deallocateBlockRing(const AllocatorRegion &region,
+                         pw::allocator::Layout layout, BlockHeader *head) {
   if (!head) {
     return;
   }
   for (BlockHeader *block = head; block;) {
     auto *tmp = block;
-    block = fromOffset<BlockHeader>(shmemBase, shmemSize,
-                                    block->nextBlockOffset, layout);
-    allocator.Deallocate(tmp);
+    block = fromOffset<BlockHeader>(region, block->nextBlockOffset, layout);
+    region.allocator->Deallocate(tmp);
     if (block == head) {
       return;
     }
@@ -77,36 +76,36 @@ BlockHeader *allocateBlock(pw::Allocator &allocator,
 /**
  * Allocates a block ring in shared memory.
  *
- * @param shmemBase The base address of the shared memory.
- * @param shmemSize The size of the shared memory.
- * @param allocator The allocator used to allocate the block ring.
+ * @param shmemBase The shared memory region in which to allocate the blocks.
  * @param layout The layout of the block ring.
  * @param blockCapacity The capacity of the block ring. This cannot be inferred
  * from the layout as it is dependent on element size and alignment.
  * @param count The number of blocks to allocate.
  * @return Pointer to one block in the ring on success.
  */
-pw::Result<BlockHeader *> allocateBlockRing(
-    uintptr_t shmemBase, uint32_t shmemSize, pw::Allocator &allocator,
-    pw::allocator::Layout layout, uint32_t blockCapacity, size_t count) {
+pw::Result<BlockHeader *> allocateBlockRing(const AllocatorRegion &region,
+                                            pw::allocator::Layout layout,
+                                            uint32_t blockCapacity,
+                                            size_t count) {
   if (count == 0) {
     return pw::Status::InvalidArgument();
   }
   BlockHeader *head = nullptr, *prev = nullptr;
   for (int i = 0; i < count; ++i) {
-    if (auto *block = allocateBlock(allocator, layout, blockCapacity); block) {
+    if (auto *block = allocateBlock(*region.allocator, layout, blockCapacity);
+        block) {
       if (!head) {
         head = block;
       } else {
-        prev->nextBlockOffset = toOffset(shmemBase, block);
+        prev->nextBlockOffset = toOffset(region.base, block);
       }
       prev = block;
     } else {
-      deallocateBlockRing(shmemBase, shmemSize, allocator, layout, head);
+      deallocateBlockRing(region, layout, head);
       return pw::Status::ResourceExhausted();
     }
   }
-  prev->nextBlockOffset = internal::toOffset(shmemBase, head);
+  prev->nextBlockOffset = internal::toOffset(region.base, head);
   return head;
 }
 
@@ -195,16 +194,18 @@ constexpr uint32_t ringDiff(uint32_t end, uint32_t begin, uint32_t size) {
  *
  * @param desc The producer descriptor to initialize.
  * @param idOrNotifyFn Id for remote notification or local callback.
+ * @param writeIndex The current write index.
+ * @param correction The correction to the write index for calculating the index
+ * within Block::data.
  * @param tailBlock The tail block.
  * @param shmemBase The base address of the shared memory.
  */
 void initProducerDesc(ProducerDesc &desc, IdOrNotifyFn idOrNotifyFn,
-                      uint32_t writeIndex, uint32_t correction, uint32_t epoch,
+                      uint32_t writeIndex, uint32_t correction,
                       BlockHeader *tailBlock, uintptr_t shmemBase) {
   desc.idOrNotifyFn = idOrNotifyFn;
   desc.writeIndex.store(writeIndex);
   desc.indexCorrection = correction;
-  desc.epoch.store(epoch);
   desc.tailBlockOffset = toOffset(shmemBase, tailBlock);
 }
 
@@ -258,50 +259,80 @@ bool advanceContiguous(uint32_t blockBaseIndex, uint32_t blockSkipIndex,
          blockIndex == blockSkipIndex;
 }
 
+/**
+ * Combines block count and epoch into a single 32-bit value.
+ *
+ * @param blockCount The number of blocks in the queue.
+ * @param epoch The block list epoch.
+ */
+uint32_t getBlockListEpoch(uint16_t blockCount, uint16_t epoch) {
+  return (static_cast<uint32_t>(blockCount) << 16) |
+         static_cast<uint32_t>(epoch);
+}
+
+/**
+ * @return the block count for a producer epoch.
+ * @param epoch The producer epoch.
+ */
+uint32_t blockCountForEpoch(uint32_t epoch) {
+  return epoch >> 16;
+}
+
+/**
+ * Calculates the increment to the index correction when entering a block.
+ *
+ * @param curr The current block.
+ * @param next The next block.
+ * @param capacity The capacity of a block.
+ * @return The increase in the correction when entering the next block.
+ */
+uint32_t indexCorrectionIncrement(BlockHeader *curr, BlockHeader *next,
+                                  uint32_t capacity) {
+  auto baseIndex = curr->baseIndex.load();
+  auto skipIndex = curr->skipIndex.load();
+  uint32_t diffBase = skipIndex == capacity ? baseIndex : skipIndex;
+  return ringDiff(next->baseIndex.load(), diffBase, capacity);
+}
+
 }  // namespace
 
-pw::Status ProducerBase::initialize(uintptr_t shmemBase, uint32_t shmemSize,
-                                    Queue *queue, pw::Allocator &allocator,
+pw::Status ProducerBase::initialize(const AllocatorRegion &region, Queue *queue,
                                     pw::allocator::Layout layout,
                                     uint32_t blockCapacity,
                                     size_t maxBlockCount, size_t minBlockCount,
                                     IdOrNotifyFn idOrNotifyFn) {
-  if (!queue || shmemSize > UINT32_MAX || maxBlockCount < minBlockCount) {
+  if (!queue || region.size > UINT32_MAX || !region.allocator ||
+      maxBlockCount < minBlockCount) {
     return pw::Status::InvalidArgument();
   }
-  PW_TRY_ASSIGN(auto *tailBlock,
-                allocateBlockRing(shmemBase, shmemSize, allocator, layout,
-                                  blockCapacity, minBlockCount));
+  PW_TRY_ASSIGN(
+      auto *tailBlock,
+      allocateBlockRing(region, layout, blockCapacity, minBlockCount));
   auto &desc = tailBlock->producerDesc;
   initProducerDesc(desc, idOrNotifyFn, /*writeIndex=*/0, /*correction=*/0,
-                   /*epoch=*/0, tailBlock, shmemBase);
-  queue->producerOffset = toOffset(shmemBase, &desc);
+                   tailBlock, region.base);
+  queue->blockListEpoch.store(getBlockListEpoch(minBlockCount, /*epoch=*/0));
+  queue->producerOffset = toOffset(region.base, &desc);
   return pw::OkStatus();
 }
 
-ProducerBase::ProducerBase(uintptr_t shmemBase, uint32_t shmemSize,
-                           Queue &queue, pw::Allocator &allocator,
+ProducerBase::ProducerBase(const AllocatorRegion &region, Queue &queue,
                            pw::allocator::Layout blockLayout,
                            size_t /*maxBlockCount*/, size_t minBlockCount,
                            uint32_t dataOffset, DataNotifier &dataNotifier,
-                           ConsumerManager &consumerManager,
                            RemoteNotifyFn remoteNotifyFn,
                            MemoryAccess *memAccess)
-    : mRemoteNotifyFn(std::move(remoteNotifyFn)),
-      kShmemBase(shmemBase),
+    : mRegion(region),
+      mRemoteNotifyFn(std::move(remoteNotifyFn)),
       mQueue(&queue),
-      mAllocator(&allocator),
       mDataNotifier(&dataNotifier),
-      mConsumerManager(&consumerManager),
       mMemAccess(memAccess),
       kBlockLayout(blockLayout),
-      kShmemSize(shmemSize),
       kDataOffset(dataOffset),
       kBlockCapacity(queue.blockCapacity),
-      mDesc(fromOffset<ProducerDesc>(kShmemBase, kShmemSize,
-                                     queue.producerOffset)),
-      mCurrBlock(fromOffset<BlockHeader>(kShmemBase, kShmemSize,
-                                         mDesc->tailBlockOffset, kBlockLayout)),
+      mDesc(fromOffset<ProducerDesc>(mRegion, queue.producerOffset)),
+      mCurrBlock(fromOffset<BlockHeader>(mRegion, mDesc->tailBlockOffset,
+                                         kBlockLayout)),
       mBlockCount(minBlockCount) {}
 
 ProducerBase::~ProducerBase() {
@@ -310,16 +341,15 @@ ProducerBase::~ProducerBase() {
   }
   mActive = false;
   mQueue->producerOffset = kOffsetInvalid;
-  mConsumerManager->forAllConsumers(
-      *mQueue, /*excludeMask=*/0,
+  forAllConsumers(
+      /*excludeMask=*/0,
       [this](internal::ConsumerDesc &desc, uint32_t producerFlags) {
         setConsumerFlag(desc, producerFlags, ProducerFlags::kReset,
                         /*forceNotify=*/true);
       });
   deallocateBlockRing(
-      kShmemBase, kShmemSize, *mAllocator, kBlockLayout,
-      fromOffset<BlockHeader>(kShmemBase, kShmemSize, mDesc->tailBlockOffset,
-                              kBlockLayout));
+      mRegion, kBlockLayout,
+      fromOffset<BlockHeader>(mRegion, mDesc->tailBlockOffset, kBlockLayout));
 }
 
 pw::Status ProducerBase::setMaxBlockCountTarget(size_t /*count*/,
@@ -394,7 +424,7 @@ pw::Result<size_t> ProducerBase::checkAvailable(size_t count,
     // TODO(b/448384247): Support dynamically resizing the queue.
     if (count > mAvailable) {
       if (allOrNothing) {
-        return pw::Status::ResourceExhausted();
+        return pw::Status::Unavailable();
       }
       count = mAvailable;
     }
@@ -407,17 +437,18 @@ void ProducerBase::advanceWriteIndex(uint32_t count,
                                      std::optional<pw::ConstByteSpan> data) {
   uint32_t writeIndex = mDesc->writeIndex.load();
   uint32_t correction = mDesc->indexCorrection;
-  auto *block = fromOffset<BlockHeader>(kShmemBase, kShmemSize,
-                                        mDesc->tailBlockOffset, kBlockLayout);
+  auto *block =
+      fromOffset<BlockHeader>(mRegion, mDesc->tailBlockOffset, kBlockLayout);
   uint32_t blockIndex = (writeIndex + correction) % kBlockCapacity;
   auto pending = count;
   while (pending > 0) {
     uint32_t advance = pending;
-    auto *copyDst = blockData(block, kDataOffset) + blockIndex;
     // Advance through the largest possible contiguous region from the current
     // index.
-    bool toNextBlock = advanceContiguous(block->baseIndex, block->skipIndex,
-                                         kBlockCapacity, blockIndex, advance);
+    auto *copyDst = blockData(block, kDataOffset) + blockIndex;
+    bool toNextBlock =
+        advanceContiguous(block->baseIndex.load(), block->skipIndex.load(),
+                          kBlockCapacity, blockIndex, advance);
     if (data) {
       std::memcpy(copyDst, data->data(), advance);
       data = data->subspan(advance);
@@ -437,27 +468,24 @@ void ProducerBase::advanceWriteIndex(uint32_t count,
 void ProducerBase::enterNextBlock(BlockHeader *&block, uint32_t &correction,
                                   uint32_t &index, bool convertSkipToBase) {
   auto *nextBlock = fromOffset<BlockHeader>(
-      kShmemBase, kShmemSize, block->nextBlockOffset, kBlockLayout);
+      mRegion, block->nextBlockOffset.load(), kBlockLayout);
   // If the next block was skipped from on the last visit, set its base
   // index to that skip index and reset the skip index.
-  if (convertSkipToBase && nextBlock->skipIndex != kBlockCapacity) {
-    nextBlock->baseIndex.store(nextBlock->skipIndex.load());
+  auto nextSkipIndex = nextBlock->skipIndex.load();
+  if (convertSkipToBase && nextSkipIndex != kBlockCapacity) {
+    nextBlock->baseIndex.store(nextSkipIndex);
     nextBlock->skipIndex.store(kBlockCapacity);
   }
-  // Update the correction based on the offset between where we're leaving
-  // the current block and where we're starting in the next block.
-  uint32_t diffBase =
-      block->skipIndex == kBlockCapacity ? block->baseIndex : block->skipIndex;
-  correction += ringDiff(nextBlock->baseIndex, diffBase, kBlockCapacity);
+  // Update the index correction to be applied to the write index.
+  correction += indexCorrectionIncrement(block, nextBlock, kBlockCapacity);
   block = nextBlock;
   index = block->baseIndex;
 }
 
 void ProducerBase::updateWriteIndex(BlockHeader *tailBlock, uint32_t writeIndex,
                                     uint32_t correction) {
-  if (tailBlock == fromOffset<BlockHeader>(kShmemBase, kShmemSize,
-                                           mDesc->tailBlockOffset,
-                                           kBlockLayout)) {
+  if (tailBlock ==
+      fromOffset<BlockHeader>(mRegion, mDesc->tailBlockOffset, kBlockLayout)) {
     // If the currently linked tail block is still the tail, just store the new
     // write index.
     mDesc->writeIndex.store(writeIndex);
@@ -465,8 +493,8 @@ void ProducerBase::updateWriteIndex(BlockHeader *tailBlock, uint32_t writeIndex,
     // Initialize the descriptor in the new tail block, then link it.
     auto &newDesc = tailBlock->producerDesc;
     initProducerDesc(newDesc, mDesc->idOrNotifyFn, writeIndex, correction,
-                     mDesc->epoch.load(), tailBlock, kShmemBase);
-    mQueue->producerOffset.store(toOffset(kShmemBase, &newDesc));
+                     tailBlock, mRegion.base);
+    mQueue->producerOffset.store(toOffset(mRegion.base, &newDesc));
     mDesc = &newDesc;
   }
 }
@@ -479,8 +507,8 @@ void ProducerBase::updateAvailable(uint32_t increment) {
   // writes to the queue. Add them to the exclude mask.
   // NOTE: This effectively means all ProducerFlags states except kBlocking.
   auto excludeMask = ~(static_cast<uint16_t>(ProducerFlags::kBlocking));
-  mConsumerManager->forAllConsumers(
-      *mQueue, excludeMask,
+  forAllConsumers(
+      excludeMask,
       [this](internal::ConsumerDesc &desc, uint32_t producerFlags,
              uint32_t tail, uint32_t increment) {
         auto readIndex = desc.readIndex.load();
@@ -523,146 +551,9 @@ void ProducerBase::notifyConsumer(ConsumerDesc &desc) {
   notify(desc.idOrNotifyFn, mRemoteNotifyFn);
 }
 
-pw::Result<std::pair<Queue *, ConsumerDesc *>> ConsumerBase::checkArgs(
-    uintptr_t shmemBase, uint32_t shmemSize, uint32_t queueOffset,
-    uint32_t descOffset) {
-  auto *queue = fromOffset<Queue>(shmemBase, shmemSize, queueOffset);
-  auto *desc = fromOffset<ConsumerDesc>(shmemBase, shmemSize, descOffset);
-  if (!queue || !desc) {
-    return pw::Status::InvalidArgument();
-  }
-  return std::make_pair(queue, desc);
-}
-
-ConsumerBase::ConsumerBase(uintptr_t shmemBase, uint32_t shmemSize,
-                           Queue &queue, ConsumerDesc &desc,
-                           uint32_t dataOffset, RemoteNotifyFn remoteNotifyFn,
-                           MemoryAccess *memAccess,
-                           std::optional<size_t> overwriteResetOffset)
-    : mRemoteNotifyFn(std::move(remoteNotifyFn)),
-      kShmemBase(shmemBase),
-      mQueue(&queue),
-      mDesc(&desc),
-      mMemAccess(memAccess),
-      mOverwriteResetOffset(
-          overwriteResetOffset.value_or(queue.blockCapacity / 2)),
-      kShmemSize(shmemSize),
-      kBlockCapacity(queue.blockCapacity),
-      kDataOffset(dataOffset) {}
-
-pw::Status ConsumerBase::initialize(IdOrNotifyFn idOrNotifyFn,
-                                    ConsumerPolicyBuilder &policyBuilder) {
-  auto consumerFlags = mDesc->consumerFlags.load();
-  auto producerFlags = mDesc->producerFlags.load();
-  if (getAndCheckProducerFlags(producerFlags, consumerFlags) !=
-      ProducerFlags::kPendingInit) {
-    return pw::Status::FailedPrecondition();
-  }
-  mDesc->idOrNotifyFn = idOrNotifyFn;
-  mDesc->policy.store(policyBuilder.build().rawValue);
-  // Sync the consumer to the producer and store the current epoch.
-  PW_TRY_ASSIGN(auto *producerDesc, getProducerDesc());
-  mDesc->readIndex.store(producerDesc->writeIndex.load());
-  mDesc->indexCorrection = producerDesc->indexCorrection;
-  mEpoch = producerDesc->epoch.load();
-  clearFlag(producerFlags);
-  return pw::OkStatus();
-}
-
-ConsumerBase::~ConsumerBase() {
-  if (!mStatus.ok()) {
-    return;
-  }
-  mDesc->consumerFlags.store(static_cast<uint32_t>(ConsumerFlags::kFinished));
-  if (auto maybeProducerDesc = getProducerDesc(); maybeProducerDesc.ok()) {
-    notifyProducer(*maybeProducerDesc.value());
-  }
-}
-
-pw::Status ConsumerBase::updatePolicy(
-    ConsumerPolicyBuilder & /*policyBuilder*/) {
-  // TODO(b/445967147): Implement.
-  return pw::Status::Unimplemented();
-}
-
-void ConsumerBase::disable() {
-  // TODO(b/445967147): Implement.
-}
-
-pw::Status ConsumerBase::checkState() {
-  // TODO(b/445967147): Implement.
-  return pw::Status::Unimplemented();
-}
-
-pw::Result<pw::ConstByteSpan> ConsumerBase::peek(size_t /*count*/) {
-  // TODO(b/445967147): Implement.
-  return pw::Status::Unimplemented();
-}
-
-pw::Status ConsumerBase::release(size_t /*count*/) {
-  // TODO(b/445967147): Implement.
-  return pw::Status::Unimplemented();
-}
-
-pw::Status ConsumerBase::pop(pw::ByteSpan /*data*/) {
-  // TODO(b/445967147): Implement.
-  return pw::Status::Unimplemented();
-}
-
-pw::Status ConsumerBase::resync(size_t /*offset*/) {
-  // TODO(b/445967147): Implement.
-  return pw::Status::Unimplemented();
-}
-
-size_t ConsumerBase::size() {
-  // TODO(b/445967147): Implement.
-  return 0;
-}
-
-bool ConsumerBase::empty() {
-  // TODO(b/445967147): Implement.
-  return true;
-}
-
-pw::Result<ProducerDesc *> ConsumerBase::getProducerDesc() {
-  auto *producerDesc = fromOffset<ProducerDesc>(kShmemBase, kShmemSize,
-                                                mQueue->producerOffset.load());
-  if (!producerDesc) {
-    mStatus = pw::Status::Aborted();
-    return mStatus;
-  }
-  return producerDesc;
-}
-
-void ConsumerBase::notifyProducer(ProducerDesc &producerDesc) {
-  notify(producerDesc.idOrNotifyFn, mRemoteNotifyFn);
-}
-
-void ConsumerBase::clearFlag(uint32_t flag) {
-  mDesc->consumerFlags.store(
-      static_cast<uint32_t>(ConsumerFlags::kFlagsCleared) |
-      getFlagsCounter(flag));
-}
-
-}  // namespace internal
-
-void DataNotifier::onWrite(internal::ProducerBase & /*producer*/) {
-  // TODO(b/445482700): Implement.
-}
-
-void DataNotifier::updatePeriod(internal::ProducerBase & /*producer*/,
-                                pw::span<const uint8_t, 16> /*consumerId*/,
-                                std::optional<uint32_t> /*periodMs*/) {
-  // TODO(b/445482700): Implement.
-}
-
-pw::Result<uint32_t> ConsumerManager::addConsumer(void *queue) {
-  if (!queue) {
-    return pw::Status::InvalidArgument();
-  }
-  auto &queueRef = *static_cast<internal::Queue *>(queue);
-  auto descRaw =
-      mAllocator->Allocate(pw::allocator::Layout::Of<internal::ConsumerDesc>());
+pw::Result<uint32_t> ProducerBase::addConsumer() {
+  auto descRaw = mRegion.allocator->Allocate(
+      pw::allocator::Layout::Of<internal::ConsumerDesc>());
   if (!descRaw) {
     return pw::Status::ResourceExhausted();
   }
@@ -674,38 +565,36 @@ pw::Result<uint32_t> ConsumerManager::addConsumer(void *queue) {
       static_cast<uint32_t>(internal::ProducerFlags::kPendingInit) |
       internal::kFlagCountInc);
   desc.nextConsumerOffset =
-      queueRef.dynamicConsumersHeadOffset != internal::kOffsetInvalid
-          ? queueRef.dynamicConsumersHeadOffset
+      mQueue->dynamicConsumersHeadOffset != internal::kOffsetInvalid
+          ? mQueue->dynamicConsumersHeadOffset
           : internal::kOffsetInvalid;
-  queueRef.dynamicConsumersHeadOffset = internal::toOffset(kShmemBase, &desc);
-  return queueRef.dynamicConsumersHeadOffset;
+  mQueue->dynamicConsumersHeadOffset = internal::toOffset(mRegion.base, &desc);
+  return mQueue->dynamicConsumersHeadOffset;
 }
 
-pw::Status ConsumerManager::removeConsumer(void *queue, uint32_t offset) {
-  if (!queue || offset == internal::kOffsetInvalid) {
+pw::Status ProducerBase::removeConsumer(uint32_t offset) {
+  if (offset == internal::kOffsetInvalid) {
     return pw::Status::InvalidArgument();
   }
-  uint32_t *descOffsetPtr =
-      &static_cast<internal::Queue *>(queue)->dynamicConsumersHeadOffset;
-  auto *desc = internal::fromOffset<internal::ConsumerDesc>(
-      kShmemBase, kShmemSize, *descOffsetPtr);
+  uint32_t *descOffsetPtr = &mQueue->dynamicConsumersHeadOffset;
+  auto *desc =
+      internal::fromOffset<internal::ConsumerDesc>(mRegion, *descOffsetPtr);
   while (desc) {
     if (*descOffsetPtr == offset) {
       *descOffsetPtr = desc->nextConsumerOffset;
-      mAllocator->Deallocate(desc);
+      mRegion.allocator->Deallocate(desc);
       return pw::OkStatus();
     }
     descOffsetPtr = &desc->nextConsumerOffset;
-    desc = internal::fromOffset<internal::ConsumerDesc>(kShmemBase, kShmemSize,
-                                                        *descOffsetPtr);
+    desc =
+        internal::fromOffset<internal::ConsumerDesc>(mRegion, *descOffsetPtr);
   }
   return pw::Status::NotFound();
 }
 
-bool ConsumerManager::isFlagInMask(internal::ConsumerDesc &desc,
-                                   uint32_t producerFlags,
-                                   uint32_t consumerFlags,
-                                   uint16_t producerMask) {
+bool ProducerBase::isFlagInMask(internal::ConsumerDesc &desc,
+                                uint32_t producerFlags, uint32_t consumerFlags,
+                                uint16_t producerMask) {
   // Check whether the consumer has acked the latest flag value.
   if (internal::getAndCheckProducerFlags(producerFlags, consumerFlags) ==
       internal::ProducerFlags::kNone) {
@@ -720,6 +609,310 @@ bool ConsumerManager::isFlagInMask(internal::ConsumerDesc &desc,
   }
   // Return true if the current flag value is in the mask.
   return !!(static_cast<uint16_t>(producerFlags) & producerMask);
+}
+
+pw::Result<std::pair<Queue *, ConsumerDesc *>> ConsumerBase::checkArgs(
+    const Region &region, uint32_t queueOffset, uint32_t descOffset) {
+  auto *queue = fromOffset<Queue>(region, queueOffset);
+  auto *desc = fromOffset<ConsumerDesc>(region, descOffset);
+  if (!queue || !desc) {
+    return pw::Status::InvalidArgument();
+  }
+  return std::make_pair(queue, desc);
+}
+
+ConsumerBase::ConsumerBase(const Region &region, Queue &queue,
+                           ConsumerDesc &desc,
+                           pw::allocator::Layout baseBlockLayout,
+                           uint32_t dataOffset, RemoteNotifyFn remoteNotifyFn,
+                           MemoryAccess *memAccess)
+    : mRegion(region),
+      mRemoteNotifyFn(std::move(remoteNotifyFn)),
+      kBlockLayout{baseBlockLayout.size() + queue.blockCapacity,
+                   baseBlockLayout.alignment()},
+      mQueue(&queue),
+      mDesc(&desc),
+      mMemAccess(memAccess),
+      kBlockCapacity(queue.blockCapacity),
+      kDataOffset(dataOffset) {}
+
+pw::Status ConsumerBase::initialize(
+    IdOrNotifyFn idOrNotifyFn, ConsumerPolicyBuilder &policyBuilder,
+    std::optional<size_t> overwriteResetOffset) {
+  auto consumerFlags = mDesc->consumerFlags.load();
+  mCurrentFlags = mDesc->producerFlags.load();
+  if (getAndCheckProducerFlags(mCurrentFlags, consumerFlags) !=
+      ProducerFlags::kPendingInit) {
+    return pw::Status::FailedPrecondition();
+  }
+  mDesc->idOrNotifyFn = idOrNotifyFn;
+  mDesc->policy.store(policyBuilder.build().rawValue);
+  PW_TRY(syncToProducer());
+  mOverwriteResetOffset = overwriteResetOffset.value_or(capacity() / 2);
+  clearFlags();
+  return pw::OkStatus();
+}
+
+ConsumerBase::~ConsumerBase() {
+  if (!mActive) {
+    return;
+  }
+  mDesc->consumerFlags.store(static_cast<uint32_t>(ConsumerFlags::kFinished));
+  if (auto maybeProducerDesc = getProducerDesc(); maybeProducerDesc.ok()) {
+    notifyProducer(*maybeProducerDesc.value());
+  }
+}
+
+pw::Status ConsumerBase::updatePolicy(ConsumerPolicyBuilder &policyBuilder) {
+  PW_TRY(checkState());
+  mDesc->policy.store(policyBuilder.build().rawValue);
+  return pw::OkStatus();
+}
+
+void ConsumerBase::disable() {
+  mActive = false;
+}
+
+pw::Status ConsumerBase::checkState() {
+  if (!mActive) {
+    return pw::Status::NotFound();
+  }
+  mCurrentFlags = mDesc->producerFlags.load();
+  auto consumerFlags = mDesc->consumerFlags.load();
+  auto flagValue = getAndCheckProducerFlags(mCurrentFlags, consumerFlags);
+  switch (flagValue) {
+    case ProducerFlags::kPendingInit:
+      // This should not happen and may indicate that this instance has outlived
+      // the producer that it was registered with. Handle it accordingly.
+      [[fallthrough]];
+    case ProducerFlags::kReset:
+      mActive = false;
+      return pw::Status::Aborted();
+    case ProducerFlags::kOverwrite: {
+      PW_TRY(handleOverwrite());
+      clearFlags();
+      return pw::Status::DataLoss();
+    }
+    case ProducerFlags::kBlocking:
+      // This state is used to trigger a notification to the producer on a read.
+      // Since we can't force the user to read, it isn't worth surfacing to the
+      // user.
+      [[fallthrough]];
+    case ProducerFlags::kNone:
+      // As long as we're in a good state, keep the epoch in sync.
+      mBlockListEpoch = mQueue->blockListEpoch.load();
+      return pw::OkStatus();
+    default:  // Unexpected flag value. Clear it.
+      clearFlags();
+      return pw::OkStatus();
+  }
+}
+
+pw::Result<pw::ConstByteSpan> ConsumerBase::peek(size_t count) {
+  PW_TRY(checkAvailable(count));
+  if (!mPeeked) {
+    mCurrBlock = mHeadBlock;
+    mCurrBlockIndex =
+        (mDesc->readIndex.load() + mDesc->indexCorrection) % kBlockCapacity;
+  }
+  mPeeked += count;
+  const auto *data = blockData(mCurrBlock, kDataOffset) + mCurrBlockIndex;
+  uint32_t advance = count;
+  if (advanceContiguous(mCurrBlock->baseIndex.load(),
+                        mCurrBlock->skipIndex.load(), kBlockCapacity,
+                        mCurrBlockIndex, advance)) {
+    mCurrBlock = fromOffset<BlockHeader>(
+        mRegion, mCurrBlock->nextBlockOffset.load(), kBlockLayout);
+    mCurrBlockIndex = mCurrBlock->baseIndex.load();
+  }
+  PW_TRY(checkState());
+  return pw::ConstByteSpan(data, count);
+}
+
+pw::Status ConsumerBase::release(size_t count) {
+  PW_TRY(checkState());
+  // It is valid to peek more than the available count. If so, clear mPeeked and
+  // update mAvailable.
+  if (count > mPeeked) {
+    if (count > mAvailable + mPeeked) {
+      PW_TRY(updateAvailable());
+      // If count would exceed the queue size, just sync to the producer.
+      if (count > mAvailable + mPeeked) {
+        return syncToProducer();
+      }
+    }
+    mAvailable -= count - mPeeked;
+    mPeeked = 0;
+  } else {
+    mPeeked -= count;
+  }
+  advanceReadIndex(count, /*buf=*/std::nullopt);
+  return pw::OkStatus();
+}
+
+pw::Status ConsumerBase::pop(pw::ByteSpan data) {
+  if (mPeeked) {  // pop() is not allowed when there is un-release()d data.
+    return pw::Status::FailedPrecondition();
+  }
+  PW_TRY(checkAvailable(data.size()));
+  advanceReadIndex(data.size(), data);
+  return pw::OkStatus();
+}
+
+pw::Status ConsumerBase::resync(size_t offset) {
+  PW_TRY(checkState());
+  PW_TRY(updateAvailable());
+  if (offset > mAvailable) {
+    return pw::Status::OutOfRange();
+  }
+  advanceReadIndex(mAvailable - offset, /*buf=*/std::nullopt);
+  mAvailable -= offset;
+  mPeeked = 0;  // Reset the current block/index to the new head.
+  return pw::OkStatus();
+}
+
+pw::Result<size_t> ConsumerBase::size() {
+  PW_TRY(checkState());
+  PW_TRY(updateAvailable());
+  return mAvailable;
+}
+
+pw::Status ConsumerBase::checkAvailable(size_t count) {
+  PW_TRY(checkState());
+  if (count > capacity()) {
+    // If the epoch has changed, check against the updated capacity.
+    mBlockListEpoch = mQueue->blockListEpoch.load();
+    if (count > capacity()) {
+      return pw::Status::OutOfRange();
+    }
+  }
+  if (count > mAvailable) {
+    // Check if the producer has pushed new data.
+    PW_TRY(updateAvailable());
+    if (count > mAvailable) {
+      return pw::Status::Unavailable();
+    }
+  }
+  mAvailable -= count;
+  return pw::OkStatus();
+}
+
+void ConsumerBase::advanceReadIndex(size_t count,
+                                    std::optional<pw::ByteSpan> buf) {
+  auto pending = count;
+  auto readIndex = mDesc->readIndex.load();
+  uint32_t blockIndex = (readIndex + mDesc->indexCorrection) % kBlockCapacity;
+  auto correction = mDesc->indexCorrection;
+  // Loop through the contiguous regions, copying out data and tracking index
+  // corrections as the read index moves between blocks.
+  while (pending > 0) {
+    uint32_t advance = pending;
+    const auto *dataPtr = blockData(mHeadBlock, kDataOffset) + blockIndex;
+    bool toNextBlock = advanceContiguous(mHeadBlock->baseIndex.load(),
+                                         mHeadBlock->skipIndex.load(),
+                                         kBlockCapacity, blockIndex, advance);
+    if (buf) {
+      std::memcpy(buf->data(), dataPtr, advance);
+      buf = buf->subspan(advance);
+    }
+    pending -= advance;
+    if (toNextBlock) {
+      auto *nextBlock = fromOffset<BlockHeader>(
+          mRegion, mHeadBlock->nextBlockOffset.load(), kBlockLayout);
+      correction +=
+          indexCorrectionIncrement(mHeadBlock, nextBlock, kBlockCapacity);
+      mHeadBlock = nextBlock;
+      blockIndex = mHeadBlock->baseIndex.load();
+    }
+  }
+  mDesc->readIndex.store(readIndex + count);
+  mDesc->indexCorrection = correction;
+  if (getProducerFlags(mCurrentFlags) == ProducerFlags::kBlocking) {
+    if (auto producerDesc = getProducerDesc(); producerDesc.ok()) {
+      notifyProducer(*producerDesc.value());
+    }
+    clearFlags();
+  }
+}
+
+pw::Status ConsumerBase::handleOverwrite() {
+  // If the epoch has changed, just sync to the producer.
+  if (mQueue->blockListEpoch.load() != mBlockListEpoch) {
+    return syncToProducer();
+  }
+  // Update mAvailable to determine how much to fast-forward.
+  PW_TRY(updateAvailable());
+  // Cap the offset from the write index to half the current queue capacity.
+  // This avoids fast-forwarding by such a small amount that the consumer gets
+  // overwritten again quickly.
+  auto offset = std::min(mOverwriteResetOffset, capacity() / 2);
+  // It should not be possible for mAvailable to be smaller than the offset, as
+  // that would require the capacity to have increased (meaning the epoch would
+  // have changed).
+  PW_ASSERT(mAvailable >= offset);
+  advanceReadIndex(mAvailable - offset, /*buf=*/std::nullopt);
+  mAvailable -= offset;
+  // If the epoch changed since we attempted to fast forward, the fast forward
+  // is invalidated. Sync to the producer.
+  if (mQueue->blockListEpoch.load() != mBlockListEpoch) {
+    return syncToProducer();
+  }
+  return pw::OkStatus();
+}
+
+pw::Status ConsumerBase::updateAvailable() {
+  PW_TRY_ASSIGN(auto *producerDesc, getProducerDesc());
+  mAvailable =
+      writeReadDiff(producerDesc->writeIndex.load(), mDesc->readIndex.load());
+  return pw::OkStatus();
+}
+
+pw::Status ConsumerBase::syncToProducer() {
+  PW_TRY_ASSIGN(auto *producerDesc, getProducerDesc());
+  auto readIndex = producerDesc->writeIndex.load();
+  mDesc->readIndex.store(readIndex);
+  mDesc->indexCorrection = producerDesc->indexCorrection;
+  mHeadBlock = fromOffset<BlockHeader>(mRegion, producerDesc->tailBlockOffset,
+                                       kBlockLayout);
+  mBlockListEpoch = mQueue->blockListEpoch.load();
+  return pw::OkStatus();
+}
+
+pw::Result<ProducerDesc *> ConsumerBase::getProducerDesc() {
+  auto *producerDesc =
+      fromOffset<ProducerDesc>(mRegion, mQueue->producerOffset.load());
+  if (!producerDesc) {
+    mActive = false;
+    return pw::Status::Aborted();
+  }
+  return producerDesc;
+}
+
+size_t ConsumerBase::capacity() {
+  return mQueue->blockCapacity * blockCountForEpoch(mBlockListEpoch);
+}
+
+void ConsumerBase::notifyProducer(ProducerDesc &producerDesc) {
+  notify(producerDesc.idOrNotifyFn, mRemoteNotifyFn);
+}
+
+void ConsumerBase::clearFlags() {
+  auto counter = getFlagsCounter(mCurrentFlags);
+  mDesc->consumerFlags.store(
+      static_cast<uint32_t>(ConsumerFlags::kFlagsCleared) | counter);
+  mCurrentFlags = static_cast<uint32_t>(ProducerFlags::kNone) | counter;
+}
+
+}  // namespace internal
+
+void DataNotifier::onWrite(internal::ProducerBase & /*producer*/) {
+  // TODO(b/445482700): Implement.
+}
+
+void DataNotifier::updatePeriod(internal::ProducerBase & /*producer*/,
+                                pw::span<const uint8_t, 16> /*consumerId*/,
+                                std::optional<uint32_t> /*periodMs*/) {
+  // TODO(b/445482700): Implement.
 }
 
 }  // namespace chre::shmem_spmc_queue

@@ -17,9 +17,6 @@
 package com.google.android.chre.ap;
 
 import android.annotation.NonNull;
-import android.hardware.location.ContextHubInfo;
-import android.hardware.location.ContextHubTransaction;
-import android.hardware.location.NanoAppMessage;
 
 import java.io.Closeable;
 
@@ -30,14 +27,6 @@ import java.io.Closeable;
  * interface. The APIs supported are thread-safe and can be used without external synchronization.
  */
 public interface ContextHubClientInterface extends Closeable {
-
-    /**
-     * Returns the hub that this client is attached to.
-     *
-     * @return the ContextHubInfo of the attached hub
-     */
-    @NonNull
-    ContextHubInfo getAttachedHub();
 
     /**
      * Returns the system-wide unique identifier for this ContextHubClient.
@@ -58,27 +47,23 @@ public interface ContextHubClientInterface extends Closeable {
     int getId();
 
     /**
-     * Closes the connection for this client and the Context Hub Service.
+     * Closes the connection for this client.
      *
      * <p>When this function is invoked, the messaging associated with this client is invalidated.
      * All future messages targeted for this client are dropped at the service, and the
-     * ContextHubClient is unregistered from the service.
-     *
-     * <p>If this object has a PendingIntent, i.e. the object was generated via {@link
-     * ContextHubManager#createClient(ContextHubInfo, android.app.PendingIntent, long)}, then the
-     * Intent events corresponding to the PendingIntent will no longer be triggered.
+     * ContextHubAPClient is unregistered from the AP service.
      */
     void close();
 
     /**
-     * Sends a message to a nanoapp through the Context Hub Service.
+     * Sends a message to a nanoapp through the ContextHub AP.
      *
      * <p>This function returns RESULT_SUCCESS if the message has reached the HAL, but does not
      * guarantee delivery of the message to the target nanoapp.
      *
      * <p>Before sending the first message to your nanoapp, it's recommended that the following
      * operations should be performed: 1) Invoke {@link
-     * ContextHubManager#queryNanoApps(ContextHubInfo)} to verify the nanoapp is present. 2)
+     * ContextHubAPManager#queryNanoApps()} to verify the nanoapp is present. 2)
      * Validate that you have the permissions to communicate with the nanoapp by looking at {@link
      * NanoAppState#getNanoAppPermissions}. 3) If you don't have permissions, send an idempotent
      * message to the nanoapp ensuring any work your app previously may have asked it to do is
@@ -100,9 +85,6 @@ public interface ContextHubClientInterface extends Closeable {
 
     /**
      * Sends a reliable message to a nanoapp.
-     *
-     * <p>This method is similar to {@link IContextHubClient#sendMessageToNanoApp} with the
-     * difference that it expects the message to be acknowledged by CHRE.
      *
      * <p>The transaction succeeds after we received an ACK from CHRE without error. In all other
      * cases the transaction will fail.

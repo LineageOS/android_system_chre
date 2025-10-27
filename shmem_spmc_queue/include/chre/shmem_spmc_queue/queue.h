@@ -96,110 +96,51 @@ class DataNotifier {
                             std::optional<uint32_t> periodMs);
 };
 
-/** Manages the Consumers for one or more queues in the same region. */
+// Forward declaration for friend access.
+template <typename ElementType>
+class Producer;
+
+/** User-facing interface for managing consumers on a queue. */
 class ConsumerManager {
  public:
   /**
-   * @param shmemBase The base address of the shared memory region.
-   * @param shmemSize The size of the shared memory region.
-   * @param allocator The allocator from which to allocate consumer descriptors.
-   * @param memAccess [optional] MemoryAccess implementation for accessing
-   * shared memory.
-   */
-  ConsumerManager(void *shmemBase, size_t shmemSize, pw::Allocator &allocator,
-                  MemoryAccess *memAccess = nullptr)
-      : kShmemBase(reinterpret_cast<uintptr_t>(shmemBase)),
-        mAllocator(&allocator),
-        mMemAccess(memAccess),
-        kShmemSize(shmemSize) {}
-
-  /**
-   * Allocates a new consumer and links it to the list in shared memory.
+   * Allocates and tracks a new consumer descriptor.
    *
-   * @param queue Pointer to the queue metadata in shared memory.
    * @return The offset of the consumer descriptor in shared memory. Used to
    * initialize a Consumer instance.
    */
-  pw::Result<uint32_t> addConsumer(void *queue);
+  pw::Result<uint32_t> addConsumer() {
+    return mProducer->addConsumer();
+  }
 
   /**
    * Removes the descriptor for the consumer at given offset.
    *
-   * This is generally used to remove a consumer on a process/core that has
-   * crashed. When a Consumer removes itself programmatically, the Producer
-   * identifies this through an in-band mechanism and removes the state for that
-   * Consumer.
+   * This is used to remove a consumer on a process/core that has crashed. When
+   * a Consumer removes itself programmatically, the Producer identifies this
+   * through an in-band mechanism and removes the state for that Consumer.
    *
-   * @param queue Pointer to the queue metadata in shared memory.
    * @param offset The offset of the consumer descriptor in shared memory.
    * @return pw::OkStatus() on success.
    */
-  pw::Status removeConsumer(void *queue, uint32_t offset);
-
- protected:
-  friend class internal::ProducerBase;
-  friend class DataNotifier;
-
-  /**
-   * Applies a functor to all consumers.
-   *
-   * This is used by the Producer and DataNotifier instances to access Consumer
-   * state.
-   *
-   * fn has the signature:
-   * void(ConsumerDesc &desc, uint32_t producerFlags, Args... args).
-   *
-   * The producerFlags value is provided to avoid an extra atomic operation.
-   */
-  template <typename Fn, typename... Args>
-  void forAllConsumers(internal::Queue &queue, uint16_t excludeMask,
-                       const Fn &fn, Args... args) {
-    uint32_t *descOffsetPtr = &queue.dynamicConsumersHeadOffset;
-    auto *desc = internal::fromOffset<internal::ConsumerDesc>(
-        kShmemBase, kShmemSize, *descOffsetPtr);
-    while (desc) {
-      auto consumerFlags = desc->consumerFlags.load();
-      auto producerFlags = desc->producerFlags.load();
-      if (static_cast<uint16_t>(consumerFlags) ==
-          static_cast<uint16_t>(internal::ConsumerFlags::kFinished)) {
-        // Remove a dynamic Consumer that has marked itself for removal.
-        *descOffsetPtr = desc->nextConsumerOffset;
-        mAllocator->Deallocate(desc);
-        desc = internal::fromOffset<internal::ConsumerDesc>(
-            kShmemBase, kShmemSize, *descOffsetPtr);
-      } else {
-        // NOTE: producerFlag and consumerFlags are cached and passed in to
-        // avoid an unnecessary load(). fn() may reload them if required.
-        if (!isFlagInMask(*desc, producerFlags, consumerFlags, excludeMask)) {
-          fn(*desc, producerFlags, args...);
-        }
-        descOffsetPtr = &desc->nextConsumerOffset;
-        desc = internal::fromOffset<internal::ConsumerDesc>(
-            kShmemBase, kShmemSize, *descOffsetPtr);
-      }
-    }
-    // TODO(b/445479433): Add support for static Consumers.
+  pw::Status removeConsumer(uint32_t offset) {
+    return mProducer->removeConsumer(offset);
   }
 
-  /**
-   * Checks if the Consumer is in a state in the mask.
-   *
-   * Also unsets flags if the consumer has acked them.
-   *
-   * @param desc ConsumerDesc.
-   * @param producerFlags desc.producerFlags.load().
-   * @param consumerFlags desc.consumerFlags.load().
-   * @param producerMask The mask of ProducerFlag values to check for.
-   * @return true iff the consumer is in the state.
-   */
-  bool isFlagInMask(internal::ConsumerDesc &desc, uint32_t producerFlags,
-                    uint32_t consumerFlags, uint16_t producerMask);
+ protected:
+  template <typename ElementType>
+  friend class Producer;
 
-  uintptr_t kShmemBase;
-  internal::Queue *mQueue;
-  pw::Allocator *mAllocator;
-  MemoryAccess *mMemAccess;
-  uint32_t kShmemSize;
+  /**
+   * @param region The region of shared memory from which to allocate
+   * consumer descriptors.
+   * @param queue The queue metadata.
+   * @param memAccess [optional] MemoryAccess implementation for accessing
+   * shared memory.
+   */
+  ConsumerManager(internal::ProducerBase &producer) : mProducer(&producer) {}
+
+  internal::ProducerBase *mProducer;
 };
 
 /**
@@ -290,6 +231,9 @@ class ConsumerPolicyBuilder {
 };
 
 template <typename ElementType>
+class ProducerPeer;
+
+template <typename ElementType>
 class Producer : protected internal::ProducerBase {
   static_assert(std::is_standard_layout_v<ElementType>);
   using Base = internal::ProducerBase;
@@ -298,13 +242,8 @@ class Producer : protected internal::ProducerBase {
   /**
    * Creates a Producer instance for the given local Queue.
    *
-   * @param shmemBase The base address in the calling thread's memory space for
-   * offsets in queue. Used to convert offsets in shared memory to pointers.
-   * @param shmemSize The size of the shared memory region. Used to validate
-   * offsets.
-   * @param queue Pointer to queue metadata in shared memory.
-   * @param allocator Allocator used for element storage. Allocations are within
-   * the shared memory region beginning at base. Must outlive the new instance.
+   * @param queue Pointer to queue metadata in shared memory. See {@link
+   * #createQueue()}.
    * @param blockCapacity The capacity of each Block in elements.
    * @param maxBlockCount The maximum allowed blocks of element storage. Must
    * be >= minBlockCount. This can be adjusted at runtime.
@@ -312,58 +251,50 @@ class Producer : protected internal::ProducerBase {
    * be > 0.
    * @param dataNotifier DataNotifier implementation for making notification
    * decisions on write.
-   * @param consumerManager ConsumerManager instance for Queue.
    * @param notifyArgs Callback and context for notifying this Producer.
    * @param memAccess [optional] MemoryAccess implementation for accessing
    * Queue and element storage.
    * @return An initialized Producer instance on success.
    */
   static pw::Result<Producer> createLocal(
-      void *shmemBase, uint32_t shmemSize, void *queue,
-      pw::Allocator &allocator, size_t blockCapacity, size_t maxBlockCount,
-      size_t minBlockCount, DataNotifier &dataNotifier,
-      ConsumerManager &consumerManager, LocalNotifyArgs notifyArgs,
-      MemoryAccess *memAccess = nullptr) {
+      AllocatorRegion region, void *queue, size_t blockCapacity,
+      size_t maxBlockCount, size_t minBlockCount, DataNotifier &dataNotifier,
+      LocalNotifyArgs notifyArgs, MemoryAccess *memAccess = nullptr) {
     if (notifyArgs.fn == nullptr) {
       return pw::Status::InvalidArgument();
     }
     auto queuePtr = static_cast<internal::Queue *>(queue);
-    auto base = reinterpret_cast<uintptr_t>(shmemBase);
     auto blockLayout = internal::blockLayout<ElementType>(blockCapacity);
-    PW_TRY(Base::initialize(base, shmemSize, queuePtr, allocator, blockLayout,
+    PW_TRY(Base::initialize(region, queuePtr, blockLayout,
                             blockCapacity * sizeof(ElementType), maxBlockCount,
                             minBlockCount, {.localNotify = notifyArgs}));
-    return Producer(base, shmemSize, *queuePtr, allocator, blockLayout,
-                    maxBlockCount, minBlockCount, dataNotifier, consumerManager,
-                    /*remoteNotifyFn=*/{}, memAccess);
+    return Producer(region, *queuePtr, blockLayout, maxBlockCount,
+                    minBlockCount, dataNotifier, /*remoteNotifyFn=*/{},
+                    memAccess);
   }
 
   /**
    * Like {@link #createLocal()} but for a remote queue.
    *
-   * All parameters are the same except that notifyArgs is replaced by the
-   * following:
+   * All parameters are the same except for the following:
    * @param notifyArgs Mechanism for notifying Consumers out-of-band and for
    * Consumers to notify this Producer.
    */
   static pw::Result<Producer> createRemote(
-      void *shmemBase, uint32_t shmemSize, void *queue,
-      pw::Allocator &allocator, size_t blockCapacity, size_t maxBlockCount,
-      size_t minBlockCount, DataNotifier &dataNotifier,
-      ConsumerManager &consumerManager, RemoteNotifyArgs notifyArgs,
-      MemoryAccess *memAccess = nullptr) {
+      AllocatorRegion region, void *queue, size_t blockCapacity,
+      size_t maxBlockCount, size_t minBlockCount, DataNotifier &dataNotifier,
+      RemoteNotifyArgs notifyArgs, MemoryAccess *memAccess = nullptr) {
     if (!notifyArgs.fn) {
       return pw::Status::InvalidArgument();
     }
     auto queuePtr = static_cast<internal::Queue *>(queue);
-    auto base = reinterpret_cast<uintptr_t>(shmemBase);
     auto blockLayout = internal::blockLayout<ElementType>(blockCapacity);
-    PW_TRY(Base::initialize(base, shmemSize, queuePtr, allocator, blockLayout,
+    PW_TRY(Base::initialize(region, queuePtr, blockLayout,
                             blockCapacity * sizeof(ElementType), maxBlockCount,
                             minBlockCount, {.remoteId = notifyArgs.id}));
-    return Producer(base, shmemSize, *queuePtr, allocator, blockLayout,
-                    maxBlockCount, minBlockCount, dataNotifier, consumerManager,
-                    std::move(notifyArgs.fn), memAccess);
+    return Producer(region, *queuePtr, blockLayout, maxBlockCount,
+                    minBlockCount, dataNotifier, std::move(notifyArgs.fn),
+                    memAccess);
   }
 
   // Moveable.
@@ -376,6 +307,11 @@ class Producer : protected internal::ProducerBase {
   /** Marks the Producer inactive, notifies consumers, and releases element
    * storage. */
   virtual ~Producer() = default;
+
+  /** @return a ConsumerManager for this Producer. */
+  ConsumerManager getConsumerManager() {
+    return ConsumerManager(*this);
+  }
 
   // See {@link internal::ProducerBase} for documentation.
   using Base::getBlockCount;
@@ -463,15 +399,15 @@ class Producer : protected internal::ProducerBase {
   }
 
  protected:
-  Producer(uintptr_t shmemBase, uint32_t shmemSize, internal::Queue &queue,
-           pw::Allocator &allocator, pw::allocator::Layout blockLayout,
-           size_t maxBlockCount, size_t minBlockCount,
-           DataNotifier &dataNotifier, ConsumerManager &consumerManager,
+  friend class ::chre::shmem_spmc_queue::ProducerPeer<ElementType>;
+
+  Producer(const AllocatorRegion &region, internal::Queue &queue,
+           pw::allocator::Layout blockLayout, size_t maxBlockCount,
+           size_t minBlockCount, DataNotifier &dataNotifier,
            RemoteNotifyFn remoteNotifyFn, MemoryAccess *memAccess)
-      : Base(shmemBase, shmemSize, queue, allocator, blockLayout, maxBlockCount,
-             minBlockCount, offsetof(internal::Block<ElementType>, data),
-             dataNotifier, consumerManager, std::move(remoteNotifyFn),
-             memAccess) {}
+      : Base(region, queue, blockLayout, maxBlockCount, minBlockCount,
+             offsetof(internal::Block<ElementType>, data), dataNotifier,
+             std::move(remoteNotifyFn), memAccess) {}
 };
 
 template <typename ElementType>
@@ -483,10 +419,7 @@ class Consumer : protected internal::ConsumerBase {
   /**
    * Creates a Consumer instance for a local queue.
    *
-   * @param shmemBase The base address in the calling thread's memory space for
-   * offsets in queue. Used to convert offsets in shared memory to pointers.
-   * @param shmemSize The size of the shared memory region. Used to validate
-   * offsets.
+   * @param region The shared memory region containing the queue.
    * @param queueOffset The offset of the queue metadata in shared memory.
    * Allocated and shared by the producer endpoint. It should only be
    * deallocated after all consumers have marked themselves inactive.
@@ -504,46 +437,43 @@ class Consumer : protected internal::ConsumerBase {
    * @return An initialized Consumer instance.
    */
   static pw::Result<Consumer> createLocal(
-      void *shmemBase, uint32_t shmemSize, uint32_t queueOffset,
-      uint32_t descOffset, LocalNotifyArgs notifyArgs,
-      ConsumerPolicyBuilder &policyBuilder, MemoryAccess *memAccess = nullptr,
+      Region region, uint32_t queueOffset, uint32_t descOffset,
+      LocalNotifyArgs notifyArgs, ConsumerPolicyBuilder &policyBuilder,
+      MemoryAccess *memAccess = nullptr,
       std::optional<size_t> overwriteResetOffset = std::nullopt) {
     if (!notifyArgs.fn) {
       return pw::Status::InvalidArgument();
     }
-    auto base = reinterpret_cast<uintptr_t>(shmemBase);
     PW_TRY_ASSIGN(auto queueAndDesc,
-                  checkArgs(base, shmemSize, queueOffset, descOffset));
-    Consumer consumer(base, shmemSize, *queueAndDesc.first,
-                      *queueAndDesc.second, /*remoteNotifyFn=*/{}, memAccess,
-                      overwriteResetOffset);
-    PW_TRY(consumer.initialize({.localNotify = notifyArgs}, policyBuilder));
+                  checkArgs(region, queueOffset, descOffset));
+    Consumer consumer(region, *queueAndDesc.first, *queueAndDesc.second,
+                      /*remoteNotifyFn=*/{}, memAccess);
+    PW_TRY(consumer.initialize({.localNotify = notifyArgs}, policyBuilder,
+                               overwriteResetOffset));
     return consumer;
   }
 
   /**
    * Like {@link #createLocal()} but for a remote queue.
    *
-   * All parameters are the same except that notifyArgs is replaced by the
-   * following:
+   * All parameters are the same except for the following:
    * @param notifyArgs Mechanism for notifying the Producer out-of-band and
    * for the Producer to notify this Consumer.
    */
   static pw::Result<Consumer> createRemote(
-      void *shmemBase, uint32_t shmemSize, uint32_t queueOffset,
-      uint32_t descOffset, RemoteNotifyArgs notifyArgs,
-      ConsumerPolicyBuilder &policyBuilder, MemoryAccess *memAccess = nullptr,
+      Region region, uint32_t queueOffset, uint32_t descOffset,
+      RemoteNotifyArgs notifyArgs, ConsumerPolicyBuilder &policyBuilder,
+      MemoryAccess *memAccess = nullptr,
       std::optional<size_t> overwriteResetOffset = std::nullopt) {
     if (!notifyArgs.fn) {
       return pw::Status::InvalidArgument();
     }
-    auto base = reinterpret_cast<uintptr_t>(shmemBase);
     PW_TRY_ASSIGN(auto queueAndDesc,
-                  checkArgs(base, shmemSize, queueOffset, descOffset));
-    Consumer consumer(base, shmemSize, *queueAndDesc.first,
-                      *queueAndDesc.second, std::move(notifyArgs.fn), memAccess,
-                      overwriteResetOffset);
-    PW_TRY(consumer.initialize({.remoteId = notifyArgs.id}, policyBuilder));
+                  checkArgs(region, queueOffset, descOffset));
+    Consumer consumer(region, *queueAndDesc.first, *queueAndDesc.second,
+                      std::move(notifyArgs.fn), memAccess);
+    PW_TRY(consumer.initialize({.remoteId = notifyArgs.id}, policyBuilder,
+                               overwriteResetOffset));
     return consumer;
   }
 
@@ -596,7 +526,7 @@ class Consumer : protected internal::ConsumerBase {
     PW_TRY_ASSIGN(pw::ConstByteSpan bytes,
                   Base::peek(count * sizeof(ElementType)));
     return pw::span<const ElementType>(
-        reinterpret_cast<ElementType *>(bytes.data()),
+        reinterpret_cast<const ElementType *>(bytes.data()),
         bytes.size() / sizeof(ElementType));
   }
 
@@ -622,6 +552,13 @@ class Consumer : protected internal::ConsumerBase {
     return Base::pop(pw::as_writable_bytes(elements));
   }
 
+  /** @return On success, the element popped from the head of the queue. */
+  pw::Result<ElementType> pop() {
+    pw::Result<ElementType> result(ElementType{});
+    PW_TRY(pop(pw::span<ElementType>{&*result, 1}));
+    return result;
+  }
+
   /**
    * Syncs the read pointer to the write pointer minus an offset.
    *
@@ -633,21 +570,26 @@ class Consumer : protected internal::ConsumerBase {
     return Base::resync(offset * sizeof(ElementType));
   }
 
-  /** @return the number of elements currently in the queue. */
-  size_t size() {
-    return Base::size() / sizeof(ElementType);
+  /**
+   * @return On success, the number of elements available for reading.
+   * Otherwise, returns an error status indicating why the size could not be
+   * returned. See {@link #checkState()} for possible errors.
+   */
+  pw::Result<size_t> size() {
+    PW_TRY_ASSIGN(auto size, Base::size());
+    return size / sizeof(ElementType);
   }
 
   /** @return true iff the queue is empty. */
   using Base::empty;
 
  protected:
-  Consumer(uintptr_t shmemBase, uint32_t shmemSize, internal::Queue &queue,
+  Consumer(const Region &region, internal::Queue &queue,
            internal::ConsumerDesc &desc, RemoteNotifyFn remoteNotifyFn,
-           MemoryAccess *memAccess, std::optional<size_t> overwriteResetOffset)
-      : Base(shmemBase, shmemSize, queue, desc,
+           MemoryAccess *memAccess)
+      : Base(region, queue, desc, internal::blockLayout<ElementType>(0),
              offsetof(internal::Block<ElementType>, data),
-             std::move(remoteNotifyFn), memAccess, overwriteResetOffset) {}
+             std::move(remoteNotifyFn), memAccess) {}
 };
 
 /** Layout used to allocate queue metadata in shared memory. */

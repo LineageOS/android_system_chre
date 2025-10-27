@@ -93,7 +93,7 @@ class TestEventQueue : public NonCopyable {
       auto event = mQueue.pop();
       LOGD("Got event type 0x%" PRIx16, event.type);
       ASSERT_NE(event.type, CHRE_EVENT_SIMULATION_TEST_TIMEOUT)
-          << "Timeout waiting for event " << eventType;
+          << "Timeout waiting for event 0x" << std::hex << eventType;
       memoryFree(event.data);
       if (event.type == eventType) {
         break;
@@ -110,7 +110,7 @@ class TestEventQueue : public NonCopyable {
       auto event = mQueue.pop();
       LOGD("Got event type 0x%" PRIx16, event.type);
       ASSERT_NE(event.type, CHRE_EVENT_SIMULATION_TEST_TIMEOUT)
-          << "Timeout waiting for event " << eventType;
+          << "Timeout waiting for event 0x" << std::hex << eventType;
       if (event.type == eventType) {
         *data = *(static_cast<T *>(event.data));
         memoryFree(event.data);

@@ -20,9 +20,9 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "pw_allocator/allocator.h"
 #include "pw_bytes/span.h"
 #include "pw_function/function.h"
-#include "pw_span/span.h"
 
 namespace chre::shmem_spmc_queue {
 
@@ -59,6 +59,17 @@ enum class OverwritePolicy : uint8_t {
   kAllowed = 0x0 << 4,     // Producer may overwrite the Consumer.
   kDisallowed = 0x1 << 4,  // Producer may not overwrite the Consumer.
   kMask = 0xf << 4,        // Mask for extracting overwrite policy bits.
+};
+
+/** Represents a shared memory region. */
+struct Region {
+  uintptr_t base;
+  uint32_t size;
+};
+
+/** Represents a shared memory region that can be allocated from. */
+struct AllocatorRegion : public Region {
+  pw::Allocator *allocator;
 };
 
 }  // namespace chre::shmem_spmc_queue

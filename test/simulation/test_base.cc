@@ -18,6 +18,7 @@
 
 #include <gtest/gtest.h>
 
+#include "chre/core/event_loop.h"
 #include "chre/core/event_loop_manager.h"
 #include "chre/platform/linux/platform_log.h"
 #include "chre/platform/linux/task_util/task_manager.h"
@@ -198,6 +199,15 @@ TEST_F(TestBase, GetIdOnStartAndEnd) {
 
   uint64_t appId = loadNanoapp(MakeUnique<App>(TestNanoappInfo{.id = kAppId}));
   unloadNanoapp(appId);
+}
+
+TEST_F(TestBase, PostEventWithNullEventIsHandledGracefully) {
+  // This test verifies that calling EventLoop::postEvent with a null event
+  // does not cause a crash and returns false, which is the expected behavior
+  // for a failed push to the event queue.
+  EventLoop &eventLoop = EventLoopManagerSingleton::get()->getEventLoop();
+  bool success = eventLoop.postEvent(nullptr);
+  EXPECT_FALSE(success);
 }
 
 // Explicitly instantiate the TestEventQueueSingleton to reduce codesize.

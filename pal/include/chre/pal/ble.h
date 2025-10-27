@@ -56,9 +56,15 @@ extern "C" {
 #define CHRE_PAL_BLE_API_V1_10 CHRE_PAL_CREATE_API_VERSION(1, 10)
 
 /**
+ * Introduced in a post-release update after CHRE API v1.11, adds
+ * notifyScanBatchComplete() API.
+ */
+#define CHRE_PAL_BLE_API_V1_11 CHRE_PAL_CREATE_API_VERSION(1, 11)
+
+/**
  * The version of the CHRE BLE PAL defined in this header file.
  */
-#define CHRE_PAL_BLE_API_CURRENT_VERSION CHRE_PAL_BLE_API_V1_10
+#define CHRE_PAL_BLE_API_CURRENT_VERSION CHRE_PAL_BLE_API_V1_11
 
 /**
  * The maximum amount of time allowed to elapse between the call to
@@ -154,6 +160,19 @@ struct chrePalBleCallbacks {
    */
   void (*handleBtSnoopLog)(bool isTxToBtController, const uint8_t *buffer,
                            size_t size);
+
+  /**
+   * Callback used to inform CHRE that a batch of BLE scan events is complete.
+   *
+   * PAL implementations must call this function after the last call to
+   * advertisingEventCallback() for a given batch when scan batching is active.
+   *
+   * Do not call this function if no results were delivered in a given batch
+   * interval.
+   *
+   * @since v1.11
+   */
+  void (*notifyScanBatchComplete)(void);
 };
 
 struct chrePalBleApi {

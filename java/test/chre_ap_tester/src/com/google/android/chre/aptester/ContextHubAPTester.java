@@ -19,9 +19,6 @@ package com.google.android.chre.aptester;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.pm.ApplicationInfo;
-import android.hardware.location.ContextHubInfo;
-import android.hardware.location.ContextHubTransaction;
-import android.hardware.location.NanoAppMessage;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -36,7 +33,9 @@ import android.widget.Toast;
 
 import com.google.android.chre.ap.ContextHubAPManager;
 import com.google.android.chre.ap.ContextHubAPNative;
-import com.google.android.chre.ap.NanoAppInfo;
+import com.google.android.chre.ap.ContextHubTransaction;
+import com.google.android.chre.ap.NanoAppMessage;
+import com.google.android.chre.ap.NanoAppState;
 
 import java.io.File;
 import java.io.IOException;
@@ -112,7 +111,7 @@ public class ContextHubAPTester extends Activity {
         mMainHandler.postDelayed(() -> {
             mNanoAppListLayout.removeAllViews();
 
-            NanoAppInfo[] nanoAppInfos = ContextHubAPNative.listNanoapps();
+            NanoAppState[] nanoAppInfos = ContextHubAPNative.listNanoapps();
 
             if (nanoAppInfos == null || nanoAppInfos.length == 0) {
                 TextView emptyView = new TextView(this);
@@ -122,7 +121,7 @@ public class ContextHubAPTester extends Activity {
                 return;
             }
 
-            for (NanoAppInfo nanoAppInfo : nanoAppInfos) {
+            for (NanoAppState nanoAppInfo : nanoAppInfos) {
                 LinearLayout rowLayout = new LinearLayout(this);
                 rowLayout.setOrientation(LinearLayout.HORIZONTAL);
                 rowLayout.setLayoutParams(new LinearLayout.LayoutParams(
@@ -135,7 +134,7 @@ public class ContextHubAPTester extends Activity {
                         0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
                 infoTextView.setLayoutParams(textParams);
                 infoTextView.setText(String.format("Instance ID: %d, Name: %s",
-                        nanoAppInfo.mInstanceId, nanoAppInfo.mName));
+                        nanoAppInfo.getNanoAppId(), nanoAppInfo.getName()));
                 infoTextView.setPadding(8, 8, 8, 8);
 
                 Button unloadButton = new Button(this);
@@ -145,10 +144,9 @@ public class ContextHubAPTester extends Activity {
                         LinearLayout.LayoutParams.WRAP_CONTENT));
 
                 unloadButton.setOnClickListener(v -> {
-                    long idToUnload = nanoAppInfo.mInstanceId;
+                    long idToUnload = nanoAppInfo.getNanoAppId();
                     ContextHubTransaction<Void> transaction =
-                            ContextHubAPManager.getInstance().unloadNanoApp(
-                                    new ContextHubInfo(), idToUnload);
+                            ContextHubAPManager.getInstance().unloadNanoApp(idToUnload);
 
                     ContextHubTransaction.Response<Void> response = null;
                     try {
@@ -219,9 +217,8 @@ public class ContextHubAPTester extends Activity {
         });
 
         // Create a Button to send message to Message World nanoapp.
-        var contextHub = new ContextHubInfo();
         var callback = new MessageCallback(mMessageTextView);
-        var client = ContextHubAPManager.getInstance().createClient(contextHub, callback);
+        var client = ContextHubAPManager.getInstance().createClient(callback);
         messageButton.setOnClickListener(v -> {
             var message = NanoAppMessage.createMessageToNanoApp(
                     0x0123456789000003L /*Message World Nanoapp ID*/, 100,

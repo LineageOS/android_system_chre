@@ -98,11 +98,10 @@ void AppManager::HandleEvent(uint32_t sender_instance_id, uint16_t event_type,
         adv_reports_cache_.Push(event->reports[i]);
       }
 
-      // If batch scan is not supported, requests the match process here.
-      // Otherwise, the match process is postponed to the batch complete event.
-      if (!ble_scanner_.IsBatchSupported()) {
-        HandleMatchAdvReports(adv_reports_cache_);
-      }
+      // TODO(b/450258575): The received scan results will be processed here
+      // instead of in the batch complete event. This is a temporary solution
+      // until the CHRE_EVENT_BLE_SCAN_STATUS_CHANGE is supported.
+      HandleMatchAdvReports(adv_reports_cache_);
       break;
     case CHRE_EVENT_BLE_FLUSH_COMPLETE:
       ble_scanner_.HandleEvent(event_type, event_data);
@@ -129,6 +128,9 @@ void AppManager::HandleEvent(uint32_t sender_instance_id, uint16_t event_type,
 }
 
 void AppManager::HandleMatchAdvReports(AdvReportCache &adv_reports_cache) {
+  if (adv_reports_cache.GetAdvReports().empty()) {
+    return;
+  }
 #ifdef NEARBY_PROFILE
   ashProfileBegin(&profile_data_);
 #endif

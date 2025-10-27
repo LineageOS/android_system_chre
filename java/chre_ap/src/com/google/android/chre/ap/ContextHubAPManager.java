@@ -16,22 +16,10 @@
 
 package com.google.android.chre.ap;
 
-import android.annotation.CallbackExecutor;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.content.Context;
-import android.hardware.contexthub.HubDiscoveryInfo;
-import android.hardware.contexthub.HubEndpoint;
-import android.hardware.contexthub.HubEndpointDiscoveryCallback;
-import android.hardware.contexthub.HubEndpointInfo;
-import android.hardware.location.ContextHubClientCallback;
-import android.hardware.location.ContextHubInfo;
-import android.hardware.location.ContextHubTransaction;
-import android.hardware.location.HubInfo;
-import android.hardware.location.NanoAppMessage;
-import android.hardware.location.NanoAppState;
 import android.os.Handler;
-import android.os.HandlerExecutor;
 import android.os.Looper;
 import android.util.Log;
 
@@ -120,11 +108,9 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
     @Override
     public ContextHubClientInterface createClient(
             @Nullable Context context,
-            @NonNull ContextHubInfo hubInfo,
-            @NonNull @CallbackExecutor Executor executor,
+            @NonNull Executor executor,
             @NonNull ContextHubClientCallback callback) {
         Objects.requireNonNull(callback, "Callback cannot be null");
-        Objects.requireNonNull(hubInfo, "ContextHubInfo cannot be null");
         Objects.requireNonNull(executor, "Executor cannot be null");
         var clientId = mClientIdCounter.incrementAndGet();
         var client = new ContextHubAPClient(clientId, executor, callback);
@@ -135,18 +121,16 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
     @NonNull
     @Override
     public ContextHubClientInterface createClient(
-            @NonNull ContextHubInfo hubInfo,
             @NonNull ContextHubClientCallback callback,
-            @NonNull @CallbackExecutor Executor executor) {
-        return createClient(null /* context */, hubInfo, executor, callback);
+            @NonNull Executor executor) {
+        return createClient(null /* context */, executor, callback);
     }
 
     @NonNull
     @Override
-    public ContextHubClientInterface createClient(
-            @NonNull ContextHubInfo hubInfo, @NonNull ContextHubClientCallback callback) {
+    public ContextHubClientInterface createClient(@NonNull ContextHubClientCallback callback) {
         return createClient(
-                null /* context */, hubInfo, new HandlerExecutor(mMainHandler), callback);
+                null /* context */, new HandlerExecutor(mMainHandler), callback);
     }
 
     /**
@@ -174,8 +158,7 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
 
     @NonNull
     @Override
-    public ContextHubTransaction<Void> unloadNanoApp(
-            @NonNull ContextHubInfo hubInfo, long nanoAppInstanceId) {
+    public ContextHubTransaction<Void> unloadNanoApp(long nanoAppInstanceId) {
         boolean unloadRes = ContextHubAPNative.unloadNanoApp(nanoAppInstanceId);
         if (!unloadRes) {
             Log.d(TAG, "Unload nano app failed for instance id: " + nanoAppInstanceId);
@@ -193,8 +176,7 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
 
     @NonNull
     @Override
-    public ContextHubTransaction<List<NanoAppState>> queryNanoApps(
-            @NonNull ContextHubInfo hubInfo) {
+    public ContextHubTransaction<List<NanoAppState>> queryNanoApps() {
         // Not implemented for AP environment
         ContextHubTransaction<List<NanoAppState>> transaction =
                 new ContextHubTransaction<>(ContextHubTransaction.TYPE_QUERY_NANOAPPS);
@@ -215,121 +197,27 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
     public void onMessageFromNanoApp(long nanoAppId, int messageType, byte[] messageBody) {
         var message =
                 NanoAppMessage.createMessageFromNanoApp(
-                        nanoAppId, messageType, messageBody, false, false, 0);
+                        nanoAppId, messageType, messageBody, false);
         Log.d(TAG, "Message received for NanoApp ID: " + nanoAppId);
         mMainHandler.post(
                 () -> {
                     for (ContextHubAPClient client : mClientMap.values()) {
-                        Executor exec = client.getExecutor();
-                        if (exec != null) {
-                            exec.execute(
-                                    new Runnable() {
-                                        @Override
-                                        public void run() {
-                                            client.getCallback()
-                                                    .onMessageFromNanoApp(null, message);
-                                        }
-                                    });
-                        } else {
-                            client.getCallback().onMessageFromNanoApp(null, message);
-                        }
+                        client.getExecutor().execute(
+                                new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        client.getCallback()
+                                                .onMessageFromNanoApp(null, message);
+                                    }
+                                });
                     }
                 });
     }
 
     @NonNull
     @Override
-    public List<HubDiscoveryInfo> findEndpoints(long endpointId) {
-        // Not implemented for AP environment
-        return new ArrayList<>();
-    }
-
-    @NonNull
-    @Override
-    public List<HubDiscoveryInfo> findEndpoints(@NonNull String serviceDescriptor) {
-        // Not implemented for AP environment
-        return new ArrayList<>();
-    }
-
-    @NonNull
-    @Override
-    public List<ContextHubInfo> getContextHubs() {
-        // Not implemented for AP environment
-        return new ArrayList<>();
-    }
-
-    @NonNull
-    @Override
-    public List<HubInfo> getHubs() {
-        // Not implemented for AP environment
-        return new ArrayList<>();
-    }
-
-    @NonNull
-    @Override
-    public long[] getPreloadedNanoAppIds(@NonNull ContextHubInfo hubInfo) {
+    public long[] getPreloadedNanoAppIds() {
         // Not implemented for AP environment
         return new long[0];
-    }
-
-    @Override
-    public void openSession(
-            @NonNull HubEndpoint hubEndpoint, @NonNull HubEndpointInfo destination) {
-        // Not implemented for AP environment
-    }
-
-    @Override
-    public void openSession(
-            @NonNull HubEndpoint hubEndpoint,
-            @NonNull HubEndpointInfo destination,
-            @NonNull String serviceDescriptor) {
-        // Not implemented for AP environment
-    }
-
-    @Override
-    public void registerEndpoint(@NonNull HubEndpoint hubEndpoint) {
-        // Not implemented for AP environment
-    }
-
-    @Override
-    public void registerEndpointDiscoveryCallback(
-            @NonNull HubEndpointDiscoveryCallback callback, long endpointId) {
-        // Not implemented for AP environment
-    }
-
-    @Override
-    public void registerEndpointDiscoveryCallback(
-            @NonNull Executor executor,
-            @NonNull HubEndpointDiscoveryCallback callback,
-            long endpointId) {
-        // Not implemented for AP environment
-
-    }
-
-    /** Registers a callback for an endpoint identified by a service descriptor. */
-    @Override
-    public void registerEndpointDiscoveryCallback(
-            @NonNull HubEndpointDiscoveryCallback callback, @NonNull String serviceDescriptor) {
-        // Not implemented for AP environment
-
-    }
-
-    @Override
-    public void registerEndpointDiscoveryCallback(
-            @NonNull Executor executor,
-            @NonNull HubEndpointDiscoveryCallback callback,
-            @NonNull String serviceDescriptor) {
-        // Not implemented for AP environment
-    }
-
-    @Override
-    public void unregisterEndpoint(@NonNull HubEndpoint hubEndpoint) {
-        // Not implemented for AP environment
-    }
-
-    @Override
-    public void unregisterEndpointDiscoveryCallback(
-            @NonNull HubEndpointDiscoveryCallback callback) {
-        // Not implemented for AP environment
     }
 }

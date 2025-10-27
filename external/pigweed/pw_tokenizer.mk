@@ -24,9 +24,9 @@ TOKEN_MAP_CSV_GEN_CMD = $(PYTHON) $(PIGWEED_SCRIPTS_DIR)/database.py create \
 COMMON_SRCS += $(PIGWEED_DIR)/pw_tokenizer/encode_args.cc
 COMMON_SRCS += $(PIGWEED_DIR)/pw_tokenizer/tokenize.cc
 COMMON_SRCS += $(PIGWEED_DIR)/pw_varint/varint.cc
-COMMON_SRCS += $(PIGWEED_DIR)/pw_varint/varint_c.c
 
 # Pigweed include paths
+COMMON_CFLAGS += -I$(PIGWEED_DIR)/pw_bytes/public
 COMMON_CFLAGS += -I$(PIGWEED_DIR)/pw_containers/public
 COMMON_CFLAGS += -I$(PIGWEED_DIR)/pw_log_tokenized/public
 COMMON_CFLAGS += -I$(PIGWEED_DIR)/pw_log/public

@@ -201,23 +201,21 @@ bool BleRequestManager::configure(BleRequest &&request) {
     if (compliant) {
       success = updateRequests(std::move(request), hasExistingRequest,
                                &requestChanged, &requestIndex);
-      if (success) {
-        if (!mPlatformRequestInProgress) {
-          if (!requestChanged) {
-            handleAsyncResult(instanceId, enabled, true /* success */,
-                              CHRE_ERROR_NONE, request.getCookie());
-            if (requestIndex < mRequests.getRequests().size()) {
-              mRequests.getMutableRequests()[requestIndex].setRequestStatus(
-                  RequestStatus::APPLIED);
-            }
-          } else {
-            success = controlPlatform();
-            if (!success) {
-              handleNanoappEventRegistration(instanceId, enabled,
-                                             false /* success */,
-                                             true /* forceUnregister */);
-              mRequests.removeRequest(requestIndex, &requestChanged);
-            }
+      if (success && !mPlatformRequestInProgress) {
+        if (!requestChanged) {
+          handleAsyncResult(instanceId, enabled, true /* success */,
+                            CHRE_ERROR_NONE, request.getCookie());
+          if (requestIndex < mRequests.getRequests().size()) {
+            mRequests.getMutableRequests()[requestIndex].setRequestStatus(
+                RequestStatus::APPLIED);
+          }
+        } else {
+          success = controlPlatform();
+          if (!success) {
+            handleNanoappEventRegistration(instanceId, enabled,
+                                           false /* success */,
+                                           true /* forceUnregister */);
+            mRequests.removeRequest(requestIndex, &requestChanged);
           }
         }
       }
@@ -338,6 +336,8 @@ void BleRequestManager::handlePlatformChangeSync(bool enable,
 
   mResyncPending = false;
   mSettingChangePending = false;
+
+  postScanStatusChangeEventIfNeeded();
 }
 
 void BleRequestManager::dispatchPendingRequests() {
@@ -379,6 +379,8 @@ void BleRequestManager::handleNanoappEventRegistration(uint16_t instanceId,
   if (nanoapp != nullptr) {
     if (success && enabled) {
       nanoapp->registerForBroadcastEvent(CHRE_EVENT_BLE_ADVERTISEMENT);
+      nanoapp->registerForBroadcastEvent(CHRE_EVENT_BLE_SCAN_STATUS_CHANGE);
+      nanoapp->registerForBroadcastEvent(CHRE_EVENT_BLE_BATCH_COMPLETE);
     } else if (!enabled || forceUnregister) {
       nanoapp->unregisterForBroadcastEvent(CHRE_EVENT_BLE_ADVERTISEMENT);
     }
@@ -505,9 +507,54 @@ void BleRequestManager::handleFlushCompleteTimeout() {
   handleFlushCompleteInternal(CHRE_ERROR_TIMEOUT);
 }
 
-bool BleRequestManager::getScanStatus(struct chreBleScanStatus * /* status */) {
-  // TODO(b/266820139): Implement this
-  return false;
+void BleRequestManager::handleScanBatchComplete() {
+  auto *batchCompleteEvent = memoryAlloc<struct chreBatchCompleteEvent>();
+  if (batchCompleteEvent == nullptr) {
+    FATAL_ERROR("Failed to alloc chreBatchCompleteEvent");
+  }
+  memset(batchCompleteEvent, 0, sizeof(chreBatchCompleteEvent));
+  batchCompleteEvent->eventType = CHRE_EVENT_BLE_ADVERTISEMENT;
+  EventLoopManagerSingleton::get()->postEventOrDie(
+      CHRE_EVENT_BLE_BATCH_COMPLETE, batchCompleteEvent, freeEventDataCallback);
+}
+
+bool BleRequestManager::getScanStatus(struct chreBleScanStatus *status) {
+  if (status == nullptr) {
+    return false;
+  }
+  memset(status, 0, sizeof(struct chreBleScanStatus));
+  status->enabled = bleSettingEnabled() && mRequests.isMaximalRequestEnabled();
+  if (status->enabled) {
+    status->reportDelayMs =
+        mRequests.getCurrentMaximalRequest().getReportDelayMs();
+  } else {
+    status->reportDelayMs = 0;
+  }
+  return true;
+}
+
+void BleRequestManager::postScanStatusChangeEventIfNeeded() {
+  chreBleScanStatus currentStatus;
+  if (!getScanStatus(&currentStatus)) {
+    LOGE("Failed to get scan status");
+    return;
+  }
+
+  bool isScanStatusChanged = (memcmp(&mLastScanStatus, &currentStatus,
+                                     sizeof(struct chreBleScanStatus)) != 0);
+
+  if (isScanStatusChanged) {
+    auto *status = memoryAlloc<struct chreBleScanStatus>();
+    if (status == nullptr) {
+      FATAL_ERROR("Failed to allocate chreBleScanStatus");
+    }
+    memset(status, 0, sizeof(struct chreBleScanStatus));
+    status->enabled = currentStatus.enabled;
+    status->reportDelayMs = currentStatus.reportDelayMs;
+    EventLoopManagerSingleton::get()->postEventOrDie(
+        CHRE_EVENT_BLE_SCAN_STATUS_CHANGE, status, freeEventDataCallback);
+    mLastScanStatus = currentStatus;
+  }
 }
 
 void BleRequestManager::onSettingChanged(Setting setting, bool /* state */) {
@@ -517,6 +564,7 @@ void BleRequestManager::onSettingChanged(Setting setting, bool /* state */) {
     } else {
       updatePlatformRequest();
     }
+    postScanStatusChangeEventIfNeeded();
   }
 }
 

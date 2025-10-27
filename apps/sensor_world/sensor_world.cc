@@ -77,6 +77,38 @@ struct SensorState {
 };
 
 SensorState sensors[] = {
+#ifdef CHRE_AP_NANOAPP
+    {
+        .type = CHRE_SENSOR_TYPE_ACCELEROMETER,
+        .sensorIndex = 0,
+        .handle = 0,
+        .isInitialized = false,
+        .enable = kEnableDefault,
+        .interval = Milliseconds(500).toRawNanoseconds(),
+        .latency = Seconds(10).toRawNanoseconds(),
+        .info = {},
+    },
+    {
+        .type = CHRE_SENSOR_TYPE_UNCALIBRATED_ACCELEROMETER,
+        .sensorIndex = 0,
+        .handle = 0,
+        .isInitialized = false,
+        .enable = kEnableDefault,
+        .interval = Milliseconds(500).toRawNanoseconds(),
+        .latency = Seconds(10).toRawNanoseconds(),
+        .info = {},
+    },
+    {
+        .type = CHRE_SENSOR_TYPE_PRESSURE,
+        .sensorIndex = 0,
+        .handle = 0,
+        .isInitialized = false,
+        .enable = kEnableDefault,
+        .interval = Milliseconds(500).toRawNanoseconds(),
+        .latency = Seconds(10).toRawNanoseconds(),
+        .info = {},
+    },
+#else
     {
         .type = CHRE_SENSOR_TYPE_ACCELEROMETER,
         .sensorIndex = 0,
@@ -237,6 +269,7 @@ SensorState sensors[] = {
         .latency = Seconds(4).toRawNanoseconds(),
         .info = {},
     },
+#endif
 };
 
 // Conditional logging macro

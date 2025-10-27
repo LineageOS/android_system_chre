@@ -35,6 +35,7 @@ const chrePalBleCallbacks PlatformBleBase::sBleCallbacks = {
     PlatformBleBase::readRssiCallback,
     PlatformBleBase::flushCallback,
     PlatformBleBase::handleBtSnoopLog,
+    PlatformBleBase::notifyBatchCompleteCallback,
 };
 
 PlatformBle::~PlatformBle() {
@@ -157,6 +158,12 @@ bool PlatformBle::flushAsync() {
 void PlatformBleBase::flushCallback(uint8_t errorCode) {
   EventLoopManagerSingleton::get()->getBleRequestManager().handleFlushComplete(
       errorCode);
+}
+
+void PlatformBleBase::notifyBatchCompleteCallback() {
+  EventLoopManagerSingleton::get()
+      ->getBleRequestManager()
+      .handleScanBatchComplete();
 }
 
 void PlatformBleBase::handleBtSnoopLog(bool isTxToBtController,

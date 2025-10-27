@@ -201,6 +201,14 @@ class BleRequestManager : public NonCopyable {
   void handleFlushCompleteTimeout();
 
   /**
+   * Handles a batch complete operation.
+   *
+   * Called when the PAL indicates that a batch of BLE scan events is complete.
+   * Processes in an asynchronous manner.
+   */
+  void handleScanBatchComplete();
+
+  /**
    * Retrieves the current scan status.
    *
    * @param status A non-null pointer to where the scan status will be
@@ -268,6 +276,9 @@ class BleRequestManager : public NonCopyable {
 
   // True if a setting change request is pending to be processed.
   bool mSettingChangePending = false;
+
+  //! The last scan status that was sent to nanoapps.
+  chreBleScanStatus mLastScanStatus{};
 
   //! A queue of flush requests made by nanoapps.
   static constexpr size_t kMaxFlushRequests = 16;
@@ -363,6 +374,12 @@ class BleRequestManager : public NonCopyable {
   bool compliesWithBleSetting(uint16_t instanceId, bool enabled,
                               bool hasExistingRequest, size_t requestIndex,
                               const void *cookie);
+
+  /**
+   * Posts a CHRE_EVENT_BLE_SCAN_STATUS_CHANGE event if the scan status has
+   * changed.
+   */
+  void postScanStatusChangeEventIfNeeded();
 
   /**
    * Add a log to list of BLE request logs possibly pushing out the oldest log.

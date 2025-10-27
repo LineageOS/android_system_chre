@@ -16,20 +16,22 @@
 
 package com.google.android.chre.aptester;
 
-import android.hardware.location.ContextHubClient;
-import android.hardware.location.ContextHubClientCallback;
-import android.hardware.location.NanoAppMessage;
 import android.widget.TextView;
+
+import com.google.android.chre.ap.ContextHubClientCallback;
+import com.google.android.chre.ap.ContextHubClientInterface;
+import com.google.android.chre.ap.NanoAppMessage;
 
 class MessageCallback extends ContextHubClientCallback {
 
-    private TextView mMessageTextView;
+    private final TextView mMessageTextView;
 
     MessageCallback(TextView mMessageTextView) {
         this.mMessageTextView = mMessageTextView;
     }
 
-    public void onMessageFromNanoApp(ContextHubClient client, NanoAppMessage message) {
+    @Override
+    public void onMessageFromNanoApp(ContextHubClientInterface client, NanoAppMessage message) {
         mMessageTextView.append("\nReceived message from nanoapp, nanoapp ID: "
                 + message.getNanoAppId()
                 + ", type: " + message.getMessageType()

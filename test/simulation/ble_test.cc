@@ -23,18 +23,174 @@
 
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/settings.h"
-#include "chre/platform/fatal_error.h"
 #include "chre/platform/linux/pal_ble.h"
-#include "chre/util/dynamic_vector.h"
 #include "chre_api/chre/ble.h"
+
+#include "chre/util/nested_data_ptr.h"
 #include "chre_api/chre/user_settings.h"
-#include "test_util.h"
 
 namespace chre {
 
 namespace {
 
+CREATE_CHRE_TEST_EVENT(START_SCAN, 0);
+CREATE_CHRE_TEST_EVENT(SCAN_STARTED, 1);
+CREATE_CHRE_TEST_EVENT(STOP_SCAN, 2);
+CREATE_CHRE_TEST_EVENT(SCAN_STOPPED, 3);
+CREATE_CHRE_TEST_EVENT(CALL_FLUSH, 4);
+CREATE_CHRE_TEST_EVENT(GET_SCAN_STATUS, 5);
+CREATE_CHRE_TEST_EVENT(RSSI_REQUEST, 6);
+CREATE_CHRE_TEST_EVENT(RSSI_REQUEST_SENT, 7);
+
 class BleTest : public TestBase {};
+
+class BleTestNanoapp : public TestNanoapp {
+ public:
+  BleTestNanoapp() : TestNanoapp(TestNanoappInfo{.perms = CHRE_PERMS_BLE}) {}
+
+  bool start() override {
+    chreUserSettingConfigureEvents(CHRE_USER_SETTING_BLE_AVAILABLE,
+                                   true /* enable */);
+    return true;
+  }
+
+  void end() override {
+    chreUserSettingConfigureEvents(CHRE_USER_SETTING_BLE_AVAILABLE,
+                                   false /* enable */);
+  }
+
+  void handleEvent(uint32_t, uint16_t eventType,
+                   const void *eventData) override {
+    switch (eventType) {
+      case CHRE_EVENT_BLE_ASYNC_RESULT: {
+        auto *event = static_cast<const struct chreAsyncResult *>(eventData);
+        TestEventQueueSingleton::get()->pushEvent(CHRE_EVENT_BLE_ASYNC_RESULT,
+                                                  *event);
+        break;
+      }
+
+      case CHRE_EVENT_BLE_ADVERTISEMENT: {
+        auto event = static_cast<const chreBatchCompleteEvent *>(eventData);
+        TestEventQueueSingleton::get()->pushEvent(CHRE_EVENT_BLE_ADVERTISEMENT,
+                                                  *event);
+        break;
+      }
+      case CHRE_EVENT_BLE_RSSI_READ: {
+        auto *event =
+            static_cast<const struct chreBleReadRssiEvent *>(eventData);
+        TestEventQueueSingleton::get()->pushEvent(CHRE_EVENT_BLE_RSSI_READ,
+                                                  *event);
+        break;
+      }
+
+      case CHRE_EVENT_BLE_FLUSH_COMPLETE: {
+        auto *event = static_cast<const struct chreAsyncResult *>(eventData);
+        TestEventQueueSingleton::get()->pushEvent(CHRE_EVENT_BLE_FLUSH_COMPLETE,
+                                                  *event);
+        break;
+      }
+      case CHRE_EVENT_BLE_BATCH_COMPLETE: {
+        auto event = static_cast<const chreBatchCompleteEvent *>(eventData);
+        TestEventQueueSingleton::get()->pushEvent(CHRE_EVENT_BLE_BATCH_COMPLETE,
+                                                  *event);
+        break;
+      }
+
+      case CHRE_EVENT_BLE_SCAN_STATUS_CHANGE: {
+        auto *event = static_cast<const struct chreBleScanStatus *>(eventData);
+        TestEventQueueSingleton::get()->pushEvent(
+            CHRE_EVENT_BLE_SCAN_STATUS_CHANGE, *event);
+        break;
+      }
+
+      case CHRE_EVENT_SETTING_CHANGED_BLE_AVAILABLE: {
+        auto *event =
+            static_cast<const chreUserSettingChangedEvent *>(eventData);
+        bool enabled = event->settingState == CHRE_USER_SETTING_STATE_ENABLED;
+        TestEventQueueSingleton::get()->pushEvent(
+            CHRE_EVENT_SETTING_CHANGED_BLE_AVAILABLE, enabled);
+        break;
+      }
+
+      case CHRE_EVENT_TEST_EVENT: {
+        auto event = static_cast<const TestEvent *>(eventData);
+        switch (event->type) {
+          case START_SCAN: {
+            uint32_t reportDelayMs = 0;
+            if (event->data != nullptr) {
+              reportDelayMs = *static_cast<uint32_t *>(event->data);
+            }
+            const bool success = chreBleStartScanAsync(
+                CHRE_BLE_SCAN_MODE_AGGRESSIVE, reportDelayMs, nullptr);
+            TestEventQueueSingleton::get()->pushEvent(START_SCAN, success);
+            break;
+          }
+
+          case STOP_SCAN: {
+            const bool success = chreBleStopScanAsync();
+            TestEventQueueSingleton::get()->pushEvent(STOP_SCAN, success);
+            break;
+          }
+          case RSSI_REQUEST: {
+            constexpr uint16_t kConnectionHandle = 6;
+            constexpr uint32_t kCookie = 123;
+            const bool success =
+                chreBleReadRssiAsync(kConnectionHandle, (void *)kCookie);
+            TestEventQueueSingleton::get()->pushEvent(RSSI_REQUEST_SENT,
+                                                      success);
+            break;
+          }
+          case CALL_FLUSH: {
+            const bool success = chreBleFlushAsync(&mCookie);
+            TestEventQueueSingleton::get()->pushEvent(CALL_FLUSH, success);
+            break;
+          }
+          case GET_SCAN_STATUS: {
+            chreBleScanStatus status{};
+            const bool success = chreBleGetScanStatus(&status);
+            if (success) {
+              TestEventQueueSingleton::get()->pushEvent(GET_SCAN_STATUS,
+                                                        status);
+            }
+            break;
+          }
+          default: {
+            LOGE("Unhandled test event: 0x%04x", event->type);
+          }
+        }
+        break;
+      }
+      default:
+        LOGE("Unhandled event type: 0x%04x", eventType);
+    }
+  }
+
+ protected:
+  uint32_t mCookie = 0;
+};
+
+void assertStartScanSuccess(const uint64_t appId,
+                            const uint32_t reportDelayMs = 0) {
+  bool success;
+  sendEventToNanoapp(appId, START_SCAN, NestedDataPtr(reportDelayMs));
+  TestBase::waitForEvent(START_SCAN, &success);
+  ASSERT_TRUE(success);
+  chreAsyncResult result{};
+  TestBase::waitForEvent(CHRE_EVENT_BLE_ASYNC_RESULT, &result);
+  ASSERT_EQ(result.errorCode, CHRE_ERROR_NONE);
+  ASSERT_TRUE(chrePalIsBleEnabled());
+}
+
+void assertStopScanSuccess(const uint64_t appId) {
+  bool success;
+  sendEventToNanoapp(appId, STOP_SCAN);
+  TestBase::waitForEvent(STOP_SCAN, &success);
+  ASSERT_TRUE(success);
+  chreAsyncResult result{};
+  TestBase::waitForEvent(CHRE_EVENT_BLE_ASYNC_RESULT, &result);
+  ASSERT_EQ(result.errorCode, CHRE_ERROR_NONE);
+  ASSERT_FALSE(chrePalIsBleEnabled());
+}
 
 /**
  * This test verifies that a nanoapp can query for BLE capabilities and filter
@@ -89,139 +245,21 @@ TEST_F(BleTest, BleCapabilitiesTest) {
                               CHRE_BLE_FILTER_CAPABILITIES_SERVICE_DATA);
 }
 
-class BleTestNanoapp : public TestNanoapp {
- public:
-  BleTestNanoapp()
-      : TestNanoapp(
-            TestNanoappInfo{.perms = NanoappPermissions::CHRE_PERMS_BLE}) {}
-
-  bool start() override {
-    chreUserSettingConfigureEvents(CHRE_USER_SETTING_BLE_AVAILABLE,
-                                   true /* enable */);
-    return true;
-  }
-
-  void end() override {
-    chreUserSettingConfigureEvents(CHRE_USER_SETTING_BLE_AVAILABLE,
-                                   false /* enable */);
-  }
-};
-
 /**
  * This test validates the case in which a nanoapp starts a scan, receives
  * at least one advertisement event, and stops a scan.
  */
 TEST_F(BleTest, BleSimpleScanTest) {
-  CREATE_CHRE_TEST_EVENT(START_SCAN, 0);
-  CREATE_CHRE_TEST_EVENT(SCAN_STARTED, 1);
-  CREATE_CHRE_TEST_EVENT(STOP_SCAN, 2);
-  CREATE_CHRE_TEST_EVENT(SCAN_STOPPED, 3);
+  uint64_t appId = loadNanoapp(MakeUnique<BleTestNanoapp>());
 
-  class App : public BleTestNanoapp {
-   public:
-    void handleEvent(uint32_t, uint16_t eventType,
-                     const void *eventData) override {
-      switch (eventType) {
-        case CHRE_EVENT_BLE_ASYNC_RESULT: {
-          auto *event = static_cast<const struct chreAsyncResult *>(eventData);
-          if (event->errorCode == CHRE_ERROR_NONE) {
-            uint16_t type =
-                (event->requestType == CHRE_BLE_REQUEST_TYPE_START_SCAN)
-                    ? SCAN_STARTED
-                    : SCAN_STOPPED;
-            TestEventQueueSingleton::get()->pushEvent(type);
-          }
-          break;
-        }
-
-        case CHRE_EVENT_BLE_ADVERTISEMENT: {
-          TestEventQueueSingleton::get()->pushEvent(
-              CHRE_EVENT_BLE_ADVERTISEMENT);
-          break;
-        }
-
-        case CHRE_EVENT_TEST_EVENT: {
-          auto event = static_cast<const TestEvent *>(eventData);
-          switch (event->type) {
-            case START_SCAN: {
-              const bool success = chreBleStartScanAsync(
-                  CHRE_BLE_SCAN_MODE_AGGRESSIVE, 0, nullptr);
-              TestEventQueueSingleton::get()->pushEvent(START_SCAN, success);
-              break;
-            }
-
-            case STOP_SCAN: {
-              const bool success = chreBleStopScanAsync();
-              TestEventQueueSingleton::get()->pushEvent(STOP_SCAN, success);
-              break;
-            }
-          }
-          break;
-        }
-      }
-    }
-  };
-
-  uint64_t appId = loadNanoapp(MakeUnique<App>());
-
-  bool success;
-  sendEventToNanoapp(appId, START_SCAN);
-  waitForEvent(START_SCAN, &success);
-  EXPECT_TRUE(success);
-  waitForEvent(SCAN_STARTED);
-  ASSERT_TRUE(chrePalIsBleEnabled());
+  assertStartScanSuccess(appId);
   waitForEvent(CHRE_EVENT_BLE_ADVERTISEMENT);
-
-  sendEventToNanoapp(appId, STOP_SCAN);
-  waitForEvent(STOP_SCAN, &success);
-  EXPECT_TRUE(success);
-  waitForEvent(SCAN_STOPPED);
-  ASSERT_FALSE(chrePalIsBleEnabled());
+  assertStopScanSuccess(appId);
 }
 
 TEST_F(BleTest, BleStopScanOnUnload) {
-  CREATE_CHRE_TEST_EVENT(START_SCAN, 0);
-  CREATE_CHRE_TEST_EVENT(SCAN_STARTED, 1);
-
-  class App : public BleTestNanoapp {
-   public:
-    void handleEvent(uint32_t, uint16_t eventType,
-                     const void *eventData) override {
-      switch (eventType) {
-        case CHRE_EVENT_BLE_ASYNC_RESULT: {
-          auto *event = static_cast<const struct chreAsyncResult *>(eventData);
-          if (event->requestType == CHRE_BLE_REQUEST_TYPE_START_SCAN &&
-              event->errorCode == CHRE_ERROR_NONE) {
-            TestEventQueueSingleton::get()->pushEvent(SCAN_STARTED);
-          }
-          break;
-        }
-
-        case CHRE_EVENT_TEST_EVENT: {
-          auto event = static_cast<const TestEvent *>(eventData);
-          switch (event->type) {
-            case START_SCAN: {
-              const bool success = chreBleStartScanAsync(
-                  CHRE_BLE_SCAN_MODE_AGGRESSIVE, 0, nullptr);
-              TestEventQueueSingleton::get()->pushEvent(START_SCAN, success);
-              break;
-            }
-          }
-          break;
-        }
-      }
-    }
-  };
-
-  uint64_t appId = loadNanoapp(MakeUnique<App>());
-
-  bool success;
-  sendEventToNanoapp(appId, START_SCAN);
-  waitForEvent(START_SCAN, &success);
-  EXPECT_TRUE(success);
-  waitForEvent(SCAN_STARTED);
-  ASSERT_TRUE(chrePalIsBleEnabled());
-
+  uint64_t appId = loadNanoapp(MakeUnique<BleTestNanoapp>());
+  assertStartScanSuccess(appId);
   unloadNanoapp(appId);
   ASSERT_FALSE(chrePalIsBleEnabled());
 }
@@ -231,72 +269,14 @@ TEST_F(BleTest, BleStopScanOnUnload) {
  * will be enabled.
  */
 TEST_F(BleTest, BleStartTwiceScanTest) {
-  CREATE_CHRE_TEST_EVENT(START_SCAN, 0);
-  CREATE_CHRE_TEST_EVENT(SCAN_STARTED, 1);
-  CREATE_CHRE_TEST_EVENT(STOP_SCAN, 2);
-  CREATE_CHRE_TEST_EVENT(SCAN_STOPPED, 3);
+  uint64_t appId = loadNanoapp(MakeUnique<BleTestNanoapp>());
 
-  class App : public BleTestNanoapp {
-   public:
-    void handleEvent(uint32_t, uint16_t eventType, const void *eventData) {
-      switch (eventType) {
-        case CHRE_EVENT_BLE_ASYNC_RESULT: {
-          auto *event = static_cast<const struct chreAsyncResult *>(eventData);
-          if (event->errorCode == CHRE_ERROR_NONE) {
-            uint16_t type =
-                (event->requestType == CHRE_BLE_REQUEST_TYPE_START_SCAN)
-                    ? SCAN_STARTED
-                    : SCAN_STOPPED;
-            TestEventQueueSingleton::get()->pushEvent(type);
-          }
-          break;
-        }
+  assertStartScanSuccess(appId);  // First scan
+  assertStartScanSuccess(appId);  // Second scan
 
-        case CHRE_EVENT_BLE_ADVERTISEMENT: {
-          TestEventQueueSingleton::get()->pushEvent(
-              CHRE_EVENT_BLE_ADVERTISEMENT);
-          break;
-        }
-
-        case CHRE_EVENT_TEST_EVENT: {
-          auto event = static_cast<const TestEvent *>(eventData);
-          switch (event->type) {
-            case START_SCAN: {
-              const bool success = chreBleStartScanAsync(
-                  CHRE_BLE_SCAN_MODE_AGGRESSIVE, 0, nullptr);
-              TestEventQueueSingleton::get()->pushEvent(START_SCAN, success);
-              break;
-            }
-
-            case STOP_SCAN: {
-              const bool success = chreBleStopScanAsync();
-              TestEventQueueSingleton::get()->pushEvent(STOP_SCAN, success);
-              break;
-            }
-          }
-        }
-      }
-    }
-  };
-
-  uint64_t appId = loadNanoapp(MakeUnique<App>());
-  bool success;
-
-  sendEventToNanoapp(appId, START_SCAN);
-  waitForEvent(START_SCAN, &success);
-  EXPECT_TRUE(success);
-  waitForEvent(SCAN_STARTED);
-
-  sendEventToNanoapp(appId, START_SCAN);
-  waitForEvent(START_SCAN, &success);
-  EXPECT_TRUE(success);
-  waitForEvent(SCAN_STARTED);
   waitForEvent(CHRE_EVENT_BLE_ADVERTISEMENT);
 
-  sendEventToNanoapp(appId, STOP_SCAN);
-  waitForEvent(STOP_SCAN, &success);
-  EXPECT_TRUE(success);
-  waitForEvent(SCAN_STOPPED);
+  assertStopScanSuccess(appId);
 }
 
 /**
@@ -305,59 +285,9 @@ TEST_F(BleTest, BleStartTwiceScanTest) {
  * advertisment events because a scan was never started.
  */
 TEST_F(BleTest, BleStopTwiceScanTest) {
-  CREATE_CHRE_TEST_EVENT(SCAN_STARTED, 1);
-  CREATE_CHRE_TEST_EVENT(STOP_SCAN, 2);
-  CREATE_CHRE_TEST_EVENT(SCAN_STOPPED, 3);
-
-  class App : public BleTestNanoapp {
-   public:
-    void handleEvent(uint32_t, uint16_t eventType,
-                     const void *eventData) override {
-      switch (eventType) {
-        case CHRE_EVENT_BLE_ASYNC_RESULT: {
-          auto *event = static_cast<const struct chreAsyncResult *>(eventData);
-          if (event->errorCode == CHRE_ERROR_NONE) {
-            uint16_t type =
-                (event->requestType == CHRE_BLE_REQUEST_TYPE_START_SCAN)
-                    ? SCAN_STARTED
-                    : SCAN_STOPPED;
-            TestEventQueueSingleton::get()->pushEvent(type);
-          }
-          break;
-        }
-
-        case CHRE_EVENT_BLE_ADVERTISEMENT: {
-          FATAL_ERROR("No advertisement expected");
-          break;
-        }
-
-        case CHRE_EVENT_TEST_EVENT: {
-          auto event = static_cast<const TestEvent *>(eventData);
-          switch (event->type) {
-            case STOP_SCAN: {
-              const bool success = chreBleStopScanAsync();
-              TestEventQueueSingleton::get()->pushEvent(STOP_SCAN, success);
-              break;
-            }
-          }
-        }
-      }
-    }
-  };
-
-  uint64_t appId = loadNanoapp(MakeUnique<App>());
-
-  bool success;
-  sendEventToNanoapp(appId, STOP_SCAN);
-  waitForEvent(STOP_SCAN, &success);
-  EXPECT_TRUE(success);
-  waitForEvent(SCAN_STOPPED);
-
-  sendEventToNanoapp(appId, STOP_SCAN);
-  waitForEvent(STOP_SCAN, &success);
-  EXPECT_TRUE(success);
-
-  waitForEvent(SCAN_STOPPED);
+  uint64_t appId = loadNanoapp(MakeUnique<BleTestNanoapp>());
+  assertStopScanSuccess(appId);
+  assertStopScanSuccess(appId);
   unloadNanoapp(appId);
 }
 
@@ -369,66 +299,10 @@ TEST_F(BleTest, BleStopTwiceScanTest) {
  * 4) Verify things resume.
  */
 TEST_F(BleTest, BleSettingChangeTest) {
-  CREATE_CHRE_TEST_EVENT(START_SCAN, 0);
-  CREATE_CHRE_TEST_EVENT(SCAN_STARTED, 1);
-  CREATE_CHRE_TEST_EVENT(SCAN_STOPPED, 3);
+  uint64_t appId = loadNanoapp(MakeUnique<BleTestNanoapp>());
 
-  class App : public BleTestNanoapp {
-   public:
-    void handleEvent(uint32_t, uint16_t eventType,
-                     const void *eventData) override {
-      switch (eventType) {
-        case CHRE_EVENT_BLE_ASYNC_RESULT: {
-          auto *event = static_cast<const struct chreAsyncResult *>(eventData);
-          if (event->errorCode == CHRE_ERROR_NONE) {
-            uint16_t type =
-                (event->requestType == CHRE_BLE_REQUEST_TYPE_START_SCAN)
-                    ? SCAN_STARTED
-                    : SCAN_STOPPED;
-            TestEventQueueSingleton::get()->pushEvent(type);
-          }
-          break;
-        }
+  assertStartScanSuccess(appId);
 
-        case CHRE_EVENT_BLE_ADVERTISEMENT: {
-          TestEventQueueSingleton::get()->pushEvent(
-              CHRE_EVENT_BLE_ADVERTISEMENT);
-          break;
-        }
-
-        case CHRE_EVENT_SETTING_CHANGED_BLE_AVAILABLE: {
-          auto *event =
-              static_cast<const chreUserSettingChangedEvent *>(eventData);
-          bool enabled =
-              (event->settingState == CHRE_USER_SETTING_STATE_ENABLED);
-          TestEventQueueSingleton::get()->pushEvent(
-              CHRE_EVENT_SETTING_CHANGED_BLE_AVAILABLE, enabled);
-          break;
-        }
-
-        case CHRE_EVENT_TEST_EVENT: {
-          auto event = static_cast<const TestEvent *>(eventData);
-          switch (event->type) {
-            case START_SCAN: {
-              const bool success = chreBleStartScanAsync(
-                  CHRE_BLE_SCAN_MODE_AGGRESSIVE, 0, nullptr);
-              TestEventQueueSingleton::get()->pushEvent(START_SCAN, success);
-              break;
-            }
-          }
-        }
-      }
-    }
-  };
-
-  uint64_t appId = loadNanoapp(MakeUnique<App>());
-
-  bool success;
-  sendEventToNanoapp(appId, START_SCAN);
-  waitForEvent(START_SCAN, &success);
-  EXPECT_TRUE(success);
-
-  waitForEvent(SCAN_STARTED);
   waitForEvent(CHRE_EVENT_BLE_ADVERTISEMENT);
 
   EventLoopManagerSingleton::get()->getSettingManager().postSettingChange(
@@ -458,51 +332,10 @@ TEST_F(BleTest, BleSettingChangeTest) {
  * start a scan when the BLE setting is disabled.
  */
 TEST_F(BleTest, BleSettingDisabledStartScanTest) {
-  CREATE_CHRE_TEST_EVENT(START_SCAN, 0);
-
-  class App : public BleTestNanoapp {
-   public:
-    void handleEvent(uint32_t, uint16_t eventType,
-                     const void *eventData) override {
-      switch (eventType) {
-        case CHRE_EVENT_BLE_ASYNC_RESULT: {
-          auto *event = static_cast<const struct chreAsyncResult *>(eventData);
-          if (event->errorCode == CHRE_ERROR_FUNCTION_DISABLED) {
-            TestEventQueueSingleton::get()->pushEvent(
-                CHRE_EVENT_BLE_ASYNC_RESULT);
-          }
-          break;
-        }
-
-        case CHRE_EVENT_SETTING_CHANGED_BLE_AVAILABLE: {
-          auto *event =
-              static_cast<const chreUserSettingChangedEvent *>(eventData);
-          bool enabled =
-              (event->settingState == CHRE_USER_SETTING_STATE_ENABLED);
-          TestEventQueueSingleton::get()->pushEvent(
-              CHRE_EVENT_SETTING_CHANGED_BLE_AVAILABLE, enabled);
-          break;
-        }
-
-        case CHRE_EVENT_TEST_EVENT: {
-          auto event = static_cast<const TestEvent *>(eventData);
-          switch (event->type) {
-            case START_SCAN: {
-              const bool success = chreBleStartScanAsync(
-                  CHRE_BLE_SCAN_MODE_AGGRESSIVE, 0, nullptr);
-              TestEventQueueSingleton::get()->pushEvent(START_SCAN, success);
-              break;
-            }
-          }
-        }
-      }
-    }
-  };
-
-  uint64_t appId = loadNanoapp(MakeUnique<App>());
+  uint64_t appId = loadNanoapp(MakeUnique<BleTestNanoapp>());
 
   EventLoopManagerSingleton::get()->getSettingManager().postSettingChange(
-      Setting::BLE_AVAILABLE, false /* enable */);
+      Setting::BLE_AVAILABLE, /* enable= */ false);
 
   bool enabled;
   waitForEvent(CHRE_EVENT_SETTING_CHANGED_BLE_AVAILABLE, &enabled);
@@ -512,7 +345,9 @@ TEST_F(BleTest, BleSettingDisabledStartScanTest) {
   sendEventToNanoapp(appId, START_SCAN);
   waitForEvent(START_SCAN, &success);
   EXPECT_TRUE(success);
-  waitForEvent(CHRE_EVENT_BLE_ASYNC_RESULT);
+  chreAsyncResult result{};
+  waitForEvent(CHRE_EVENT_BLE_ASYNC_RESULT, &result);
+  EXPECT_EQ(result.errorCode, CHRE_ERROR_FUNCTION_DISABLED);
 }
 
 /**
@@ -520,126 +355,37 @@ TEST_F(BleTest, BleSettingDisabledStartScanTest) {
  * BLE scan while the BLE setting is disabled.
  */
 TEST_F(BleTest, BleSettingDisabledStopScanTest) {
-  CREATE_CHRE_TEST_EVENT(SCAN_STARTED, 1);
-  CREATE_CHRE_TEST_EVENT(STOP_SCAN, 2);
-  CREATE_CHRE_TEST_EVENT(SCAN_STOPPED, 3);
-
-  class App : public BleTestNanoapp {
-   public:
-    void handleEvent(uint32_t, uint16_t eventType,
-                     const void *eventData) override {
-      switch (eventType) {
-        case CHRE_EVENT_BLE_ASYNC_RESULT: {
-          auto *event = static_cast<const struct chreAsyncResult *>(eventData);
-          if (event->errorCode == CHRE_ERROR_NONE) {
-            uint16_t type =
-                (event->requestType == CHRE_BLE_REQUEST_TYPE_START_SCAN)
-                    ? SCAN_STARTED
-                    : SCAN_STOPPED;
-            TestEventQueueSingleton::get()->pushEvent(type);
-          }
-          break;
-        }
-
-        case CHRE_EVENT_SETTING_CHANGED_BLE_AVAILABLE: {
-          auto *event =
-              static_cast<const chreUserSettingChangedEvent *>(eventData);
-          bool enabled =
-              (event->settingState == CHRE_USER_SETTING_STATE_ENABLED);
-          TestEventQueueSingleton::get()->pushEvent(
-              CHRE_EVENT_SETTING_CHANGED_BLE_AVAILABLE, enabled);
-          break;
-        }
-
-        case CHRE_EVENT_TEST_EVENT: {
-          auto event = static_cast<const TestEvent *>(eventData);
-          switch (event->type) {
-            case STOP_SCAN: {
-              const bool success = chreBleStopScanAsync();
-              TestEventQueueSingleton::get()->pushEvent(STOP_SCAN, success);
-              break;
-            }
-          }
-        }
-      }
-    }
-  };
-
-  uint64_t appId = loadNanoapp(MakeUnique<App>());
+  uint64_t appId = loadNanoapp(MakeUnique<BleTestNanoapp>());
 
   EventLoopManagerSingleton::get()->getSettingManager().postSettingChange(
-      Setting::BLE_AVAILABLE, false /* enable */);
+      Setting::BLE_AVAILABLE, /* enable= */ false);
 
   bool enabled;
   waitForEvent(CHRE_EVENT_SETTING_CHANGED_BLE_AVAILABLE, &enabled);
   EXPECT_FALSE(enabled);
 
-  bool success;
-  sendEventToNanoapp(appId, STOP_SCAN);
-  waitForEvent(STOP_SCAN, &success);
-  EXPECT_TRUE(success);
-  waitForEvent(SCAN_STOPPED);
+  assertStopScanSuccess(appId);
 }
 
 /**
  * Test that a nanoapp can read RSSI successfully.
  */
 TEST_F(BleTest, BleReadRssi) {
-  constexpr uint16_t kConnectionHandle = 6;
-  constexpr uint32_t kCookie = 123;
-
-  CREATE_CHRE_TEST_EVENT(RSSI_REQUEST, 1);
-  CREATE_CHRE_TEST_EVENT(RSSI_REQUEST_SENT, 2);
-
-  class App : public BleTestNanoapp {
-    void handleEvent(uint32_t, uint16_t eventType, const void *eventData) {
-      switch (eventType) {
-        case CHRE_EVENT_BLE_RSSI_READ: {
-          auto *event =
-              static_cast<const struct chreBleReadRssiEvent *>(eventData);
-          if (event->result.errorCode == CHRE_ERROR_NONE) {
-            TestEventQueueSingleton::get()->pushEvent(CHRE_EVENT_BLE_RSSI_READ);
-          }
-          break;
-        }
-        case CHRE_EVENT_SETTING_CHANGED_BLE_AVAILABLE: {
-          auto *event =
-              static_cast<const chreUserSettingChangedEvent *>(eventData);
-          bool enabled =
-              (event->settingState == CHRE_USER_SETTING_STATE_ENABLED);
-          TestEventQueueSingleton::get()->pushEvent(
-              CHRE_EVENT_SETTING_CHANGED_BLE_AVAILABLE, enabled);
-          break;
-        }
-        case CHRE_EVENT_TEST_EVENT: {
-          auto event = static_cast<const TestEvent *>(eventData);
-          switch (event->type) {
-            case RSSI_REQUEST: {
-              const bool success =
-                  chreBleReadRssiAsync(kConnectionHandle, (void *)kCookie);
-              TestEventQueueSingleton::get()->pushEvent(RSSI_REQUEST_SENT,
-                                                        success);
-              break;
-            }
-          }
-        }
-      }
-    }
-  };
-
-  uint64_t appId = loadNanoapp(MakeUnique<App>());
+  uint64_t appId = loadNanoapp(MakeUnique<BleTestNanoapp>());
 
   EventLoopManagerSingleton::get()->getSettingManager().postSettingChange(
       Setting::BLE_AVAILABLE, true /* enabled */);
   bool enabled;
   waitForEvent(CHRE_EVENT_SETTING_CHANGED_BLE_AVAILABLE, &enabled);
-  EXPECT_TRUE(enabled);
+  ASSERT_TRUE(enabled);
 
   bool success;
   sendEventToNanoapp(appId, RSSI_REQUEST);
   waitForEvent(RSSI_REQUEST_SENT, &success);
-  EXPECT_TRUE(success);
-  waitForEvent(CHRE_EVENT_BLE_RSSI_READ);
+  ASSERT_TRUE(success);
+  chreBleReadRssiEvent event;
+  waitForEvent(CHRE_EVENT_BLE_RSSI_READ, &event);
+  ASSERT_EQ(event.result.errorCode, CHRE_ERROR_NONE);
 }
 
 /**
@@ -648,11 +394,6 @@ TEST_F(BleTest, BleReadRssi) {
  * calling start scan a second time.
  */
 TEST_F(BleTest, BleStartScanTwiceBeforeAsyncResponseTest) {
-  CREATE_CHRE_TEST_EVENT(START_SCAN, 0);
-  CREATE_CHRE_TEST_EVENT(SCAN_STARTED, 1);
-  CREATE_CHRE_TEST_EVENT(STOP_SCAN, 2);
-  CREATE_CHRE_TEST_EVENT(SCAN_STOPPED, 3);
-
   struct testData {
     void *cookie;
   };
@@ -736,13 +477,7 @@ TEST_F(BleTest, BleStartScanTwiceBeforeAsyncResponseTest) {
  * data and flush will send the batched data and then a flush complete event.
  */
 TEST_F(BleTest, BleFlush) {
-  CREATE_CHRE_TEST_EVENT(START_SCAN, 0);
-  CREATE_CHRE_TEST_EVENT(SCAN_STARTED, 1);
-  CREATE_CHRE_TEST_EVENT(STOP_SCAN, 2);
-  CREATE_CHRE_TEST_EVENT(SCAN_STOPPED, 3);
-  CREATE_CHRE_TEST_EVENT(CALL_FLUSH, 4);
-  CREATE_CHRE_TEST_EVENT(SAW_BLE_AD_AND_FLUSH_COMPLETE, 5);
-
+  CREATE_CHRE_TEST_EVENT(SAW_BLE_AD_AND_FLUSH_COMPLETE, 8);
   class App : public BleTestNanoapp {
    public:
     void handleEvent(uint32_t, uint16_t eventType,
@@ -862,6 +597,99 @@ TEST_F(BleTest, BleFlush) {
   sendEventToNanoapp(appId, CALL_FLUSH);
   waitForEvent(CALL_FLUSH, &success);
   ASSERT_FALSE(success);
+}
+
+TEST_F(BleTest, BleBatchCompleteViaDelayMs) {
+  uint32_t kReportDelayMs = 200;
+  uint64_t appId = loadNanoapp(MakeUnique<BleTestNanoapp>());
+
+  // Start a scan with batching.
+  assertStartScanSuccess(appId, kReportDelayMs);
+  waitForEvent(CHRE_EVENT_BLE_SCAN_STATUS_CHANGE);
+
+  // Batch complete must be called while flush is being called.
+  chreBatchCompleteEvent batchCompleteEvent{};
+  waitForEvent(CHRE_EVENT_BLE_BATCH_COMPLETE, &batchCompleteEvent);
+  ASSERT_EQ(batchCompleteEvent.eventType, CHRE_EVENT_BLE_ADVERTISEMENT);
+
+  // Stop a scan.
+  assertStopScanSuccess(appId);
+}
+
+TEST_F(BleTest, BleScanStatusChange) {
+  constexpr uint32_t kReportDelayMs = 123;
+
+  uint64_t appId = loadNanoapp(MakeUnique<BleTestNanoapp>());
+
+  // Initial status check. Note that the first status change event is sent
+  // before the nanoapp is loaded, so we check with getScanStatus.
+  chreBleScanStatus status;
+  sendEventToNanoapp(appId, GET_SCAN_STATUS);
+  waitForEvent(GET_SCAN_STATUS, &status);
+  EXPECT_FALSE(status.enabled);
+
+  // Start scan and check for status change
+  assertStartScanSuccess(appId, kReportDelayMs);
+  waitForEvent(CHRE_EVENT_BLE_SCAN_STATUS_CHANGE, &status);
+  EXPECT_TRUE(status.enabled);
+  EXPECT_EQ(status.reportDelayMs, kReportDelayMs);
+
+  // Stop scan and check for status change
+  assertStopScanSuccess(appId);
+  waitForEvent(CHRE_EVENT_BLE_SCAN_STATUS_CHANGE, &status);
+  EXPECT_FALSE(status.enabled);
+
+  unloadNanoapp(appId);
+}
+
+TEST_F(BleTest, BleScanStatusChangeWithSettingToggle) {
+  constexpr uint32_t kReportDelayMs = 456;
+
+  uint64_t appId = loadNanoapp(MakeUnique<BleTestNanoapp>());
+
+  assertStartScanSuccess(appId, kReportDelayMs);
+
+  chreBleScanStatus status;
+  waitForEvent(CHRE_EVENT_BLE_SCAN_STATUS_CHANGE, &status);
+  EXPECT_TRUE(status.enabled);
+  EXPECT_EQ(status.reportDelayMs, kReportDelayMs);
+
+  // Disable BLE setting
+  EventLoopManagerSingleton::get()->getSettingManager().postSettingChange(
+      Setting::BLE_AVAILABLE, false /* enabled */);
+  waitForEvent(CHRE_EVENT_BLE_SCAN_STATUS_CHANGE, &status);
+  EXPECT_FALSE(status.enabled);
+
+  // Enable BLE setting
+  EventLoopManagerSingleton::get()->getSettingManager().postSettingChange(
+      Setting::BLE_AVAILABLE, true /* enabled */);
+  waitForEvent(CHRE_EVENT_BLE_SCAN_STATUS_CHANGE, &status);
+  EXPECT_TRUE(status.enabled);
+  EXPECT_EQ(status.reportDelayMs, kReportDelayMs);
+
+  unloadNanoapp(appId);
+}
+
+TEST_F(BleTest, BleScanStatusChangeWithDelayMsUpdate) {
+  constexpr uint32_t kBaseReportDelayMs = 200;
+  constexpr uint32_t kFasterScanReportDelayMs = kBaseReportDelayMs - 100;
+  uint64_t appId = loadNanoapp(MakeUnique<BleTestNanoapp>());
+
+  assertStartScanSuccess(appId, kBaseReportDelayMs);
+
+  chreBleScanStatus status;
+  waitForEvent(CHRE_EVENT_BLE_SCAN_STATUS_CHANGE, &status);
+  EXPECT_TRUE(status.enabled);
+  EXPECT_EQ(status.reportDelayMs, kBaseReportDelayMs);
+
+  // request a more frequent scan
+  assertStartScanSuccess(appId, kFasterScanReportDelayMs);
+
+  waitForEvent(CHRE_EVENT_BLE_SCAN_STATUS_CHANGE, &status);
+  EXPECT_TRUE(status.enabled);
+  EXPECT_EQ(status.reportDelayMs, kFasterScanReportDelayMs);
+
+  unloadNanoapp(appId);
 }
 
 }  // namespace
