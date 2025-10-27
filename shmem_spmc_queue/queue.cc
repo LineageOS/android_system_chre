@@ -915,4 +915,112 @@ void DataNotifier::updatePeriod(internal::ProducerBase & /*producer*/,
   // TODO(b/445482700): Implement.
 }
 
+pw::Result<VariableDataProducer> VariableDataProducer::createLocal(
+    AllocatorRegion /*region*/, void * /*queue*/, size_t /*blockCapacity*/,
+    size_t /*maxBlockCount*/, size_t /*minBlockCount*/,
+    DataNotifier & /*dataNotifier*/, LocalNotifyArgs /*notifyArgs*/,
+    MemoryAccess * /*memAccess*/) {
+  // TODO(b/455007019): Implement
+  return pw::Status::Unimplemented();
+}
+
+pw::Result<VariableDataProducer> VariableDataProducer::createRemote(
+    AllocatorRegion /*region*/, void * /*queue*/, size_t /*blockCapacity*/,
+    size_t /*maxBlockCount*/, size_t /*minBlockCount*/,
+    DataNotifier & /*dataNotifier*/, RemoteNotifyArgs /*notifyArgs*/,
+    MemoryAccess * /*memAccess*/) {
+  // TODO(b/455007019): Implement
+  return pw::Status::Unimplemented();
+}
+
+VariableDataProducer::VariableDataProducer(
+    const AllocatorRegion &region, internal::Queue &queue,
+    pw::allocator::Layout blockLayout, size_t maxBlockCount,
+    size_t minBlockCount, DataNotifier &dataNotifier,
+    RemoteNotifyFn remoteNotifyFn, MemoryAccess *memAccess)
+    : ProducerBase(region, queue, blockLayout, maxBlockCount, minBlockCount,
+                   offsetof(internal::Block<std::byte>, data), dataNotifier,
+                   std::move(remoteNotifyFn), memAccess) {
+  // TODO(b/455007019): Implement
+}
+
+pw::Result<pw::ByteSpan> VariableDataProducer::reserve(size_t /*count*/) {
+  // TODO(b/455007019): Implement
+  return pw::Status::Unimplemented();
+}
+
+pw::Status VariableDataProducer::truncate(size_t /*count*/) {
+  // TODO(b/455007019): Implement
+  return pw::Status::Unimplemented();
+}
+
+pw::Status VariableDataProducer::commit() {
+  // TODO(b/455007019): Implement
+  return pw::Status::Unimplemented();
+}
+
+pw::Status VariableDataProducer::push(pw::ConstByteSpan /*element*/) {
+  // TODO(b/455007019): Implement
+  return pw::Status::Unimplemented();
+}
+
+pw::Result<VariableDataConsumer> VariableDataConsumer::createLocal(
+    Region /*region*/, uint32_t /*queueOffset*/, uint32_t /*descOffset*/,
+    LocalNotifyArgs /*notifyArgs*/, ConsumerPolicyBuilder & /*policyBuilder*/,
+    MemoryAccess * /*memAccess*/,
+    std::optional<size_t> /*overwriteResetOffset*/) {
+  // TODO(b/455007019): Implement
+  return pw::Status::Unimplemented();
+}
+
+pw::Result<VariableDataConsumer> VariableDataConsumer::createRemote(
+    Region /*region*/, uint32_t /*queueOffset*/, uint32_t /*descOffset*/,
+    RemoteNotifyArgs /*notifyArgs*/, ConsumerPolicyBuilder & /*policyBuilder*/,
+    MemoryAccess * /*memAccess*/,
+    std::optional<size_t> /*overwriteResetOffset*/) {
+  // TODO(b/455007019): Implement
+  return pw::Status::Unimplemented();
+}
+
+VariableDataConsumer::VariableDataConsumer(const Region &region,
+                                           internal::Queue &queue,
+                                           internal::ConsumerDesc &desc,
+                                           RemoteNotifyFn remoteNotifyFn,
+                                           MemoryAccess *memAccess)
+    : ConsumerBase(region, queue, desc, internal::blockLayout<std::byte>(0),
+                   offsetof(internal::Block<std::byte>, data),
+                   std::move(remoteNotifyFn), memAccess) {
+  // TODO(b/455007019): Implement
+}
+
+pw::Result<size_t> VariableDataConsumer::getHeadSize() {
+  // TODO(b/455007019): Implement
+  return pw::Status::Unimplemented();
+}
+
+pw::Result<pw::ConstByteSpan> VariableDataConsumer::peek() {
+  // TODO(b/455007019): Implement
+  return pw::Status::Unimplemented();
+}
+
+pw::Status VariableDataConsumer::release() {
+  // TODO(b/455007019): Implement
+  return pw::Status::Unimplemented();
+}
+
+pw::Status VariableDataConsumer::pop(pw::ByteSpan & /*buffer*/) {
+  // TODO(b/455007019): Implement
+  return pw::Status::Unimplemented();
+}
+
+pw::Status VariableDataConsumer::resync(size_t /*offset*/) {
+  // TODO(b/455007019): Implement
+  return pw::Status::Unimplemented();
+}
+
+pw::Result<size_t> VariableDataConsumer::size() {
+  // TODO(b/455007019): Implement
+  return pw::Status::Unimplemented();
+}
+
 }  // namespace chre::shmem_spmc_queue
