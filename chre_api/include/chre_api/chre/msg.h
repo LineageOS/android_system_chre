@@ -228,7 +228,7 @@ enum chreMsgEndpointReason {
  *
  * Notifications event regarding a generic endpoint.
  *
- * @see chreConfigureEndpointNotifications
+ * @see chreMsgConfigureEndpointReadyEvents
  * @since v1.11
  */
 #define CHRE_EVENT_MSG_ENDPOINT_READY CHRE_MSG_EVENT_ID(3)
@@ -238,7 +238,7 @@ enum chreMsgEndpointReason {
  *
  * Notifications event regarding a generic endpoint with a service.
  *
- * @see chreConfigureEndpointServiceNotifications
+ * @see chreMsgConfigureServiceReadyEvents
  * @since v1.11
  */
 #define CHRE_EVENT_MSG_SERVICE_READY CHRE_MSG_EVENT_ID(4)
