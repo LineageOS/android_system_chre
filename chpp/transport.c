@@ -1787,8 +1787,13 @@ static void chppWorkHandleTimeout(struct ChppTransportState *context) {
     }
   }
 
-  if (isResetting && (currentTimeNs - context->resetTimeNs >=
-                      CHPP_TRANSPORT_RESET_TIMEOUT_NS)) {
+  // (currentTimeNs < context->resetTimeNs) should never happen,
+  // but just in case, treat it as if
+  // (currentTimeNs >= context->resetTimeNs) &&
+  // (currentTimeNs - context->resetTimeNs >= CHPP_TRANSPORT_RESET_TIMEOUT_NS)
+  if (isResetting && ((currentTimeNs < context->resetTimeNs) ||
+                      (currentTimeNs - context->resetTimeNs >=
+                       CHPP_TRANSPORT_RESET_TIMEOUT_NS))) {
     if (context->resetCount + 1 < CHPP_TRANSPORT_MAX_RESET) {
       CHPP_LOGE("RESET-ACK timeout; retrying");
       context->resetCount++;
