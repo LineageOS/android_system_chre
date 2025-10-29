@@ -32,7 +32,9 @@ extern "C" {
 #endif
 
 /**
- * @return The current time in nanoseconds.
+ * @return A monotonically increasing timestamp in nanoseconds, with arbitrary
+ *         time base. If CHPP is implemented in the same processor as CHRE, this
+ *         function should provide the same values as chreGetTime().
  */
 static uint64_t chppGetCurrentTimeNs(void);
 
