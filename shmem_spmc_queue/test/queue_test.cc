@@ -17,8 +17,10 @@
 #include "chre/shmem_spmc_queue/queue.h"
 
 #include <optional>
+#include <utility>
 #include <vector>
 
+#include "chre/shmem_spmc_queue/internal/queue_internal.h"
 #include "chre/shmem_spmc_queue/queue_defs.h"
 #include "gtest/gtest.h"
 #include "pw_allocator/first_fit.h"
@@ -65,7 +67,7 @@ class QueueTest : public ::testing::Test {
   static constexpr size_t kBaseMaxBlockCount = 3;
 
   void SetUp() override {
-    mStorage.resize(1024);
+    mStorage.resize(2048);
     mAllocator.Init(pw::ByteSpan(mStorage.data(), mStorage.size()));
     auto maybeQueue = chre::shmem_spmc_queue::createQueue<int, kBlockCapacity>(
         mAllocator, /*local=*/true);
@@ -138,6 +140,14 @@ class QueueTest : public ::testing::Test {
     mProducer.emplace(std::move(*maybeProducer));
   }
 
+  void initRemoteConsumer(RemoteNotifyArgs notifyArgs,
+                          ConsumerPolicyBuilder &policyBuilder) {
+    auto maybeConsumer =
+        createRemoteConsumer(std::move(notifyArgs), policyBuilder);
+    ASSERT_EQ(maybeConsumer.status(), pw::OkStatus());
+    mConsumers.emplace_back(std::move(*maybeConsumer));
+  }
+
   void initLocalEndpoints(
       LocalNotifyArgs producerNotifyArgs,
       std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>>
@@ -151,17 +161,18 @@ class QueueTest : public ::testing::Test {
     }
   }
 
+  // Initializes the producer with endpoint id 0 and consumers with endpoint
+  // ids 1, 2, ...
   void initRemoteEndpoints(
-      RemoteNotifyArgs producerNotifyArgs,
+      RemoteNotifyFn producerNotifyFn,
       std::vector<std::pair<RemoteNotifyFn, ConsumerPolicyBuilder>>
           &consumerArgs) {
-    initRemoteProducer(std::move(producerNotifyArgs));
+    initRemoteProducer(
+        {.fn = std::move(producerNotifyFn), .id = {std::byte(0)}});
     for (auto i = 0; i < consumerArgs.size(); ++i) {
-      auto maybeConsumer = createRemoteConsumer(
+      initRemoteConsumer(
           {.fn = std::move(consumerArgs[i].first), .id = {std::byte(i + 1)}},
           consumerArgs[i].second);
-      ASSERT_EQ(maybeConsumer.status(), pw::OkStatus());
-      mConsumers.emplace_back(std::move(*maybeConsumer));
     }
   }
 
@@ -170,8 +181,6 @@ class QueueTest : public ::testing::Test {
   void *mQueue;
   DataNotifier mDataNotifier;
   std::optional<Producer<int>> mProducer;
-  // Ensure Consumers are destroyed before the Producer so that the Producer
-  // cleans them up on destruction.
   std::vector<Consumer<int>> mConsumers;
 };
 
@@ -228,9 +237,6 @@ TEST_F(QueueTest, ConsumerManagerAddConsumerSuccess) {
           /*excludeMask=*/0,
           [&](internal::ConsumerDesc &, uint32_t) { consumerCount++; });
   EXPECT_EQ(consumerCount, 1);
-
-  // Remove the consumer to avoid memory leaks.
-  EXPECT_EQ(consumerManager.removeConsumer(*result), pw::OkStatus());
 }
 
 TEST_F(QueueTest, ConsumerManagerAddConsumerFailureNoMemory) {
@@ -252,14 +258,68 @@ TEST_F(QueueTest, ConsumerManagerAddConsumerFailureNoMemory) {
   }
 }
 
-TEST_F(QueueTest, ConsumerManagerRemoveConsumerSuccess) {
+TEST_F(QueueTest, ConsumerManagerAddConsumerSeparateRegionSuccess) {
   initLocalProducer(kEmptyLocalNotifyArgs);
   auto consumerManager = mProducer->getConsumerManager();
 
-  pw::Result<uint32_t> result = consumerManager.addConsumer();
-  ASSERT_EQ(result.status(), pw::OkStatus());
+  // Ensure that no consumer descriptor can be allocated from the main region.
+  std::vector<void *> tmps;
+  void *tmp = nullptr;
+  do {
+    tmp = mAllocator.Allocate(
+        pw::allocator::Layout::Of<internal::ConsumerDesc>());
+    if (tmp) {
+      tmps.push_back(tmp);
+    }
+  } while (tmp);
+  // Make sure a consumer node can still be allocated.
+  if ((tmp = mAllocator.Allocate(
+           pw::allocator::Layout::Of<internal::ConsumerNode>()))) {
+    mAllocator.Deallocate(tmp);
+  } else {
+    mAllocator.Deallocate(tmps.back());
+    tmps.pop_back();
+  }
 
-  EXPECT_EQ(consumerManager.removeConsumer(*result), pw::OkStatus());
+  std::vector<std::byte> storage(1024);
+  pw::allocator::FirstFitAllocator<> allocator(storage);
+  AllocatorRegion region = {
+      {.base = reinterpret_cast<uintptr_t>(storage.data()),
+       .size = static_cast<uint32_t>(storage.size())},
+      .allocator = &allocator};
+  pw::Result<uint32_t> result = consumerManager.addConsumer(&region);
+  EXPECT_EQ(result.status(), pw::OkStatus());
+  EXPECT_NE(*result, internal::kOffsetInvalid);
+
+  int consumerCount = 0;
+  ProducerPeer(*mProducer)
+      .forAllConsumers(
+          /*excludeMask=*/0,
+          [&](internal::ConsumerDesc &, uint32_t) { consumerCount++; });
+  EXPECT_EQ(consumerCount, 1);
+
+  // Destroy the producer to ensure that the consumer is deallocated before the
+  // allocator is destroyed.
+  mProducer.reset();
+
+  // Deallocate the allocated memory.
+  for (auto *tmp : tmps) {
+    mAllocator.Deallocate(tmp);
+  }
+}
+
+TEST_F(QueueTest, ConsumerManagerPruneConsumersSuccess) {
+  initRemoteProducer({.fn = getEmptyRemoteNotifyFn(), .id = {std::byte(0)}});
+  std::array<std::byte, 16> consumerId = {std::byte(1)};
+  initRemoteConsumer({.fn = getEmptyRemoteNotifyFn(), .id = consumerId},
+                     ConsumerPolicyBuilder().setOverwritable());
+  auto consumerManager = mProducer->getConsumerManager();
+
+  EXPECT_EQ(consumerManager.pruneConsumers([&](pw::ConstByteSpan remoteId) {
+    return std::memcmp(remoteId.data(), consumerId.data(), consumerId.size()) ==
+           0;
+  }),
+            pw::OkStatus());
 
   int consumerCount = 0;
   ProducerPeer(*mProducer)
@@ -269,52 +329,44 @@ TEST_F(QueueTest, ConsumerManagerRemoveConsumerSuccess) {
   EXPECT_EQ(consumerCount, 0);
 }
 
-TEST_F(QueueTest, ConsumerManagerRemoveConsumerMultiple) {
-  initLocalProducer(kEmptyLocalNotifyArgs);
+TEST_F(QueueTest, ConsumerManagerPruneConsumersFailureNotRemote) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
   auto consumerManager = mProducer->getConsumerManager();
 
-  pw::Result<uint32_t> result1 = consumerManager.addConsumer();
-  ASSERT_EQ(result1.status(), pw::OkStatus());
-  pw::Result<uint32_t> result2 = consumerManager.addConsumer();
-  ASSERT_EQ(result2.status(), pw::OkStatus());
+  EXPECT_EQ(consumerManager.pruneConsumers(
+                [&](pw::ConstByteSpan /*remoteId*/) { return false; }),
+            pw::Status::FailedPrecondition());
+}
 
-  EXPECT_EQ(consumerManager.removeConsumer(*result1), pw::OkStatus());
+TEST_F(QueueTest, ConsumerManagerPruneConsumersSuccessMultiple) {
+  std::vector<std::pair<RemoteNotifyFn, ConsumerPolicyBuilder>> consumerArgs;
+  for (int i = 0; i < 3; ++i) {
+    consumerArgs.emplace_back(getEmptyRemoteNotifyFn(),
+                              ConsumerPolicyBuilder().setOverwritable());
+  }
+  initRemoteEndpoints(getEmptyRemoteNotifyFn(), consumerArgs);
+  auto consumerManager = mProducer->getConsumerManager();
+
+  // Prune the consumers with id 1 and 3.
+  std::array<std::byte, 16> consumerId = {std::byte(2)};
+  EXPECT_EQ(consumerManager.pruneConsumers([&](pw::ConstByteSpan remoteId) {
+    return std::memcmp(remoteId.data(), consumerId.data(), consumerId.size()) !=
+           0;
+  }),
+            pw::OkStatus());
 
   int consumerCount = 0;
-  uint32_t foundOffset = 0;
+  bool foundConsumer2 = false;
   ProducerPeer(*mProducer)
       .forAllConsumers(
           /*excludeMask=*/0, [&](internal::ConsumerDesc &desc, uint32_t) {
             consumerCount++;
-            foundOffset =
-                internal::toOffset(reinterpret_cast<uintptr_t>(base()), &desc);
+            foundConsumer2 = desc.idOrNotifyFn.remoteId == consumerId;
           });
   EXPECT_EQ(consumerCount, 1);
-  EXPECT_EQ(foundOffset, *result2);
-
-  EXPECT_EQ(consumerManager.removeConsumer(*result2), pw::OkStatus());
-
-  consumerCount = 0;
-  ProducerPeer(*mProducer)
-      .forAllConsumers(
-          /*excludeMask=*/0,
-          [&](internal::ConsumerDesc &, uint32_t) { consumerCount++; });
-  EXPECT_EQ(consumerCount, 0);
-}
-
-TEST_F(QueueTest, ConsumerManagerRemoveConsumerFailureInvalidOffset) {
-  initLocalProducer(kEmptyLocalNotifyArgs);
-  auto consumerManager = mProducer->getConsumerManager();
-
-  EXPECT_EQ(consumerManager.removeConsumer(internal::kOffsetInvalid),
-            pw::Status::InvalidArgument());
-}
-
-TEST_F(QueueTest, ConsumerManagerRemoveConsumerFailureNotFound) {
-  initLocalProducer(kEmptyLocalNotifyArgs);
-  auto consumerManager = mProducer->getConsumerManager();
-
-  EXPECT_EQ(consumerManager.removeConsumer(12345), pw::Status::NotFound());
+  EXPECT_TRUE(foundConsumer2);
 }
 
 TEST_F(QueueTest, ConsumerManagerForAllConsumersExcludeMask) {
@@ -330,9 +382,6 @@ TEST_F(QueueTest, ConsumerManagerForAllConsumersExcludeMask) {
       .forAllConsumers(
           mask, [&](internal::ConsumerDesc &, uint32_t) { consumerCount++; });
   EXPECT_EQ(consumerCount, 0);
-
-  // Remove the consumer to avoid memory leaks.
-  EXPECT_EQ(consumerManager.removeConsumer(*result), pw::OkStatus());
 }
 
 TEST_F(QueueTest, ConsumerCreateLocalAndDestroy) {
@@ -728,6 +777,19 @@ TEST_F(QueueTest, ConsumerResyncFailsOffsetTooLarge) {
   initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
 
   EXPECT_EQ(mConsumers[0].resync(1), pw::Status::OutOfRange());
+}
+
+TEST_F(QueueTest, ProducerStop) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+  auto consumerManager = mProducer->getConsumerManager();
+
+  EXPECT_EQ(consumerManager.getNumConsumers(), 1);
+  mProducer->stop();
+  EXPECT_EQ(consumerManager.getNumConsumers(), 1);
+  EXPECT_EQ(mConsumers[0].checkState(), pw::Status::Aborted());
+  EXPECT_EQ(consumerManager.getNumConsumers(), 0);
 }
 
 }  // namespace

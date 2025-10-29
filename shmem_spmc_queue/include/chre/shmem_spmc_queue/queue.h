@@ -27,6 +27,7 @@
 #include "pw_allocator/allocator.h"
 #include "pw_allocator/layout.h"
 #include "pw_bytes/span.h"
+#include "pw_function/function.h"
 #include "pw_result/result.h"
 #include "pw_span/span.h"
 #include "pw_status/status.h"
@@ -107,25 +108,43 @@ class ConsumerManager {
   /**
    * Allocates and tracks a new consumer descriptor.
    *
+   * @param region [optional] If provided, used to allocate the descriptor. It
+   * must outlive the consumer. If not provided, the producer's region is used.
    * @return The offset of the consumer descriptor in shared memory. Used to
    * initialize a Consumer instance.
    */
-  pw::Result<uint32_t> addConsumer() {
-    return mProducer->addConsumer();
+  pw::Result<uint32_t> addConsumer(const AllocatorRegion *region = nullptr) {
+    return mProducer->addConsumer(region ? *region : mProducer->mRegion);
   }
 
   /**
-   * Removes the descriptor for the consumer at given offset.
+   * Removes all remote consumers matched by the given predicate.
    *
-   * This is used to remove a consumer on a process/core that has crashed. When
-   * a Consumer removes itself programmatically, the Producer identifies this
-   * through an in-band mechanism and removes the state for that Consumer.
+   * This should only be used to clean up consumers on endpoints that have
+   * either disconnected or crashed. Marks the consumer as no longer valid.
    *
-   * @param offset The offset of the consumer descriptor in shared memory.
+   * When a consumer is programmatically removed, e.g. ~ConsumerBase(), the
+   * ProducerBase will automatically detect that and clean up the descriptor
+   * without using this method.
+   *
+   * @param match A predicate that returns true iff the consumer should be
+   * removed.
    * @return pw::OkStatus() on success.
    */
-  pw::Status removeConsumer(uint32_t offset) {
-    return mProducer->removeConsumer(offset);
+  pw::Status pruneConsumers(
+      const pw::Function<bool(pw::ConstByteSpan remoteId)> &match) {
+    return mProducer->pruneConsumers(match);
+  }
+
+  /**
+   * @return the number of active consumers on the queue.
+   *
+   * Prunes any consumers that have set the ConsumerFlags::kFinished flag. This
+   * can be used after calling Producer::stop() to check for outstanding
+   * consumers.
+   */
+  size_t getNumConsumers() {
+    return mProducer->getNumConsumers();
   }
 
  protected:
@@ -265,7 +284,7 @@ class Producer : protected internal::ProducerBase {
     if (notifyArgs.fn == nullptr) {
       return pw::Status::InvalidArgument();
     }
-    auto queuePtr = static_cast<internal::Queue *>(queue);
+    auto queuePtr = static_cast<internal::QueuePrivate *>(queue);
     auto blockLayout = internal::blockLayout<ElementType>(blockCapacity);
     PW_TRY(Base::initialize(region, queuePtr, blockLayout,
                             blockCapacity * sizeof(ElementType), maxBlockCount,
@@ -289,7 +308,7 @@ class Producer : protected internal::ProducerBase {
     if (!notifyArgs.fn) {
       return pw::Status::InvalidArgument();
     }
-    auto queuePtr = static_cast<internal::Queue *>(queue);
+    auto queuePtr = static_cast<internal::QueuePrivate *>(queue);
     auto blockLayout = internal::blockLayout<ElementType>(blockCapacity);
     PW_TRY(Base::initialize(region, queuePtr, blockLayout,
                             blockCapacity * sizeof(ElementType), maxBlockCount,
@@ -314,6 +333,19 @@ class Producer : protected internal::ProducerBase {
   ConsumerManager getConsumerManager() {
     return ConsumerManager(*this);
   }
+
+  /**
+   * Disables queue API calls on this instance and notifies all consumers.
+   *
+   * The user should call this method before destroying this instance if they
+   * want to wait for all consumers to signal that they are no longer accessing
+   * their consumer descriptors before destroying the producer. The number of
+   * outstanding consumers can be retrieved with
+   * ConsumerManager::getNumConsumers().
+   *
+   * See {@link #internal::ProducerBase::stop()} for more details.
+   */
+  using Base::stop;
 
   // See {@link internal::ProducerBase} for documentation.
   using Base::getBlockCount;
@@ -403,7 +435,7 @@ class Producer : protected internal::ProducerBase {
  protected:
   friend class ::chre::shmem_spmc_queue::ProducerPeer<ElementType>;
 
-  Producer(const AllocatorRegion &region, internal::Queue &queue,
+  Producer(const AllocatorRegion &region, internal::QueuePrivate &queue,
            pw::allocator::Layout blockLayout, size_t maxBlockCount,
            size_t minBlockCount, DataNotifier &dataNotifier,
            RemoteNotifyFn remoteNotifyFn, MemoryAccess *memAccess)
@@ -696,7 +728,8 @@ class VariableDataProducer : protected internal::ProducerBase {
   pw::Status push(pw::ConstByteSpan element);
 
  protected:
-  VariableDataProducer(const AllocatorRegion &region, internal::Queue &queue,
+  VariableDataProducer(const AllocatorRegion &region,
+                       internal::QueuePrivate &queue,
                        pw::allocator::Layout blockLayout, size_t maxBlockCount,
                        size_t minBlockCount, DataNotifier &dataNotifier,
                        RemoteNotifyFn remoteNotifyFn, MemoryAccess *memAccess);
@@ -827,7 +860,7 @@ class VariableDataConsumer : protected internal::ConsumerBase {
 
 /** Layout used to allocate queue metadata in shared memory. */
 pw::allocator::Layout queueLayout() {
-  return pw::allocator::Layout::Of<internal::Queue>();
+  return pw::allocator::Layout::Of<internal::QueuePrivate>();
 }
 
 /**
@@ -837,18 +870,14 @@ pw::allocator::Layout queueLayout() {
  * @tparam kBlockCapacity The capacity of each Block in elements.
  * @param queue Pointer to queue metadata in shared memory.
  * @param local True iff the queue is local.
- * @param numStaticConsumers [optional] The number of static consumers.
  */
 template <typename ElementType, size_t kBlockCapacity>
-void initQueue(void *queue, bool local, size_t numStaticConsumers = 0) {
-  auto &queueRef = *static_cast<internal::Queue *>(queue);
+void initQueue(void *queue, bool local) {
+  auto &queueRef = *static_cast<internal::QueuePrivate *>(queue);
   queueRef.producerOffset = internal::kOffsetInvalid;
-  queueRef.dynamicConsumersHeadOffset = internal::kOffsetInvalid;
   queueRef.blockCapacity = kBlockCapacity * sizeof(ElementType);
   queueRef.elementAlignment = alignof(ElementType);
   queueRef.localNotify = local;
-  queueRef.numStaticConsumers = numStaticConsumers;
-  // TODO(b/445479433): Initialize static consumer descriptors.
 }
 
 /**
@@ -858,14 +887,12 @@ void initQueue(void *queue, bool local, size_t numStaticConsumers = 0) {
  * @tparam kBlockCapacity The capacity of each Block in elements.
  * @param allocator Allocator used for allocating the queue metadata.
  * @param local True iff the queue is local.
- * @param numStaticConsumers [optional] The number of static consumers.
  * @return On success, a pointer to the new queue metadata.
  */
 template <typename ElementType, size_t kBlockCapacity>
-pw::Result<void *> createQueue(pw::Allocator &allocator, bool local,
-                               size_t numStaticConsumers = 0) {
-  if (auto *queue = allocator.Allocate(queueLayout()); queue) {
-    initQueue<ElementType, kBlockCapacity>(queue, local, numStaticConsumers);
+pw::Result<void *> createQueue(pw::Allocator &allocator, bool local) {
+  if (auto *queue = allocator.New<internal::QueuePrivate>(); queue) {
+    initQueue<ElementType, kBlockCapacity>(queue, local);
     return queue;
   }
   return pw::Status::ResourceExhausted();

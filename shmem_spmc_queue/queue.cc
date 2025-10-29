@@ -16,11 +16,21 @@
 
 #include "chre/shmem_spmc_queue/queue.h"
 
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <utility>
+
 #include "chre/shmem_spmc_queue/internal/queue_internal.h"
 #include "chre/shmem_spmc_queue/queue_defs.h"
 #include "pw_allocator/layout.h"
 #include "pw_assert/assert.h"
+#include "pw_bytes/span.h"
+#include "pw_function/function.h"
+#include "pw_result/result.h"
 #include "pw_status/status.h"
+#include "pw_status/try.h"
 
 namespace chre::shmem_spmc_queue {
 namespace internal {
@@ -193,17 +203,15 @@ constexpr uint32_t ringDiff(uint32_t end, uint32_t begin, uint32_t size) {
  * Initializes a ProducerDesc.
  *
  * @param desc The producer descriptor to initialize.
- * @param idOrNotifyFn Id for remote notification or local callback.
  * @param writeIndex The current write index.
  * @param correction The correction to the write index for calculating the index
  * within Block::data.
  * @param tailBlock The tail block.
  * @param shmemBase The base address of the shared memory.
  */
-void initProducerDesc(ProducerDesc &desc, IdOrNotifyFn idOrNotifyFn,
-                      uint32_t writeIndex, uint32_t correction,
-                      BlockHeader *tailBlock, uintptr_t shmemBase) {
-  desc.idOrNotifyFn = idOrNotifyFn;
+void initProducerDesc(ProducerDesc &desc, uint32_t writeIndex,
+                      uint32_t correction, BlockHeader *tailBlock,
+                      uintptr_t shmemBase) {
   desc.writeIndex.store(writeIndex);
   desc.indexCorrection = correction;
   desc.tailBlockOffset = toOffset(shmemBase, tailBlock);
@@ -296,7 +304,8 @@ uint32_t indexCorrectionIncrement(BlockHeader *curr, BlockHeader *next,
 
 }  // namespace
 
-pw::Status ProducerBase::initialize(const AllocatorRegion &region, Queue *queue,
+pw::Status ProducerBase::initialize(const AllocatorRegion &region,
+                                    QueuePrivate *queue,
                                     pw::allocator::Layout layout,
                                     uint32_t blockCapacity,
                                     size_t maxBlockCount, size_t minBlockCount,
@@ -309,14 +318,15 @@ pw::Status ProducerBase::initialize(const AllocatorRegion &region, Queue *queue,
       auto *tailBlock,
       allocateBlockRing(region, layout, blockCapacity, minBlockCount));
   auto &desc = tailBlock->producerDesc;
-  initProducerDesc(desc, idOrNotifyFn, /*writeIndex=*/0, /*correction=*/0,
-                   tailBlock, region.base);
+  initProducerDesc(desc, /*writeIndex=*/0, /*correction=*/0, tailBlock,
+                   region.base);
+  queue->idOrNotifyFn = idOrNotifyFn;
   queue->blockListEpoch.store(getBlockListEpoch(minBlockCount, /*epoch=*/0));
   queue->producerOffset = toOffset(region.base, &desc);
   return pw::OkStatus();
 }
 
-ProducerBase::ProducerBase(const AllocatorRegion &region, Queue &queue,
+ProducerBase::ProducerBase(const AllocatorRegion &region, QueuePrivate &queue,
                            pw::allocator::Layout blockLayout,
                            size_t /*maxBlockCount*/, size_t minBlockCount,
                            uint32_t dataOffset, DataNotifier &dataNotifier,
@@ -336,20 +346,40 @@ ProducerBase::ProducerBase(const AllocatorRegion &region, Queue &queue,
       mBlockCount(minBlockCount) {}
 
 ProducerBase::~ProducerBase() {
-  if (!mActive) {
+  if (mState == State::kMovedFrom) {
     return;
   }
-  mActive = false;
-  mQueue->producerOffset = kOffsetInvalid;
-  forAllConsumers(
-      /*excludeMask=*/0,
-      [this](internal::ConsumerDesc &desc, uint32_t producerFlags) {
-        setConsumerFlag(desc, producerFlags, ProducerFlags::kReset,
-                        /*forceNotify=*/true);
-      });
+  if (mState == State::kActive) {
+    stop();
+  }
+  // Deallocates all consumer descriptors. Consumers will have been notified in
+  // stop() that the producer is torn down. The user may wait for the consumers
+  // to signal that they have torn down before destroying the producer.
+  // Otherwise, this does any remaining cleanup. Note that the memory remains on
+  // the consumer side.
+  for (auto node = mQueue->consumerList.begin();
+       node != mQueue->consumerList.end();) {
+    eraseConsumerNode(node);
+  }
+  // Release element storage back to the region allocator.
   deallocateBlockRing(
       mRegion, kBlockLayout,
       fromOffset<BlockHeader>(mRegion, mDesc->tailBlockOffset, kBlockLayout));
+}
+
+void ProducerBase::stop() {
+  if (mState != State::kActive) {
+    return;
+  }
+  mState = State::kStopped;
+  mQueue->producerOffset.store(kOffsetInvalid);
+  // Mark the producer as torn down and notify all consumers.
+  forAllConsumers(
+      /*excludeMask=*/0,
+      [this](internal::ConsumerDesc &desc, uint32_t producerFlags) {
+        setConsumerFlag(desc, producerFlags, ProducerFlags::kFinished,
+                        /*forceNotify=*/true);
+      });
 }
 
 pw::Status ProducerBase::setMaxBlockCountTarget(size_t /*count*/,
@@ -378,6 +408,9 @@ pw::Result<pw::ByteSpan> ProducerBase::reserve(size_t count) {
 }
 
 pw::Status ProducerBase::commit(size_t count) {
+  if (mState != State::kActive) {
+    return pw::Status::FailedPrecondition();
+  }
   if (count > mReserved) {
     return pw::Status::OutOfRange();
   }
@@ -388,6 +421,9 @@ pw::Status ProducerBase::commit(size_t count) {
 
 pw::Result<size_t> ProducerBase::push(pw::ConstByteSpan data,
                                       bool allOrNothing) {
+  if (mState != State::kActive) {
+    return pw::Status::FailedPrecondition();
+  }
   if (mReserved > 0) {  // push() is not allowed while a reservation is active.
     return pw::Status::FailedPrecondition();
   }
@@ -397,7 +433,7 @@ pw::Result<size_t> ProducerBase::push(pw::ConstByteSpan data,
 }
 
 size_t ProducerBase::size(bool includeReserved) {
-  if (!mActive) {
+  if (mState != State::kActive) {
     return 0;
   }
   // Recalculate the available space to capture updates from consumers in shared
@@ -410,8 +446,8 @@ size_t ProducerBase::size(bool includeReserved) {
 
 pw::Result<size_t> ProducerBase::checkAvailable(size_t count,
                                                 bool allOrNothing) {
-  if (!mActive) {
-    return pw::Status::NotFound();
+  if (mState != State::kActive) {
+    return pw::Status::FailedPrecondition();
   }
   // TODO(b/448384247): This should check against the maximum capacity.
   if (count > capacity()) {
@@ -492,8 +528,7 @@ void ProducerBase::updateWriteIndex(BlockHeader *tailBlock, uint32_t writeIndex,
   } else {
     // Initialize the descriptor in the new tail block, then link it.
     auto &newDesc = tailBlock->producerDesc;
-    initProducerDesc(newDesc, mDesc->idOrNotifyFn, writeIndex, correction,
-                     tailBlock, mRegion.base);
+    initProducerDesc(newDesc, writeIndex, correction, tailBlock, mRegion.base);
     mQueue->producerOffset.store(toOffset(mRegion.base, &newDesc));
     mDesc = &newDesc;
   }
@@ -541,7 +576,9 @@ void ProducerBase::setConsumerFlag(ConsumerDesc &desc, uint32_t current,
                                    ProducerFlags flag, bool forceNotify) {
   uint32_t flagCounter = getFlagsCounter(current) + kFlagCountInc;
   desc.producerFlags.store(static_cast<uint32_t>(flag) | flagCounter);
-  if (forceNotify ||
+  // NOTE: If forceNotify, still check that the consumer has been initialized.
+  if ((forceNotify &&
+       getProducerFlags(current) != ProducerFlags::kPendingInit) ||
       notificationPolicy(desc.policy.load()) != NotificationPolicy::kNever) {
     notifyConsumer(desc);
   }
@@ -551,45 +588,67 @@ void ProducerBase::notifyConsumer(ConsumerDesc &desc) {
   notify(desc.idOrNotifyFn, mRemoteNotifyFn);
 }
 
-pw::Result<uint32_t> ProducerBase::addConsumer() {
-  auto descRaw = mRegion.allocator->Allocate(
-      pw::allocator::Layout::Of<internal::ConsumerDesc>());
-  if (!descRaw) {
+pw::Result<uint32_t> ProducerBase::addConsumer(const AllocatorRegion &region) {
+  if (mState != State::kActive) {
+    return pw::Status::FailedPrecondition();
+  }
+  // Attempt to allocate a ConsumerDesc in the given region.
+  auto *desc = region.allocator->New<internal::ConsumerDesc>();
+  if (!desc) {
     return pw::Status::ResourceExhausted();
   }
-  std::memset(descRaw, 0, sizeof(internal::ConsumerDesc));
-  auto &desc = *static_cast<internal::ConsumerDesc *>(descRaw);
-  desc.consumerFlags.store(
+  // Attempt to allocate a ConsumerNode to track the descriptor from the queue's
+  // primary region.
+  auto *node = mRegion.allocator->New<internal::ConsumerNode>(region, desc);
+  if (!node) {
+    region.allocator->Deallocate(desc);
+    return pw::Status::ResourceExhausted();
+  }
+  // Initialize the descriptor.
+  std::memset(desc, 0, sizeof(internal::ConsumerDesc));
+  desc->consumerFlags.store(
       static_cast<uint32_t>(internal::ConsumerFlags::kFlagsCleared));
-  desc.producerFlags.store(
+  desc->producerFlags.store(
       static_cast<uint32_t>(internal::ProducerFlags::kPendingInit) |
       internal::kFlagCountInc);
-  desc.nextConsumerOffset =
-      mQueue->dynamicConsumersHeadOffset != internal::kOffsetInvalid
-          ? mQueue->dynamicConsumersHeadOffset
-          : internal::kOffsetInvalid;
-  mQueue->dynamicConsumersHeadOffset = internal::toOffset(mRegion.base, &desc);
-  return mQueue->dynamicConsumersHeadOffset;
+  // Link the node to the list of consumers.
+  mQueue->consumerList.push_back(*node);
+  // Return the offset of the descriptor in the region it was allocated from.
+  return toOffset(region.base, desc);
 }
 
-pw::Status ProducerBase::removeConsumer(uint32_t offset) {
-  if (offset == internal::kOffsetInvalid) {
-    return pw::Status::InvalidArgument();
+pw::Status ProducerBase::pruneConsumers(
+    const pw::Function<bool(pw::ConstByteSpan remoteId)> &match) {
+  if (mState == State::kMovedFrom || !mRemoteNotifyFn) {
+    return pw::Status::FailedPrecondition();
   }
-  uint32_t *descOffsetPtr = &mQueue->dynamicConsumersHeadOffset;
-  auto *desc =
-      internal::fromOffset<internal::ConsumerDesc>(mRegion, *descOffsetPtr);
-  while (desc) {
-    if (*descOffsetPtr == offset) {
-      *descOffsetPtr = desc->nextConsumerOffset;
-      mRegion.allocator->Deallocate(desc);
-      return pw::OkStatus();
+  for (auto node = mQueue->consumerList.begin();
+       node != mQueue->consumerList.end();) {
+    auto *desc = node->desc;
+    if (match(desc->idOrNotifyFn.remoteId)) {
+      // If the consumer is matched, mark it disconnected and remove it.
+      setConsumerFlag(*desc, desc->producerFlags.load(),
+                      ProducerFlags::kDisconnected);
+      eraseConsumerNode(node);
+    } else {
+      ++node;
     }
-    descOffsetPtr = &desc->nextConsumerOffset;
-    desc =
-        internal::fromOffset<internal::ConsumerDesc>(mRegion, *descOffsetPtr);
   }
-  return pw::Status::NotFound();
+  return pw::OkStatus();
+}
+
+size_t ProducerBase::getNumConsumers() {
+  if (mState == State::kMovedFrom) {
+    return 0;
+  }
+  size_t count = 0;
+  // Rather than just returning mQueue->consumerList.size(), iterate over all
+  // consumers so that consumers that have set ConsumerFlags::kFinished are
+  // pruned and not counted.
+  forAllConsumers(
+      /*excludeMask=*/0,
+      [&count](internal::ConsumerDesc &, uint32_t) { ++count; });
+  return count;
 }
 
 bool ProducerBase::isFlagInMask(internal::ConsumerDesc &desc,
@@ -609,6 +668,18 @@ bool ProducerBase::isFlagInMask(internal::ConsumerDesc &desc,
   }
   // Return true if the current flag value is in the mask.
   return !!(static_cast<uint16_t>(producerFlags) & producerMask);
+}
+
+void ProducerBase::eraseConsumerNode(
+    decltype(QueuePrivate::consumerList)::iterator &node) {
+  // Remove the node from all containers.
+  auto *nodePtr = &*node;
+  node = mQueue->consumerList.erase(node);
+  // TODO(b/449573761): Remove the consumer from any other containers it
+  // may be present in.
+  // Delete the descriptor and node.
+  nodePtr->region.allocator->Delete(nodePtr->desc);
+  mRegion.allocator->Delete(nodePtr);
 }
 
 pw::Result<std::pair<Queue *, ConsumerDesc *>> ConsumerBase::checkArgs(
@@ -657,10 +728,7 @@ ConsumerBase::~ConsumerBase() {
   if (!mActive) {
     return;
   }
-  mDesc->consumerFlags.store(static_cast<uint32_t>(ConsumerFlags::kFinished));
-  if (auto maybeProducerDesc = getProducerDesc(); maybeProducerDesc.ok()) {
-    notifyProducer(*maybeProducerDesc.value());
-  }
+  disableAndNotify();
 }
 
 pw::Status ConsumerBase::updatePolicy(ConsumerPolicyBuilder &policyBuilder) {
@@ -681,11 +749,15 @@ pw::Status ConsumerBase::checkState() {
   auto consumerFlags = mDesc->consumerFlags.load();
   auto flagValue = getAndCheckProducerFlags(mCurrentFlags, consumerFlags);
   switch (flagValue) {
+    case ProducerFlags::kFinished:
+      // Notify the producer that this consumer can be cleaned up.
+      disableAndNotify();
+      return pw::Status::Aborted();
     case ProducerFlags::kPendingInit:
       // This should not happen and may indicate that this instance has outlived
       // the producer that it was registered with. Handle it accordingly.
       [[fallthrough]];
-    case ProducerFlags::kReset:
+    case ProducerFlags::kDisconnected:
       mActive = false;
       return pw::Status::Aborted();
     case ProducerFlags::kOverwrite: {
@@ -828,9 +900,7 @@ void ConsumerBase::advanceReadIndex(size_t count,
   mDesc->readIndex.store(readIndex + count);
   mDesc->indexCorrection = correction;
   if (getProducerFlags(mCurrentFlags) == ProducerFlags::kBlocking) {
-    if (auto producerDesc = getProducerDesc(); producerDesc.ok()) {
-      notifyProducer(*producerDesc.value());
-    }
+    notifyProducer();
     clearFlags();
   }
 }
@@ -882,7 +952,7 @@ pw::Result<ProducerDesc *> ConsumerBase::getProducerDesc() {
   auto *producerDesc =
       fromOffset<ProducerDesc>(mRegion, mQueue->producerOffset.load());
   if (!producerDesc) {
-    mActive = false;
+    disableAndNotify();
     return pw::Status::Aborted();
   }
   return producerDesc;
@@ -892,8 +962,14 @@ size_t ConsumerBase::capacity() {
   return mQueue->blockCapacity * blockCountForEpoch(mBlockListEpoch);
 }
 
-void ConsumerBase::notifyProducer(ProducerDesc &producerDesc) {
-  notify(producerDesc.idOrNotifyFn, mRemoteNotifyFn);
+void ConsumerBase::disableAndNotify() {
+  mActive = false;
+  mDesc->consumerFlags.store(static_cast<uint32_t>(ConsumerFlags::kFinished));
+  notifyProducer();
+}
+
+void ConsumerBase::notifyProducer() {
+  notify(mDesc->idOrNotifyFn, mRemoteNotifyFn);
 }
 
 void ConsumerBase::clearFlags() {
@@ -934,7 +1010,7 @@ pw::Result<VariableDataProducer> VariableDataProducer::createRemote(
 }
 
 VariableDataProducer::VariableDataProducer(
-    const AllocatorRegion &region, internal::Queue &queue,
+    const AllocatorRegion &region, internal::QueuePrivate &queue,
     pw::allocator::Layout blockLayout, size_t maxBlockCount,
     size_t minBlockCount, DataNotifier &dataNotifier,
     RemoteNotifyFn remoteNotifyFn, MemoryAccess *memAccess)
