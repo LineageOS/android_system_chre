@@ -25,10 +25,13 @@
 namespace chre {
 
 /**
- * The CHRE AP base class for the SystemTimer. The CHRE AP implementation uses a
- * POSIX timer.
+ * The CHRE AP base class for the SystemTimer.
  */
 class SystemTimerBase {
+ public:
+  //! A static method that is invoked by the underlying POSIX timer.
+  static void systemTimerNotifyCallback(union sigval cookie);
+
  protected:
   //! The mutex to protect the callback and data.
   std::mutex mMutex;
@@ -39,8 +42,9 @@ class SystemTimerBase {
   //! Tracks whether the timer has been initialized correctly.
   bool mInitialized = false;
 
-  //! A static method that is invoked by the underlying POSIX timer.
-  static void systemTimerNotifyCallback(union sigval cookie);
+  //! Indicates whether the alarm is active, only used by AlarmManager
+  //! implementation.
+  bool mIsActive = false;
 
   //! A utility function to set a POSIX timer.
   bool setInternal(uint64_t delayNs);

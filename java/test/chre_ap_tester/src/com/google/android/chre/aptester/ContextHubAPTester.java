@@ -194,7 +194,7 @@ public class ContextHubAPTester extends Activity {
 
         initButton.setOnClickListener(v -> {
             // Start the CHRE environment.
-            ContextHubAPManager.getInstance().init();
+            ContextHubAPManager.getInstance().init(this);
 
             mEventLoopThread = new Thread(() -> {
                 ContextHubAPManager.getInstance().runEventLoop(false /*useNativeThread*/);

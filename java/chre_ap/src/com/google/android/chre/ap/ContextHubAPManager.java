@@ -23,7 +23,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -79,7 +78,7 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
      *
      * @throws RuntimeException if the initialization fails.
      */
-    public void init() {
+    public void init(Context appContext) {
         // Init the CHRE AP environment
         int initRes = ContextHubAPNative.init();
         if (initRes != 0) {
@@ -87,6 +86,7 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
             throw new RuntimeException("CHRE AP environment initialization failed.");
         }
         ContextHubAPNative.nativeRegister(this);
+        AlarmManagerBridge.initialize(appContext);
         Log.i(TAG, "ContextHubAPManager initialized successfully.");
     }
 
@@ -148,16 +148,14 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
     @NonNull
     @Override
     public ContextHubClientInterface createClient(
-            @NonNull ContextHubClientCallback callback,
-            @NonNull Executor executor) {
+            @NonNull ContextHubClientCallback callback, @NonNull Executor executor) {
         return createClient(null /* context */, executor, callback);
     }
 
     @NonNull
     @Override
     public ContextHubClientInterface createClient(@NonNull ContextHubClientCallback callback) {
-        return createClient(
-                null /* context */, new HandlerExecutor(mMainHandler), callback);
+        return createClient(null /* context */, new HandlerExecutor(mMainHandler), callback);
     }
 
     /**
@@ -207,9 +205,6 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
         // Not implemented for AP environment
         ContextHubTransaction<List<NanoAppState>> transaction =
                 new ContextHubTransaction<>(ContextHubTransaction.TYPE_QUERY_NANOAPPS);
-        transaction.setResponse(
-                new ContextHubTransaction.Response<>(
-                        ContextHubTransaction.RESULT_SUCCESS, new ArrayList<NanoAppState>()));
         return transaction;
     }
 
@@ -223,20 +218,20 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
      */
     public void onMessageFromNanoApp(long nanoAppId, int messageType, byte[] messageBody) {
         var message =
-                NanoAppMessage.createMessageFromNanoApp(
-                        nanoAppId, messageType, messageBody, false);
+                NanoAppMessage.createMessageFromNanoApp(nanoAppId, messageType, messageBody, false);
         Log.d(TAG, "Message received for NanoApp ID: " + nanoAppId);
         mMainHandler.post(
                 () -> {
                     for (ContextHubAPClient client : mClientMap.values()) {
-                        client.getExecutor().execute(
-                                new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        client.getCallback()
-                                                .onMessageFromNanoApp(null, message);
-                                    }
-                                });
+                        client.getExecutor()
+                                .execute(
+                                        new Runnable() {
+                                            @Override
+                                            public void run() {
+                                                client.getCallback()
+                                                        .onMessageFromNanoApp(null, message);
+                                            }
+                                        });
                     }
                 });
     }
