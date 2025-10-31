@@ -159,12 +159,13 @@ struct Queue {
   std::atomic<uint32_t> blockListEpoch;
   // Block capacity (in elements).
   uint32_t blockCapacity;
-  // Element alignment. Used to check Consumer compatibility.
-  uint8_t elementAlignment;
+  // Element alignment. Used to check Consumer compatibility. <0 indicates that
+  // this is a variable data queue.
+  int16_t elementAlignment;
   // True iff notifications are done using IdOrNotifyFn.fn
   uint8_t localNotify;
   // Padding bytes. Reserved for future use.
-  uint8_t padding[6];
+  uint8_t padding[5];
 } __attribute__((packed));
 static_assert(sizeof(Queue) == 40);
 
@@ -194,8 +195,32 @@ struct Block {
 template <typename ElementType>
 constexpr pw::allocator::Layout blockLayout(size_t blockCapacity) {
   return pw::allocator::Layout(
-      sizeof(Block<ElementType>) + blockCapacity * sizeof(ElementType),
+      offsetof(Block<ElementType>, data) + blockCapacity * sizeof(ElementType),
       alignof(Block<ElementType>));
+}
+
+/** Header preceding each variable-size element. */
+struct alignas(8) VariableDataHeader {
+  uint32_t size;         // Element size in bytes.
+  uint8_t reserved[12];  // Reserved for future use.
+};
+static_assert(sizeof(VariableDataHeader) == 16);
+
+/** Block of variable-size element storage. */
+struct VariableDataBlock {
+  BlockHeader header;
+  uint32_t firstElementIndex;  // Initialized to block capacity.
+  // Element storage is 4-byte aligned to ensure that element size is always
+  // aligned.
+  std::byte data alignas(VariableDataHeader)[];
+};
+static_assert(offsetof(VariableDataBlock, data) == 56);
+
+/** @return Layout for allocating VariableDataBlocks using pw::Allocator. */
+constexpr pw::allocator::Layout variableDataBlockLayout(size_t blockCapacity) {
+  auto size = (blockCapacity + 0x3) & ~0x3;  // Round up to 4-byte aligned size.
+  return pw::allocator::Layout(offsetof(VariableDataBlock, data) + size,
+                               alignof(VariableDataBlock));
 }
 
 /** Base class for item tracked in the consumer list for a queue. */
@@ -320,6 +345,15 @@ class ProducerBase {
   pw::Result<pw::ByteSpan> reserve(size_t count);
 
   /**
+   * Reduces the current reservation to the given size.
+   *
+   * @param size The new reservation size. Must be <= mReserved.
+   * @return pw::Status::FailedPrecondition() if mReserved is 0;
+   * pw::Status::OutOfRange() if size > mReserved.
+   */
+  pw::Status truncate(size_t size);
+
+  /**
    * Release the first count bytes reserved for writing.
    *
    * @param count The number of bytes to release.
@@ -429,18 +463,38 @@ class ProducerBase {
   void advanceWriteIndex(uint32_t count, std::optional<pw::ConstByteSpan> data);
 
   /**
+   * Advances a block index, possibly copying data into the queue.
+   *
+   * @param [in,out] block The starting (and ending) block.
+   * @param [in,out] index The index within block.
+   * @param [in,out] correction [optional] An optional index correction which is
+   * updated on each block transtition.
+   * @param count The number of bytes to advance.
+   * @param data [optional] The data to copy. The size is greater than or equal
+   * to count.
+   * @param convertSkipToBase Iff true, converts the skip index to a base index
+   * in the next block. This is used to ensure that the conversion only happens
+   * once per transition in case the producer iterates through the blocks
+   * multiple times (e.g. reserve()/commit()).
+   */
+  void advanceBlockIndexWithData(BlockHeader *&block, uint32_t &index,
+                                 uint32_t *correction, uint32_t count,
+                                 std::optional<pw::ConstByteSpan> data,
+                                 bool convertSkipToBase);
+
+  /**
    * Enters the next block, updating all of the given parameters.
    *
    * @param [in,out] block The current block. Stores the next block pointer.
-   * @param [in,out] correction The current index correction. Stores the updated
-   * value.
+   * @param [in,out] correction [optional] An optional index correction that is
+   * updated on each block transition.
    * @param [out] index Stores the starting index in the next block.
    * @param convertSkipToBase Iff true, converts the skip index to a base index
    * in the next block. This is used to avoid converting more than once on the
    * same block on commit() since it would have been done on reserve().
    */
-  void enterNextBlock(BlockHeader *&block, uint32_t &correction,
-                      uint32_t &index, bool convertSkipToBase);
+  virtual void enterNextBlock(BlockHeader *&block, uint32_t *correction,
+                              uint32_t &index, bool convertSkipToBase);
 
   /**
    * Updates the write index.

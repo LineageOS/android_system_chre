@@ -654,9 +654,12 @@ class VariableDataProducer : protected internal::ProducerBase {
       RemoteNotifyArgs notifyArgs, MemoryAccess *memAccess = nullptr);
 
   // Moveable.
-  VariableDataProducer(VariableDataProducer &&other) : Base(std::move(other)) {}
+  VariableDataProducer(VariableDataProducer &&other) : Base(std::move(other)) {
+    mCurrentHdrPtr = other.mCurrentHdrPtr;
+  }
   VariableDataProducer &operator=(VariableDataProducer &&other) {
     Base::operator=(std::move(other));
+    mCurrentHdrPtr = other.mCurrentHdrPtr;
     return *this;
   }
 
@@ -727,12 +730,39 @@ class VariableDataProducer : protected internal::ProducerBase {
    */
   pw::Status push(pw::ConstByteSpan element);
 
+  // See {@link internal::ProducerBase} for documentation.
+  using Base::capacity;
+  using Base::full;
+  using Base::size;
+
  protected:
   VariableDataProducer(const AllocatorRegion &region,
                        internal::QueuePrivate &queue,
                        pw::allocator::Layout blockLayout, size_t maxBlockCount,
                        size_t minBlockCount, DataNotifier &dataNotifier,
                        RemoteNotifyFn remoteNotifyFn, MemoryAccess *memAccess);
+
+  /**
+   * On commit()/push(), if necessary, sets the block first element index.
+   *
+   * This index is used by the consumer when overwritten to seek to an element
+   * while trying to catch up.
+   */
+  void updateFirstElementIndex();
+
+  /**
+   * Does additional setup for variable data blocks on entering a new block.
+   *
+   * Clears the first element index in the new block.
+   */
+  void enterNextBlock(internal::BlockHeader *&block, uint32_t *correction,
+                      uint32_t &index, bool convertSkipToBase) override;
+
+  /** Advance the write index to align the next element header. */
+  void alignWriteIndex();
+
+  // If set, size of the current reserved element in shared memory.
+  internal::VariableDataHeader *mCurrentHdrPtr = nullptr;
 };
 
 /** A consumer on a queue of variable-size elements. */
@@ -856,6 +886,8 @@ class VariableDataConsumer : protected internal::ConsumerBase {
   VariableDataConsumer(const Region &region, internal::Queue &queue,
                        internal::ConsumerDesc &desc,
                        RemoteNotifyFn remoteNotifyFn, MemoryAccess *memAccess);
+
+  std::optional<uint32_t> mHeadSize = std::nullopt;
 };
 
 /** Layout used to allocate queue metadata in shared memory. */
@@ -864,7 +896,18 @@ pw::allocator::Layout queueLayout() {
 }
 
 /**
- * Initializes the queue metadata.
+ * Initializes all fields in the queue metadata.
+ *
+ * @param queue Pointer to queue metadata in shared memory.
+ * @param capacity The capacity of each block in bytes.
+ * @param alignment The alignment of each element. <0 indicates that this
+ * is a variable data queue.
+ * @param local True iff the queue is local.
+ */
+void initQueue(void *queue, size_t capacity, int16_t alignment, bool local);
+
+/**
+ * Initializes the queue metadata for a fixed-element queue.
  *
  * @tparam ElementType The type of elements in the queue.
  * @tparam kBlockCapacity The capacity of each Block in elements.
@@ -873,11 +916,8 @@ pw::allocator::Layout queueLayout() {
  */
 template <typename ElementType, size_t kBlockCapacity>
 void initQueue(void *queue, bool local) {
-  auto &queueRef = *static_cast<internal::QueuePrivate *>(queue);
-  queueRef.producerOffset = internal::kOffsetInvalid;
-  queueRef.blockCapacity = kBlockCapacity * sizeof(ElementType);
-  queueRef.elementAlignment = alignof(ElementType);
-  queueRef.localNotify = local;
+  initQueue(queue, kBlockCapacity * sizeof(ElementType), alignof(ElementType),
+            local);
 }
 
 /**
@@ -897,5 +937,9 @@ pw::Result<void *> createQueue(pw::Allocator &allocator, bool local) {
   }
   return pw::Status::ResourceExhausted();
 }
+
+/** Allocates and initializes a new variable-data queue in shared memory. */
+pw::Result<void *> createVariableDataQueue(pw::Allocator &allocator,
+                                           size_t blockCapacity, bool local);
 
 }  // namespace chre::shmem_spmc_queue

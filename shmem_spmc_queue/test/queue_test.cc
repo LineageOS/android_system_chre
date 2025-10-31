@@ -63,6 +63,7 @@ RemoteNotifyFn getEmptyRemoteNotifyFn() {
 class QueueTest : public ::testing::Test {
  protected:
   static constexpr size_t kBlockCapacity = 32;
+  static constexpr size_t kVarDataBlockCapacity = 128;
   static constexpr size_t kBaseMinBlockCount = 3;
   static constexpr size_t kBaseMaxBlockCount = 3;
 
@@ -73,12 +74,19 @@ class QueueTest : public ::testing::Test {
         mAllocator, /*local=*/true);
     ASSERT_EQ(maybeQueue.status(), pw::OkStatus());
     mQueue = *maybeQueue;
+    auto maybeVarDataQueue = chre::shmem_spmc_queue::createVariableDataQueue(
+        mAllocator, kVarDataBlockCapacity, /*local=*/true);
+    ASSERT_EQ(maybeVarDataQueue.status(), pw::OkStatus());
+    mVarDataQueue = *maybeVarDataQueue;
   }
 
   void TearDown() override {
     mConsumers.clear();
     mProducer.reset();
+    mVarDataConsumers.clear();
+    mVarDataProducer.reset();
     mAllocator.Deallocate(mQueue);
+    mAllocator.Deallocate(mVarDataQueue);
   }
 
   void setRemote() {
@@ -100,6 +108,14 @@ class QueueTest : public ::testing::Test {
         notifyArgs);
   }
 
+  pw::Result<VariableDataProducer> createLocalVarDataProducer(
+      LocalNotifyArgs notifyArgs) {
+    return VariableDataProducer::createLocal(
+        {{.base = base(), .size = size()}, .allocator = &mAllocator},
+        mVarDataQueue, kVarDataBlockCapacity, kBaseMaxBlockCount,
+        kBaseMinBlockCount, mDataNotifier, notifyArgs);
+  }
+
   pw::Result<Producer<int>> createRemoteProducer(RemoteNotifyArgs notifyArgs) {
     return Producer<int>::createRemote(
         {{.base = base(), .size = size()}, .allocator = &mAllocator}, mQueue,
@@ -115,6 +131,16 @@ class QueueTest : public ::testing::Test {
         {.base = base(), .size = size()},
         reinterpret_cast<uintptr_t>(mQueue) - base(), descOffset, notifyArgs,
         policyBuilder);
+  }
+
+  pw::Result<VariableDataConsumer> createLocalVarDataConsumer(
+      LocalNotifyArgs notifyArgs, ConsumerPolicyBuilder &policyBuilder) {
+    PW_TRY_ASSIGN(uint32_t descOffset,
+                  mVarDataProducer->getConsumerManager().addConsumer());
+    return VariableDataConsumer::createLocal(
+        {.base = base(), .size = size()},
+        reinterpret_cast<uintptr_t>(mVarDataQueue) - base(), descOffset,
+        notifyArgs, policyBuilder);
   }
 
   pw::Result<Consumer<int>> createRemoteConsumer(
@@ -140,6 +166,12 @@ class QueueTest : public ::testing::Test {
     mProducer.emplace(std::move(*maybeProducer));
   }
 
+  void initLocalVarDataProducer(LocalNotifyArgs notifyArgs) {
+    auto maybeProducer = createLocalVarDataProducer(notifyArgs);
+    ASSERT_EQ(maybeProducer.status(), pw::OkStatus());
+    mVarDataProducer.emplace(std::move(*maybeProducer));
+  }
+
   void initRemoteConsumer(RemoteNotifyArgs notifyArgs,
                           ConsumerPolicyBuilder &policyBuilder) {
     auto maybeConsumer =
@@ -161,6 +193,19 @@ class QueueTest : public ::testing::Test {
     }
   }
 
+  void initLocalVarDataEndpoints(
+      LocalNotifyArgs producerNotifyArgs,
+      std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>>
+          &consumerArgs) {
+    initLocalVarDataProducer(producerNotifyArgs);
+    for (auto &[consumerNotifyArgs, policyBuilder] : consumerArgs) {
+      auto maybeConsumer =
+          createLocalVarDataConsumer(consumerNotifyArgs, policyBuilder);
+      ASSERT_EQ(maybeConsumer.status(), pw::OkStatus());
+      mVarDataConsumers.emplace_back(std::move(*maybeConsumer));
+    }
+  }
+
   // Initializes the producer with endpoint id 0 and consumers with endpoint
   // ids 1, 2, ...
   void initRemoteEndpoints(
@@ -179,9 +224,12 @@ class QueueTest : public ::testing::Test {
   std::vector<std::byte> mStorage;
   pw::allocator::FirstFitAllocator<> mAllocator;
   void *mQueue;
+  void *mVarDataQueue;
   DataNotifier mDataNotifier;
   std::optional<Producer<int>> mProducer;
+  std::optional<VariableDataProducer> mVarDataProducer;
   std::vector<Consumer<int>> mConsumers;
+  std::vector<VariableDataConsumer> mVarDataConsumers;
 };
 
 TEST_F(QueueTest, ProducerCreateLocalAndDestroy) {
@@ -790,6 +838,105 @@ TEST_F(QueueTest, ProducerStop) {
   EXPECT_EQ(consumerManager.getNumConsumers(), 1);
   EXPECT_EQ(mConsumers[0].checkState(), pw::Status::Aborted());
   EXPECT_EQ(consumerManager.getNumConsumers(), 0);
+}
+
+TEST_F(QueueTest, VariableDataProducerPush) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalVarDataEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+  EXPECT_EQ(mVarDataProducer->size(), 0);
+
+  std::vector<std::byte> data1 = {std::byte(1), std::byte(2)};
+  EXPECT_EQ(mVarDataProducer->push(data1), pw::OkStatus());
+  // size (16) + data (2) + padding (6) = 24
+  EXPECT_EQ(mVarDataProducer->size(), 24);
+  std::vector<std::byte> data2 = {std::byte(3), std::byte(4), std::byte(5)};
+  EXPECT_EQ(mVarDataProducer->push(data2), pw::OkStatus());
+  // 24 + size (16) + data (3) + padding (5) = 24 + 24 = 48
+  EXPECT_EQ(mVarDataProducer->size(), 48);
+}
+
+TEST_F(QueueTest, VariableDataProducerReserveCommit) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalVarDataEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  auto reservation = mVarDataProducer->reserve(5);
+  ASSERT_EQ(reservation.status(), pw::OkStatus());
+  EXPECT_EQ(reservation->size(), 5);
+  // Reserved: 16 bytes for size + 5 for data. The size() method without
+  // arguments does not include reserved elements.
+  EXPECT_EQ(mVarDataProducer->size(), 0);
+  EXPECT_EQ(mVarDataProducer->size(/*includeReserved=*/true), 21);
+  EXPECT_EQ(mVarDataProducer->commit(), pw::OkStatus());
+  // Committed: 16 for size + 5 for data + 3 for padding.
+  EXPECT_EQ(mVarDataProducer->size(), 24);
+}
+
+TEST_F(QueueTest, VariableDataProducerReserveTruncateCommit) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalVarDataEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  auto reservation = mVarDataProducer->reserve(10);
+  ASSERT_EQ(reservation.status(), pw::OkStatus());
+  // Reserved: 16 for size + 10 for data.
+  EXPECT_EQ(mVarDataProducer->size(/*includeReserved=*/true), 26);
+  EXPECT_EQ(mVarDataProducer->truncate(5), pw::OkStatus());
+  // Reserved: 16 for size + 5 for data.
+  EXPECT_EQ(mVarDataProducer->size(/*includeReserved=*/true), 21);
+  EXPECT_EQ(mVarDataProducer->commit(), pw::OkStatus());
+  // Committed: 16 for size + 5 for data + 3 for padding.
+  EXPECT_EQ(mVarDataProducer->size(), 24);
+}
+
+TEST_F(QueueTest, VariableDataProducerTruncateToReservedSizeDoesNothing) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalVarDataEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  auto reservation = mVarDataProducer->reserve(10);
+  ASSERT_EQ(reservation.status(), pw::OkStatus());
+  // Reserved: 16 for size + 10 for data.
+  EXPECT_EQ(mVarDataProducer->size(/*includeReserved=*/true), 26);
+  EXPECT_EQ(mVarDataProducer->truncate(10), pw::OkStatus());
+  // Reserved: 16 for size + 10 for data.
+  EXPECT_EQ(mVarDataProducer->size(/*includeReserved=*/true), 26);
+}
+
+TEST_F(QueueTest, VariableDataProducerPushFailsWithReservation) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalVarDataEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  ASSERT_EQ(mVarDataProducer->reserve(1).status(), pw::OkStatus());
+  std::vector<std::byte> data = {std::byte(1)};
+  EXPECT_EQ(mVarDataProducer->push(data), pw::Status::FailedPrecondition());
+}
+
+TEST_F(QueueTest, VariableDataProducerCommitFailsWithoutReservation) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalVarDataEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  EXPECT_EQ(mVarDataProducer->commit(), pw::Status::FailedPrecondition());
+}
+
+TEST_F(QueueTest, VariableDataProducerTruncateFailsWithoutReservation) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalVarDataEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  EXPECT_EQ(mVarDataProducer->truncate(1), pw::Status::FailedPrecondition());
+}
+
+TEST_F(QueueTest, VariableDataProducerTruncateFailsSizeTooLarge) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalVarDataEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  ASSERT_EQ(mVarDataProducer->reserve(5).status(), pw::OkStatus());
+  EXPECT_EQ(mVarDataProducer->truncate(10), pw::Status::OutOfRange());
 }
 
 }  // namespace
