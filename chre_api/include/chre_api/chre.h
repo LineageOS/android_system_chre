@@ -31,6 +31,7 @@
 #include <chre/audio.h>
 #include <chre/ble.h>
 #include <chre/common.h>
+#include <chre/data.h>
 #include <chre/event.h>
 #include <chre/gnss.h>
 #include <chre/msg.h>
