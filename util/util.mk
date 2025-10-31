@@ -94,3 +94,7 @@ GOOGLETEST_SRCS += $(CHRE_PREFIX)/util/tests/unique_ptr_test.cc
 # Pigweed Source Files #########################################################
 
 PIGWEED_UTIL_SRCS += $(CHRE_PREFIX)/util/pigweed/chre_channel_output.cc
+PIGWEED_UTIL_SRCS += $(CHRE_PREFIX)/util/pigweed/permission.cc
+PIGWEED_UTIL_SRCS += $(CHRE_PREFIX)/util/pigweed/rpc_client.cc
+PIGWEED_UTIL_SRCS += $(CHRE_PREFIX)/util/pigweed/rpc_helper.cc
+PIGWEED_UTIL_SRCS += $(CHRE_PREFIX)/util/pigweed/rpc_server.cc

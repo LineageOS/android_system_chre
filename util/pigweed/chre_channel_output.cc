@@ -18,6 +18,7 @@
 
 #include <cstdint>
 
+#include "chre/util/nanoapp/assert.h"
 #include "chre/util/nanoapp/callbacks.h"
 #include "chre/util/pigweed/rpc_helper.h"
 
