@@ -16,10 +16,17 @@
 
 #include "chre/util/pigweed/chre_channel_output.h"
 
+#include <cinttypes>
 #include <cstdint>
 
+#include "chre/util/nanoapp/assert.h"
 #include "chre/util/nanoapp/callbacks.h"
+#include "chre/util/nanoapp/log.h"
 #include "chre/util/pigweed/rpc_helper.h"
+
+#ifndef LOG_TAG
+#define LOG_TAG "[ChreChannelOutput]"
+#endif  // LOG_TAG
 
 namespace chre {
 namespace {
@@ -40,7 +47,10 @@ void nappMessageFreeCb(uint16_t /* eventType */, void *eventData) {
  */
 pw::Status sendToNanoapp(uint32_t targetInstanceId, uint16_t eventType,
                          pw::span<const std::byte> buffer) {
-  CHRE_ASSERT(targetInstanceId != 0);
+  if (targetInstanceId == 0) {
+    LOGE("Cannot send RPC buffer to undefined nanoapp");
+    CHRE_ASSERT(false);
+  }
 
   if (buffer.size() > 0) {
     auto *data = static_cast<ChrePigweedNanoappMessage *>(
@@ -64,11 +74,12 @@ pw::Status sendToNanoapp(uint32_t targetInstanceId, uint16_t eventType,
 }  // namespace
 
 void ChreServerNanoappChannelOutput::setClient(uint32_t nanoappInstanceId) {
-  CHRE_ASSERT(nanoappInstanceId <= kRpcNanoappMaxId);
   if (nanoappInstanceId <= kRpcNanoappMaxId) {
     mClientInstanceId = static_cast<uint16_t>(nanoappInstanceId);
   } else {
-    mClientInstanceId = 0;
+    LOGE("Nanoapp instance ID %" PRIu32 " exceeds max %" PRIu32,
+         nanoappInstanceId, kRpcNanoappMaxId);
+    CHRE_ASSERT(false);
   }
 }
 
@@ -81,16 +92,21 @@ pw::Status ChreServerNanoappChannelOutput::Send(
   // The permission is not enforced across nanoapps but we still need to
   // reset the value as it is only applicable to the next message.
   mPermission.getAndReset();
+  if (mClientInstanceId == 0) {
+    LOGE("Cannot send RPC to undefined nanoapp client");
+    CHRE_ASSERT(false);
+  }
 
   return sendToNanoapp(mClientInstanceId, CHRE_EVENT_RPC_RESPONSE, buffer);
 }
 
 void ChreClientNanoappChannelOutput::setServer(uint32_t instanceId) {
-  CHRE_ASSERT(instanceId <= kRpcNanoappMaxId);
   if (instanceId <= kRpcNanoappMaxId) {
     mServerInstanceId = static_cast<uint16_t>(instanceId);
   } else {
-    mServerInstanceId = 0;
+    LOGE("Nanoapp instance ID %" PRIu32 " exceeds max %" PRIu32, instanceId,
+         kRpcNanoappMaxId);
+    CHRE_ASSERT(false);
   }
 }
 
@@ -100,6 +116,11 @@ size_t ChreClientNanoappChannelOutput::MaximumTransmissionUnit() {
 
 pw::Status ChreClientNanoappChannelOutput::Send(
     pw::span<const std::byte> buffer) {
+  if (mServerInstanceId == 0) {
+    LOGE("Cannot send RPC to undefined nanoapp server");
+    CHRE_ASSERT(false);
+  }
+
   return sendToNanoapp(mServerInstanceId, CHRE_EVENT_RPC_REQUEST, buffer);
 }
 
@@ -112,7 +133,11 @@ size_t ChreServerHostChannelOutput::MaximumTransmissionUnit() {
 }
 
 pw::Status ChreServerHostChannelOutput::Send(pw::span<const std::byte> buffer) {
-  CHRE_ASSERT(mEndpointId != CHRE_HOST_ENDPOINT_UNSPECIFIED);
+  if (mEndpointId == CHRE_HOST_ENDPOINT_UNSPECIFIED) {
+    LOGE("Host endpoint must be specified before sending a message");
+    CHRE_ASSERT(false);
+  }
+
   pw::Status returnCode = PW_STATUS_OK;
 
   if (buffer.size() > 0) {

@@ -24,7 +24,6 @@
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
-#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -37,6 +36,7 @@ class PlatformSensorManagerBase {
  protected:
   ASensorManager *mSensorManager = nullptr;
   ASensorEventQueue *mSharedEventQueue = nullptr;
+  ALooper *mLooper = nullptr;
 
   // The context containing all sensor
   struct SensorContext {
@@ -52,16 +52,6 @@ class PlatformSensorManagerBase {
 
   // Map from Android sensor handle to the index in mSensorContextArray.
   std::unordered_map<int32_t, uint32_t> mAndroidHandleToChreHandleMap;
-
-  // Looper instance and thread.
-  ALooper *mLooper = nullptr;
-  std::thread mLooperThread;
-  std::atomic<bool> mIsLooperRunning{false};
-
-  // Used for Looper initialization sync.
-  std::mutex mLooperMutex;
-  std::condition_variable mLooperCondVar;
-  bool mLooperReady = false;
 
   // Looper callback function.
   static int looperCallback(int fd, int events, void *data);

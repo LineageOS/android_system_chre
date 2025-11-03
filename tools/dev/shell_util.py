@@ -1,16 +1,30 @@
-#!/usr/bin/python3
+#
+# Copyright 2025, The Android Open Source Project
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
 
 import glob
+import os
 import re
 import shutil
 import sys
 import time
-import os
 
 
 def check_dependencies(required_programs: list[str]):
-  """
-  Checks if all required command-line tools are installed.
+  """Checks if all required command-line tools are installed.
+
   If a tool is missing, it prints an error and exits the script.
   """
   missing_programs = []
@@ -20,7 +34,10 @@ def check_dependencies(required_programs: list[str]):
       missing_programs.append(program)
 
   if missing_programs:
-    log_e("ERROR: The following required programs are not installed or not in your PATH:\n")
+    log_e(
+        "ERROR: The following required programs are not installed or not in"
+        " your PATH:\n"
+    )
     log_e("  " + " ".join(missing_programs))
 
     log_e("\nPlease install them and/or add them to your PATH")
@@ -47,6 +64,7 @@ def init_file(file_path_str: str):
   # This creates an empty file if it doesn't exist.
   file_path.touch()
 
+
 def find_unique_file(file_pattern: str):
   files = glob.glob(file_pattern)
   if not files:
@@ -54,6 +72,7 @@ def find_unique_file(file_pattern: str):
   if len(files) > 1:
     fatal_error(f"Multiple files found matching {file_pattern}: {files}")
   return files[0]
+
 
 def fatal_error(message: str):
   """Prints an error message in red to stderr and exits the script."""
@@ -125,6 +144,7 @@ class ShellSession:
   def __init__(self, shell_cmd="bash", cmd_width=80, env=None):
     # Move pexpect to local import as ShellSession is the only place using it.
     import pexpect
+
     if env is None:
       env = {"SCRIPT_ONLY": "yes"}
     self.cmd_width = cmd_width  # Used for pretty printing
@@ -144,10 +164,10 @@ class ShellSession:
     output = self._execute(cmd, timeout)
     has_result = is_successful is None or is_successful(output)
     print(
-      "{:<20} {:5.2f}s".format(
-        ShellSession.SUCCESS if has_result else ShellSession.FAILURE,
-        time.perf_counter() - start_time,
-      )
+        "{:<20} {:5.2f}s".format(
+            ShellSession.SUCCESS if has_result else ShellSession.FAILURE,
+            time.perf_counter() - start_time,
+        )
     )
 
     if not has_result or show_output:
@@ -170,9 +190,9 @@ class ShellSession:
       time.sleep(retry_interval)
       output = self._execute(cmd, timeout)
     print(
-      "{:<20} {:.2f}s".format(
-        ShellSession.SUCCESS, time.perf_counter() - start_time
-      )
+        "{:<20} {:.2f}s".format(
+            ShellSession.SUCCESS, time.perf_counter() - start_time
+        )
     )
     if show_output:
       print("-" * 50)

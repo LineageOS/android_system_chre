@@ -71,12 +71,10 @@ class ContextHub : public BnContextHub,
       : mDeathRecipient(
             AIBinder_DeathRecipient_new(ContextHub::onServiceDied)) {
     mConnection = std::make_shared<HalChreSocketConnection>(this);
-    if (::android::chre::flags::offload_implementation()) {
-      mV4Impl.emplace([this](const flatbuffers::FlatBufferBuilder &builder) {
-        return mConnection->sendRawMessage(builder.GetBufferPointer(),
-                                           builder.GetSize());
-      });
-    }
+    mV4Impl.emplace([this](const flatbuffers::FlatBufferBuilder &builder) {
+      return mConnection->sendRawMessage(builder.GetBufferPointer(),
+                                         builder.GetSize());
+    });
   }
   ::ndk::ScopedAStatus getContextHubs(
       std::vector<ContextHubInfo> *out_contextHubInfos) override;

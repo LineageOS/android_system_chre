@@ -102,6 +102,12 @@ public class ContextHubEndpointEchoExecutor {
     /** The ID of the above nanoapp */
     private static final long ECHO_SERVICE_NANOAPP_ID = 0x476f6f6754000012L;
 
+    /** The ID of the RPC service in the above nanoapp */
+    private static final long ECHO_SERVICE_NANOAPP_RPC_SERVICE_ID = 0xb157d6b46418c40bL;
+
+    /** The version of the RPC service in the above nanoapp */
+    private static final int ECHO_SERVICE_NANOAPP_RPC_SERVICE_VERSION = 0x01000000;
+
     /** A local hub endpoint currently registered with the service. */
     private HubEndpoint mRegisteredEndpoint = null;
 
@@ -698,6 +704,9 @@ public class ContextHubEndpointEchoExecutor {
     }
 
     private ChreRpcClient getRpcClientForEchoNanoapp() {
+        NanoAppState echoNanoAppState = getNanoAppStateForNanoappId(ECHO_SERVICE_NANOAPP_ID);
+        Assert.assertNotNull(mEchoNanoappBinary);
+
         Service endpointEchoTestRpcService =
                 new Service(
                         "chre.rpc.EndpointEchoTestService",
@@ -705,11 +714,27 @@ public class ContextHubEndpointEchoExecutor {
                                 "RunNanoappToHostTest",
                                 Empty.parser(),
                                 EndpointEchoTest.ReturnStatus.parser()));
-        return new ChreRpcClient(
+        ChreRpcClient rpcClient = new ChreRpcClient(
                 mContextHubManager,
                 mContextHubInfo,
                 mEchoNanoappBinary.getNanoAppId(),
                 List.of(endpointEchoTestRpcService),
                 /* callback= */ null);
+        Assert.assertTrue(rpcClient.hasService(echoNanoAppState, ECHO_SERVICE_NANOAPP_ID,
+                                               ECHO_SERVICE_NANOAPP_RPC_SERVICE_ID,
+                                               ECHO_SERVICE_NANOAPP_RPC_SERVICE_VERSION));
+        return rpcClient;
+    }
+
+    private NanoAppState getNanoAppStateForNanoappId(long nanoappId) {
+        List<NanoAppState> nanoAppStates =
+                ChreTestUtil.queryNanoAppsAssertSuccess(mContextHubManager, mContextHubInfo);
+        for (NanoAppState nanoAppState : nanoAppStates) {
+            if (nanoAppState.getNanoAppId() == nanoappId) {
+                return nanoAppState;
+            }
+        }
+        Assert.fail("Nanoapp with ID 0x" + Long.toHexString(nanoappId) + " not found");
+        return null;
     }
 }

@@ -277,6 +277,13 @@ extern "C" {
 #define CHRE_EVENT_MSG_LAST_EVENT UINT16_C(0x036F)
 
 /**
+ * First event in the block reserved for the data flow APIs.
+ * These events are defined in chre/data.h.
+ */
+#define CHRE_EVENT_DATA_FIRST_EVENT UINT16_C(0x0370)
+#define CHRE_EVENT_DATA_LAST_EVENT UINT16_C(0x037F)
+
+/**
  * First in the extended range of values dedicated for internal CHRE
  * implementation usage.
  *

@@ -48,6 +48,8 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
 
     private final AtomicInteger mClientIdCounter = new AtomicInteger(0);
 
+    private Thread mEventLoopThread = null;
+
     // One nano app should have only one client created.
     private final ConcurrentHashMap<Integer, ContextHubAPClient> mClientMap =
             new ConcurrentHashMap<Integer, ContextHubAPClient>();
@@ -89,12 +91,37 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
     }
 
     /**
-     * Destroys the CHRE AP environment.
+     * Runs the event loop of the CHRE AP environment.
+     *
+     * @param useNativeThread Whether to use a native thread to run the event loop. If false, the
+     *                        event loop will run on the calling thread.
      */
-    public void destroy() {
-        ContextHubAPNative.destroy();
+    public void runEventLoop(boolean useNativeThread) {
+        ContextHubAPNative.runEventLoop(useNativeThread);
     }
 
+    /** Destroys the CHRE AP environment. */
+    public void destroy() {
+        ContextHubAPNative.destroy();
+
+        if (mEventLoopThread != null) {
+            mEventLoopThread.interrupt();
+            try {
+                mEventLoopThread.join();
+            } catch (InterruptedException e) {
+                Log.e(TAG, "Failed to join event loop thread: " + e);
+            }
+            mEventLoopThread = null;
+        }
+    }
+
+    /**
+     * If set, indicate the event loop is run on this thread. ContextHubAPManager will join the
+     * thread up on destroy.
+     */
+    public void setEventLoopThread(@Nullable Thread eventLoopThread) {
+        mEventLoopThread = eventLoopThread;
+    }
 
     /**
      * Creates and registers a client to communicate with a simulated nanoapp.

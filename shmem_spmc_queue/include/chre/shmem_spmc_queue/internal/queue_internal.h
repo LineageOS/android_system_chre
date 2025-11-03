@@ -24,6 +24,8 @@
 #include "pw_allocator/allocator.h"
 #include "pw_allocator/layout.h"
 #include "pw_bytes/span.h"
+#include "pw_containers/intrusive_list.h"
+#include "pw_function/function.h"
 #include "pw_result/result.h"
 #include "pw_status/status.h"
 #include "pw_status/try.h"
@@ -55,25 +57,27 @@ union ConsumerPolicy {
   };
   uint32_t rawValue;
 };
+static_assert(sizeof(ConsumerPolicy) == 4);
 
 //! Endpoint id for remote notifications or local callback.
 union alignas(8) IdOrNotifyFn {
   LocalNotifyArgs localNotify;
   std::array<std::byte, 16> remoteId;
-};
+} __attribute__((packed));
 static_assert(sizeof(IdOrNotifyFn) == 16);
 
 /** Producer metadata in shared memory. */
-struct ProducerDesc {
-  // Id for remote notification or local callback.
-  IdOrNotifyFn idOrNotifyFn;
+struct alignas(8) ProducerDesc {
   // Current write index. Updated by the producer.
   std::atomic<uint32_t> writeIndex;
   // Correction to index for calculating index within Block::data.
   uint32_t indexCorrection;
   // Offset of the block containing the current write index in shared memory.
   uint32_t tailBlockOffset;
-};
+  // Reserved for future use.
+  uint8_t reserved[12];
+} __attribute__((packed));
+static_assert(sizeof(ProducerDesc) == 24);
 
 /**
  * Flags used by the Producer to indicate exceptional state.
@@ -87,7 +91,8 @@ enum class ProducerFlags : uint16_t {
   kPendingInit = 0x1,     // Consumer state allocated, pending Consumer().
   kBlocking = 0x1 << 1,   // Producer cannot write until this Consumer reads.
   kOverwrite = 0x1 << 2,  // Producer overwrote this Consumer.
-  kReset = 0x1 << 3,      // Producer torn down.
+  kFinished = 0x1 << 3,   // Producer torn down.
+  kDisconnected = 0x1 << 4,  // The consumer endpoint disconnected.
 };
 
 /** Flags used by the Consumer to acknowledge ProducerFlags or tear down. */
@@ -96,12 +101,27 @@ enum class ConsumerFlags : uint16_t {
   kFinished,          // Consumer torn down and ready for deallocation.
 };
 
+/**
+ * Queue implementation version. Uses the same numbering scheme as the CHRE API.
+ *
+ * Minor version changes require that the following are maintained:
+ * - The form and meaning of any existing struct fields
+ * - The size and alignment of ProducerDesc and BlockHeader
+ *
+ * Major version changes will use new struct definitions, however, the first
+ * field of Queue and ConsumerDesc must be a Version.
+ */
+struct Version {
+  uint8_t major;
+  uint8_t minor;
+  uint16_t patch;
+};
+static_assert(sizeof(Version) == 4);
+
 /** Consumer metadata in shared memory. */
 struct ConsumerDesc {
-  // Id for remote notification or local callback.
-  IdOrNotifyFn idOrNotifyFn;
-  // Offset of the next dynamic consumer in shared memory.
-  uint32_t nextConsumerOffset;
+  // Consumer version.
+  Version version;
   // Current read index. Updated by the consumer.
   std::atomic<uint32_t> readIndex;
   // Correction to index for calculating index within Block::data.
@@ -120,34 +140,37 @@ struct ConsumerDesc {
   std::atomic<uint32_t> consumerFlags;
   // Consumer policy.
   std::atomic<uint32_t> policy;
-  // Padding bytes.
-  uint8_t padding[8];
-};
+  // Id for remote notification or local callback.
+  IdOrNotifyFn idOrNotifyFn;
+} __attribute__((packed));
+static_assert(sizeof(ConsumerDesc) == 40);
 
 /** Queue metadata in shared memory. */
 struct Queue {
+  // Producer version.
+  Version version;
   // Offset of the ProducerDesc in shared memory. Updated by the producer.
   std::atomic<uint32_t> producerOffset;
-  // List of dynamic consumers.
-  uint32_t dynamicConsumersHeadOffset;
+  // Producer id for remote notification or local callback.
+  IdOrNotifyFn idOrNotifyFn;
   // Captures the current epoch of the block list and the block count. Updated
   // by the producer.
   // Format: { 0-15: epoch counter | 16-31: block count }
   std::atomic<uint32_t> blockListEpoch;
   // Block capacity (in elements).
   uint32_t blockCapacity;
-  // Element alignment. Used to check Consumer compatibility.
-  uint8_t elementAlignment;
+  // Element alignment. Used to check Consumer compatibility. <0 indicates that
+  // this is a variable data queue.
+  int16_t elementAlignment;
   // True iff notifications are done using IdOrNotifyFn.fn
   uint8_t localNotify;
-  // Number of static consumers.
-  uint8_t numStaticConsumers;
-  // Padding bytes.
-  uint8_t padding[1];
-};
+  // Padding bytes. Reserved for future use.
+  uint8_t padding[5];
+} __attribute__((packed));
+static_assert(sizeof(Queue) == 40);
 
 /** Header that precedes the aligned array of elements. */
-struct BlockHeader {
+struct alignas(8) BlockHeader {
   // Storage for the ProducerDesc in the current tail block.
   ProducerDesc producerDesc;
   // Offset of the next block in shared memory. May refer back to this block.
@@ -156,9 +179,10 @@ struct BlockHeader {
   std::atomic<uint32_t> baseIndex;  // Updated by the producer.
   // Index at which to jump to the next block. Initialized to kCapacity.
   std::atomic<uint32_t> skipIndex;  // Updated by the producer.
-  // Padding bytes.
-  uint8_t padding[4];
-};
+  // Reserved for future use.
+  uint8_t reserved[12];
+} __attribute__((packed));
+static_assert(sizeof(BlockHeader) == 48);
 
 /** Block of element storage. */
 template <typename ElementType>
@@ -171,9 +195,51 @@ struct Block {
 template <typename ElementType>
 constexpr pw::allocator::Layout blockLayout(size_t blockCapacity) {
   return pw::allocator::Layout(
-      sizeof(Block<ElementType>) + blockCapacity * sizeof(ElementType),
+      offsetof(Block<ElementType>, data) + blockCapacity * sizeof(ElementType),
       alignof(Block<ElementType>));
 }
+
+/** Header preceding each variable-size element. */
+struct alignas(8) VariableDataHeader {
+  uint32_t size;         // Element size in bytes.
+  uint8_t reserved[12];  // Reserved for future use.
+};
+static_assert(sizeof(VariableDataHeader) == 16);
+
+/** Block of variable-size element storage. */
+struct VariableDataBlock {
+  BlockHeader header;
+  uint32_t firstElementIndex;  // Initialized to block capacity.
+  // Element storage is 4-byte aligned to ensure that element size is always
+  // aligned.
+  std::byte data alignas(VariableDataHeader)[];
+};
+static_assert(offsetof(VariableDataBlock, data) == 56);
+
+/** @return Layout for allocating VariableDataBlocks using pw::Allocator. */
+constexpr pw::allocator::Layout variableDataBlockLayout(size_t blockCapacity) {
+  auto size = (blockCapacity + 0x3) & ~0x3;  // Round up to 4-byte aligned size.
+  return pw::allocator::Layout(offsetof(VariableDataBlock, data) + size,
+                               alignof(VariableDataBlock));
+}
+
+/** Base class for item tracked in the consumer list for a queue. */
+struct ConsumerListNode
+    : public pw::containers::future::IntrusiveList<ConsumerListNode>::Item {};
+
+/** Node for tracking a consumer descriptor in multiple containers. */
+struct ConsumerNode : public ConsumerListNode {
+  AllocatorRegion region;  // The region the descriptor was allocated from.
+  ConsumerDesc *desc;      // The descriptor in shared memory.
+
+  ConsumerNode(const AllocatorRegion &_region, ConsumerDesc *_desc)
+      : region(_region), desc(_desc) {}
+};
+
+/** Queue shared metadata and producer data that is not part of the ABI. */
+struct QueuePrivate : public Queue {
+  pw::containers::future::IntrusiveList<ConsumerNode> consumerList;
+};
 
 /** Base class for Producers of any ElementType. */
 class ProducerBase {
@@ -186,7 +252,7 @@ class ProducerBase {
   }
   ProducerBase &operator=(ProducerBase &&other) {
     if (&other != this) {
-      if (other.mActive) {
+      if (other.mState != State::kMovedFrom) {
         mRegion = other.mRegion;
         mRemoteNotifyFn = std::move(other.mRemoteNotifyFn);
         mQueue = other.mQueue;
@@ -201,14 +267,29 @@ class ProducerBase {
         mReserved = other.mReserved;
         mAvailable = other.mAvailable;
         mCurrBlockIndex = other.mCurrBlockIndex;
-        mActive = true;
+        mState = other.mState;
       }
-      other.mActive = false;
+      other.mState = State::kMovedFrom;
     }
     return *this;
   }
 
+  /**
+   * If required, cleans up any remaining allocations for this queue.
+   *
+   * Does nothing for moved-from instances. For other instances, invokes stop()
+   * if it wasn't already called before cleaning up allocations.
+   */
   virtual ~ProducerBase();
+
+  /**
+   * Disables this instance and signals to consumers to clean up.
+   *
+   * Should be called before destroying an active instance if the user wants
+   * to wait for all consumers to signal that they are no longer accessing
+   * their consumer descriptors before destroying the producer.
+   */
+  void stop();
 
   /**
    * Sets the desired maximum block count for this queue.
@@ -264,6 +345,15 @@ class ProducerBase {
   pw::Result<pw::ByteSpan> reserve(size_t count);
 
   /**
+   * Reduces the current reservation to the given size.
+   *
+   * @param size The new reservation size. Must be <= mReserved.
+   * @return pw::Status::FailedPrecondition() if mReserved is 0;
+   * pw::Status::OutOfRange() if size > mReserved.
+   */
+  pw::Status truncate(size_t size);
+
+  /**
    * Release the first count bytes reserved for writing.
    *
    * @param count The number of bytes to release.
@@ -305,6 +395,12 @@ class ProducerBase {
   friend class ::chre::shmem_spmc_queue::ConsumerManager;
   friend class ::chre::shmem_spmc_queue::DataNotifier;
 
+  enum class State : uint8_t {
+    kActive,
+    kMovedFrom,
+    kStopped,
+  };
+
   /**
    * Allocates an initial ring of blocks and initializes producer metadata.
    *
@@ -320,7 +416,8 @@ class ProducerBase {
    * LocalNotifyFn for notifying it.
    * @return pw::OkStatus() on success.
    */
-  static pw::Status initialize(const AllocatorRegion &region, Queue *queue,
+  static pw::Status initialize(const AllocatorRegion &region,
+                               QueuePrivate *queue,
                                pw::allocator::Layout layout,
                                uint32_t blockCapacity, size_t maxBlockCount,
                                size_t minBlockCount, IdOrNotifyFn idOrNotifyFn);
@@ -334,7 +431,7 @@ class ProducerBase {
    * @param remoteNotifyFn Function for notifying Consumers out-of-band only for
    * remote queues.
    */
-  ProducerBase(const AllocatorRegion &region, Queue &queue,
+  ProducerBase(const AllocatorRegion &region, QueuePrivate &queue,
                pw::allocator::Layout blockLayout, size_t maxBlockCount,
                size_t minBlockCount, uint32_t dataOffset,
                DataNotifier &dataNotifier, RemoteNotifyFn remoteNotifyFn,
@@ -366,18 +463,38 @@ class ProducerBase {
   void advanceWriteIndex(uint32_t count, std::optional<pw::ConstByteSpan> data);
 
   /**
+   * Advances a block index, possibly copying data into the queue.
+   *
+   * @param [in,out] block The starting (and ending) block.
+   * @param [in,out] index The index within block.
+   * @param [in,out] correction [optional] An optional index correction which is
+   * updated on each block transtition.
+   * @param count The number of bytes to advance.
+   * @param data [optional] The data to copy. The size is greater than or equal
+   * to count.
+   * @param convertSkipToBase Iff true, converts the skip index to a base index
+   * in the next block. This is used to ensure that the conversion only happens
+   * once per transition in case the producer iterates through the blocks
+   * multiple times (e.g. reserve()/commit()).
+   */
+  void advanceBlockIndexWithData(BlockHeader *&block, uint32_t &index,
+                                 uint32_t *correction, uint32_t count,
+                                 std::optional<pw::ConstByteSpan> data,
+                                 bool convertSkipToBase);
+
+  /**
    * Enters the next block, updating all of the given parameters.
    *
-   * @param block [in/out] The current block. Stores the next block pointer.
-   * @param correction [in/out] The current index correction. Stores the updated
-   * value.
-   * @param index [out] Stores the starting index in the next block.
+   * @param [in,out] block The current block. Stores the next block pointer.
+   * @param [in,out] correction [optional] An optional index correction that is
+   * updated on each block transition.
+   * @param [out] index Stores the starting index in the next block.
    * @param convertSkipToBase Iff true, converts the skip index to a base index
    * in the next block. This is used to avoid converting more than once on the
    * same block on commit() since it would have been done on reserve().
    */
-  void enterNextBlock(BlockHeader *&block, uint32_t &correction,
-                      uint32_t &index, bool convertSkipToBase);
+  virtual void enterNextBlock(BlockHeader *&block, uint32_t *correction,
+                              uint32_t &index, bool convertSkipToBase);
 
   /**
    * Updates the write index.
@@ -429,19 +546,31 @@ class ProducerBase {
   /**
    * Allocates a new consumer and links it to the list in shared memory.
    *
-   * @param queue Pointer to the queue metadata in shared memory.
+   * @param region The region from which to allocate the consumer.
    * @return The offset of the consumer descriptor in shared memory. Used to
    * initialize a Consumer instance.
    */
-  pw::Result<uint32_t> addConsumer();
+  pw::Result<uint32_t> addConsumer(const AllocatorRegion &region);
 
   /**
    * Removes the descriptor for the consumer at given offset.
    *
-   * @param offset The offset of the consumer descriptor in shared memory.
+   * @param match A predicate that returns true iff the consumer should be
+   * removed.
    * @return pw::OkStatus() on success.
    */
-  pw::Status removeConsumer(uint32_t offset);
+  pw::Status pruneConsumers(
+      const pw::Function<bool(pw::ConstByteSpan remoteId)> &match);
+
+  /**
+   * Returns the current number of consumers on the queue.
+   *
+   * This can be used to refresh the consumer list when waiting for consumers to
+   * release their descriptors after the producer has been stopped.
+   *
+   * @return On success, the number of consumers.
+   */
+  size_t getNumConsumers();
 
   /**
    * Applies a functor to all consumers of the queue.
@@ -471,10 +600,17 @@ class ProducerBase {
   bool isFlagInMask(internal::ConsumerDesc &desc, uint32_t producerFlags,
                     uint32_t consumerFlags, uint16_t producerMask);
 
+  /**
+   * Erases the given consumer node from the queue.
+   *
+   * @param [in,out] node The consumer node to erase. Updated to the next node.
+   */
+  void eraseConsumerNode(decltype(QueuePrivate::consumerList)::iterator &node);
+
   // Members fixed on construction.
   AllocatorRegion mRegion;
   RemoteNotifyFn mRemoteNotifyFn;
-  Queue *mQueue;
+  QueuePrivate *mQueue;
   DataNotifier *mDataNotifier;
   MemoryAccess *mMemAccess;
   pw::allocator::Layout kBlockLayout;
@@ -487,7 +623,7 @@ class ProducerBase {
   size_t mReserved = 0;
   size_t mAvailable = 0;
   uint32_t mCurrBlockIndex = 0;
-  bool mActive = true;
+  State mState = State::kActive;
 };
 
 /** Base class for Consumers of any ElementType. */
@@ -681,12 +817,11 @@ class ConsumerBase {
   /** @return The current queue capacity in bytes. */
   size_t capacity();
 
-  /**
-   * Notifies the Producer.
-   *
-   * @param producerDesc The producer descriptor.
-   */
-  void notifyProducer(ProducerDesc &producerDesc);
+  /** Disables this instance and notifies the producer. */
+  void disableAndNotify();
+
+  /** Notifies the Producer. */
+  void notifyProducer();
 
   /** Clears the producer flags. */
   void clearFlags();
@@ -740,28 +875,21 @@ inline constexpr ObjType *fromOffset(
 template <typename Fn, typename... Args>
 void ProducerBase::forAllConsumers(uint16_t excludeMask, const Fn &fn,
                                    Args... args) {
-  uint32_t *descOffsetPtr = &mQueue->dynamicConsumersHeadOffset;
-  auto *desc =
-      internal::fromOffset<internal::ConsumerDesc>(mRegion, *descOffsetPtr);
-  while (desc) {
+  for (auto node = mQueue->consumerList.begin();
+       node != mQueue->consumerList.end();) {
+    auto *desc = node->desc;
     auto consumerFlags = desc->consumerFlags.load();
     auto producerFlags = desc->producerFlags.load();
     if (static_cast<uint16_t>(consumerFlags) ==
         static_cast<uint16_t>(internal::ConsumerFlags::kFinished)) {
-      // Remove a dynamic Consumer that has marked itself for removal.
-      *descOffsetPtr = desc->nextConsumerOffset;
-      mRegion.allocator->Deallocate(desc);
-      desc =
-          internal::fromOffset<internal::ConsumerDesc>(mRegion, *descOffsetPtr);
+      eraseConsumerNode(node);  // Moves node forward.
     } else {
       // NOTE: producerFlag and consumerFlags are cached and passed in to
       // avoid an unnecessary load(). fn() may reload them if required.
       if (!isFlagInMask(*desc, producerFlags, consumerFlags, excludeMask)) {
         fn(*desc, producerFlags, args...);
       }
-      descOffsetPtr = &desc->nextConsumerOffset;
-      desc =
-          internal::fromOffset<internal::ConsumerDesc>(mRegion, *descOffsetPtr);
+      ++node;
     }
   }
 }

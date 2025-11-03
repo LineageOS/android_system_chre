@@ -58,6 +58,7 @@ public class ContextHubAPTester extends Activity {
     private LinearLayout mNanoAppListLayout;
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
     private TextView mMessageTextView;
+    private Thread mEventLoopThread = null;
 
     private Set<String> getBundledSoFileNames() {
         Set<String> soFileNames = new HashSet<>();
@@ -194,6 +195,13 @@ public class ContextHubAPTester extends Activity {
         initButton.setOnClickListener(v -> {
             // Start the CHRE environment.
             ContextHubAPManager.getInstance().init();
+
+            mEventLoopThread = new Thread(() -> {
+                ContextHubAPManager.getInstance().runEventLoop(false /*useNativeThread*/);
+            });
+            mEventLoopThread.start();
+            ContextHubAPManager.getInstance().setEventLoopThread(mEventLoopThread);
+
             mResultTextView.setText("CHRE AP: Started");
             populateNanoAppListView();
         });

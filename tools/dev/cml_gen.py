@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
 #
 # Copyright 2025, The Android Open Source Project
@@ -22,7 +22,8 @@ This script executes a given build command (typically `make -n ...`) to capture
 the compilation steps without actually building the project. It then parses this
 output to extract source files, include directories, compiler flags, and macro
 definitions. Finally, it writes a `CMakeLists.txt` file that can be used by IDEs
-such as CLion or by CMake to generate  `compile_commands.json` for code completion
+such as CLion or by CMake to generate  `compile_commands.json` for code
+completion
 and analysis.
 """
 import argparse
@@ -153,7 +154,9 @@ def _convert_to_abs_path(path: str, cwd: str) -> str:
   Returns:
     The absolute path.
   """
-  return path if os.path.isabs(path) else os.path.abspath(os.path.join(cwd, path))
+  return (
+      path if os.path.isabs(path) else os.path.abspath(os.path.join(cwd, path))
+  )
 
 
 def _parse_compilation_output(args: argparse.Namespace, result: list[str]):
@@ -211,7 +214,7 @@ def _parse_compilation_output(args: argparse.Namespace, result: list[str]):
         # include paths
         if term.startswith('-I'):
           inc_paths.add(
-            '"{}"'.format(_convert_to_abs_path(term[2:], args.src_path))
+              '"{}"'.format(_convert_to_abs_path(term[2:], args.src_path))
           )
           continue
 
@@ -239,7 +242,8 @@ def _parse_compilation_output(args: argparse.Namespace, result: list[str]):
     print(f'{len(flags)} flags')
 
     output.write(
-      f'add_executable({os.environ.get("CHRE_PLATFORM")}_{os.environ.get("CHRE_TARGET_TYPE")} ${{SOURCE_FILES}})\n')
+        f'add_executable({os.environ.get("CHRE_PLATFORM")}_{os.environ.get("CHRE_TARGET_TYPE")} ${{SOURCE_FILES}})\n'
+    )
 
 
 def main():
@@ -254,31 +258,31 @@ def main():
   print('cwd: ' + cwd)
 
   arg_parser.add_argument(
-    '-c', '--command', type=str, required=True, help='The building command'
+      '-c', '--command', type=str, required=True, help='The building command'
   )
 
   arg_parser.add_argument(
-    '-s',
-    '--src_path',
-    type=str,
-    default=cwd,
-    help='The dir where the source files are located',
+      '-s',
+      '--src_path',
+      type=str,
+      default=cwd,
+      help='The dir where the source files are located',
   )
 
   arg_parser.add_argument(
-    '-o',
-    '--output_path',
-    type=str,
-    default='',
-    help='The path to store the CMakeLists.txt generated',
+      '-o',
+      '--output_path',
+      type=str,
+      default='',
+      help='The path to store the CMakeLists.txt generated',
   )
 
   arg_parser.add_argument(
-    '-n',
-    '--project_name',
-    type=str,
-    default=cwd,
-    help='The name of the project',
+      '-n',
+      '--project_name',
+      type=str,
+      default=cwd,
+      help='The name of the project',
   )
 
   args = arg_parser.parse_args()
@@ -290,12 +294,12 @@ def main():
 
   # build path should always be the current path. Source path can be different.
   result = subprocess.run(
-    shlex.split(args.command),
-    stdout=subprocess.PIPE,
-    cwd=os.getcwd(),
-    stderr=subprocess.STDOUT,
-    check=True,
-    text=True,
+      shlex.split(args.command),
+      stdout=subprocess.PIPE,
+      cwd=os.getcwd(),
+      stderr=subprocess.STDOUT,
+      check=True,
+      text=True,
   ).stdout.splitlines()
 
   if result[-1].endswith('Stop.'):

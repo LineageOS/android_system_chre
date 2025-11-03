@@ -18,12 +18,9 @@
 #define CHRE_UTIL_PIGWEED_PERMISSION_H_
 
 #include <cstdint>
-#include <optional>
 
-#include "chre/util/nanoapp/assert.h"
 #include "chre/util/non_copyable.h"
 #include "chre/util/optional.h"
-#include "chre_api/chre.h"
 
 namespace chre {
 
@@ -32,18 +29,15 @@ namespace chre {
  */
 class RpcPermission : public NonCopyable {
  public:
-  void set(uint32_t permission) {
-    mPermission = permission;
-  }
+  /** Sets the permission for the next message. */
+  void set(uint32_t permission);
 
-  uint32_t getAndReset() {
-    CHRE_ASSERT(mPermission.has_value());
-    uint32_t permission = mPermission.has_value()
-                              ? mPermission.value()
-                              : CHRE_MESSAGE_PERMISSION_NONE;
-    mPermission.reset();
-    return permission;
-  }
+  /**
+   * Returns the permission for the next message and resets the value.
+   *
+   * @return The permission for the next message.
+   */
+  uint32_t getAndReset();
 
  private:
   /** Bitmasked CHRE_MESSAGE_PERMISSION_ */

@@ -27,6 +27,8 @@ public class ContextHubAPNative {
 
     static native void destroy();
 
+    static native void runEventLoop(boolean useNativeThread);
+
     static native void nativeRegister(ContextHubAPManager instance);
 
     static native boolean loadNanoAppFromFile(String filename);

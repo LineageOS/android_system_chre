@@ -37,21 +37,21 @@ extern "C" void signalHandler(int sig) {
 }  // namespace
 
 int main(int /*argc*/, char ** /*argv*/) {
-  // Initialize the system.
-  chre::initCommon();
-
   // Register a signal handler.
   std::signal(SIGINT, signalHandler);
 
+  // Initialize the system.
+  chre::initCommon();
+  EventLoopManagerSingleton::get()->lateInit();
+
   // Load any static nanoapps and start the event loop.
   std::thread chreThread([&]() {
-    EventLoopManagerSingleton::get()->lateInit();
-
     // Load static nanoapps unless they are disabled by a command-line flag.
     chre::loadStaticNanoapps();
 
     EventLoopManagerSingleton::get()->getEventLoop().run();
   });
+
   chreThread.join();
   chre::deinitCommon();
 

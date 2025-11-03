@@ -31,6 +31,7 @@
 
 // Global thread to run CHRE event loop.
 std::unique_ptr<std::thread> chreThread = nullptr;
+bool g_chre_initialized = false;
 
 static JavaVM *g_javaVM = nullptr;
 static jobject g_contextHubAPManagerInstance = nullptr;
@@ -68,11 +69,14 @@ void messageCallback(int64_t nanoAppId, int32_t messageType, void *messageBody,
   }
 
   env->DeleteLocalRef(messagePayload);
-  g_javaVM->DetachCurrentThread();
+
+  if (chreThread) {
+    g_javaVM->DetachCurrentThread();
+  }
 }
 
 static jint init(JNIEnv * /*env*/, jobject /*thiz*/) {
-  if (chreThread != nullptr) {
+  if (g_chre_initialized) {
     ALOGE("Environment already initialized");
     return 0;
   }
@@ -83,27 +87,44 @@ static jint init(JNIEnv * /*env*/, jobject /*thiz*/) {
       ->getHostCommsManager()
       .registerMessageCallback(messageCallback);
   ALOGD("message callback function registered.");
-
-  chreThread = std::make_unique<std::thread>([&]() {
-    // Load static nanoapps unless they are disabled by a command-line flag.
-    chre::loadStaticNanoapps();
-    ALOGD("%zu nanoapps loaded", chre::EventLoopManagerSingleton::get()
-                                     ->getEventLoop()
-                                     .getNanoappCount());
-
-    chre::EventLoopManagerSingleton::get()->getEventLoop().run();
-  });
-
+  g_chre_initialized = true;
   return 0;
 }
 
+static void run() {
+  // Load static nanoapps unless they are disabled by a command-line flag.
+  chre::loadStaticNanoapps();
+  ALOGD(
+      "%zu nanoapps loaded",
+      chre::EventLoopManagerSingleton::get()->getEventLoop().getNanoappCount());
+  chre::EventLoopManagerSingleton::get()->getEventLoop().run();
+}
+
+static void runEventLoop(JNIEnv * /*env*/, jobject /*thiz*/,
+                         jboolean useNativeThread) {
+  if (!g_chre_initialized) {
+    ALOGE("Environment not initialized");
+    return;
+  }
+  if (useNativeThread) {
+    chreThread = std::make_unique<std::thread>(run);
+  } else {
+    run();
+  }
+}
+
 static void destroy(JNIEnv * /*env*/, jobject /*thiz*/) {
+  if (!g_chre_initialized) {
+    ALOGE("Environment not initialized");
+    return;
+  }
   chre::EventLoopManagerSingleton::get()->getEventLoop().stop();
   if (chreThread != nullptr) {
     chreThread->join();
+    chreThread.reset();
   }
-  chreThread.reset();
   chre::deinitCommon();
+  g_chre_initialized = false;
   ALOGD("Environment destroyed");
 }
 
@@ -193,6 +214,7 @@ static jobjectArray listNanoapps(JNIEnv *env, jclass /*clazz*/) {
 static JNINativeMethod methods[] = {
     {(char *)"init", (char *)"()I", (void *)init},
     {(char *)"destroy", (char *)"()V", (void *)destroy},
+    {(char *)"runEventLoop", (char *)"(Z)V", (void *)runEventLoop},
     {(char *)"loadNanoAppFromFile", (char *)"(Ljava/lang/String;)Z",
      (void *)loadNanoAppFromFile},
     {(char *)"unloadNanoApp", (char *)"(J)Z", (void *)unloadNanoApp},

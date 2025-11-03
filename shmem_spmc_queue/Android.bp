@@ -41,6 +41,7 @@ cc_library {
     static_libs: [
         "pw_allocator",
         "pw_bytes",
+        "pw_containers",
         "pw_function",
         "pw_result",
         "pw_span",
@@ -49,6 +50,7 @@ cc_library {
     export_static_lib_headers: [
         "pw_allocator",
         "pw_bytes",
+        "pw_containers",
         "pw_function",
         "pw_result",
         "pw_span",

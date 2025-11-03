@@ -714,6 +714,20 @@ static void chppWifiScanEventNotification(
       clientContext->scanTimeoutPending = false;
     }
 
+    if (!(clientContext->capabilities & CHRE_WIFI_CAPABILITIES_VENUE_INFO)) {
+      for (size_t i = 0; i < chre->resultCount; i++) {
+        if (chre->results[i].venueInfo != 0) {
+          // Remove const qualification to allow for venueInfo to be set to 0.
+          // This is safe because the buffer was not const as it was provided to
+          // this function, and it has yet to be distributed to clients.
+          #pragma GCC diagnostic push
+          #pragma GCC diagnostic ignored "-Wcast-qual"
+          ((struct chreWifiScanResult *)chre->results)[i].venueInfo = 0;
+          #pragma GCC diagnostic pop
+        }
+      }
+    }
+
     getPalCallbacks()->scanEventCallback(chre);
   }
 }

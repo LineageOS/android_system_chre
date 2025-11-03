@@ -305,6 +305,7 @@ COMMON_CFLAGS += -DPW_RPC_DYNAMIC_CONTAINER_INCLUDE='"chre/util/dynamic_vector.h
 
 # Add CHRE Pigweed util sources since nanoapps should always use these
 COMMON_SRCS += $(PIGWEED_CHRE_UTIL_DIR)/chre_channel_output.cc
+COMMON_SRCS += $(PIGWEED_CHRE_UTIL_DIR)/permission.cc
 COMMON_SRCS += $(PIGWEED_CHRE_UTIL_DIR)/rpc_client.cc
 COMMON_SRCS += $(PIGWEED_CHRE_UTIL_DIR)/rpc_helper.cc
 COMMON_SRCS += $(PIGWEED_CHRE_UTIL_DIR)/rpc_server.cc
