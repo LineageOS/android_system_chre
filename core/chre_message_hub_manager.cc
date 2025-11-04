@@ -194,7 +194,8 @@ bool ChreMessageHubManager::configureReadyEvents(
   }
 
   std::optional<Endpoint> endpoint =
-      searchForEndpoint(hubId, endpointId, serviceDescriptor);
+      MessageRouterSingleton::get()->searchForEndpoint(hubId, endpointId,
+                                                       serviceDescriptor);
   if (endpoint.has_value()) {
     sendReadyEventToNanoapp(nanoappInstanceId, endpoint->messageHubId,
                             endpoint->endpointId, serviceDescriptor);
@@ -256,7 +257,8 @@ bool ChreMessageHubManager::openDefaultSessionAsync(
     EndpointId fromEndpointId, MessageHubId toHubId, EndpointId toEndpointId,
     const char *serviceDescriptor) {
   std::optional<Endpoint> endpoint =
-      searchForEndpoint(toHubId, toEndpointId, serviceDescriptor);
+      MessageRouterSingleton::get()->searchForEndpoint(toHubId, toEndpointId,
+                                                       serviceDescriptor);
   return endpoint.has_value() &&
          openSessionAsync(fromEndpointId, endpoint->messageHubId,
                           endpoint->endpointId, serviceDescriptor);
@@ -621,27 +623,6 @@ void ChreMessageHubManager::onEndpointReadyEvent(MessageHubId messageHubId,
   }
 }
 
-MessageHubId ChreMessageHubManager::findDefaultMessageHubId(
-    EndpointId endpointId) {
-  struct SearchContext {
-    MessageHubId toMessageHubId = MESSAGE_HUB_ID_INVALID;
-    EndpointId toEndpointId;
-  };
-  SearchContext context = {
-      .toEndpointId = endpointId,
-  };
-
-  MessageRouterSingleton::get()->forEachEndpoint(
-      [&context](const MessageHubInfo &hubInfo,
-                 const EndpointInfo &endpointInfo) {
-        if (context.toMessageHubId == MESSAGE_HUB_ID_INVALID &&
-            endpointInfo.id == context.toEndpointId) {
-          context.toMessageHubId = hubInfo.id;
-        }
-      });
-  return context.toMessageHubId;
-}
-
 bool ChreMessageHubManager::doesNanoappHaveLegacyService(uint64_t nanoappId,
                                                          uint64_t serviceId) {
   struct SearchContext {
@@ -718,57 +699,6 @@ bool ChreMessageHubManager::validateServicesLocked(
     }
   }
   return true;
-}
-
-std::optional<Endpoint> ChreMessageHubManager::searchForEndpoint(
-    MessageHubId messageHubId, EndpointId endpointId,
-    const char *serviceDescriptor) {
-  if (endpointId == ENDPOINT_ID_INVALID) {
-    if (serviceDescriptor == nullptr) {
-      LOGD(
-          "Failed to search for an endpoint: no endpoint ID or service "
-          "descriptor");
-      return std::nullopt;
-    }
-    return MessageRouterSingleton::get()->getEndpointForService(
-        messageHubId, serviceDescriptor);
-  }
-
-  if (serviceDescriptor != nullptr) {
-    if (messageHubId == MESSAGE_HUB_ID_INVALID) {
-      LOGD(
-          "Failed to search for an endpoint: no message hub ID provided with "
-          "endpoint and service descriptor");
-      return std::nullopt;
-    }
-
-    if (!MessageRouterSingleton::get()->doesEndpointHaveService(
-            messageHubId, endpointId, serviceDescriptor)) {
-      LOGD("Failed to search for an endpoint: endpoint 0x%" PRIx64
-           " on hub 0x%" PRIx64 " does not have service %s",
-           messageHubId, endpointId, serviceDescriptor);
-      return std::nullopt;
-    }
-    return Endpoint(messageHubId, endpointId);
-  }
-
-  if (messageHubId == MESSAGE_HUB_ID_INVALID) {
-    messageHubId = findDefaultMessageHubId(endpointId);
-    if (messageHubId == MESSAGE_HUB_ID_INVALID) {
-      LOGD(
-          "Failed to search for an endpoint: no default message hub ID "
-          "found");
-      return std::nullopt;
-    }
-  } else if (!MessageRouterSingleton::get()
-                  ->getEndpointInfo(messageHubId, endpointId)
-                  .has_value()) {
-    LOGD("Failed to search for an endpoint: endpoint 0x%" PRIx64
-         " on hub 0x%" PRIx64 " does not exist",
-         messageHubId, endpointId);
-    return std::nullopt;
-  }
-  return Endpoint(messageHubId, endpointId);
 }
 
 void ChreMessageHubManager::disableReadyEvents(EndpointId fromEndpointId,

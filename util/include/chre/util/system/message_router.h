@@ -310,6 +310,19 @@ class MessageRouter {
   bool doesEndpointHaveService(MessageHubId messageHubId, EndpointId endpointId,
                                const char *serviceDescriptor);
 
+  //! @return The first MessageHub ID for the given endpoint ID
+  MessageHubId findDefaultMessageHubId(EndpointId endpointId);
+
+  //! Searches for an endpoint with the given hub ID, endpoint ID, and service
+  //! descriptor. The hubId can be MESSAGE_HUB_ID_ANY to search for the
+  //! endpoint on any hub, the endpointId can be ENDPOINT_ID_ANY to search for
+  //! the endpoint on any hub, or the service descriptor can be non-nullptr to
+  //! search for any endpoint that has the service.
+  //! @return the endpoint if found, std::nullopt otherwise.
+  std::optional<Endpoint> searchForEndpoint(MessageHubId messageHubId,
+                                            EndpointId endpointId,
+                                            const char *serviceDescriptor);
+
   //! Executes the function for each service provided by an endpoint connected
   //! to this MessageHub. If function returns true, the iteration will stop.
   //! @return true if successful, false otherwise

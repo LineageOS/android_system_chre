@@ -271,6 +271,72 @@ bool MessageRouter::doesEndpointHaveService(MessageHubId messageHubId,
   return callback->doesEndpointHaveService(endpointId, serviceDescriptor);
 }
 
+MessageHubId MessageRouter::findDefaultMessageHubId(EndpointId endpointId) {
+  struct SearchContext {
+    MessageHubId toMessageHubId = MESSAGE_HUB_ID_INVALID;
+    EndpointId toEndpointId;
+  };
+  SearchContext context = {
+      .toEndpointId = endpointId,
+  };
+
+  forEachEndpoint([&context](const MessageHubInfo &hubInfo,
+                             const EndpointInfo &endpointInfo) {
+    if (context.toMessageHubId == MESSAGE_HUB_ID_INVALID &&
+        endpointInfo.id == context.toEndpointId) {
+      context.toMessageHubId = hubInfo.id;
+    }
+  });
+  return context.toMessageHubId;
+}
+
+std::optional<Endpoint> MessageRouter::searchForEndpoint(
+    MessageHubId messageHubId, EndpointId endpointId,
+    const char *serviceDescriptor) {
+  if (endpointId == ENDPOINT_ID_INVALID) {
+    if (serviceDescriptor == nullptr) {
+      LOGD(
+          "Failed to search for an endpoint: no endpoint ID or service "
+          "descriptor");
+      return std::nullopt;
+    }
+    return getEndpointForService(messageHubId, serviceDescriptor);
+  }
+
+  if (serviceDescriptor != nullptr) {
+    if (messageHubId == MESSAGE_HUB_ID_INVALID) {
+      LOGD(
+          "Failed to search for an endpoint: no message hub ID provided with "
+          "endpoint and service descriptor");
+      return std::nullopt;
+    }
+
+    if (!doesEndpointHaveService(messageHubId, endpointId, serviceDescriptor)) {
+      LOGD("Failed to search for an endpoint: endpoint 0x%" PRIx64
+           " on hub 0x%" PRIx64 " does not have service %s",
+           messageHubId, endpointId, serviceDescriptor);
+      return std::nullopt;
+    }
+    return Endpoint(messageHubId, endpointId);
+  }
+
+  if (messageHubId == MESSAGE_HUB_ID_INVALID) {
+    messageHubId = findDefaultMessageHubId(endpointId);
+    if (messageHubId == MESSAGE_HUB_ID_INVALID) {
+      LOGD(
+          "Failed to search for an endpoint: no default message hub ID "
+          "found");
+      return std::nullopt;
+    }
+  } else if (!getEndpointInfo(messageHubId, endpointId).has_value()) {
+    LOGD("Failed to search for an endpoint: endpoint 0x%" PRIx64
+         " on hub 0x%" PRIx64 " does not exist",
+         messageHubId, endpointId);
+    return std::nullopt;
+  }
+  return Endpoint(messageHubId, endpointId);
+}
+
 bool MessageRouter::forEachService(
     const pw::Function<bool(const MessageHubInfo &, const EndpointInfo &,
                             const ServiceInfo &)> &function) {
