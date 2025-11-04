@@ -18,6 +18,8 @@
 #include <shared/macros.h>
 #include <shared/send_message.h>
 
+#include <optional>
+
 #include "chre/util/nanoapp/ble.h"
 #include "chre/util/nanoapp/log.h"
 #include "chre/util/time.h"
@@ -139,6 +141,18 @@ void BasicBleTest::handleAdvertisementEvent(
   }
 }
 
+bool BasicBleTest::isScanStatusChangeExpected(const chreBleScanStatus *status) {
+  static std::optional<chreBleScanStatus> lastScanStatus = std::nullopt;
+  const bool isStatusChangeExpected =
+      lastScanStatus == std::nullopt ||
+      status->enabled != lastScanStatus->enabled ||
+      status->reportDelayMs != lastScanStatus->reportDelayMs;
+  if (isStatusChangeExpected) {
+    lastScanStatus = *status;
+  }
+  return isStatusChangeExpected;
+}
+
 void BasicBleTest::handleTimerEvent() {
   if (mSupportsBatching) {
     if (!chreBleFlushAsync(&gFlushCookie)) {
@@ -186,6 +200,15 @@ void BasicBleTest::handleEvent(uint32_t /* senderInstanceId */,
         unexpectedEvent(eventType);
       }
       break;
+    case CHRE_EVENT_BLE_SCAN_STATUS_CHANGE: {
+      auto *status = static_cast<const chreBleScanStatus *>(eventData);
+      LOGI("BLE status changed: enabled=%s; reportDelayMs=%" PRIu32,
+           status->enabled ? "true" : "false", status->reportDelayMs);
+      if (!isScanStatusChangeExpected(status)) {
+        unexpectedEvent(eventType);
+      }
+      break;
+    }
     case CHRE_EVENT_TIMER:
       handleTimerEvent();
       break;

@@ -75,6 +75,8 @@ class BasicBleTest : public Test {
 
   void handleAdvertisementEvent(const chreBleAdvertisementEvent *event);
 
+  static bool isScanStatusChangeExpected(const chreBleScanStatus *status);
+
   void handleTimerEvent();
 };
 
