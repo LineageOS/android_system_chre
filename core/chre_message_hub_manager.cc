@@ -372,7 +372,7 @@ void ChreMessageHubManager::cleanupEndpointResources(EndpointId endpointId) {
     }
   }
 
-  for (size_t i = 0; i < mEndpointReadyEventRequests.size(); ++i) {
+  for (size_t i = 0; i < mEndpointReadyEventRequests.size();) {
     if (mEndpointReadyEventRequests[i].fromEndpointId == endpointId) {
       mEndpointReadyEventRequests.erase(i);
     } else {
