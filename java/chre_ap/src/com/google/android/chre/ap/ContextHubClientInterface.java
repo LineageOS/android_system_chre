@@ -16,8 +16,6 @@
 
 package com.google.android.chre.ap;
 
-import android.annotation.NonNull;
-
 import java.io.Closeable;
 
 /**
@@ -81,7 +79,7 @@ public interface ContextHubClientInterface extends Closeable {
      * @see ContextHubTransaction.Result
      */
     @ContextHubTransaction.Result
-    int sendMessageToNanoApp(@NonNull NanoAppMessage message);
+    int sendMessageToNanoApp(NanoAppMessage message);
 
     /**
      * Sends a reliable message to a nanoapp.
@@ -92,6 +90,5 @@ public interface ContextHubClientInterface extends Closeable {
      * @param message The message to send.
      * @return A {@link ContextHubTransaction} that can be used to track the reliable message.
      */
-    @NonNull
-    ContextHubTransaction<Void> sendReliableMessageToNanoApp(@NonNull NanoAppMessage message);
+    ContextHubTransaction<Void> sendReliableMessageToNanoApp(NanoAppMessage message);
 }

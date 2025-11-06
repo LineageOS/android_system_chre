@@ -17,7 +17,6 @@
 package com.google.android.chre.ap;
 
 import android.annotation.IntRange;
-import android.annotation.NonNull;
 import android.util.Log;
 
 import java.util.concurrent.Executor;
@@ -48,9 +47,9 @@ public final class ContextHubAPClient implements ContextHubClientInterface {
      * @param callback The message receiving callback.
      */
     ContextHubAPClient(
-            @NonNull Integer id,
-            @NonNull Executor executor,
-            @NonNull ContextHubClientCallback callback) {
+            Integer id,
+            Executor executor,
+            ContextHubClientCallback callback) {
         mId = id;
         mExecutor = executor;
         mCallback = callback;
@@ -64,7 +63,7 @@ public final class ContextHubAPClient implements ContextHubClientInterface {
      * @return the result of sending the message defined as in ContextHubTransaction.Result
      */
     @Override
-    public int sendMessageToNanoApp(@NonNull NanoAppMessage message) {
+    public int sendMessageToNanoApp(NanoAppMessage message) {
         Log.d(TAG, "Sending message to NanoApp ID: " + message);
 
         // Core: Send the message to the native simulator via JNI
@@ -80,9 +79,8 @@ public final class ContextHubAPClient implements ContextHubClientInterface {
     }
 
     @Override
-    @NonNull
     public ContextHubTransaction<Void> sendReliableMessageToNanoApp(
-            @NonNull NanoAppMessage message) {
+            NanoAppMessage message) {
         var res = sendMessageToNanoApp(message);
         ContextHubTransaction<Void> transaction =
                 new ContextHubTransaction<>(ContextHubTransaction.TYPE_RELIABLE_MESSAGE);
@@ -110,7 +108,6 @@ public final class ContextHubAPClient implements ContextHubClientInterface {
     }
 
     /** Retrieves the client callback interface. */
-    @NonNull
     public ContextHubClientCallback getCallback() {
         return mCallback;
     }

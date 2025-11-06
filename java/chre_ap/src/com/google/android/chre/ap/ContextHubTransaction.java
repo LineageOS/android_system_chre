@@ -16,7 +16,6 @@
 package com.google.android.chre.ap;
 
 import android.annotation.IntDef;
-import android.annotation.NonNull;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -291,8 +290,8 @@ public class ContextHubTransaction<T> {
      * @throws NullPointerException  if the callback or handler is null
      */
     public void setOnCompleteListener(
-            @NonNull ContextHubTransaction.OnCompleteListener<T> listener,
-            @NonNull Executor executor) {
+            ContextHubTransaction.OnCompleteListener<T> listener,
+            Executor executor) {
         synchronized (this) {
             Objects.requireNonNull(listener, "OnCompleteListener cannot be null");
             Objects.requireNonNull(executor, "Executor cannot be null");
@@ -324,7 +323,7 @@ public class ContextHubTransaction<T> {
      * @throws NullPointerException  if the callback is null
      */
     public void setOnCompleteListener(
-            @NonNull ContextHubTransaction.OnCompleteListener<T> listener) {
+            ContextHubTransaction.OnCompleteListener<T> listener) {
         setOnCompleteListener(listener, new HandlerExecutor(mHandler));
     }
 

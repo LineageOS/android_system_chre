@@ -16,7 +16,6 @@
 
 package com.google.android.chre.ap;
 
-import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.content.Context;
 import android.os.Handler;
@@ -61,7 +60,6 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
      *
      * @return The instance of ContextHubAPManager.
      */
-    @NonNull
     public static ContextHubAPManager getInstance() {
         if (sInstance == null) {
             synchronized (ContextHubAPManager.class) {
@@ -131,12 +129,11 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
      * @param callback The callback to receive messages and events from the nanoapp.
      * @return The ContextHubClient instance.
      */
-    @NonNull
     @Override
     public ContextHubClientInterface createClient(
             @Nullable Context context,
-            @NonNull Executor executor,
-            @NonNull ContextHubClientCallback callback) {
+            Executor executor,
+            ContextHubClientCallback callback) {
         Objects.requireNonNull(callback, "Callback cannot be null");
         Objects.requireNonNull(executor, "Executor cannot be null");
         var clientId = mClientIdCounter.incrementAndGet();
@@ -145,16 +142,14 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
         return client;
     }
 
-    @NonNull
     @Override
     public ContextHubClientInterface createClient(
-            @NonNull ContextHubClientCallback callback, @NonNull Executor executor) {
+            ContextHubClientCallback callback, Executor executor) {
         return createClient(null /* context */, executor, callback);
     }
 
-    @NonNull
     @Override
-    public ContextHubClientInterface createClient(@NonNull ContextHubClientCallback callback) {
+    public ContextHubClientInterface createClient(ContextHubClientCallback callback) {
         return createClient(null /* context */, new HandlerExecutor(mMainHandler), callback);
     }
 
@@ -181,7 +176,6 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
         return success;
     }
 
-    @NonNull
     @Override
     public ContextHubTransaction<Void> unloadNanoApp(long nanoAppInstanceId) {
         boolean unloadRes = ContextHubAPNative.unloadNanoApp(nanoAppInstanceId);
@@ -199,7 +193,6 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
         return transaction;
     }
 
-    @NonNull
     @Override
     public ContextHubTransaction<List<NanoAppState>> queryNanoApps() {
         // Not implemented for AP environment
@@ -236,7 +229,6 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
                 });
     }
 
-    @NonNull
     @Override
     public long[] getPreloadedNanoAppIds() {
         // Not implemented for AP environment

@@ -16,7 +16,6 @@
 
 package com.google.android.chre.ap;
 
-import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.content.Context;
 
@@ -27,31 +26,25 @@ import java.util.concurrent.Executor;
 public interface ContextHubManagerInterface {
 
     /** Creates a client to communicate with a specific Context Hub. */
-    @NonNull
     ContextHubClientInterface createClient(
             @Nullable Context context,
-            @NonNull Executor executor,
-            @NonNull ContextHubClientCallback callback);
+            Executor executor,
+            ContextHubClientCallback callback);
 
     /** Creates a client with a callback that uses the main thread's Looper. */
-    @NonNull
-    ContextHubClientInterface createClient(@NonNull ContextHubClientCallback callback);
+    ContextHubClientInterface createClient(ContextHubClientCallback callback);
 
     /** Creates a client for a Context Hub with a specified callback and executor. */
-    @NonNull
     ContextHubClientInterface createClient(
-            @NonNull ContextHubClientCallback callback,
-            @NonNull Executor executor);
+            ContextHubClientCallback callback,
+            Executor executor);
 
     /** Queries for the list of preloaded nanoapp IDs on the system, for testing. */
-    @NonNull
     long[] getPreloadedNanoAppIds();
 
     /** Requests a query for nanoapps loaded at the specified Context Hub. */
-    @NonNull
     ContextHubTransaction<List<NanoAppState>> queryNanoApps();
 
     /** Unloads a nanoapp at the specified Context Hub. */
-    @NonNull
     ContextHubTransaction<Void> unloadNanoApp(long nanoAppId);
 }
