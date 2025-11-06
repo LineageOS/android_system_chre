@@ -20,7 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "chre/shmem_spmc_queue/queue_defs.h"
+#include "data_flow/queue_defs.h"
 #include "pw_allocator/allocator.h"
 #include "pw_allocator/layout.h"
 #include "pw_bytes/span.h"
@@ -30,7 +30,7 @@
 #include "pw_status/status.h"
 #include "pw_status/try.h"
 
-namespace chre::shmem_spmc_queue {
+namespace android::contexthub::data_flow {
 
 // Forward declarations.
 class ConsumerManager;
@@ -392,8 +392,8 @@ class ProducerBase {
   }
 
  protected:
-  friend class ::chre::shmem_spmc_queue::ConsumerManager;
-  friend class ::chre::shmem_spmc_queue::DataNotifier;
+  friend class ::android::contexthub::data_flow::ConsumerManager;
+  friend class ::android::contexthub::data_flow::DataNotifier;
 
   enum class State : uint8_t {
     kActive,
@@ -895,4 +895,4 @@ void ProducerBase::forAllConsumers(uint16_t excludeMask, const Fn &fn,
 }
 
 }  // namespace internal
-}  // namespace chre::shmem_spmc_queue
+}  // namespace android::contexthub::data_flow

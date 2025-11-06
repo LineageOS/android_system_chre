@@ -22,8 +22,8 @@
 #include <type_traits>
 #include <utility>
 
-#include "chre/shmem_spmc_queue/internal/queue_internal.h"
-#include "chre/shmem_spmc_queue/queue_defs.h"
+#include "data_flow/internal/queue_internal.h"
+#include "data_flow/queue_defs.h"
 #include "pw_allocator/allocator.h"
 #include "pw_allocator/layout.h"
 #include "pw_bytes/span.h"
@@ -33,7 +33,7 @@
 #include "pw_status/status.h"
 #include "pw_status/try.h"
 
-namespace chre::shmem_spmc_queue {
+namespace android::contexthub::data_flow {
 
 /**
  * Interface for accessing shared memory.
@@ -433,7 +433,7 @@ class Producer : protected internal::ProducerBase {
   }
 
  protected:
-  friend class ::chre::shmem_spmc_queue::ProducerPeer<ElementType>;
+  friend class ::android::contexthub::data_flow::ProducerPeer<ElementType>;
 
   Producer(const AllocatorRegion &region, internal::QueuePrivate &queue,
            pw::allocator::Layout blockLayout, size_t maxBlockCount,
@@ -942,4 +942,4 @@ pw::Result<void *> createQueue(pw::Allocator &allocator, bool local) {
 pw::Result<void *> createVariableDataQueue(pw::Allocator &allocator,
                                            size_t blockCapacity, bool local);
 
-}  // namespace chre::shmem_spmc_queue
+}  // namespace android::contexthub::data_flow

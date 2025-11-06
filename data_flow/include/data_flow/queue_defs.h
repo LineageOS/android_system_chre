@@ -24,7 +24,7 @@
 #include "pw_bytes/span.h"
 #include "pw_function/function.h"
 
-namespace chre::shmem_spmc_queue {
+namespace android::contexthub::data_flow {
 
 /** Sends a notification to an endpoint within the same "process". */
 using LocalNotifyFn = void (*)(void *context);
@@ -72,4 +72,4 @@ struct AllocatorRegion : public Region {
   pw::Allocator *allocator;
 };
 
-}  // namespace chre::shmem_spmc_queue
+}  // namespace android::contexthub::data_flow
