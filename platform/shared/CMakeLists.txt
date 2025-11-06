@@ -495,6 +495,7 @@ pw_add_facade(chre.platform.shared.nanoapp_loader STATIC
     chre.platform.shared.chre_api_msg
     chre.platform.shared.dlfcn
     chre.platform.shared.memory
+    chre.platform.shared.nanoapp_memory_guard
     chre.platform.shared.nanoapp_tokenized_log
     chre.platform.shared.platform_cache_management
     chre.variant.config
@@ -542,12 +543,24 @@ pw_add_library(chre.platform.shared.nanoapp_tokenized_log STATIC
     pw_tokenizer
 )
 
-# Note that this is only for building purpose. In the future it can be changed to a facade if needed
+# No-op backend for the `chre.platform.shared.nanoapp_memory_guard` facade.
 pw_add_library(chre.platform.shared.nanoapp_memory_guard_no_op INTERFACE
   HEADERS
     nanoapp_memory_guard_no_op/include/chre/target_platform/nanoapp_memory_guard_base.h
   PUBLIC_INCLUDES
     nanoapp_memory_guard_no_op/include
+)
+
+pw_add_facade(chre.platform.shared.nanoapp_memory_guard INTERFACE
+  BACKEND
+    chre.platform.shared.nanoapp_memory_guard_BACKEND
+  HEADERS
+    include/chre/platform/shared/nanoapp_memory_guard.h
+  PUBLIC_INCLUDES
+    include/
+  PUBLIC_DEPS
+    chre.platform.platform_nanoapp
+    chre.platform.shared.nanoapp_loader
 )
 
 pw_add_library(chre.platform.shared.pal_audio_stub STATIC
