@@ -117,50 +117,16 @@ std::optional<typename MessageRouter::MessageHub>
 MessageRouter::registerMessageHub(
     const char *name, MessageHubId id,
     pw::IntrusivePtr<MessageRouter::MessageHubCallback> callback) {
-  DynamicVector<MessageHubRecord> hubsToNotify;
-  std::optional<MessageHub> newHub;
-  MessageHubInfo newHubInfo;
-  {
-    LockGuard<Mutex> lock(mMutex);
-    if (mMessageHubs.full()) {
-      LOGE(
-          "Message hub '%s' not registered: maximum number of message hubs "
-          "reached",
-          name);
-      return std::nullopt;
-    }
+  return registerMessageHub(name, id, callback, /* version= */ 1);
+}
 
-    for (MessageHubRecord &messageHub : mMessageHubs) {
-      if (std::strcmp(messageHub.info.name, name) == 0 ||
-          messageHub.info.id == id) {
-        LOGE(
-            "Message hub '%s' not registered: hub with same name or ID already "
-            "exists",
-            name);
-        return std::nullopt;
-      }
-    }
-
-    if (auto hubRecords = getMessageHubRecordsLocked(); hubRecords) {
-      hubsToNotify = std::move(*hubRecords);
-    } else {
-      return std::nullopt;
-    }
-
-    MessageHubRecord messageHubRecord = {
-        .info = {.id = id, .name = name},
-        .callback = std::move(callback),
-    };
-    newHubInfo = messageHubRecord.info;
-    mMessageHubs.push_back(std::move(messageHubRecord));
-    newHub = MessageHub(*this, id);
-  }
-
-  // NOTE: newHubInfo is guaranteed to be valid while we have newHub.
-  for (const auto &hubRecord : hubsToNotify) {
-    hubRecord.callback->onHubRegistered(newHubInfo);
-  }
-  return newHub;
+std::optional<typename MessageRouter::MessageHub>
+MessageRouter::registerMessageHubV2(
+    const char *name, MessageHubId id,
+    pw::IntrusivePtr<MessageRouter::MessageHubCallbackV2> callback) {
+  return registerMessageHub(name, id,
+                            pw::IntrusivePtr<MessageHubCallback>(callback),
+                            /* version= */ 2);
 }
 
 bool MessageRouter::forEachEndpointOfHub(
@@ -378,6 +344,56 @@ bool MessageRouter::forEachMessageHub(
     function(messageHubRecord.info);
   }
   return true;
+}
+
+std::optional<MessageRouter::MessageHub> MessageRouter::registerMessageHub(
+    const char *name, MessageHubId id,
+    pw::IntrusivePtr<MessageHubCallback> callback, uint8_t version) {
+  DynamicVector<MessageHubRecord> hubsToNotify;
+  std::optional<MessageHub> newHub;
+  MessageHubInfo newHubInfo;
+  {
+    LockGuard<Mutex> lock(mMutex);
+    if (mMessageHubs.full()) {
+      LOGE(
+          "Message hub '%s' not registered: maximum number of message hubs "
+          "reached",
+          name);
+      return std::nullopt;
+    }
+
+    for (MessageHubRecord &messageHub : mMessageHubs) {
+      if (std::strcmp(messageHub.info.name, name) == 0 ||
+          messageHub.info.id == id) {
+        LOGE("Message hub '%s' with ID 0x%" PRIx64
+             " not registered: hub with same name or ID already "
+             "exists",
+             name, id);
+        return std::nullopt;
+      }
+    }
+
+    if (auto hubRecords = getMessageHubRecordsLocked(); hubRecords) {
+      hubsToNotify = std::move(*hubRecords);
+    } else {
+      return std::nullopt;
+    }
+
+    MessageHubRecord messageHubRecord = {
+        .info = {.id = id, .name = name},
+        .callback = std::move(callback),
+        .version = version,
+    };
+    newHubInfo = messageHubRecord.info;
+    mMessageHubs.push_back(std::move(messageHubRecord));
+    newHub = MessageHub(*this, id);
+  }
+
+  // NOTE: newHubInfo is guaranteed to be valid while we have newHub.
+  for (const auto &hubRecord : hubsToNotify) {
+    hubRecord.callback->onHubRegistered(newHubInfo);
+  }
+  return newHub;
 }
 
 bool MessageRouter::unregisterMessageHub(MessageHubId fromMessageHubId) {
@@ -760,19 +776,6 @@ std::optional<size_t> MessageRouter::findSessionIndexLocked(
     }
   }
   return std::nullopt;
-}
-
-pw::IntrusivePtr<MessageRouter::MessageHubCallback>
-MessageRouter::getCallbackFromMessageHubId(MessageHubId messageHubId) {
-  LockGuard<Mutex> lock(mMutex);
-  return getCallbackFromMessageHubIdLocked(messageHubId);
-}
-
-pw::IntrusivePtr<MessageRouter::MessageHubCallback>
-MessageRouter::getCallbackFromMessageHubIdLocked(MessageHubId messageHubId) {
-  const MessageHubRecord *messageHubRecord =
-      getMessageHubRecordLocked(messageHubId);
-  return messageHubRecord == nullptr ? nullptr : messageHubRecord->callback;
 }
 
 bool MessageRouter::checkIfEndpointExists(

@@ -19,11 +19,13 @@
 
 #include "chre/platform/mutex.h"
 #include "chre/util/dynamic_vector.h"
+#include "chre/util/lock_guard.h"
 #include "chre/util/memory.h"
 #include "chre/util/singleton.h"
 #include "chre/util/system/intrusive_ref_base.h"
 #include "chre/util/system/message_common.h"
 #include "chre/util/system/message_hub_callback.h"
+#include "chre/util/system/message_hub_callback_v2.h"
 
 #include "pw_allocator/unique_ptr.h"
 #include "pw_containers/vector.h"
@@ -56,6 +58,7 @@ namespace chre::message {
 class MessageRouter {
  public:
   using MessageHubCallback = chre::message::MessageHubCallback;
+  using MessageHubCallbackV2 = chre::message::MessageHubCallbackV2;
 
   //! The API returned when registering a MessageHub with the MessageRouter.
   class MessageHub {
@@ -161,6 +164,7 @@ class MessageRouter {
   struct MessageHubRecord {
     MessageHubInfo info;
     pw::IntrusivePtr<MessageHubCallback> callback;
+    uint8_t version;
   };
 
   //! The default reserved session ID value
@@ -194,6 +198,12 @@ class MessageRouter {
   std::optional<MessageHub> registerMessageHub(
       const char *name, MessageHubId id,
       pw::IntrusivePtr<MessageHubCallback> callback);
+
+  //! Registers a V2 MessageHub with the MessageRouter.
+  //! @see registerMessageHub
+  std::optional<MessageHub> registerMessageHubV2(
+      const char *name, MessageHubId id,
+      pw::IntrusivePtr<MessageHubCallbackV2> callback);
 
   //! Executes the function for each endpoint connected to this MessageHub.
   //! If function returns true, the iteration will stop.
@@ -251,6 +261,13 @@ class MessageRouter {
       const pw::Function<bool(const MessageHubInfo &)> &function);
 
  private:
+  //! Registers a MessageHub with the MessageRouter.
+  //! @see registerMessageHub
+  //! @param version The version of the callback to register.
+  std::optional<MessageHub> registerMessageHub(
+      const char *name, MessageHubId id,
+      pw::IntrusivePtr<MessageHubCallback> callback, uint8_t version);
+
   //! Unregisters a MessageHub from the MessageRouter. This function will
   //! close all sessions that were initiated by or connected to the MessageHub
   //! and destroy the MessageHubRecord. This function will call the callback
@@ -346,13 +363,23 @@ class MessageRouter {
                                                SessionId sessionId);
 
   //! @return The callback for the given MessageHub ID or nullptr if not found
-  //! Requires the caller to hold the mutex
+  template <typename T = MessageHubCallback>
   pw::IntrusivePtr<MessageHubCallback> getCallbackFromMessageHubId(
-      MessageHubId messageHubId);
+      MessageHubId messageHubId) {
+    LockGuard<Mutex> lock(mMutex);
+    return getCallbackFromMessageHubIdLocked<T>(messageHubId);
+  }
 
   //! @return The callback for the given MessageHub ID or nullptr if not found
-  pw::IntrusivePtr<MessageHubCallback> getCallbackFromMessageHubIdLocked(
-      MessageHubId messageHubId);
+  template <typename T = MessageHubCallback>
+  pw::IntrusivePtr<T> getCallbackFromMessageHubIdLocked(
+      MessageHubId messageHubId, uint8_t minVersion = 1) {
+    const MessageHubRecord *record = getMessageHubRecordLocked(messageHubId);
+    if (record == nullptr || record->version < minVersion) {
+      return nullptr;
+    }
+    return pw::IntrusivePtr<T>(record->callback);
+  }
 
   //! @return true if the endpoint exists in the MessageHub with the given
   //! callback
