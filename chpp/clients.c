@@ -40,6 +40,9 @@
 #ifdef CHPP_CLIENT_ENABLED_WWAN
 #include "chpp/clients/wwan.h"
 #endif
+#ifdef CHPP_CLIENT_ENABLED_MESSAGE
+#include "chpp/clients/message.h"
+#endif
 #include "chpp/log.h"
 #include "chpp/macros.h"
 #include "chpp/memory.h"
@@ -145,6 +148,12 @@ void chppRegisterCommonClients(struct ChppAppState *context) {
     chppRegisterGnssClient(context);
   }
 #endif
+
+#ifdef CHPP_CLIENT_ENABLED_MESSAGE
+  if (context->clientServiceSet.messageClient) {
+    chppRegisterMessageClient(context);
+  }
+#endif
 }
 
 void chppDeregisterCommonClients(struct ChppAppState *context) {
@@ -168,6 +177,12 @@ void chppDeregisterCommonClients(struct ChppAppState *context) {
 #ifdef CHPP_CLIENT_ENABLED_GNSS
   if (context->clientServiceSet.gnssClient) {
     chppDeregisterGnssClient(context);
+  }
+#endif
+
+#ifdef CHPP_CLIENT_ENABLED_MESSAGE
+  if (context->clientServiceSet.messageClient) {
+    chppDeregisterMessageClient(context);
   }
 #endif
 }

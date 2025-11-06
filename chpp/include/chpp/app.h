@@ -491,6 +491,8 @@ struct ChppClientServiceSet {
   bool loopbackClient : 1;
   bool vendorClients : 1;
   bool vendorServices : 1;
+  bool messageService : 1;
+  bool messageClient : 1;
 };
 
 struct ChppLoopbackClientState;

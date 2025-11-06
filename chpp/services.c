@@ -35,6 +35,9 @@
 #ifdef CHPP_SERVICE_ENABLED_WWAN
 #include "chpp/services/wwan.h"
 #endif
+#ifdef CHPP_SERVICE_ENABLED_MESSAGE
+#include "chpp/services/message.h"
+#endif
 #include "chpp/transport.h"
 
 /************************************************
@@ -62,6 +65,12 @@ void chppRegisterCommonServices(struct ChppAppState *context) {
     chppRegisterGnssService(context);
   }
 #endif
+
+#ifdef CHPP_SERVICE_ENABLED_MESSAGE
+  if (context->clientServiceSet.messageService) {
+    chppRegisterMessageService(context);
+  }
+#endif
 }
 
 void chppDeregisterCommonServices(struct ChppAppState *context) {
@@ -83,6 +92,12 @@ void chppDeregisterCommonServices(struct ChppAppState *context) {
 #ifdef CHPP_SERVICE_ENABLED_GNSS
   if (context->clientServiceSet.gnssService) {
     chppDeregisterGnssService(context);
+  }
+#endif
+
+#ifdef CHPP_SERVICE_ENABLED_MESSAGE
+  if (context->clientServiceSet.messageService) {
+    chppDeregisterMessageService(context);
   }
 #endif
 }
