@@ -18,20 +18,30 @@
 
 #include "chre/platform/shared/mpu.h"
 
+#ifdef CFG_MULTI_HEAP_SUPPORT
 extern "C" {
 // TODO(b/394483221) - Place holders. A header file from tinysys should be used.
 int elf_set_permission(const void *pSegments, size_t size);
 int elf_set_permission_default_ro(const void *pSegments, size_t size);
 }
+#endif
 
 namespace chre {
 int setNanoappMemoryPermissions(
     const struct NanoappLoader::LoadableSegment *pSegments, size_t size) {
+#ifdef CFG_MULTI_HEAP_SUPPORT
   return elf_set_permission(pSegments, size);
+#else
+  return 0;
+#endif
 }
 
 int resetNanoappMemoryPermissions(
     const struct NanoappLoader::LoadableSegment *pSegments, size_t size) {
+#ifdef CFG_MULTI_HEAP_SUPPORT
   return elf_set_permission_default_ro(pSegments, size);
+#else
+  return 0;
+#endif
 }
 }  // namespace chre
