@@ -42,7 +42,7 @@ class PlatformSensorManagerBase {
   struct SensorContext {
     struct chreSensorInfo sensorInfo;  // CHRE sensor info
     const ASensor *androidSensor;      // Android sensor instance
-    int32_t androidSensorHandle;       // Android sensor handle
+    int32_t androidSensorType;         // Android sensor type
     uint8_t chreSensorHandle;          // CHRE sensor handle
     bool enabled;                      // Is enabled to receive sensor data
     uint64_t intervalNs;  // Interval of processing sensor data in nanoseconds
@@ -50,8 +50,8 @@ class PlatformSensorManagerBase {
   };
   std::vector<struct SensorContext> mSensorContextArray;
 
-  // Map from Android sensor handle to the index in mSensorContextArray.
-  std::unordered_map<int32_t, uint32_t> mAndroidHandleToChreHandleMap;
+  // Map from Android sensor type to CHRE sensor handle in mSensorContextArray.
+  std::unordered_map<int32_t, uint32_t> mSensorTypeToHandleMap;
 
   // Looper callback function.
   static int looperCallback(int fd, int events, void *data);

@@ -1128,6 +1128,7 @@ cc_defaults {
         "libbase",
         "liblog",
     ],
+    min_sdk_version: "23",
 }
 
 // For running as a standalone binary.
