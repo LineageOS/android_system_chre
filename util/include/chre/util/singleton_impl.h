@@ -26,8 +26,7 @@
 namespace chre {
 
 template <typename ObjectType>
-typename std::aligned_storage<sizeof(ObjectType), alignof(ObjectType)>::type
-    Singleton<ObjectType>::sObject;
+typename Singleton<ObjectType>::Storage Singleton<ObjectType>::sObject;
 
 template <typename ObjectType>
 bool Singleton<ObjectType>::sIsInitialized = false;

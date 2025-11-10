@@ -58,4 +58,7 @@ public class ContextHubAPNative {
     static void onMessageReceived(long nanoAppId, int messageType, byte[] messageBody) {
         ContextHubAPManager.getInstance().onMessageFromNanoApp(nanoAppId, messageType, messageBody);
     }
+
+    // Called when an alarm is fired.
+    static native void onAlarmFired(long timerId);
 }

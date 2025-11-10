@@ -33,7 +33,7 @@ cc_library_shared {
     // No static libraries.
     static_libs: [
         "chre_ap_nanoapp",
-        "chre_ap",
+        "chre_ap_jni",
         "pw_allocator",
         "pw_span",
     ],

@@ -17,6 +17,7 @@
 #ifndef CHRE_UTIL_SINGLETON_H_
 #define CHRE_UTIL_SINGLETON_H_
 
+#include <cstddef>
 #include <type_traits>
 
 #include "chre/util/non_copyable.h"
@@ -81,8 +82,10 @@ class Singleton : public NonCopyable {
 
  private:
   //! Static storage for the type of this singleton.
-  static typename std::aligned_storage<sizeof(ObjectType),
-                                       alignof(ObjectType)>::type sObject;
+  struct alignas(ObjectType) Storage {
+    std::byte data[sizeof(ObjectType)];
+  };
+  static Storage sObject;
 
   //! Static storage for the initialized state of this singleton.
   static bool sIsInitialized;

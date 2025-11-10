@@ -20,7 +20,7 @@ package {
 }
 
 cc_library {
-    name: "chre_shmem_spmc_queue",
+    name: "contexthub_data_flow",
     vendor_available: true,
     host_supported: true,
     cpp_std: "c++20",
@@ -59,7 +59,7 @@ cc_library {
 }
 
 cc_test_host {
-    name: "chre_shmem_spmc_queue_unit_tests",
+    name: "contexthub_data_flow_unit_tests",
     srcs: ["test/queue_test.cc"],
     local_include_dirs: ["include"],
     header_libs: [
@@ -69,7 +69,7 @@ cc_test_host {
         "pw_assert",
     ],
     shared_libs: [
-        "chre_shmem_spmc_queue",
+        "contexthub_data_flow",
         "liblog",
     ],
     static_libs: [

@@ -297,8 +297,10 @@ void DynamicVector<ElementType, AllocatorProviderT>::swap(size_type index0,
                                                           size_type index1) {
   CHRE_ASSERT(index0 < mSize && index1 < mSize);
   if (index0 != index1) {
-    typename std::aligned_storage<sizeof(ElementType),
-                                  alignof(ElementType)>::type tempStorage;
+    struct alignas(ElementType) Storage {
+      std::byte data[sizeof(ElementType)];
+    };
+    Storage tempStorage;
     ElementType &temp = *reinterpret_cast<ElementType *>(&tempStorage);
     uninitializedMoveOrCopy(&data()[index0], 1, &temp);
     moveOrCopyAssign(data()[index0], data()[index1]);

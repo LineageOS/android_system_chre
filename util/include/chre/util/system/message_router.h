@@ -19,10 +19,14 @@
 
 #include "chre/platform/mutex.h"
 #include "chre/util/dynamic_vector.h"
+#include "chre/util/lock_guard.h"
 #include "chre/util/memory.h"
 #include "chre/util/singleton.h"
 #include "chre/util/system/intrusive_ref_base.h"
 #include "chre/util/system/message_common.h"
+#include "chre/util/system/message_hub.h"
+#include "chre/util/system/message_hub_callback.h"
+#include "chre/util/system/message_hub_callback_v2.h"
 
 #include "pw_allocator/unique_ptr.h"
 #include "pw_containers/vector.h"
@@ -54,199 +58,15 @@ namespace chre::message {
 //! 5. Close sessions when they are no longer needed.
 class MessageRouter {
  public:
-  //! The callback used to register a MessageHub with the MessageRouter
-  class MessageHubCallback : public IntrusiveRefBase,
-                             public pw::Recyclable<MessageHubCallback> {
-   public:
-    virtual ~MessageHubCallback() = default;
-
-    //! Message processing callback. If this function returns true,
-    //! the MessageHub received the message and will deliver it to the
-    //! receiving endpoint, or close the session if an error occurs.
-    //! @see sendMessage
-    //! @param session The session that the message was sent on (this reference
-    //!                is only valid for the duration of the callback)
-    //! @param sentBySessionInitiator Whether the message was sent by the
-    //! initiator of the session
-    //! @return true if the message was accepted for processing
-    virtual bool onMessageReceived(pw::UniquePtr<std::byte[]> &&data,
-                                   uint32_t messageType,
-                                   uint32_t messagePermissions,
-                                   const Session &session,
-                                   bool sentBySessionInitiator) = 0;
-
-    //! Callback called when a session has been requested to be opened. The
-    //! message hub should call onSessionOpenComplete or closeSession to
-    //! accept or reject the session, respectively.
-    //! This function is called before returning from openSession in the
-    //! requestor hub.
-    virtual void onSessionOpenRequest(const Session &session) = 0;
-
-    //! Callback called when the peer message hub has accepted the session
-    //! and the session is now open for messages
-    virtual void onSessionOpened(const Session &session) = 0;
-
-    //! Callback called when the session is closed
-    virtual void onSessionClosed(const Session &session, Reason reason) = 0;
-
-    //! Callback called to iterate over all endpoints connected to the
-    //! MessageHub. Underlying endpoint storage must not change during this
-    //! callback. If function returns true, the MessageHub can stop iterating
-    //! over future endpoints.
-    virtual void forEachEndpoint(
-        const pw::Function<bool(const EndpointInfo &)> &function) = 0;
-
-    //! @return The EndpointInfo for the given endpoint ID.
-    virtual std::optional<EndpointInfo> getEndpointInfo(
-        EndpointId endpointId) = 0;
-
-    //! @return The first endpoint that has the given service descriptor, a
-    //! null-terminated ASCII string. If no endpoint has the service descriptor,
-    //! std::nullopt is returned.
-    virtual std::optional<EndpointId> getEndpointForService(
-        const char *serviceDescriptor) = 0;
-
-    //! @return true if the endpoint has the given service descriptor, a
-    //! null-terminated ASCII string, false otherwise.
-    virtual bool doesEndpointHaveService(EndpointId endpointId,
-                                         const char *serviceDescriptor) = 0;
-
-    //! Callback called to iterate over all services provided by endpoints
-    //! connected to the MessageHub. Underlying endpoint and service storage
-    //! must not change during this callback. If function returns true, the
-    //! MessageHub can stop iterating over future endpoints. The service
-    //! descriptor must be valid for the duration of the callback.
-    virtual void forEachService(
-        const pw::Function<bool(const EndpointInfo &, const ServiceInfo &)>
-            &function) = 0;
-
-    //! Callback called when a message hub except this one is registered.
-    virtual void onHubRegistered(const MessageHubInfo &info) = 0;
-
-    //! Callback called when a message hub except this one is unregistered.
-    virtual void onHubUnregistered(MessageHubId id) = 0;
-
-    //! Callback called when an endpoint is registered to any MessageHub,
-    //! except for this MessageHub.
-    virtual void onEndpointRegistered(MessageHubId messageHubId,
-                                      EndpointId endpointId) = 0;
-
-    //! Callback called when an endpoint is unregistered from any MessageHub,
-    //! except for this MessageHub.
-    virtual void onEndpointUnregistered(MessageHubId messageHubId,
-                                        EndpointId endpointId) = 0;
-
-    //! Recycle function called by pw::IntrusivePtr when the MessageHubCallback
-    //! is no longer in use. The default behavior in Pigweed is to `delete
-    //! this`. The callbacks derived from this class should also inherit from
-    //! pw::Recyclable and override this function.
-    virtual void pw_recycle() = 0;
-  };
-
-  //! The API returned when registering a MessageHub with the MessageRouter.
-  class MessageHub {
-   public:
-    //! Creates an empty MessageHub that is not usable, similar to a moved-from
-    //! MessageHub. Attempting to call any method on this object results in
-    //! undefined behavior.
-    MessageHub();
-
-    // There can only be one live MessageHub instance for a given hub ID, so
-    // only move operations are supported.
-    MessageHub(const MessageHub &) = delete;
-    MessageHub &operator=(const MessageHub &) = delete;
-    MessageHub(MessageHub &&other);
-    MessageHub &operator=(MessageHub &&other);
-
-    //! Destructor. Unregisters the MessageHub from the MessageRouter.
-    ~MessageHub();
-
-    //! Accepts the session open request from the peer message hub.
-    //! onSessionOpened will be called on both hubs.
-    void onSessionOpenComplete(SessionId sessionId);
-
-    //! Opens a session from an endpoint connected to the current MessageHub
-    //! to the listed MessageHub ID and endpoint ID, with the given service
-    //! descriptor, a null-terminated ASCII string.
-    //! onSessionOpenRequest will be called to request the session to be
-    //! opened. Once the peer message hub calls onSessionOpenComplete or
-    //! closeSession, onSessionOpened or onSessionClosed will be called,
-    //! depending on the result. If the session ID is provided (not
-    //! SESSION_ID_INVALID), it must be unique and from the reserved session ID
-    //! range. MessageRouter does not guarantee anything about the session ID if
-    //! it is provided in this API. If the session ID is not provided,
-    //! MessageRouter will assign a session ID normally.
-    //! @return The session ID or SESSION_ID_INVALID if the session could
-    //! not be opened
-    SessionId openSession(EndpointId fromEndpointId,
-                          MessageHubId toMessageHubId, EndpointId toEndpointId,
-                          const char *serviceDescriptor = nullptr,
-                          SessionId sessionId = SESSION_ID_INVALID);
-
-    //! Closes the session with sessionId and reason
-    //! @return true if the session was closed, false if the session was not
-    //! found
-    bool closeSession(SessionId sessionId,
-                      Reason reason = Reason::CLOSE_ENDPOINT_SESSION_REQUESTED);
-
-    //! Returns a session if it exists
-    //! @return The session or std::nullopt if the session was not found
-    std::optional<Session> getSessionWithId(SessionId sessionId);
-
-    //! Sends a message to the session specified by sessionId.
-    //! @see chreSendReliableMessageAsync. Sends the message in a reliable
-    //! manner if possible. If the message cannot be delivered, the session
-    //! is closed and subsequent calls to this function with the same sessionId
-    //! will return false.
-    //! @param data The data to send
-    //! @param messageType The type of the message, a bit flagged value
-    //! @param messagePermissions The permissions of the message, a bit flagged
-    //! value
-    //! @param sessionId The session to send the message on
-    //! @param fromEndpointId The endpoint ID of the sender or ENDPOINT_ID_ANY
-    //! to allow MessageRouter to infer the sender endpoint ID. If the
-    //! sender endpoint ID cannot be inferred, (i.e. the session is between
-    //! endpoints on the same message hub), this function will return false.
-    //! @return true if the message was sent, false if the message could not be
-    //! sent
-    bool sendMessage(pw::UniquePtr<std::byte[]> &&data, uint32_t messageType,
-                     uint32_t messagePermissions, SessionId sessionId,
-                     EndpointId fromEndpointId = ENDPOINT_ID_ANY);
-
-    //! Registers an endpoint with the MessageHub.
-    //! @return true if the endpoint was registered, otherwise false.
-    bool registerEndpoint(EndpointId endpointId);
-
-    //! Unregisters an endpoint from the MessageHub.
-    //! @return true if the endpoint was unregistered, otherwise false.
-    bool unregisterEndpoint(EndpointId endpointId);
-
-    //! @return The MessageHub ID of the currently connected MessageHub
-    MessageHubId getId();
-
-    //! @return If the MessageHub is active and registered with the
-    //! MessageRouter.
-    bool isRegistered();
-
-    //! Unregisters this MessageHub from the MessageRouter.
-    void unregister();
-
-   private:
-    friend class MessageRouter;
-
-    MessageHub(MessageRouter &router, MessageHubId id);
-
-    //! The MessageRouter that this MessageHub is connected to
-    MessageRouter *mRouter;
-
-    //! The id of this message hub
-    MessageHubId mHubId;
-  };
+  using MessageHubCallback = chre::message::MessageHubCallback;
+  using MessageHubCallbackV2 = chre::message::MessageHubCallbackV2;
+  using MessageHub = chre::message::MessageHub;
 
   //! Represents a MessageHub and its connected endpoints
   struct MessageHubRecord {
     MessageHubInfo info;
     pw::IntrusivePtr<MessageHubCallback> callback;
+    uint8_t version;
   };
 
   //! The default reserved session ID value
@@ -281,6 +101,12 @@ class MessageRouter {
       const char *name, MessageHubId id,
       pw::IntrusivePtr<MessageHubCallback> callback);
 
+  //! Registers a V2 MessageHub with the MessageRouter.
+  //! @see registerMessageHub
+  std::optional<MessageHub> registerMessageHubV2(
+      const char *name, MessageHubId id,
+      pw::IntrusivePtr<MessageHubCallbackV2> callback);
+
   //! Executes the function for each endpoint connected to this MessageHub.
   //! If function returns true, the iteration will stop.
   //! @return true if the MessageHub is found, false otherwise
@@ -310,6 +136,19 @@ class MessageRouter {
   bool doesEndpointHaveService(MessageHubId messageHubId, EndpointId endpointId,
                                const char *serviceDescriptor);
 
+  //! @return The first MessageHub ID for the given endpoint ID
+  MessageHubId findDefaultMessageHubId(EndpointId endpointId);
+
+  //! Searches for an endpoint with the given hub ID, endpoint ID, and service
+  //! descriptor. The hubId can be MESSAGE_HUB_ID_ANY to search for the
+  //! endpoint on any hub, the endpointId can be ENDPOINT_ID_ANY to search for
+  //! the endpoint on any hub, or the service descriptor can be non-nullptr to
+  //! search for any endpoint that has the service.
+  //! @return the endpoint if found, std::nullopt otherwise.
+  std::optional<Endpoint> searchForEndpoint(MessageHubId messageHubId,
+                                            EndpointId endpointId,
+                                            const char *serviceDescriptor);
+
   //! Executes the function for each service provided by an endpoint connected
   //! to this MessageHub. If function returns true, the iteration will stop.
   //! @return true if successful, false otherwise
@@ -324,6 +163,15 @@ class MessageRouter {
       const pw::Function<bool(const MessageHubInfo &)> &function);
 
  private:
+  friend class chre::message::MessageHub;
+
+  //! Registers a MessageHub with the MessageRouter.
+  //! @see registerMessageHub
+  //! @param version The version of the callback to register.
+  std::optional<MessageHub> registerMessageHub(
+      const char *name, MessageHubId id,
+      pw::IntrusivePtr<MessageHubCallback> callback, uint8_t version);
+
   //! Unregisters a MessageHub from the MessageRouter. This function will
   //! close all sessions that were initiated by or connected to the MessageHub
   //! and destroy the MessageHubRecord. This function will call the callback
@@ -419,13 +267,23 @@ class MessageRouter {
                                                SessionId sessionId);
 
   //! @return The callback for the given MessageHub ID or nullptr if not found
-  //! Requires the caller to hold the mutex
+  template <typename T = MessageHubCallback>
   pw::IntrusivePtr<MessageHubCallback> getCallbackFromMessageHubId(
-      MessageHubId messageHubId);
+      MessageHubId messageHubId) {
+    LockGuard<Mutex> lock(mMutex);
+    return getCallbackFromMessageHubIdLocked<T>(messageHubId);
+  }
 
   //! @return The callback for the given MessageHub ID or nullptr if not found
-  pw::IntrusivePtr<MessageHubCallback> getCallbackFromMessageHubIdLocked(
-      MessageHubId messageHubId);
+  template <typename T = MessageHubCallback>
+  pw::IntrusivePtr<T> getCallbackFromMessageHubIdLocked(
+      MessageHubId messageHubId, uint8_t minVersion = 1) {
+    const MessageHubRecord *record = getMessageHubRecordLocked(messageHubId);
+    if (record == nullptr || record->version < minVersion) {
+      return nullptr;
+    }
+    return pw::IntrusivePtr<T>(record->callback);
+  }
 
   //! @return true if the endpoint exists in the MessageHub with the given
   //! callback

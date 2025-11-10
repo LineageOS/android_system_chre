@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "chre/shmem_spmc_queue/queue.h"
+#include "data_flow/queue.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -22,8 +22,8 @@
 #include <optional>
 #include <utility>
 
-#include "chre/shmem_spmc_queue/internal/queue_internal.h"
-#include "chre/shmem_spmc_queue/queue_defs.h"
+#include "data_flow/internal/queue_internal.h"
+#include "data_flow/queue_defs.h"
 #include "pw_allocator/layout.h"
 #include "pw_assert/assert.h"
 #include "pw_bytes/span.h"
@@ -33,7 +33,7 @@
 #include "pw_status/status.h"
 #include "pw_status/try.h"
 
-namespace chre::shmem_spmc_queue {
+namespace android::contexthub::data_flow {
 namespace internal {
 namespace {
 
@@ -1242,4 +1242,4 @@ pw::Result<void *> createVariableDataQueue(pw::Allocator &allocator,
   return pw::Status::ResourceExhausted();
 }
 
-}  // namespace chre::shmem_spmc_queue
+}  // namespace android::contexthub::data_flow

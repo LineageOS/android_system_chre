@@ -16,8 +16,6 @@
 
 package com.google.android.chre.ap;
 
-import android.annotation.NonNull;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -59,7 +57,7 @@ public final class NanoAppState {
      *                           nanoapp.
      */
     public NanoAppState(long nanoAppId, String name, int appVersion, boolean enabled,
-            @NonNull List<String> nanoAppPermissions) {
+            List<String> nanoAppPermissions) {
         mNanoAppId = nanoAppId;
         mName = name;
         mNanoAppVersion = appVersion;
@@ -106,7 +104,7 @@ public final class NanoAppState {
      * @return A read-only list of Android permissions that are all required to communicate with
      * this nanoapp.
      */
-    public @NonNull List<String> getNanoAppPermissions() {
+    public List<String> getNanoAppPermissions() {
         return mNanoAppPermissions;
     }
 }

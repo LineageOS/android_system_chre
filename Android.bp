@@ -955,6 +955,7 @@ cc_test_host {
         "platform/shared/public_platform_gnss_pal",
         "platform/shared/public_platform_wifi_pal",
         "platform/shared/public_platform_wwan_pal",
+        "platform/shared/public_std_atomic",
         "test/simulation/inc",
     ],
     header_libs: [
@@ -1040,18 +1041,14 @@ cc_library_static {
     ],
 }
 
-cc_library_static {
-    name: "chre_ap",
+cc_defaults {
+    name: "chre_ap_base",
     srcs: [
         "core/*.cc",
         "platform/android/chre_api_re.cc",
         "platform/android/context.cc",
         "platform/android/fatal_error.cc",
         "platform/android/host_link.cc",
-        // Choose a looper_*.cc for different implementation.
-        //  looper_thread.cc uses the ALooper* in a new thread
-        //  looper_main.cc uses the ALooper* in the main thread
-        "platform/android/looper_thread.cc",
         "platform/android/memory.cc",
         "platform/android/memory_manager.cc",
         "platform/android/platform_sensor.cc",
@@ -1098,6 +1095,7 @@ cc_library_static {
         "platform/shared/include",
         "platform/shared/nanoapp_memory_guard_no_op/include",
         "platform/shared/public_platform_debug_dump_manager",
+        "platform/shared/public_std_atomic",
         "util/include",
         "variant/include",
         "variant/android/include",
@@ -1129,6 +1127,26 @@ cc_library_static {
         "libandroid",
         "libbase",
         "liblog",
+    ],
+}
+
+// For running as a standalone binary.
+cc_library_static {
+    name: "chre_ap",
+    defaults: ["chre_ap_base"],
+    srcs: [
+        "platform/android/system_timer.cc",
+        "platform/android/looper_thread.cc",
+    ],
+}
+
+// For running with APK.
+cc_library_static {
+    name: "chre_ap_jni",
+    defaults: ["chre_ap_base"],
+    srcs: [
+        "platform/android/system_timer_alarm.cc",
+        "platform/android/looper_main.cc",
     ],
 }
 
@@ -1222,6 +1240,7 @@ cc_library_static {
         "platform/shared/public_platform_gnss_pal",
         "platform/shared/public_platform_wifi_pal",
         "platform/shared/public_platform_wwan_pal",
+        "platform/shared/public_std_atomic",
         "platform/shared/sensor_pal/include",
         "util/include",
         "variant/include",
@@ -1481,6 +1500,7 @@ cc_library_static {
         "platform/shared/public_platform_gnss_pal",
         "platform/shared/public_platform_wifi_pal",
         "platform/shared/public_platform_wwan_pal",
+        "platform/shared/public_std_atomic",
         "platform/shared/sensor_pal/include",
         "util/include",
         "test",

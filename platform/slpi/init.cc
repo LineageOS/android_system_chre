@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <cstddef>
 #include <type_traits>
 
 extern "C" {
@@ -81,7 +82,10 @@ constexpr unsigned short kThreadPriority = 192;
 constexpr time_timetick_type kThreadStatusPollingIntervalUsec = 5000;  // 5ms
 
 //! Buffer to use for the CHRE thread's stack.
-typename std::aligned_storage<kStackSize>::type gStack;
+struct alignas(std::max_align_t) Storage {
+  std::byte data[kStackSize];
+};
+Storage gStack;
 
 //! QuRT OS handle for the CHRE thread.
 qurt_thread_t gThreadHandle;

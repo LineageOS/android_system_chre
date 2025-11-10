@@ -26,141 +26,20 @@
 
 namespace chre::message {
 
-MessageRouter::MessageHub::MessageHub()
-    : mRouter(nullptr), mHubId(MESSAGE_HUB_ID_INVALID) {}
-
-MessageRouter::MessageHub::MessageHub(MessageRouter &router, MessageHubId id)
-    : mRouter(&router), mHubId(id) {}
-
-MessageRouter::MessageHub::MessageHub(MessageHub &&other)
-    : mRouter(other.mRouter), mHubId(other.mHubId) {
-  other.mRouter = nullptr;
-  other.mHubId = MESSAGE_HUB_ID_INVALID;
-}
-
-MessageRouter::MessageHub &MessageRouter::MessageHub::operator=(
-    MessageHub &&other) {
-  unregister();
-  mRouter = other.mRouter;
-  mHubId = other.mHubId;
-  other.mRouter = nullptr;
-  other.mHubId = MESSAGE_HUB_ID_INVALID;
-  return *this;
-}
-
-MessageRouter::MessageHub::~MessageHub() {
-  unregister();
-}
-
-void MessageRouter::MessageHub::onSessionOpenComplete(SessionId sessionId) {
-  if (mRouter != nullptr) {
-    mRouter->onSessionOpenComplete(mHubId, sessionId);
-  }
-}
-
-SessionId MessageRouter::MessageHub::openSession(EndpointId fromEndpointId,
-                                                 MessageHubId toMessageHubId,
-                                                 EndpointId toEndpointId,
-                                                 const char *serviceDescriptor,
-                                                 SessionId sessionId) {
-  return mRouter == nullptr
-             ? SESSION_ID_INVALID
-             : mRouter->openSession(mHubId, fromEndpointId, toMessageHubId,
-                                    toEndpointId, serviceDescriptor, sessionId);
-}
-
-bool MessageRouter::MessageHub::closeSession(SessionId sessionId,
-                                             Reason reason) {
-  return mRouter != nullptr && mRouter->closeSession(mHubId, sessionId, reason);
-}
-
-std::optional<Session> MessageRouter::MessageHub::getSessionWithId(
-    SessionId sessionId) {
-  return mRouter == nullptr ? std::nullopt
-                            : mRouter->getSessionWithId(mHubId, sessionId);
-}
-
-bool MessageRouter::MessageHub::sendMessage(pw::UniquePtr<std::byte[]> &&data,
-                                            uint32_t messageType,
-                                            uint32_t messagePermissions,
-                                            SessionId sessionId,
-                                            EndpointId fromEndpointId) {
-  return mRouter != nullptr &&
-         mRouter->sendMessage(std::move(data), messageType, messagePermissions,
-                              sessionId, fromEndpointId, mHubId);
-}
-
-bool MessageRouter::MessageHub::registerEndpoint(EndpointId endpointId) {
-  return mRouter != nullptr && mRouter->registerEndpoint(mHubId, endpointId);
-}
-
-bool MessageRouter::MessageHub::unregisterEndpoint(EndpointId endpointId) {
-  return mRouter != nullptr && mRouter->unregisterEndpoint(mHubId, endpointId);
-}
-
-MessageHubId MessageRouter::MessageHub::getId() {
-  return mHubId;
-}
-
-bool MessageRouter::MessageHub::isRegistered() {
-  return mRouter != nullptr;
-}
-
-void MessageRouter::MessageHub::unregister() {
-  if (mRouter != nullptr) {
-    mRouter->unregisterMessageHub(mHubId);
-  }
-  mRouter = nullptr;
-}
-
 std::optional<typename MessageRouter::MessageHub>
 MessageRouter::registerMessageHub(
     const char *name, MessageHubId id,
     pw::IntrusivePtr<MessageRouter::MessageHubCallback> callback) {
-  DynamicVector<MessageHubRecord> hubsToNotify;
-  std::optional<MessageHub> newHub;
-  MessageHubInfo newHubInfo;
-  {
-    LockGuard<Mutex> lock(mMutex);
-    if (mMessageHubs.full()) {
-      LOGE(
-          "Message hub '%s' not registered: maximum number of message hubs "
-          "reached",
-          name);
-      return std::nullopt;
-    }
+  return registerMessageHub(name, id, callback, /* version= */ 1);
+}
 
-    for (MessageHubRecord &messageHub : mMessageHubs) {
-      if (std::strcmp(messageHub.info.name, name) == 0 ||
-          messageHub.info.id == id) {
-        LOGE(
-            "Message hub '%s' not registered: hub with same name or ID already "
-            "exists",
-            name);
-        return std::nullopt;
-      }
-    }
-
-    if (auto hubRecords = getMessageHubRecordsLocked(); hubRecords) {
-      hubsToNotify = std::move(*hubRecords);
-    } else {
-      return std::nullopt;
-    }
-
-    MessageHubRecord messageHubRecord = {
-        .info = {.id = id, .name = name},
-        .callback = std::move(callback),
-    };
-    newHubInfo = messageHubRecord.info;
-    mMessageHubs.push_back(std::move(messageHubRecord));
-    newHub = MessageHub(*this, id);
-  }
-
-  // NOTE: newHubInfo is guaranteed to be valid while we have newHub.
-  for (const auto &hubRecord : hubsToNotify) {
-    hubRecord.callback->onHubRegistered(newHubInfo);
-  }
-  return newHub;
+std::optional<typename MessageRouter::MessageHub>
+MessageRouter::registerMessageHubV2(
+    const char *name, MessageHubId id,
+    pw::IntrusivePtr<MessageRouter::MessageHubCallbackV2> callback) {
+  return registerMessageHub(name, id,
+                            pw::IntrusivePtr<MessageHubCallback>(callback),
+                            /* version= */ 2);
 }
 
 bool MessageRouter::forEachEndpointOfHub(
@@ -271,6 +150,72 @@ bool MessageRouter::doesEndpointHaveService(MessageHubId messageHubId,
   return callback->doesEndpointHaveService(endpointId, serviceDescriptor);
 }
 
+MessageHubId MessageRouter::findDefaultMessageHubId(EndpointId endpointId) {
+  struct SearchContext {
+    MessageHubId toMessageHubId = MESSAGE_HUB_ID_INVALID;
+    EndpointId toEndpointId;
+  };
+  SearchContext context = {
+      .toEndpointId = endpointId,
+  };
+
+  forEachEndpoint([&context](const MessageHubInfo &hubInfo,
+                             const EndpointInfo &endpointInfo) {
+    if (context.toMessageHubId == MESSAGE_HUB_ID_INVALID &&
+        endpointInfo.id == context.toEndpointId) {
+      context.toMessageHubId = hubInfo.id;
+    }
+  });
+  return context.toMessageHubId;
+}
+
+std::optional<Endpoint> MessageRouter::searchForEndpoint(
+    MessageHubId messageHubId, EndpointId endpointId,
+    const char *serviceDescriptor) {
+  if (endpointId == ENDPOINT_ID_INVALID) {
+    if (serviceDescriptor == nullptr) {
+      LOGD(
+          "Failed to search for an endpoint: no endpoint ID or service "
+          "descriptor");
+      return std::nullopt;
+    }
+    return getEndpointForService(messageHubId, serviceDescriptor);
+  }
+
+  if (serviceDescriptor != nullptr) {
+    if (messageHubId == MESSAGE_HUB_ID_INVALID) {
+      LOGD(
+          "Failed to search for an endpoint: no message hub ID provided with "
+          "endpoint and service descriptor");
+      return std::nullopt;
+    }
+
+    if (!doesEndpointHaveService(messageHubId, endpointId, serviceDescriptor)) {
+      LOGD("Failed to search for an endpoint: endpoint 0x%" PRIx64
+           " on hub 0x%" PRIx64 " does not have service %s",
+           messageHubId, endpointId, serviceDescriptor);
+      return std::nullopt;
+    }
+    return Endpoint(messageHubId, endpointId);
+  }
+
+  if (messageHubId == MESSAGE_HUB_ID_INVALID) {
+    messageHubId = findDefaultMessageHubId(endpointId);
+    if (messageHubId == MESSAGE_HUB_ID_INVALID) {
+      LOGD(
+          "Failed to search for an endpoint: no default message hub ID "
+          "found");
+      return std::nullopt;
+    }
+  } else if (!getEndpointInfo(messageHubId, endpointId).has_value()) {
+    LOGD("Failed to search for an endpoint: endpoint 0x%" PRIx64
+         " on hub 0x%" PRIx64 " does not exist",
+         messageHubId, endpointId);
+    return std::nullopt;
+  }
+  return Endpoint(messageHubId, endpointId);
+}
+
 bool MessageRouter::forEachService(
     const pw::Function<bool(const MessageHubInfo &, const EndpointInfo &,
                             const ServiceInfo &)> &function) {
@@ -312,6 +257,56 @@ bool MessageRouter::forEachMessageHub(
     function(messageHubRecord.info);
   }
   return true;
+}
+
+std::optional<MessageRouter::MessageHub> MessageRouter::registerMessageHub(
+    const char *name, MessageHubId id,
+    pw::IntrusivePtr<MessageHubCallback> callback, uint8_t version) {
+  DynamicVector<MessageHubRecord> hubsToNotify;
+  std::optional<MessageHub> newHub;
+  MessageHubInfo newHubInfo;
+  {
+    LockGuard<Mutex> lock(mMutex);
+    if (mMessageHubs.full()) {
+      LOGE(
+          "Message hub '%s' not registered: maximum number of message hubs "
+          "reached",
+          name);
+      return std::nullopt;
+    }
+
+    for (MessageHubRecord &messageHub : mMessageHubs) {
+      if (std::strcmp(messageHub.info.name, name) == 0 ||
+          messageHub.info.id == id) {
+        LOGE("Message hub '%s' with ID 0x%" PRIx64
+             " not registered: hub with same name or ID already "
+             "exists",
+             name, id);
+        return std::nullopt;
+      }
+    }
+
+    if (auto hubRecords = getMessageHubRecordsLocked(); hubRecords) {
+      hubsToNotify = std::move(*hubRecords);
+    } else {
+      return std::nullopt;
+    }
+
+    MessageHubRecord messageHubRecord = {
+        .info = {.id = id, .name = name},
+        .callback = std::move(callback),
+        .version = version,
+    };
+    newHubInfo = messageHubRecord.info;
+    mMessageHubs.push_back(std::move(messageHubRecord));
+    newHub = MessageHub(*this, id);
+  }
+
+  // NOTE: newHubInfo is guaranteed to be valid while we have newHub.
+  for (const auto &hubRecord : hubsToNotify) {
+    hubRecord.callback->onHubRegistered(newHubInfo);
+  }
+  return newHub;
 }
 
 bool MessageRouter::unregisterMessageHub(MessageHubId fromMessageHubId) {
@@ -694,19 +689,6 @@ std::optional<size_t> MessageRouter::findSessionIndexLocked(
     }
   }
   return std::nullopt;
-}
-
-pw::IntrusivePtr<MessageRouter::MessageHubCallback>
-MessageRouter::getCallbackFromMessageHubId(MessageHubId messageHubId) {
-  LockGuard<Mutex> lock(mMutex);
-  return getCallbackFromMessageHubIdLocked(messageHubId);
-}
-
-pw::IntrusivePtr<MessageRouter::MessageHubCallback>
-MessageRouter::getCallbackFromMessageHubIdLocked(MessageHubId messageHubId) {
-  const MessageHubRecord *messageHubRecord =
-      getMessageHubRecordLocked(messageHubId);
-  return messageHubRecord == nullptr ? nullptr : messageHubRecord->callback;
 }
 
 bool MessageRouter::checkIfEndpointExists(

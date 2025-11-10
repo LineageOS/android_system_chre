@@ -1,24 +1,24 @@
 # CHRE Development Tools
 
-This directory contains the tools and configuration files required to establish
-a development environment for the Context Hub Runtime Environment (CHRE). The
-[Usage](#usage) section details the operational procedures, while the
-[Configuration](#configuration) section explains the setup of shell environment
-variables via `env_config.json`. Several [Python scripts](#public) are designed
-for standalone use to support specific development tasks.
+This directory provides the essential tools and configuration files for
+establishing a development environment for the Context Hub Runtime Environment
+(CHRE). The [Usage](#usage) section details the operational procedures, while
+the [Configuration](#configuration) section explains the setup of shell
+environment variables via `env_config.json`. Several [Python scripts](#public)
+are designed for standalone use to support specific development tasks.
 
 ## Quick start
 
-Assuming `system/chre` project is checked out at `~/main/system/chre`, run
-`source ~/main/system/chre/tools/dev/env_setup.sh && chre_lunch
-<PLATFORM-TARGET>` and fill out the required environment variables, which is a
-one-time effort. After that you are good to go.
-
+To begin, ensure the `system/chre` project is checked out, for instance, at
+`~/main/system/chre`. Then, execute `source
+~/main/system/chre/tools/dev/env_setup.sh && chre_lunch <platform-target>`. This
+initial step requires a one-time configuration of the necessary environment
+variables, after which the development environment will be ready. When needed
 `chre_lunch` also supports customized config file: `chre_lunch -c
-<path-to-config>`
+<path-to-config> <platform-target>`.
 
 ```bash
-# build a target
+# To build a target, run chre_make from the folder where the target's makefile is located
 chre_make
 ```
 
@@ -29,12 +29,32 @@ chre_make -C
 
 ```bash
 # Flash the target onto the device
-chre_flash -R
+chre_flash
 ```
 
 ```bash
 # List all the CHRE configured environment variables
 chre_envs
+```
+
+### IDE integration
+
+#### CLion
+
+the `CMakelist.txt` generated can be opened directly by `clion`. Use `Tools ->
+CMake -> Change Project Root` to specify the real source path.
+
+#### VSCode
+
+Install `clangd` extension to make use of the `compile_commands.json` so that
+vscode can provide indexing, code jumping, etc. To configure that, add below
+arguments to `Clangd: arguments`:
+
+```
+"clangd.arguments": [
+    "-background-index",
+    "-compile-commands-dir=PATH-TO-compile_commands.json"
+]
 ```
 
 ## Usage
@@ -47,7 +67,7 @@ is a list of commands available after sourcing the `env_setup.sh` script.
 
 -   `chre_envs`: Prints all the environment variables set up for CHRE
     development.
--   `chre_lunch <platform-target> [-c <config_file>]`: Sets up the environment
+-   `chre_lunch [-c <config_file>] <platform-target>`: Sets up the environment
     for specific platform and target combination. The `-c` option allows
     specifying an alternative configuration file instead of the default
     `env_config.json`.
@@ -65,9 +85,9 @@ required to enable `chre_make` and `chre_flash` to work.
 Note that a list of command-line tools are required. For example, `pyenv` is
 needed to set up python virtual environment, `cmake` is needed to generate
 `compile_commands.json` from a CMake_lists.txt. When running `chre_lunch`, it
-will abort and list out all the missing command-line tools that are required.
-Currently, it's left to the user to install them as different OS has different
-commands for installation.
+will abort and list out all the missing command-line tools that are required if
+any of them is missing. Currently, it's left to the user to install them as
+different OS has different commands for installation.
 
 ### Build a target
 
@@ -86,7 +106,7 @@ which fits for the project that the build folder is separated from the src
 folder. For example:
 
 ```
-chre_make -C -s ../../src/general_test
+chre_make -C -s ../../src/source_files_path
 ```
 
 Note that `chre_make` will only generate above two files when `-C` is provided.

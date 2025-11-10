@@ -25,3 +25,5 @@ pw_add_backend_variable(chre.platform.shared.platform_pal_BACKEND)
 
 # Backend for chre.platform.shared.pal_system_api.
 pw_add_backend_variable(chre.platform.shared.pal_system_api_BACKEND)
+
+pw_add_backend_variable(chre.platform.shared.nanoapp_memory_guard_BACKEND)

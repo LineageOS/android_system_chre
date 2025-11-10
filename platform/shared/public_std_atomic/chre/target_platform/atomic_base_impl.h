@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 The Android Open Source Project
+ * Copyright (C) 2025 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef CHRE_PLATFORM_LINUX_ATOMIC_BASE_IMPL_H_
-#define CHRE_PLATFORM_LINUX_ATOMIC_BASE_IMPL_H_
+#ifndef CHRE_PLATFORM_SHARED_PUBLIC_STD_ATOMIC_ATOMIC_BASE_IMPL_H_
+#define CHRE_PLATFORM_SHARED_PUBLIC_STD_ATOMIC_ATOMIC_BASE_IMPL_H_
 
 #include "chre/platform/atomic.h"
 #include "chre/variant/config.h"
@@ -115,4 +115,4 @@ inline uint32_t AtomicUint32::fetch_decrement() {
 
 }  // namespace chre
 
-#endif  // CHRE_PLATFORM_LINUX_ATOMIC_BASE_IMPL_H_
+#endif  // CHRE_PLATFORM_SHARED_PUBLIC_STD_ATOMIC_ATOMIC_BASE_IMPL_H_

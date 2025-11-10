@@ -17,6 +17,7 @@
 #ifndef CHRE_UTIL_RAW_STORAGE_H_
 #define CHRE_UTIL_RAW_STORAGE_H_
 
+#include <cstddef>
 #include <new>
 #include <type_traits>
 
@@ -25,9 +26,9 @@
 namespace chre {
 
 /**
- * A simple wrapper around std::aligned_storage that provides a region of
- * uninitialized memory suitable for storing an array of objects, with some
- * convenience wrappers for constructing and accessing elements.
+ * A simple wrapper that provides a region of uninitialized memory suitable
+ * for storing an array of objects, with some convenience wrappers for
+ * constructing and accessing elements.
  *
  * This wrapper does not keep track of which indices contain active elements and
  * therefore does not handle invoking the destructor - this is the
@@ -56,9 +57,11 @@ class RawStorage : public NonCopyable {
   }
 
  private:
-  //! To avoid static initialization of members, std::aligned_storage is used.
-  std::aligned_storage_t<sizeof(ElementType), alignof(ElementType)>
-      mStorage[kCapacity];
+  //! To avoid static initialization of members.
+  struct alignas(ElementType) Storage {
+    std::byte data[sizeof(ElementType)];
+  };
+  Storage mStorage[kCapacity];
 };
 
 }  // namespace chre

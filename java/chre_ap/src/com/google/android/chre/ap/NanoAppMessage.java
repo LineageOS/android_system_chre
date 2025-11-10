@@ -16,7 +16,6 @@
 
 package com.google.android.chre.ap;
 
-import android.annotation.NonNull;
 import android.annotation.Nullable;
 
 import java.util.Arrays;
@@ -113,7 +112,6 @@ public final class NanoAppMessage {
         return mIsBroadcasted;
     }
 
-    @NonNull
     @Override
     public String toString() {
         int length = mMessageBody.length;

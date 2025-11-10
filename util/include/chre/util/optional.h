@@ -17,6 +17,7 @@
 #ifndef UTIL_CHRE_OPTIONAL_H_
 #define UTIL_CHRE_OPTIONAL_H_
 
+#include <cstddef>
 #include <type_traits>
 
 namespace chre {
@@ -195,8 +196,10 @@ class Optional {
 
  private:
   //! The optional object being tracked by this container.
-  typename std::aligned_storage<sizeof(ObjectType), alignof(ObjectType)>::type
-      mObject;
+  struct alignas(ObjectType) Storage {
+    std::byte data[sizeof(ObjectType)];
+  };
+  Storage mObject;
 
   //! Whether or not the object is set.
   bool mHasValue = false;

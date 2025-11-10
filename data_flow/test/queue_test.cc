@@ -14,19 +14,19 @@
  * limitations under the License.
  */
 
-#include "chre/shmem_spmc_queue/queue.h"
+#include "data_flow/queue.h"
 
 #include <optional>
 #include <utility>
 #include <vector>
 
-#include "chre/shmem_spmc_queue/internal/queue_internal.h"
-#include "chre/shmem_spmc_queue/queue_defs.h"
+#include "data_flow/internal/queue_internal.h"
+#include "data_flow/queue_defs.h"
 #include "gtest/gtest.h"
 #include "pw_allocator/first_fit.h"
 #include "pw_bytes/span.h"
 
-namespace chre::shmem_spmc_queue {
+namespace android::contexthub::data_flow {
 
 template <typename ElementType>
 class ProducerPeer {
@@ -70,12 +70,14 @@ class QueueTest : public ::testing::Test {
   void SetUp() override {
     mStorage.resize(2048);
     mAllocator.Init(pw::ByteSpan(mStorage.data(), mStorage.size()));
-    auto maybeQueue = chre::shmem_spmc_queue::createQueue<int, kBlockCapacity>(
-        mAllocator, /*local=*/true);
+    auto maybeQueue =
+        android::contexthub::data_flow::createQueue<int, kBlockCapacity>(
+            mAllocator, /*local=*/true);
     ASSERT_EQ(maybeQueue.status(), pw::OkStatus());
     mQueue = *maybeQueue;
-    auto maybeVarDataQueue = chre::shmem_spmc_queue::createVariableDataQueue(
-        mAllocator, kVarDataBlockCapacity, /*local=*/true);
+    auto maybeVarDataQueue =
+        android::contexthub::data_flow::createVariableDataQueue(
+            mAllocator, kVarDataBlockCapacity, /*local=*/true);
     ASSERT_EQ(maybeVarDataQueue.status(), pw::OkStatus());
     mVarDataQueue = *maybeVarDataQueue;
   }
@@ -449,7 +451,8 @@ TEST_F(QueueTest, ConsumerCreateRemoteAndDestroy) {
   // consumers and cleans up the consumer descriptor. This also tests that
   // ConsumerManager::forAllConsumers() cleans up gracefully removed Consumers
   // as expected.
-  RemoteNotifyArgs args = {.fn = getEmptyRemoteNotifyFn(), .id = {std::byte(0)}};
+  RemoteNotifyArgs args = {.fn = getEmptyRemoteNotifyFn(),
+                           .id = {std::byte(0)}};
   initRemoteProducer(std::move(args));
 
   ConsumerPolicyBuilder policyBuilder;
@@ -940,4 +943,4 @@ TEST_F(QueueTest, VariableDataProducerTruncateFailsSizeTooLarge) {
 }
 
 }  // namespace
-}  // namespace chre::shmem_spmc_queue
+}  // namespace android::contexthub::data_flow

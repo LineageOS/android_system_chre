@@ -149,6 +149,10 @@ struct LeCocChannelInfo;
 struct LeCocChannelInfoBuilder;
 struct LeCocChannelInfoT;
 
+struct RfcommChannelInfo;
+struct RfcommChannelInfoBuilder;
+struct RfcommChannelInfoT;
+
 struct BtSocketOpen;
 struct BtSocketOpenBuilder;
 struct BtSocketOpenT;
@@ -438,29 +442,32 @@ inline const char *EnumNameBtSnoopDirection(BtSnoopDirection e) {
 enum class ChannelInfo : uint8_t {
   NONE = 0,
   LeCocChannelInfo = 1,
+  RfcommChannelInfo = 2,
   MIN = NONE,
-  MAX = LeCocChannelInfo
+  MAX = RfcommChannelInfo
 };
 
-inline const ChannelInfo (&EnumValuesChannelInfo())[2] {
+inline const ChannelInfo (&EnumValuesChannelInfo())[3] {
   static const ChannelInfo values[] = {
     ChannelInfo::NONE,
-    ChannelInfo::LeCocChannelInfo
+    ChannelInfo::LeCocChannelInfo,
+    ChannelInfo::RfcommChannelInfo
   };
   return values;
 }
 
 inline const char * const *EnumNamesChannelInfo() {
-  static const char * const names[3] = {
+  static const char * const names[4] = {
     "NONE",
     "LeCocChannelInfo",
+    "RfcommChannelInfo",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameChannelInfo(ChannelInfo e) {
-  if (flatbuffers::IsOutRange(e, ChannelInfo::NONE, ChannelInfo::LeCocChannelInfo)) return "";
+  if (flatbuffers::IsOutRange(e, ChannelInfo::NONE, ChannelInfo::RfcommChannelInfo)) return "";
   const size_t index = static_cast<size_t>(e);
   return EnumNamesChannelInfo()[index];
 }
@@ -471,6 +478,10 @@ template<typename T> struct ChannelInfoTraits {
 
 template<> struct ChannelInfoTraits<chre::fbs::LeCocChannelInfo> {
   static const ChannelInfo enum_value = ChannelInfo::LeCocChannelInfo;
+};
+
+template<> struct ChannelInfoTraits<chre::fbs::RfcommChannelInfo> {
+  static const ChannelInfo enum_value = ChannelInfo::RfcommChannelInfo;
 };
 
 struct ChannelInfoUnion {
@@ -512,6 +523,14 @@ struct ChannelInfoUnion {
   const chre::fbs::LeCocChannelInfoT *AsLeCocChannelInfo() const {
     return type == ChannelInfo::LeCocChannelInfo ?
       reinterpret_cast<const chre::fbs::LeCocChannelInfoT *>(value) : nullptr;
+  }
+  chre::fbs::RfcommChannelInfoT *AsRfcommChannelInfo() {
+    return type == ChannelInfo::RfcommChannelInfo ?
+      reinterpret_cast<chre::fbs::RfcommChannelInfoT *>(value) : nullptr;
+  }
+  const chre::fbs::RfcommChannelInfoT *AsRfcommChannelInfo() const {
+    return type == ChannelInfo::RfcommChannelInfo ?
+      reinterpret_cast<const chre::fbs::RfcommChannelInfoT *>(value) : nullptr;
   }
 };
 
@@ -4816,6 +4835,185 @@ inline flatbuffers::Offset<LeCocChannelInfo> CreateLeCocChannelInfo(
 
 flatbuffers::Offset<LeCocChannelInfo> CreateLeCocChannelInfo(flatbuffers::FlatBufferBuilder &_fbb, const LeCocChannelInfoT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
+struct RfcommChannelInfoT : public flatbuffers::NativeTable {
+  typedef RfcommChannelInfo TableType;
+  int32_t localCid;
+  int32_t remoteCid;
+  int32_t localMtu;
+  int32_t remoteMtu;
+  int32_t initialRxCredits;
+  int32_t initialTxCredits;
+  int32_t dlci;
+  int32_t maxFrameSize;
+  bool muxInitiator;
+  RfcommChannelInfoT()
+      : localCid(0),
+        remoteCid(0),
+        localMtu(0),
+        remoteMtu(0),
+        initialRxCredits(0),
+        initialTxCredits(0),
+        dlci(0),
+        maxFrameSize(0),
+        muxInitiator(false) {
+  }
+};
+
+struct RfcommChannelInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef RfcommChannelInfoT NativeTableType;
+  typedef RfcommChannelInfoBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_LOCALCID = 4,
+    VT_REMOTECID = 6,
+    VT_LOCALMTU = 8,
+    VT_REMOTEMTU = 10,
+    VT_INITIALRXCREDITS = 12,
+    VT_INITIALTXCREDITS = 14,
+    VT_DLCI = 16,
+    VT_MAXFRAMESIZE = 18,
+    VT_MUXINITIATOR = 20
+  };
+  int32_t localCid() const {
+    return GetField<int32_t>(VT_LOCALCID, 0);
+  }
+  bool mutate_localCid(int32_t _localCid) {
+    return SetField<int32_t>(VT_LOCALCID, _localCid, 0);
+  }
+  int32_t remoteCid() const {
+    return GetField<int32_t>(VT_REMOTECID, 0);
+  }
+  bool mutate_remoteCid(int32_t _remoteCid) {
+    return SetField<int32_t>(VT_REMOTECID, _remoteCid, 0);
+  }
+  int32_t localMtu() const {
+    return GetField<int32_t>(VT_LOCALMTU, 0);
+  }
+  bool mutate_localMtu(int32_t _localMtu) {
+    return SetField<int32_t>(VT_LOCALMTU, _localMtu, 0);
+  }
+  int32_t remoteMtu() const {
+    return GetField<int32_t>(VT_REMOTEMTU, 0);
+  }
+  bool mutate_remoteMtu(int32_t _remoteMtu) {
+    return SetField<int32_t>(VT_REMOTEMTU, _remoteMtu, 0);
+  }
+  int32_t initialRxCredits() const {
+    return GetField<int32_t>(VT_INITIALRXCREDITS, 0);
+  }
+  bool mutate_initialRxCredits(int32_t _initialRxCredits) {
+    return SetField<int32_t>(VT_INITIALRXCREDITS, _initialRxCredits, 0);
+  }
+  int32_t initialTxCredits() const {
+    return GetField<int32_t>(VT_INITIALTXCREDITS, 0);
+  }
+  bool mutate_initialTxCredits(int32_t _initialTxCredits) {
+    return SetField<int32_t>(VT_INITIALTXCREDITS, _initialTxCredits, 0);
+  }
+  int32_t dlci() const {
+    return GetField<int32_t>(VT_DLCI, 0);
+  }
+  bool mutate_dlci(int32_t _dlci) {
+    return SetField<int32_t>(VT_DLCI, _dlci, 0);
+  }
+  int32_t maxFrameSize() const {
+    return GetField<int32_t>(VT_MAXFRAMESIZE, 0);
+  }
+  bool mutate_maxFrameSize(int32_t _maxFrameSize) {
+    return SetField<int32_t>(VT_MAXFRAMESIZE, _maxFrameSize, 0);
+  }
+  bool muxInitiator() const {
+    return GetField<uint8_t>(VT_MUXINITIATOR, 0) != 0;
+  }
+  bool mutate_muxInitiator(bool _muxInitiator) {
+    return SetField<uint8_t>(VT_MUXINITIATOR, static_cast<uint8_t>(_muxInitiator), 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int32_t>(verifier, VT_LOCALCID) &&
+           VerifyField<int32_t>(verifier, VT_REMOTECID) &&
+           VerifyField<int32_t>(verifier, VT_LOCALMTU) &&
+           VerifyField<int32_t>(verifier, VT_REMOTEMTU) &&
+           VerifyField<int32_t>(verifier, VT_INITIALRXCREDITS) &&
+           VerifyField<int32_t>(verifier, VT_INITIALTXCREDITS) &&
+           VerifyField<int32_t>(verifier, VT_DLCI) &&
+           VerifyField<int32_t>(verifier, VT_MAXFRAMESIZE) &&
+           VerifyField<uint8_t>(verifier, VT_MUXINITIATOR) &&
+           verifier.EndTable();
+  }
+  RfcommChannelInfoT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(RfcommChannelInfoT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<RfcommChannelInfo> Pack(flatbuffers::FlatBufferBuilder &_fbb, const RfcommChannelInfoT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct RfcommChannelInfoBuilder {
+  typedef RfcommChannelInfo Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_localCid(int32_t localCid) {
+    fbb_.AddElement<int32_t>(RfcommChannelInfo::VT_LOCALCID, localCid, 0);
+  }
+  void add_remoteCid(int32_t remoteCid) {
+    fbb_.AddElement<int32_t>(RfcommChannelInfo::VT_REMOTECID, remoteCid, 0);
+  }
+  void add_localMtu(int32_t localMtu) {
+    fbb_.AddElement<int32_t>(RfcommChannelInfo::VT_LOCALMTU, localMtu, 0);
+  }
+  void add_remoteMtu(int32_t remoteMtu) {
+    fbb_.AddElement<int32_t>(RfcommChannelInfo::VT_REMOTEMTU, remoteMtu, 0);
+  }
+  void add_initialRxCredits(int32_t initialRxCredits) {
+    fbb_.AddElement<int32_t>(RfcommChannelInfo::VT_INITIALRXCREDITS, initialRxCredits, 0);
+  }
+  void add_initialTxCredits(int32_t initialTxCredits) {
+    fbb_.AddElement<int32_t>(RfcommChannelInfo::VT_INITIALTXCREDITS, initialTxCredits, 0);
+  }
+  void add_dlci(int32_t dlci) {
+    fbb_.AddElement<int32_t>(RfcommChannelInfo::VT_DLCI, dlci, 0);
+  }
+  void add_maxFrameSize(int32_t maxFrameSize) {
+    fbb_.AddElement<int32_t>(RfcommChannelInfo::VT_MAXFRAMESIZE, maxFrameSize, 0);
+  }
+  void add_muxInitiator(bool muxInitiator) {
+    fbb_.AddElement<uint8_t>(RfcommChannelInfo::VT_MUXINITIATOR, static_cast<uint8_t>(muxInitiator), 0);
+  }
+  explicit RfcommChannelInfoBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  RfcommChannelInfoBuilder &operator=(const RfcommChannelInfoBuilder &);
+  flatbuffers::Offset<RfcommChannelInfo> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<RfcommChannelInfo>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<RfcommChannelInfo> CreateRfcommChannelInfo(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    int32_t localCid = 0,
+    int32_t remoteCid = 0,
+    int32_t localMtu = 0,
+    int32_t remoteMtu = 0,
+    int32_t initialRxCredits = 0,
+    int32_t initialTxCredits = 0,
+    int32_t dlci = 0,
+    int32_t maxFrameSize = 0,
+    bool muxInitiator = false) {
+  RfcommChannelInfoBuilder builder_(_fbb);
+  builder_.add_maxFrameSize(maxFrameSize);
+  builder_.add_dlci(dlci);
+  builder_.add_initialTxCredits(initialTxCredits);
+  builder_.add_initialRxCredits(initialRxCredits);
+  builder_.add_remoteMtu(remoteMtu);
+  builder_.add_localMtu(localMtu);
+  builder_.add_remoteCid(remoteCid);
+  builder_.add_localCid(localCid);
+  builder_.add_muxInitiator(muxInitiator);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<RfcommChannelInfo> CreateRfcommChannelInfo(flatbuffers::FlatBufferBuilder &_fbb, const RfcommChannelInfoT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
 struct BtSocketOpenT : public flatbuffers::NativeTable {
   typedef BtSocketOpen TableType;
   int64_t socketId;
@@ -4872,6 +5070,9 @@ struct BtSocketOpen FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const chre::fbs::LeCocChannelInfo *channelInfo_as_LeCocChannelInfo() const {
     return channelInfo_type() == chre::fbs::ChannelInfo::LeCocChannelInfo ? static_cast<const chre::fbs::LeCocChannelInfo *>(channelInfo()) : nullptr;
   }
+  const chre::fbs::RfcommChannelInfo *channelInfo_as_RfcommChannelInfo() const {
+    return channelInfo_type() == chre::fbs::ChannelInfo::RfcommChannelInfo ? static_cast<const chre::fbs::RfcommChannelInfo *>(channelInfo()) : nullptr;
+  }
   void *mutable_channelInfo() {
     return GetPointer<void *>(VT_CHANNELINFO);
   }
@@ -4907,6 +5108,10 @@ struct BtSocketOpen FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
 
 template<> inline const chre::fbs::LeCocChannelInfo *BtSocketOpen::channelInfo_as<chre::fbs::LeCocChannelInfo>() const {
   return channelInfo_as_LeCocChannelInfo();
+}
+
+template<> inline const chre::fbs::RfcommChannelInfo *BtSocketOpen::channelInfo_as<chre::fbs::RfcommChannelInfo>() const {
+  return channelInfo_as_RfcommChannelInfo();
 }
 
 struct BtSocketOpenBuilder {
@@ -8651,6 +8856,56 @@ inline flatbuffers::Offset<LeCocChannelInfo> CreateLeCocChannelInfo(flatbuffers:
       _initialTxCredits);
 }
 
+inline RfcommChannelInfoT *RfcommChannelInfo::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  std::unique_ptr<chre::fbs::RfcommChannelInfoT> _o = std::unique_ptr<chre::fbs::RfcommChannelInfoT>(new RfcommChannelInfoT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void RfcommChannelInfo::UnPackTo(RfcommChannelInfoT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = localCid(); _o->localCid = _e; }
+  { auto _e = remoteCid(); _o->remoteCid = _e; }
+  { auto _e = localMtu(); _o->localMtu = _e; }
+  { auto _e = remoteMtu(); _o->remoteMtu = _e; }
+  { auto _e = initialRxCredits(); _o->initialRxCredits = _e; }
+  { auto _e = initialTxCredits(); _o->initialTxCredits = _e; }
+  { auto _e = dlci(); _o->dlci = _e; }
+  { auto _e = maxFrameSize(); _o->maxFrameSize = _e; }
+  { auto _e = muxInitiator(); _o->muxInitiator = _e; }
+}
+
+inline flatbuffers::Offset<RfcommChannelInfo> RfcommChannelInfo::Pack(flatbuffers::FlatBufferBuilder &_fbb, const RfcommChannelInfoT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateRfcommChannelInfo(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<RfcommChannelInfo> CreateRfcommChannelInfo(flatbuffers::FlatBufferBuilder &_fbb, const RfcommChannelInfoT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const RfcommChannelInfoT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _localCid = _o->localCid;
+  auto _remoteCid = _o->remoteCid;
+  auto _localMtu = _o->localMtu;
+  auto _remoteMtu = _o->remoteMtu;
+  auto _initialRxCredits = _o->initialRxCredits;
+  auto _initialTxCredits = _o->initialTxCredits;
+  auto _dlci = _o->dlci;
+  auto _maxFrameSize = _o->maxFrameSize;
+  auto _muxInitiator = _o->muxInitiator;
+  return chre::fbs::CreateRfcommChannelInfo(
+      _fbb,
+      _localCid,
+      _remoteCid,
+      _localMtu,
+      _remoteMtu,
+      _initialRxCredits,
+      _initialTxCredits,
+      _dlci,
+      _maxFrameSize,
+      _muxInitiator);
+}
+
 inline BtSocketOpenT *BtSocketOpen::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
   std::unique_ptr<chre::fbs::BtSocketOpenT> _o = std::unique_ptr<chre::fbs::BtSocketOpenT>(new BtSocketOpenT());
   UnPackTo(_o.get(), _resolver);
@@ -9488,6 +9743,10 @@ inline bool VerifyChannelInfo(flatbuffers::Verifier &verifier, const void *obj, 
       auto ptr = reinterpret_cast<const chre::fbs::LeCocChannelInfo *>(obj);
       return verifier.VerifyTable(ptr);
     }
+    case ChannelInfo::RfcommChannelInfo: {
+      auto ptr = reinterpret_cast<const chre::fbs::RfcommChannelInfo *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
     default: return true;
   }
 }
@@ -9510,6 +9769,10 @@ inline void *ChannelInfoUnion::UnPack(const void *obj, ChannelInfo type, const f
       auto ptr = reinterpret_cast<const chre::fbs::LeCocChannelInfo *>(obj);
       return ptr->UnPack(resolver);
     }
+    case ChannelInfo::RfcommChannelInfo: {
+      auto ptr = reinterpret_cast<const chre::fbs::RfcommChannelInfo *>(obj);
+      return ptr->UnPack(resolver);
+    }
     default: return nullptr;
   }
 }
@@ -9519,6 +9782,10 @@ inline flatbuffers::Offset<void> ChannelInfoUnion::Pack(flatbuffers::FlatBufferB
     case ChannelInfo::LeCocChannelInfo: {
       auto ptr = reinterpret_cast<const chre::fbs::LeCocChannelInfoT *>(value);
       return CreateLeCocChannelInfo(_fbb, ptr, _rehasher).Union();
+    }
+    case ChannelInfo::RfcommChannelInfo: {
+      auto ptr = reinterpret_cast<const chre::fbs::RfcommChannelInfoT *>(value);
+      return CreateRfcommChannelInfo(_fbb, ptr, _rehasher).Union();
     }
     default: return 0;
   }
@@ -9530,6 +9797,10 @@ inline ChannelInfoUnion::ChannelInfoUnion(const ChannelInfoUnion &u) : type(u.ty
       value = new chre::fbs::LeCocChannelInfoT(*reinterpret_cast<chre::fbs::LeCocChannelInfoT *>(u.value));
       break;
     }
+    case ChannelInfo::RfcommChannelInfo: {
+      value = new chre::fbs::RfcommChannelInfoT(*reinterpret_cast<chre::fbs::RfcommChannelInfoT *>(u.value));
+      break;
+    }
     default:
       break;
   }
@@ -9539,6 +9810,11 @@ inline void ChannelInfoUnion::Reset() {
   switch (type) {
     case ChannelInfo::LeCocChannelInfo: {
       auto ptr = reinterpret_cast<chre::fbs::LeCocChannelInfoT *>(value);
+      delete ptr;
+      break;
+    }
+    case ChannelInfo::RfcommChannelInfo: {
+      auto ptr = reinterpret_cast<chre::fbs::RfcommChannelInfoT *>(value);
       delete ptr;
       break;
     }

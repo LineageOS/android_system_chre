@@ -518,9 +518,22 @@ table LeCocChannelInfo {
   initialTxCredits:int;
 }
 
+table RfcommChannelInfo {
+  localCid:int;
+  remoteCid:int;
+  localMtu:int;
+  remoteMtu:int;
+  initialRxCredits:int;
+  initialTxCredits:int;
+  dlci:int;
+  maxFrameSize:int;
+  muxInitiator:bool;
+}
+
 // Used to specify the channel information of different protocol.
 union ChannelInfo {
-  LeCocChannelInfo
+  LeCocChannelInfo,
+  RfcommChannelInfo,
 }
 
 // Request from the host to the offload domain to open a BT socket.

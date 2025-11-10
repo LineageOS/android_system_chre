@@ -30,6 +30,34 @@
 
 namespace aidl::android::hardware::bluetooth::socket::impl {
 
+namespace {
+
+flatbuffers::Offset<void> buildSocketChannelInfo(
+    flatbuffers::FlatBufferBuilder &builder, const SocketContext &context) {
+  if ((context.channelInfo.getTag() == ChannelInfo::Tag::leCocChannelInfo)) {
+    const auto &leCocChannelInfo =
+        context.channelInfo.get<ChannelInfo::Tag::leCocChannelInfo>();
+    return ::chre::fbs::CreateLeCocChannelInfo(
+               builder, leCocChannelInfo.localCid, leCocChannelInfo.remoteCid,
+               leCocChannelInfo.psm, leCocChannelInfo.localMtu,
+               leCocChannelInfo.remoteMtu, leCocChannelInfo.localMps,
+               leCocChannelInfo.remoteMps, leCocChannelInfo.initialRxCredits,
+               leCocChannelInfo.initialTxCredits)
+        .Union();
+  }
+  const auto &rfcommChannelInfo =
+      context.channelInfo.get<ChannelInfo::Tag::rfcommChannelInfo>();
+  return ::chre::fbs::CreateRfcommChannelInfo(
+             builder, rfcommChannelInfo.localCid, rfcommChannelInfo.remoteCid,
+             rfcommChannelInfo.localMtu, rfcommChannelInfo.remoteMtu,
+             rfcommChannelInfo.initialRxCredits,
+             rfcommChannelInfo.initialTxCredits, rfcommChannelInfo.dlci,
+             rfcommChannelInfo.maxFrameSize, rfcommChannelInfo.muxInitiator)
+      .Union();
+}
+
+}  // namespace
+
 using ::android::chre::getStringFromByteVector;
 using ndk::ScopedAStatus;
 
@@ -94,29 +122,24 @@ ScopedAStatus BluetoothSocketFbsHal::opened(const SocketContext &context) {
         static_cast<int32_t>(STATUS_UNKNOWN_ERROR),
         "BT offload link not available");
   }
-  if (context.channelInfo.getTag() != ChannelInfo::Tag::leCocChannelInfo) {
-    LOGE("Got open request for unsupported socket type %" PRId32,
-         context.channelInfo.getTag());
-    sendOpenedCompleteMessage(context.socketId, Status::FAILURE,
-                              "Unsupported socket type");
-    return ScopedAStatus::ok();
-  }
+
   flatbuffers::FlatBufferBuilder builder(1028);
   auto socketName = ::chre::HostProtocolCommon::addStringAsByteVector(
       builder, context.name.c_str());
-  const auto &socketChannelInfo =
-      context.channelInfo.get<ChannelInfo::Tag::leCocChannelInfo>();
-  auto leCocChannelInfo = ::chre::fbs::CreateLeCocChannelInfo(
-      builder, socketChannelInfo.localCid, socketChannelInfo.remoteCid,
-      socketChannelInfo.psm, socketChannelInfo.localMtu,
-      socketChannelInfo.remoteMtu, socketChannelInfo.localMps,
-      socketChannelInfo.remoteMps, socketChannelInfo.initialRxCredits,
-      socketChannelInfo.initialTxCredits);
+
+  chre::fbs::ChannelInfo channelInfoType =
+      (context.channelInfo.getTag() == ChannelInfo::Tag::leCocChannelInfo)
+          ? ::chre::fbs::ChannelInfo::LeCocChannelInfo
+          : ::chre::fbs::ChannelInfo::RfcommChannelInfo;
+
+  flatbuffers::Offset<void> channelInfo =
+      buildSocketChannelInfo(builder, context);
 
   auto socketOpen = ::chre::fbs::CreateBtSocketOpen(
       builder, context.socketId, socketName, context.aclConnectionHandle,
-      ::chre::fbs::ChannelInfo::LeCocChannelInfo, leCocChannelInfo.Union(),
-      context.endpointId.hubId, context.endpointId.id);
+      channelInfoType, channelInfo, context.endpointId.hubId,
+      context.endpointId.id);
+
   ::chre::HostProtocolCommon::finalize(
       builder, ::chre::fbs::ChreMessage::BtSocketOpen, socketOpen.Union());
 

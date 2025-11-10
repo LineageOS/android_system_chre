@@ -268,9 +268,6 @@ class ChreMessageHubManager : public NonCopyable {
     return mAllocator.GetAndRemoveCallbackRecord(ptr);
   }
 
-  //! @return The first MessageHub ID for the given endpoint ID
-  message::MessageHubId findDefaultMessageHubId(message::EndpointId endpointId);
-
   //! @return true if the nanoapp has a service with the given service
   //! descriptor in the legacy service descriptor format.
   bool doesNanoappHaveLegacyService(uint64_t nanoappId, uint64_t serviceId);
@@ -280,16 +277,6 @@ class ChreMessageHubManager : public NonCopyable {
   bool validateServicesLocked(uint64_t nanoappId,
                               const chreMsgServiceInfo *serviceInfos,
                               size_t numServices);
-
-  //! Searches for an endpoint with the given hub ID, endpoint ID, and service
-  //! descriptor. The hubId can be MESSAGE_HUB_ID_ANY to search for the
-  //! endpoint on any hub, the endpointId can be ENDPOINT_ID_ANY to search for
-  //! the endpoint on any hub, or the service descriptor can be non-nullptr to
-  //! search for any endpoint that has the service.
-  //! @return the endpoint if found, std::nullopt otherwise.
-  std::optional<message::Endpoint> searchForEndpoint(
-      message::MessageHubId messageHubId, message::EndpointId endpointId,
-      const char *serviceDescriptor);
 
   //! Removes the ready event request for the given endpoint or service.
   void disableReadyEvents(message::EndpointId fromEndpointId,

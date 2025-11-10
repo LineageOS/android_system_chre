@@ -317,8 +317,10 @@ class AtomicSpscQueue : public NonCopyable {
   //! convert this into an array index.
   chre::AtomicUint32 mTail{0};
 
-  typename std::aligned_storage<sizeof(ElementType), alignof(ElementType)>::type
-      mData[kCapacity];
+  struct alignas(ElementType) Storage {
+    std::byte data[sizeof(ElementType)];
+  };
+  Storage mData[kCapacity];
 
   ElementType *data() {
     return reinterpret_cast<ElementType *>(mData);
