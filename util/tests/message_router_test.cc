@@ -1994,5 +1994,107 @@ TEST_F(MessageRouterTest, SessionCallbacksAreCalledOnceSameHub) {
   hub1->closeSession(sessionId2);
 }
 
+TEST_F(MessageRouterTest, FindDefaultMessageHubId) {
+  MessageRouterWithStorage<kMaxMessageHubs, kMaxSessions> router;
+
+  // No hubs registered.
+  EXPECT_EQ(router.findDefaultMessageHubId(kEndpointInfos[0].id),
+            MESSAGE_HUB_ID_INVALID);
+
+  pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
+      pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
+                                                      /* session= */ nullptr);
+  std::optional<MessageRouter::MessageHub> messageHub1 =
+      router.registerMessageHub("hub1", /* id= */ 1, callback);
+  EXPECT_TRUE(messageHub1.has_value());
+
+  // One hub registered, find an existing endpoint.
+  EXPECT_EQ(router.findDefaultMessageHubId(kEndpointInfos[0].id),
+            messageHub1->getId());
+
+  // One hub registered, try to find a non-existent endpoint.
+  EXPECT_EQ(router.findDefaultMessageHubId(999), MESSAGE_HUB_ID_INVALID);
+
+  std::optional<MessageRouter::MessageHub> messageHub2 =
+      router.registerMessageHub("hub2", /* id= */ 2, callback);
+  EXPECT_TRUE(messageHub2.has_value());
+
+  // Multiple hubs registered, endpoint exists on both. Should return the first.
+  EXPECT_EQ(router.findDefaultMessageHubId(kEndpointInfos[0].id),
+            messageHub1->getId());
+}
+
+TEST_F(MessageRouterTest, SearchForEndpoint) {
+  MessageRouterWithStorage<kMaxMessageHubs, kMaxSessions> router;
+  pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
+      pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
+                                                      /* session= */ nullptr);
+  std::optional<MessageRouter::MessageHub> messageHub1 =
+      router.registerMessageHub("hub1", /* id= */ 1, callback);
+  ASSERT_TRUE(messageHub1.has_value());
+
+  // === Path 1: Search by service descriptor only ===
+  // Valid service descriptor.
+  std::optional<Endpoint> endpoint = router.searchForEndpoint(
+      MESSAGE_HUB_ID_ANY, ENDPOINT_ID_INVALID, kServiceDescriptorForEndpoint2);
+  ASSERT_TRUE(endpoint.has_value());
+  EXPECT_EQ(endpoint->messageHubId, messageHub1->getId());
+  EXPECT_EQ(endpoint->endpointId, kEndpointInfos[1].id);
+
+  // Invalid service descriptor.
+  endpoint = router.searchForEndpoint(MESSAGE_HUB_ID_ANY, ENDPOINT_ID_INVALID,
+                                      "invalid.service");
+  EXPECT_FALSE(endpoint.has_value());
+
+  // Null service descriptor and invalid endpoint ID.
+  endpoint = router.searchForEndpoint(MESSAGE_HUB_ID_ANY, ENDPOINT_ID_INVALID,
+                                      nullptr);
+  EXPECT_FALSE(endpoint.has_value());
+
+  // === Path 2: Search by endpoint ID and service descriptor ===
+  // Valid hub, endpoint, and service.
+  endpoint = router.searchForEndpoint(messageHub1->getId(),
+                                      kEndpointInfos[1].id,
+                                      kServiceDescriptorForEndpoint2);
+  ASSERT_TRUE(endpoint.has_value());
+  EXPECT_EQ(endpoint->messageHubId, messageHub1->getId());
+  EXPECT_EQ(endpoint->endpointId, kEndpointInfos[1].id);
+
+  // Invalid hub ID.
+  endpoint = router.searchForEndpoint(MESSAGE_HUB_ID_INVALID,
+                                      kEndpointInfos[1].id,
+                                      kServiceDescriptorForEndpoint2);
+  EXPECT_FALSE(endpoint.has_value());
+
+  // Endpoint does not have the service.
+  endpoint = router.searchForEndpoint(messageHub1->getId(),
+                                      kEndpointInfos[0].id,
+                                      kServiceDescriptorForEndpoint2);
+  EXPECT_FALSE(endpoint.has_value());
+
+  // === Path 3: Search by endpoint ID only ===
+  // With a specific, valid hub ID.
+  endpoint = router.searchForEndpoint(messageHub1->getId(),
+                                      kEndpointInfos[0].id, nullptr);
+  ASSERT_TRUE(endpoint.has_value());
+  EXPECT_EQ(endpoint->messageHubId, messageHub1->getId());
+  EXPECT_EQ(endpoint->endpointId, kEndpointInfos[0].id);
+
+  // With a specific hub ID, but invalid endpoint ID.
+  endpoint = router.searchForEndpoint(messageHub1->getId(), 999, nullptr);
+  EXPECT_FALSE(endpoint.has_value());
+
+  // With an invalid hub ID, should find the default hub.
+  endpoint = router.searchForEndpoint(MESSAGE_HUB_ID_INVALID,
+                                      kEndpointInfos[0].id, nullptr);
+  ASSERT_TRUE(endpoint.has_value());
+  EXPECT_EQ(endpoint->messageHubId, messageHub1->getId());
+  EXPECT_EQ(endpoint->endpointId, kEndpointInfos[0].id);
+
+  // With an invalid hub ID and invalid endpoint ID.
+  endpoint = router.searchForEndpoint(MESSAGE_HUB_ID_INVALID, 999, nullptr);
+  EXPECT_FALSE(endpoint.has_value());
+}
+
 }  // namespace
 }  // namespace chre::message
