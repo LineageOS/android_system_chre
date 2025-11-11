@@ -35,8 +35,7 @@ PlatformBtSocketBase::PlatformBtSocketBase(
     LOGE("Rx MPS cannot be 0");
     return;
   }
-  uint16_t rxCredits =
-      MIN(kMaxRxMultibufs, kRxMultiBufAreaSize / socketData.rxConfig.mps);
+  uint16_t rxCredits = kRxMultiBufAreaSize / socketData.rxConfig.mps;
   if (rxCredits < socketData.rxConfig.credits) {
     LOGE(
         "Socket allocated more Rx credits to the remote device than CHRE is "
@@ -72,8 +71,8 @@ PlatformBtSocketBase::PlatformBtSocketBase(
   // with the Rx credits value populated, it assumes these have already been
   // allocated to the remote device.
   if (socketData.rxConfig.credits > 0) {
-    LOGW("Assuming socket allocated %" PRIu16
-         " Rx credits to remote device prior to being offloaded to CHRE",
+    LOGW("Assuming host allocated %" PRIu16
+         " Rx credits to remote device prior to offloading the socket to CHRE",
          socketData.rxConfig.credits);
     rxCredits -= socketData.rxConfig.credits;
   }

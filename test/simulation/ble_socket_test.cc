@@ -22,6 +22,7 @@
 #include "test_util.h"
 
 #include "chre/core/ble_l2cap_coc_socket_data.h"
+#include "chre/core/ble_socket_manager.h"
 #include "chre/core/event_loop_manager.h"
 #include "chre/platform/linux/pal_ble.h"
 #include "chre/util/macros.h"
@@ -225,7 +226,8 @@ TEST_F(BleSocketTest, BleSocketCapabilitesTest) {
       ->getBleSocketManager()
       .handleSocketCapabilitiesRequestByHost();
   BtSocketCapabilities capabilities = getSocketCapabilities();
-  EXPECT_EQ(capabilities.leCocNumberOfSupportedSockets, 3);
+  EXPECT_EQ(capabilities.leCocNumberOfSupportedSockets,
+            BleSocketManager::kMaxNumSockets);
   EXPECT_EQ(capabilities.leCocMtu, 2048);
   EXPECT_EQ(capabilities.rfcommNumberOfSupportedSockets, 0);
   EXPECT_EQ(capabilities.rfcommMaxFrameSize, 0);

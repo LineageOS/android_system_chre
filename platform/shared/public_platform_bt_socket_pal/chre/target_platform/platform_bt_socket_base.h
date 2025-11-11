@@ -70,11 +70,12 @@ class PlatformBtSocketBase {
 
   // Multibuf Rx allocators
 
-  static constexpr uint8_t kMaxRxMultibufs = 10;
+  static constexpr uint16_t kRxMultiBufAreaSize = 1024 * 24;
 
-  static constexpr uint16_t kRxMultiBufAreaSize = 2048;
+  static constexpr uint16_t kRxMultiBufMetaDataSize = 1024 * 12;
 
-  static constexpr uint16_t kRxMultiBufMetaDataSize = 1024;
+  // Multibuf v1 requires significant meta data
+  static constexpr uint8_t kMaxRxMultibufs = kRxMultiBufMetaDataSize / 512;
 
   // TODO(b/430672746): This is 5 * the metadata needed for a single multibuf
   // based on the hard coded tx queue size for a pigweed L2capChannel. When the
