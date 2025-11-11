@@ -47,6 +47,8 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
     private final AtomicInteger mClientIdCounter = new AtomicInteger(0);
 
     private Thread mEventLoopThread = null;
+    private boolean mEventLoopRunning = false;
+    private ThreadFactory mThreadFactory = new DefaultThreadFactory();
 
     // One nano app should have only one client created.
     private final ConcurrentHashMap<Integer, ContextHubAPClient> mClientMap =
@@ -89,13 +91,80 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
     }
 
     /**
+     * ThreadFactory to use for creating event loop.
+     */
+    public interface ThreadFactory {
+        /**
+         * Creates a new thread.
+         * @param runnable
+         * @return Created thread with the runnable.
+         */
+        Thread newThread(Runnable runnable);
+    }
+
+    /**
+     * Default implementation of ThreadFactory.
+     */
+    public static class DefaultThreadFactory implements ThreadFactory {
+        @Override
+        public Thread newThread(Runnable runnable) {
+            return new Thread(runnable);
+        }
+    }
+
+    /**
+     * Sets the thread factory used to create event loop thread. Must be set before event loop is
+     * created.
+     * @param factory The thread factory to use.
+     */
+    public void setThreadFactory(ThreadFactory factory) {
+        if (mEventLoopRunning) {
+            Log.w(TAG, "Cannot set ThreadFactory while event loop is running.");
+            return;
+        }
+        mThreadFactory = Objects.requireNonNull(factory, "ThreadFactory cannot be null");
+    }
+
+    /**
+     * Specify the running mode for CHRE event loop.
+     */
+    public enum EventLoopMode {
+        // A new thread will be created in native library.
+        NATIVE,
+        // The event loop will be run on a newly created thread, owned and managed by the manager.
+        OWNED,
+        // The event loop will run on the calling thread. Caller is also expected to call
+        // setEventLoopThread to make sure the thread is joined upon destroy.
+        PROVIDED,
+    }
+
+    /**
      * Runs the event loop of the CHRE AP environment.
      *
-     * @param useNativeThread Whether to use a native thread to run the event loop. If false, the
-     *                        event loop will run on the calling thread.
+     * @param mode The running mode for the event loop.
      */
-    public void runEventLoop(boolean useNativeThread) {
-        ContextHubAPNative.runEventLoop(useNativeThread);
+    public void runEventLoop(EventLoopMode mode) {
+        if (mEventLoopThread != null || mEventLoopRunning) {
+            Log.e(TAG, "EventLoop is already running.");
+            return;
+        }
+        mEventLoopRunning = true;
+        switch (mode) {
+            case NATIVE:
+                ContextHubAPNative.runEventLoop(true /*useNativeThread*/);
+                break;
+            case PROVIDED:
+                ContextHubAPNative.runEventLoop(false /*useNativeThread*/);
+                break;
+            case OWNED:
+                mEventLoopThread = mThreadFactory.newThread(() -> {
+                    ContextHubAPNative.runEventLoop(false /*useNativeThread*/);
+                });
+                mEventLoopThread.start();
+                break;
+            default:
+                Log.e(TAG, "Unknown event loop mode");
+        }
     }
 
     /** Destroys the CHRE AP environment. */
@@ -111,6 +180,9 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
             }
             mEventLoopThread = null;
         }
+        mEventLoopRunning = false;
+
+        mClientMap.clear();
     }
 
     /**
@@ -213,20 +285,17 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
         var message =
                 NanoAppMessage.createMessageFromNanoApp(nanoAppId, messageType, messageBody, false);
         Log.d(TAG, "Message received for NanoApp ID: " + nanoAppId);
-        mMainHandler.post(
-                () -> {
-                    for (ContextHubAPClient client : mClientMap.values()) {
-                        client.getExecutor()
-                                .execute(
-                                        new Runnable() {
-                                            @Override
-                                            public void run() {
-                                                client.getCallback()
-                                                        .onMessageFromNanoApp(null, message);
-                                            }
-                                        });
-                    }
-                });
+        for (ContextHubAPClient client : mClientMap.values()) {
+            client.getExecutor()
+                    .execute(
+                            new Runnable() {
+                                @Override
+                                public void run() {
+                                    client.getCallback()
+                                            .onMessageFromNanoApp(null, message);
+                                }
+                            });
+        }
     }
 
     @Override

@@ -197,7 +197,8 @@ public class ContextHubAPTester extends Activity {
             ContextHubAPManager.getInstance().init(this);
 
             mEventLoopThread = new Thread(() -> {
-                ContextHubAPManager.getInstance().runEventLoop(false /*useNativeThread*/);
+                ContextHubAPManager.getInstance().runEventLoop(
+                        ContextHubAPManager.EventLoopMode.PROVIDED);
             });
             mEventLoopThread.start();
             ContextHubAPManager.getInstance().setEventLoopThread(mEventLoopThread);
