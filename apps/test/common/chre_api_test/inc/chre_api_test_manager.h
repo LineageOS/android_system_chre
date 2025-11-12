@@ -144,6 +144,14 @@ class ChreApiTestService final
                            ServerWriter<chre_rpc_GeneralSyncMessage> &writer);
 
   /**
+   * Stops a BLE scan synchronously using the v1.9 APIs. Waits for the
+   * CHRE_EVENT_BLE_ASYNC_RESULT event.
+   */
+  void ChreBleStopScanSyncV1_9(
+      const google_protobuf_Empty &request,
+      ServerWriter<chre_rpc_GeneralSyncMessage> &writer);
+
+  /**
    * Starts to read the RSSI
    */
   void ChreBleReadRssiSync(const chre_rpc_ChreBleReadRssiRequest &request,
@@ -270,6 +278,9 @@ class ChreApiTestService final
       chre_rpc_Status &response);
 
   bool validateInputAndCallChreBleStopScanAsync(
+      const google_protobuf_Empty &request, chre_rpc_Status &response);
+
+  bool validateInputAndCallChreBleStopScanAsyncV1_9(
       const google_protobuf_Empty &request, chre_rpc_Status &response);
 
   bool validateInputAndCallChreBleReadRssiAsync(
