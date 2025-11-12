@@ -83,6 +83,7 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
             return;
         }
         // Init the CHRE AP environment
+        ContextHubAPNative.setContext(appContext);
         int initRes = ContextHubAPNative.init();
         if (initRes != 0) {
             Log.e(TAG, "Failed to initialize native CHRE AP environment: " + initRes);

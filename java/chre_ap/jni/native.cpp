@@ -18,6 +18,7 @@
 #include "chre/core/event_loop.h"
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/static_nanoapps.h"
+#include "chre/platform/android/jni_manager.h"
 #include "chre/platform/android/platform_log.h"
 #include "chre/platform/shared/init.h"
 #include "chre/platform/system_timer.h"
@@ -129,12 +130,18 @@ void onAlarmFired(JNIEnv /**env*/, jclass /*clazz*/, jlong timerId) {
       {.sival_ptr = (void *)timerId});
 }
 
+static void onCellInfoReceived(JNIEnv *env, jclass /*clazz*/,
+                               jobjectArray cellInfoList) {
+  chre::JniManagerSingleton::get()->onCellInfoReceived(env, cellInfoList);
+}
+
 static jint init(JNIEnv * /*env*/, jobject /*thiz*/) {
   if (g_chre_initialized) {
     ALOGE("Environment already initialized");
     return 0;
   }
   // Initialize the system.
+  chre::JniManagerSingleton::get()->init(g_javaVM);
   chre::initCommon();
   chre::EventLoopManagerSingleton::get()->lateInit();
   chre::EventLoopManagerSingleton::get()
@@ -334,6 +341,8 @@ static JNINativeMethod methods[] = {
     {(char *)"isInitialized", (char *)"()Z", (void *)isInitialized},
     {(char *)"stopEventLoop", (char *)"()V", (void *)stopEventLoop},
     {(char *)"onAlarmFired", (char *)"(J)V", (void *)onAlarmFired},
+    {(char *)"onCellInfoReceived", (char *)"([Ljava/lang/Object;)V",
+     (void *)onCellInfoReceived},
 };
 
 // Register native methods for all classes we know about.
