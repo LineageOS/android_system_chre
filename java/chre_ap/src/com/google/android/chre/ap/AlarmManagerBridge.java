@@ -22,6 +22,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.os.Build;
 import android.os.SystemClock;
 import android.util.Log;
 
@@ -33,10 +34,16 @@ public class AlarmManagerBridge {
 
     static void initialize(Context appContext) {
         sContext = appContext;
-        sContext.registerReceiver(
-                new AlarmReceiver(),
-                new IntentFilter(ACTION_ALARM_FIRED),
-                Context.RECEIVER_NOT_EXPORTED);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            sContext.registerReceiver(
+                    new AlarmReceiver(),
+                    new IntentFilter(ACTION_ALARM_FIRED),
+                    Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            sContext.registerReceiver(
+                    new AlarmReceiver(),
+                    new IntentFilter(ACTION_ALARM_FIRED));
+        }
         sAlarmManager = sContext.getSystemService(AlarmManager.class);
         if (sAlarmManager == null) {
             Log.e(TAG, "Failed to get AlarmManager!");

@@ -1058,7 +1058,6 @@ cc_defaults {
         "platform/android/platform_nanoapp.cc",
         "platform/android/power_control_manager.cc",
         "platform/android/system_time.cc",
-        "platform/android/system_timer.cc",
         "platform/shared/assert.cc",
         "platform/shared/chre_api_audio.cc",
         "platform/shared/chre_api_ble.cc",

@@ -22,11 +22,6 @@
 #include "chre/platform/log.h"
 #include "chre/util/time.h"
 
-extern "C" {
-void chreApSetAlarm(uint64_t timerId, uint64_t delayNs);
-void chreApCancelAlarm(uint64_t timerId);
-}
-
 namespace chre {
 
 void SystemTimerBase::systemTimerNotifyCallback(union sigval cookie) {

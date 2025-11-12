@@ -144,8 +144,8 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
      * @param mode The running mode for the event loop.
      */
     public void runEventLoop(EventLoopMode mode) {
-        if (mEventLoopThread != null || mEventLoopRunning) {
-            Log.e(TAG, "EventLoop is already running.");
+        if (mEventLoopRunning) {
+            Log.e(TAG, "EventLoop is already running, nothing to do.");
             return;
         }
         mEventLoopRunning = true;
