@@ -119,7 +119,7 @@ static void internalSendMessage(MessageType messageType, void *data,
                                 size_t dataSize, bool ChunkAlloc) {
   if (gTestFailed) {
     LOGW("Test already failed: skipping sending message type %" PRIu32,
-         messageType);
+         static_cast<uint32_t>(messageType));
     return;
   } else if (messageType == MessageType::kFailure ||
              messageType == MessageType::kInternalFailure) {

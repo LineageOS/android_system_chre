@@ -93,7 +93,8 @@ bool FillResult(const BleServiceData& service_data, const uint8_t* account_key,
       // Initial Pair service data only has model ID.
       static_assert(kFastPairModelIdLength + 3 <=
                     sizeof(result->ble_service_data));
-    } else if (service_data.length + 3 > sizeof(result->ble_service_data)) {
+    } else if (static_cast<size_t>(service_data.length + 3) >
+               sizeof(result->ble_service_data)) {
       LOGE("Fast Pair BLE service data overflows the result buffer.");
       return false;
     }

@@ -49,7 +49,9 @@ uint32_t chrexNearbySetExtendedFilterConfig(
   auto *fptr = CHRE_NSL_LAZY_LOOKUP(chrexNearbySetExtendedFilterConfig);
   return (fptr != nullptr)
              ? fptr(host_info, scan_filter, config, vendorStatusCode)
-             : chrexNearbyResult::CHREX_NEARBY_RESULT_FEATURE_NOT_SUPPORTED;
+             : static_cast<uint32_t>(
+                   chrexNearbyResult::
+                       CHREX_NEARBY_RESULT_FEATURE_NOT_SUPPORTED);
 }
 
 WEAK_SYMBOL
@@ -58,9 +60,10 @@ uint32_t chrexNearbySetExtendedServiceConfig(
     const struct chrexNearbyExtendedServiceConfig *config,
     uint32_t *vendorStatusCode) {
   auto *fptr = CHRE_NSL_LAZY_LOOKUP(chrexNearbySetExtendedServiceConfig);
-  return (fptr != nullptr)
-             ? fptr(host_info, config, vendorStatusCode)
-             : chrexNearbyResult::CHREX_NEARBY_RESULT_FEATURE_NOT_SUPPORTED;
+  return (fptr != nullptr) ? fptr(host_info, config, vendorStatusCode)
+                           : static_cast<uint32_t>(
+                                 chrexNearbyResult::
+                                     CHREX_NEARBY_RESULT_FEATURE_NOT_SUPPORTED);
 }
 
 WEAK_SYMBOL
@@ -70,5 +73,6 @@ uint32_t chrexNearbyMatchExtendedFilter(
   auto *fptr = CHRE_NSL_LAZY_LOOKUP(chrexNearbyMatchExtendedFilter);
   return (fptr != nullptr)
              ? fptr(host_info, report)
-             : chrexNearbyFilterAction::CHREX_NEARBY_FILTER_ACTION_IGNORE;
+             : static_cast<uint32_t>(
+                   chrexNearbyFilterAction::CHREX_NEARBY_FILTER_ACTION_IGNORE);
 }
