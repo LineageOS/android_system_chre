@@ -30,7 +30,7 @@ import android.hardware.location.ContextHubManager;
 import android.hardware.location.NanoAppBinary;
 import android.hardware.location.NanoAppState;
 
-import com.google.android.chre.utils.pigweed.ChreRpcClient;
+import com.google.android.utils.chre.pigweed.ChreRpcClient;
 import com.google.android.utils.chre.ChreTestUtil;
 
 import org.junit.Assert;

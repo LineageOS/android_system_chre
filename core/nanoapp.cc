@@ -200,13 +200,13 @@ void Nanoapp::logStateToBuffer(DebugDumpWrapper &debugDump) const {
 void Nanoapp::logMemAndComputeHeader(DebugDumpWrapper &debugDump) const {
   // Print table header
   // Nanoapp column sized to accommodate largest known name
-  debugDump.print("\n%10sNanoapp%9s| Mem Alloc (Bytes) |%2sEvent Time (Ms)\n",
+  debugDump.print("\n%14sNanoapp%12s| Mem Alloc (Bytes) |%2sEvent Time (Ms)\n",
                   "", "", "");
-  debugDump.print("%26s| Current |     Max |     Max |   Total\n", "");
+  debugDump.print("%33s| Current |     Max |     Max |   Total\n", "");
 }
 
 void Nanoapp::logMemAndComputeEntry(DebugDumpWrapper &debugDump) const {
-  debugDump.print("%25s |", getAppName());
+  debugDump.print("%32s |", getAppName());
   debugDump.print(" %7zu |", getTotalAllocatedBytes());
   debugDump.print(" %7zu |", getPeakAllocatedBytes());
   debugDump.print(" %7" PRIu64 " |", mEventProcessTime.getMax());
@@ -260,7 +260,7 @@ void Nanoapp::logMessageHistoryHeader(DebugDumpWrapper &debugDump) const {
                 "Update of nanoapp debug dump column widths requrired");
 
   // Print table header
-  debugDump.print("\n%26s|", " Nanoapp ");
+  debugDump.print("\n%33s|", " Nanoapp ");
   debugDump.print("%11s|", " Total w/u ");
   // Wakeup Histogram = 2 + (4 * kMaxSizeWakeupBuckets);
   debugDump.print("%22s|", " Wakeup Histogram ");
@@ -271,7 +271,7 @@ void Nanoapp::logMessageHistoryHeader(DebugDumpWrapper &debugDump) const {
   // Event Time Histogram (ms) = 2 + (7 * kMaxSizeWakeupBuckets);
   debugDump.print("%37s", " Event Time Histogram (ms) ");
 
-  debugDump.print("\n%26s|%11s|", "", "");
+  debugDump.print("\n%33s|%11s|", "", "");
   for (int32_t i = kMaxSizeWakeupBuckets - 1; i >= 0; --i) {
     debugDump.print(" %3s", bucketTags[i]);
   }
@@ -287,7 +287,7 @@ void Nanoapp::logMessageHistoryHeader(DebugDumpWrapper &debugDump) const {
 }
 
 void Nanoapp::logMessageHistoryEntry(DebugDumpWrapper &debugDump) const {
-  debugDump.print("%25s |", getAppName());
+  debugDump.print("%32s |", getAppName());
 
   // Print wakeupCount and histogram
   debugDump.print(" %9" PRIu32 " | ", mNumWakeupsSinceBoot);

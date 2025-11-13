@@ -48,6 +48,7 @@ cc_binary {
         "libpower",
     ],
     static_libs: [
+        "pw_base64",
         "pw_detokenizer",
         "pw_polyfill",
         "pw_span",

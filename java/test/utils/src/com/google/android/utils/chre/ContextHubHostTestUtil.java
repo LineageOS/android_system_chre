@@ -15,6 +15,10 @@
  */
 package com.google.android.utils.chre;
 
+import static com.google.common.truth.Truth.assertWithMessage;
+
+import static org.junit.Assume.assumeTrue;
+
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.hardware.location.ContextHubInfo;
@@ -28,7 +32,6 @@ import androidx.test.InstrumentationRegistry;
 import com.android.compatibility.common.util.DynamicConfigDeviceSide;
 
 import org.junit.Assert;
-import org.junit.Assume;
 import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.File;
@@ -48,7 +51,7 @@ public class ContextHubHostTestUtil {
      * The names of the dynamic configs corresponding to each test suite.
      */
     public static final String[] DEVICE_DYNAMIC_CONFIG_NAMES =
-            new String[] {"GtsGmscoreHostTestCases", "GtsLocationContextMultiDeviceTestCases"};
+            new String[]{"GtsGmscoreHostTestCases", "GtsLocationContextMultiDeviceTestCases"};
 
     public static String multiDeviceExternalNanoappPath = null;
 
@@ -92,14 +95,14 @@ public class ContextHubHostTestUtil {
     /**
      * Waits on a CountDownLatch or assert if it timed out or was interrupted.
      *
-     * @param latch                       the CountDownLatch
-     * @param timeout                     the timeout duration
-     * @param unit                        the timeout unit
-     * @param timeoutErrorMessage         the message to display on timeout assert
+     * @param latch               the CountDownLatch
+     * @param timeout             the timeout duration
+     * @param unit                the timeout unit
+     * @param timeoutErrorMessage the message to display on timeout assert
      */
     public static void awaitCountDownLatchAssertOnFailure(
             CountDownLatch latch, long timeout, TimeUnit unit, String timeoutErrorMessage)
-                    throws InterruptedException {
+            throws InterruptedException {
         boolean result = latch.await(timeout, unit);
         Assert.assertTrue(timeoutErrorMessage, result);
     }
@@ -130,8 +133,8 @@ public class ContextHubHostTestUtil {
     /**
      * Read the nanoapp to an InputStream object.
      *
-     * @param context   the Context to find the asset resources
-     * @param fullName  the fullName of the nanoapp
+     * @param context  the Context to find the asset resources
+     * @param fullName the fullName of the nanoapp
      * @return the InputStream of the nanoapp
      */
     public static InputStream getNanoAppInputStream(Context context, String fullName) {
@@ -142,7 +145,7 @@ public class ContextHubHostTestUtil {
                     new FileInputStream(new File(fullName));
         } catch (IOException e) {
             Assert.fail("Could not find asset " + fullName + ": "
-                        + e.toString());
+                    + e.toString());
         }
         return inputStream;
     }
@@ -217,6 +220,28 @@ public class ContextHubHostTestUtil {
     }
 
     /**
+     * Determines if the device under test should run the aoc v2 asset directory.
+     *
+     * @return true if the device is in the aoc v2 device list.
+     */
+    private static boolean deviceInAocV2List() {
+        DynamicConfigDeviceSide deviceDynamicConfig = getDynamicConfig();
+        List<String> configValues = deviceDynamicConfig.getValues("chre_aoc_v2_list");
+        Assert.assertTrue("Could not find aoc v2 device list from dynamic config",
+                configValues != null);
+
+        String deviceName = Build.DEVICE;
+        for (String element : configValues) {
+            String[] delimited = element.split(",");
+            if (delimited.length != 0 && delimited[0].equals(deviceName)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Returns the path of the nanoapps for a CHRE implementation using the platform ID.
      *
      * The dynamic configuration file for GtsGmscoreHostTestCases defines the key
@@ -240,6 +265,9 @@ public class ContextHubHostTestUtil {
             String[] delimited = element.split(",");
             if (delimited.length == 2 && delimited[0].equals(platformIdHexString)) {
                 path = delimited[1];
+                if (path.equals("CHRE_on_AOCGoogle") && deviceInAocV2List()) {
+                    path = "CHRE_on_AOCv2Google";
+                }
                 break;
             }
         }
@@ -284,11 +312,11 @@ public class ContextHubHostTestUtil {
 
     /**
      * @return the device side dynamic config for GtsGmscoreHostTestCases or
-     *         GtsLocationContextMultiDeviceTestCases
+     * GtsLocationContextMultiDeviceTestCases
      */
     private static DynamicConfigDeviceSide getDynamicConfig() {
         DynamicConfigDeviceSide deviceDynamicConfig = null;
-        for (String deviceDynamicConfigName: DEVICE_DYNAMIC_CONFIG_NAMES) {
+        for (String deviceDynamicConfigName : DEVICE_DYNAMIC_CONFIG_NAMES) {
             try {
                 deviceDynamicConfig = new DynamicConfigDeviceSide(deviceDynamicConfigName);
             } catch (XmlPullParserException e) {
@@ -326,37 +354,14 @@ public class ContextHubHostTestUtil {
      * @param manager The ContextHubManager on this app.
      */
     public static void checkDeviceShouldRunTest(Context context, ContextHubManager manager) {
-        boolean supportsContextHub;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            supportsContextHub =
-                    context.getPackageManager().hasSystemFeature(
+        assumeTrue("Device is in the denylist, skipping test", !deviceInDenylist());
+        boolean supportsContextHub =
+                context.getPackageManager().hasSystemFeature(
                         PackageManager.FEATURE_CONTEXT_HUB);
-            Assert.assertTrue("ContextHubManager must be null if feature is not supported.",
-                    supportsContextHub || manager == null);
-        } else {
-            supportsContextHub = (manager != null);
-        }
-        Assume.assumeTrue("Device does not support Context Hub, skipping test", supportsContextHub);
-
-        int numContextHubs;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            numContextHubs = manager.getContextHubs().size();
-        } else {
-            int[] handles = manager.getContextHubHandles();
-            Assert.assertNotNull(handles);
-            numContextHubs = handles.length;
-        }
-
-        // Only use allowlist logic on builds that do not require the Context Hub feature flag.
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            // Use allowlist on platforms that reports no Context Hubs to prevent false positive
-            // failures on devices that do not actually support CHRE.
-            Assume.assumeTrue(
-                    "Device not in allowlist and does not have Context Hub, skipping test",
-                    numContextHubs != 0 || deviceInAllowlist());
-        }
-
+        assumeTrue("Device does not support Context Hub, skipping test", supportsContextHub);
+        assertWithMessage("ContextHubManager must not be null if the feature is supported").that(
+                manager).isNotNull();
         // Use a denylist on platforms that should not run CHQTS.
-        Assume.assumeTrue("Device is in denylist, skipping test", !deviceInDenylist());
+
     }
 }

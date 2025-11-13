@@ -514,14 +514,13 @@ void SensorRequestManager::handleSamplingStatusUpdate(
       EventLoopManagerSingleton::get()->getSensorRequestManager().getSensor(
           sensorHandle);
   if (sensor == nullptr || sensor->isOneShot()) {
+    // We don't log a warning for one-shot sensors because they are expected to
+    // receive a sampling status update when they are enabled.
     if (sensor == nullptr) {
       LOGW(
           "Received a sampling status update for non existing sensorHandle "
           "%" PRIu32,
           sensorHandle);
-    } else {
-      LOGW("Received a sampling status update for one shot sensor %s",
-           sensor->getSensorName());
     }
     releaseSamplingStatusUpdate(status);
   } else {

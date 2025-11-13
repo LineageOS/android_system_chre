@@ -130,6 +130,17 @@ public class ChreTestUtil {
      */
     public static boolean unloadNanoApp(
             ContextHubManager manager, ContextHubInfo info, long nanoAppId) {
+        List<NanoAppState> nanoApps = queryNanoAppsAssertSuccess(manager, info);
+        boolean isLoaded = false;
+        for (NanoAppState state : nanoApps) {
+            if (state.getNanoAppId() == nanoAppId) {
+                isLoaded = true;
+                break;
+            }
+        }
+        if (!isLoaded) {
+            return true;
+        }
         ContextHubTransaction<Void> txn = manager.unloadNanoApp(info, nanoAppId);
         ContextHubTransaction.Response<Void> resp = null;
         try {

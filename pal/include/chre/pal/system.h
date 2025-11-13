@@ -101,6 +101,11 @@ struct chrePalSystemApi {
    * @see chreHeapFree
    */
   void (*memoryFree)(void *pointer);
+
+  /**
+   * Ensures the PAL can access DRAM memory.
+   */
+  void (*forceDramAccess)(void);
 };
 
 #ifdef __cplusplus

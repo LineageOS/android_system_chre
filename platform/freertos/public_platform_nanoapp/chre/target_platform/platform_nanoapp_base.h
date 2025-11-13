@@ -87,6 +87,14 @@ class PlatformNanoappBase {
    */
   bool copyNanoappFragment(const void *buffer, size_t bufferSize);
 
+  bool isStatic() const {
+    return mIsStatic;
+  }
+
+  void *getDsoHandle() const {
+    return mDsoHandle;
+  }
+
  protected:
   //! The app ID we received in the metadata alongside the nanoapp binary. This
   //! is also included in (and checked against) mAppInfo.

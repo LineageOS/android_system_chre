@@ -25,7 +25,7 @@ import android.hardware.location.NanoAppBinary;
 
 import androidx.test.InstrumentationRegistry;
 
-import com.google.android.chre.utils.pigweed.ChreRpcClient;
+import com.google.android.utils.chre.pigweed.ChreRpcClient;
 import com.google.android.utils.chre.ChreApiTestUtil;
 import com.google.android.utils.chre.ChreTestUtil;
 

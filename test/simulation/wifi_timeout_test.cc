@@ -127,7 +127,7 @@ TEST_F(WifiTimeoutTest, WifiScanRequestTimeoutTest) {
 
   waitForEvent(REQUEST_TIMED_OUT);
 
-  // Make sure that we can still request scan after a timedout
+  // Make sure that we can still request scan after a timed out
   // request.
   constexpr uint32_t successCookie = 0x0101;
   chrePalWifiEnableResponse(PalWifiAsyncRequestTypes::SCAN,
@@ -238,7 +238,7 @@ TEST_F(WifiTimeoutTest, WifiCanDispatchQueuedRequestAfterOneTimeout) {
 
   waitForEvent(REQUEST_TIMED_OUT);
 
-  // Make sure that we can still request scan for both nanoapps after a timedout
+  // Make sure that we can still request scan for both nanoapps after a timed out
   // request.
   constexpr uint32_t successCookie = 0x0101;
   chrePalWifiEnableResponse(PalWifiAsyncRequestTypes::SCAN,
@@ -336,7 +336,7 @@ TEST_F(WifiTimeoutTest, WifiScanMonitorTimeoutTest) {
 
   waitForEvent(REQUEST_TIMED_OUT);
 
-  // Make sure that we can still request to change scan monitor after a timedout
+  // Make sure that we can still request to change scan monitor after a timed out
   // request.
   MonitoringRequest enableRequest{.enable = true, .cookie = 0x1010};
   chrePalWifiEnableResponse(PalWifiAsyncRequestTypes::SCAN_MONITORING, true);
@@ -453,7 +453,7 @@ TEST_F(WifiTimeoutTest, WifiRequestRangingTimeoutTest) {
 
   waitForEvent(REQUEST_TIMED_OUT);
 
-  // Make sure that we can still request ranging after a timedout request
+  // Make sure that we can still request ranging after a timed out request
   uint32_t successCookie = 0x0101;
   chrePalWifiEnableResponse(PalWifiAsyncRequestTypes::RANGING, true);
   sendEventToNanoapp(appId, RANGING_REQUEST, successCookie);

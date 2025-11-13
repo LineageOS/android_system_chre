@@ -15,77 +15,79 @@
  */
 package com.google.android.chre.test.chqts;
 
+import static com.google.common.truth.Truth.assertThat;
+import static com.google.common.truth.Truth.assertWithMessage;
+
 import android.hardware.location.ContextHubInfo;
 import android.hardware.location.ContextHubManager;
 import android.hardware.location.NanoAppBinary;
 import android.os.SystemClock;
+import android.util.Log;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
- * Verify estimated host time from nanoapp.
+ * Verify estimated host time from nanoapp is relatively accurate.
  *
- * Protocol:
- * host to app: ESTIMATED_HOST_TIME, no data
- * app to host: CONTINUE
- * host to app: CONTINUE, 64-bit time
- * app to host: SUCCESS
- *
+ * <p> The test is initiated from the nanoapp side which sends a message to the host. Starting from
+ * there host sends an empty message to the nanoapp and wait for the response.
+ * Once the response is received the time that CHRE received the message is calculated as
+ * message_received_time = message_sent_time + RTT/2. Then message_received_time is used to
+ * calculate a delta with the chreGetEstimatedHostTime(). This process is repeated to get a min
+ * value.
  */
 public class ContextHubEstimatedHostTimeTestExecutor extends ContextHubGeneralTestExecutor {
-    private static final long MAX_ALLOWED_TIME_DELTA_NS = 10000000;     // 10 ms.
-    private static final int NUM_RTT_SAMPLES = 5;
+    private static final int MAX_ALLOWED_NIN_DELTA_NS = 10_000_000;     // 10 ms.
+    private static final int NUM_OF_SAMPLES = 5;
     private long mMsgSendTimestampNs = 0;
-    private long mSmallestDelta = Long.MAX_VALUE;
-    private int mSamplesReceived = 0;
+    private static final String TAG = "EstimatedHostTimeTest";
+    private final List<Long> mDeltas;
+    private final long mNanoappId;
 
     public ContextHubEstimatedHostTimeTestExecutor(ContextHubManager manager, ContextHubInfo info,
             NanoAppBinary binary) {
         super(manager, info, new GeneralTestNanoApp(binary,
                 ContextHubTestConstants.TestNames.ESTIMATED_HOST_TIME));
+        mNanoappId = binary.getNanoAppId();
+        mDeltas = new ArrayList<>();
     }
 
     @Override
     protected void handleMessageFromNanoApp(long nanoAppId,
             ContextHubTestConstants.MessageType type, byte[] data) {
-        if (type != ContextHubTestConstants.MessageType.CONTINUE) {
-            fail("Unexpected message type " + type);
-        } else {
-            if (data.length != 0 && mMsgSendTimestampNs != 0) {
-                long currentTimestampNs = SystemClock.elapsedRealtimeNanos();
-                long chreTimestampNs = ByteBuffer.wrap(data)
-                        .order(ByteOrder.LITTLE_ENDIAN)
-                        .getLong();
+        assertThat(type).isEqualTo(ContextHubTestConstants.MessageType.CONTINUE);
 
-                // Identify the closest CHRE timestamp to the midpoint of RTT.
-                // This needs to be done across multiple rounds since RTT may not
-                // be evenly distributed in a single round
-                long middleTimestamp = (currentTimestampNs - mMsgSendTimestampNs) / 2
-                                       + mMsgSendTimestampNs;
-                long deltaNs = java.lang.Math.abs(chreTimestampNs - middleTimestamp);
+        if (mMsgSendTimestampNs != 0) {
+            assertThat(data.length).isGreaterThan(0);
+            long currentTimestampNs = SystemClock.elapsedRealtimeNanos();
+            long chreTimestampNs = ByteBuffer.wrap(data)
+                    .order(ByteOrder.LITTLE_ENDIAN)
+                    .getLong();
 
-                mSmallestDelta = java.lang.Math.min(mSmallestDelta, deltaNs);
-                mSamplesReceived += 1;
+            long middleTimestamp = (currentTimestampNs - mMsgSendTimestampNs) / 2
+                    + mMsgSendTimestampNs;
+            mDeltas.add(Math.abs(chreTimestampNs - middleTimestamp));
 
-                if (mSamplesReceived == NUM_RTT_SAMPLES) {
-                    if (mSmallestDelta < MAX_ALLOWED_TIME_DELTA_NS) {
-                        pass();
-                    } else {
-                        fail("Inconsistent CHRE/AP timestamps- Current TS: "
-                                + currentTimestampNs + " CHRE TS: " + chreTimestampNs
-                                + " start TS: " + mMsgSendTimestampNs + " Smallest Delta: "
-                                + mSmallestDelta);
-                    }
-                }
+            if (mDeltas.size() == NUM_OF_SAMPLES) {
+                Log.d(TAG, "Deltas (ns): " + mDeltas);
+                assertWithMessage(String.format(
+                        "The min delta between estimated host time and host real"
+                                + " time is larger than %d ms. abs of deltas: %s",
+                        MAX_ALLOWED_NIN_DELTA_NS, mDeltas)).that(Collections.min(mDeltas)).isAtMost(
+                        MAX_ALLOWED_NIN_DELTA_NS);
+                pass();
             }
+        }
 
-            if (mSamplesReceived < NUM_RTT_SAMPLES) {
-                mMsgSendTimestampNs = SystemClock.elapsedRealtimeNanos();
-                sendMessageToNanoAppOrFail(nanoAppId,
-                        ContextHubTestConstants.MessageType.CONTINUE.asInt(),
-                        new byte[0] /* data */);
-            }
+        if (mDeltas.size() < NUM_OF_SAMPLES) {
+            mMsgSendTimestampNs = SystemClock.elapsedRealtimeNanos();
+            sendMessageToNanoAppOrFail(mNanoappId,
+                    ContextHubTestConstants.MessageType.CONTINUE.asInt(), /* data= */
+                    new byte[0]);
         }
     }
 }

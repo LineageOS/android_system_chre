@@ -63,4 +63,8 @@ void memoryFreeDram(void *pointer) {
   OS_free(pointer);
 }
 
+void palSystemApiForceDramAccess() {
+  // No-op
+}
+
 }  // namespace chre

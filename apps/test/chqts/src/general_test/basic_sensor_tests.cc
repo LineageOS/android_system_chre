@@ -15,11 +15,18 @@
  */
 
 #include <general_test/basic_sensor_tests.h>
+#include "chre/util/nanoapp/log.h"
 
 #include <shared/macros.h>
 #include <shared/send_message.h>
 
+#include <cinttypes>
+
 #include "chre/util/macros.h"
+
+#ifndef LOG_TAG
+#define LOG_TAG "[BasicSensorTest]"
+#endif
 
 namespace general_test {
 
@@ -44,6 +51,8 @@ static void checkTimestampDelta(uint32_t delta, size_t index) {
 static void verifyThreeAxisData(const void *eventData, float extremeLow,
                                 float extremeHigh) {
   auto data = static_cast<const chreSensorThreeAxisData *>(eventData);
+  LOGI("3-axis data event: timestamp=%" PRIu64 ", handle=%" PRIu32,
+       data->header.baseTimestamp, data->header.sensorHandle);
   for (size_t i = 0; i < data->header.readingCount; i++) {
     checkTimestampDelta(data->readings[i].timestampDelta, i);
     for (size_t j = 0; j < 3; j++) {

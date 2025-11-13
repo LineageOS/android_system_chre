@@ -25,6 +25,7 @@
 #include "chre_host/fragmented_load_transaction.h"
 #include "chre_host/hal_error.h"
 #include "chre_host/host_protocol_host.h"
+#include "error_util.h"
 #include "hal_client_id.h"
 #include "permissions_util.h"
 
@@ -34,13 +35,12 @@
 
 namespace android::hardware::contexthub::common::implementation {
 
-using ::android::base::WriteStringToFd;
-using ::android::chre::FragmentedLoadTransaction;
-using ::android::chre::getStringFromByteVector;
-using ::android::chre::Atoms::ChreHalNanoappLoadFailed;
-using ::android::chre::flags::abort_if_no_context_hub_found;
-using ::android::chre::flags::bug_fix_hal_reliable_message_record;
-using ::ndk::ScopedAStatus;
+using Atoms::ChreHalNanoappLoadFailed;
+using base::WriteStringToFd;
+using chre::FragmentedLoadTransaction;
+using chre::getStringFromByteVector;
+using flags::abort_if_no_context_hub_found;
+using ndk::ScopedAStatus;
 namespace fbs = ::chre::fbs;
 
 namespace {
@@ -49,7 +49,7 @@ constexpr uint32_t kDefaultHubId = 0;
 // timeout for calling getContextHubs(), which is synchronous
 constexpr auto kHubInfoQueryTimeout = std::chrono::seconds(5);
 // timeout for enable/disable test mode, which is synchronous
-constexpr std::chrono::duration ktestModeTimeOut = std::chrono::seconds(5);
+constexpr std::chrono::duration kTestModeTimeout = std::chrono::seconds(5);
 
 // The transaction id for synchronously load/unload a nanoapp in test mode.
 constexpr int32_t kTestModeTransactionId{static_cast<int32_t>(0x80000000)};
@@ -88,7 +88,7 @@ bool getFbsSetting(const Setting &setting, fbs::Setting *fbsSetting) {
   return foundSetting;
 }
 
-chre::fbs::SettingState toFbsSettingState(bool enabled) {
+fbs::SettingState toFbsSettingState(bool enabled) {
   return enabled ? chre::fbs::SettingState::ENABLED
                  : chre::fbs::SettingState::DISABLED;
 }
@@ -112,41 +112,6 @@ inline ScopedAStatus fromServiceError(HalError errorCode) {
 inline ScopedAStatus fromResult(bool result) {
   return result ? ScopedAStatus::ok()
                 : fromServiceError(HalError::OPERATION_FAILED);
-}
-
-uint8_t toChreErrorCode(ErrorCode errorCode) {
-  switch (errorCode) {
-    case ErrorCode::OK:
-      return CHRE_ERROR_NONE;
-    case ErrorCode::TRANSIENT_ERROR:
-      return CHRE_ERROR_TRANSIENT;
-    case ErrorCode::PERMANENT_ERROR:
-      return CHRE_ERROR;
-    case ErrorCode::PERMISSION_DENIED:
-      return CHRE_ERROR_PERMISSION_DENIED;
-    case ErrorCode::DESTINATION_NOT_FOUND:
-      return CHRE_ERROR_DESTINATION_NOT_FOUND;
-  }
-
-  return CHRE_ERROR;
-}
-
-ErrorCode toErrorCode(uint32_t chreErrorCode) {
-  switch (chreErrorCode) {
-    case CHRE_ERROR_NONE:
-      return ErrorCode::OK;
-    case CHRE_ERROR_BUSY: // fallthrough
-    case CHRE_ERROR_TRANSIENT:
-      return ErrorCode::TRANSIENT_ERROR;
-    case CHRE_ERROR:
-      return ErrorCode::PERMANENT_ERROR;
-    case CHRE_ERROR_PERMISSION_DENIED:
-      return ErrorCode::PERMISSION_DENIED;
-    case CHRE_ERROR_DESTINATION_NOT_FOUND:
-      return ErrorCode::DESTINATION_NOT_FOUND;
-  }
-
-  return ErrorCode::PERMANENT_ERROR;
 }
 
 }  // anonymous namespace
@@ -435,25 +400,21 @@ ScopedAStatus MultiClientContextHubBase::sendMessageToHub(
   }
 
   if (message.isReliable) {
-    if (bug_fix_hal_reliable_message_record()) {
-      std::lock_guard<std::mutex> lock(mReliableMessageMutex);
-      auto iter = std::find_if(
-          mReliableMessageQueue.begin(), mReliableMessageQueue.end(),
-          [&message](const ReliableMessageRecord &record) {
-            return record.messageSequenceNumber == message.messageSequenceNumber;
-          });
-      if (iter == mReliableMessageQueue.end()) {
-        mReliableMessageQueue.push_back(ReliableMessageRecord{
-            .timestamp = std::chrono::steady_clock::now(),
-            .messageSequenceNumber = message.messageSequenceNumber,
-            .hostEndpointId = hostEndpointId});
-        std::push_heap(mReliableMessageQueue.begin(), mReliableMessageQueue.end(),
-                      std::greater<ReliableMessageRecord>());
-      }
-      cleanupReliableMessageQueueLocked();
-    } else {
-      mReliableMessageMap.insert({message.messageSequenceNumber, hostEndpointId});
+    std::lock_guard<std::mutex> lock(mReliableMessageMutex);
+    auto iter = std::find_if(
+        mReliableMessageQueue.begin(), mReliableMessageQueue.end(),
+        [&message](const ReliableMessageRecord &record) {
+          return record.messageSequenceNumber == message.messageSequenceNumber;
+        });
+    if (iter == mReliableMessageQueue.end()) {
+      mReliableMessageQueue.push_back(ReliableMessageRecord{
+          .timestamp = std::chrono::steady_clock::now(),
+          .messageSequenceNumber = message.messageSequenceNumber,
+          .hostEndpointId = hostEndpointId});
+      std::push_heap(mReliableMessageQueue.begin(), mReliableMessageQueue.end(),
+                     std::greater<ReliableMessageRecord>());
     }
+    cleanupReliableMessageQueueLocked();
   }
 
   flatbuffers::FlatBufferBuilder builder(1024);
@@ -571,21 +532,26 @@ ScopedAStatus MultiClientContextHubBase::sendMessageDeliveryStatusToHub(
 }
 
 ScopedAStatus MultiClientContextHubBase::getHubs(std::vector<HubInfo> *hubs) {
-  if (mV4Impl) return mV4Impl->getHubs(hubs);
+  if (mV4Impl) {
+    return mV4Impl->getHubs(hubs);
+  }
   return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
 }
 
 ScopedAStatus MultiClientContextHubBase::getEndpoints(
     std::vector<EndpointInfo> *endpoints) {
-  if (mV4Impl) return mV4Impl->getEndpoints(endpoints);
+  if (mV4Impl) {
+    return mV4Impl->getEndpoints(endpoints);
+  }
   return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
 }
 
 ScopedAStatus MultiClientContextHubBase::registerEndpointHub(
     const std::shared_ptr<IEndpointCallback> &callback, const HubInfo &hubInfo,
     std::shared_ptr<IEndpointCommunication> *hubInterface) {
-  if (mV4Impl)
+  if (mV4Impl) {
     return mV4Impl->registerEndpointHub(callback, hubInfo, hubInterface);
+  }
   return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
 }
 
@@ -598,13 +564,13 @@ bool MultiClientContextHubBase::enableTestModeLocked(
     LOGE("Failed to get a list of loaded nanoapps to enable test mode");
     return false;
   }
-  if (!mEnableTestModeCv.wait_for(lock, ktestModeTimeOut, [&]() {
+  if (!mEnableTestModeCv.wait_for(lock, kTestModeTimeout, [&]() {
         return mTestModeNanoapps.has_value() &&
                mTestModeSystemNanoapps.has_value();
       })) {
     LOGE("Failed to get a list of loaded nanoapps within %" PRIu64
          " seconds to enable test mode",
-         ktestModeTimeOut.count());
+         kTestModeTimeout.count());
     return false;
   }
 
@@ -628,7 +594,7 @@ bool MultiClientContextHubBase::enableTestModeLocked(
 
     // Wait for the unloading result.
     mTestModeSyncUnloadResult.reset();
-    mEnableTestModeCv.wait_for(lock, ktestModeTimeOut, [&]() {
+    mEnableTestModeCv.wait_for(lock, kTestModeTimeout, [&]() {
       return mTestModeSyncUnloadResult.has_value();
     });
     bool success =
@@ -1005,38 +971,24 @@ void MultiClientContextHubBase::onNanoappMessage(
 void MultiClientContextHubBase::onMessageDeliveryStatus(
     const ::chre::fbs::MessageDeliveryStatusT &status) {
   HostEndpointId hostEndpointId;
-  if (bug_fix_hal_reliable_message_record()) {
-    {
-      std::lock_guard<std::mutex> lock(mReliableMessageMutex);
-      auto iter = std::find_if(
-          mReliableMessageQueue.begin(), mReliableMessageQueue.end(),
-          [&status](const ReliableMessageRecord &record) {
-            return record.messageSequenceNumber == status.message_sequence_number;
-          });
-      if (iter == mReliableMessageQueue.end()) {
-        LOGE(
-            "Unable to get the host endpoint ID for message "
-            "sequence number: %" PRIu32,
-            status.message_sequence_number);
-        return;
-      }
 
-      hostEndpointId = iter->hostEndpointId;
-      cleanupReliableMessageQueueLocked();
-    }
-  } else {
-    auto hostEndpointIdIter =
-        mReliableMessageMap.find(status.message_sequence_number);
-    if (hostEndpointIdIter == mReliableMessageMap.end()) {
+  {
+    std::lock_guard<std::mutex> lock(mReliableMessageMutex);
+    auto iter = std::find_if(
+        mReliableMessageQueue.begin(), mReliableMessageQueue.end(),
+        [&status](const ReliableMessageRecord &record) {
+          return record.messageSequenceNumber == status.message_sequence_number;
+        });
+    if (iter == mReliableMessageQueue.end()) {
       LOGE(
-          "Unable to get the host endpoint ID for message sequence "
-          "number: %" PRIu32,
+          "Unable to get the host endpoint ID for message "
+          "sequence number: %" PRIu32,
           status.message_sequence_number);
       return;
     }
 
-    hostEndpointId = hostEndpointIdIter->second;
-    mReliableMessageMap.erase(hostEndpointIdIter);
+    hostEndpointId = iter->hostEndpointId;
+    cleanupReliableMessageQueueLocked();
   }
 
   std::shared_ptr<IContextHubCallback> callback =
@@ -1078,15 +1030,19 @@ void MultiClientContextHubBase::handleClientDeath(pid_t clientPid) {
 
 void MultiClientContextHubBase::onChreDisconnected() {
   mIsChreReady = false;
-  LOGW("HAL APIs will be failed because CHRE is disconnected");
-  if (mV4Impl) mV4Impl->onChreDisconnected();
+  LOGW("HAL APIs will fail because CHRE is disconnected");
+  if (mV4Impl) {
+    mV4Impl->onChreDisconnected();
+  }
 }
 
 void MultiClientContextHubBase::onChreRestarted() {
   mIsWifiAvailable.reset();
   mEventLogger.logContextHubRestart();
   mHalClientManager->handleChreRestart();
-  if (mV4Impl) mV4Impl->onChreRestarted();
+  if (mV4Impl) {
+    mV4Impl->onChreRestarted();
+  }
 
   // Unblock APIs BEFORE informing the clients that CHRE has restarted so that
   // any API call triggered by handleContextHubAsyncEvent() can come through.

@@ -206,6 +206,8 @@ void BasicSensorTestBase::startTest() {
   }
 
   if (!found) {
+    LOGI("Skip the test as no sensor found. index=%" PRIu8 ", type=%" PRIu8,
+         mCurrentSensorIndex, mSensorType);
     sendStringToHost(MessageType::kSkipped,
                      "No default sensor found for optional sensor.");
     return;
@@ -325,7 +327,11 @@ void BasicSensorTestBase::finishTest() {
   LOGI("Final sampling status interval=%" PRIu64 " latency=%" PRIu64
        " enabled %d",
        status.interval, status.latency, status.enabled);
-  if (!mExternalSamplingStatusChange) {
+  if (mExternalSamplingStatusChange) {
+    LOGI(
+        "Interval and/or latency have been changed by others. Skip the "
+        "verification of chreSensorSamplingStatus");
+  } else {
     // No one else changed this, so it should be what we had before.
     if (status.enabled != mOriginalStatus.enabled) {
       EXPECT_FAIL_RETURN("SensorInfo.enabled not back to original");
@@ -411,8 +417,7 @@ void BasicSensorTestBase::verifyEventHeader(const chreSensorDataHeader *header,
            kEventLoopSlack);
       EXPECT_FAIL_RETURN("SensorDataHeader is in the past");
     }
-    if ((mState == State::kFinished) &&
-        (header->baseTimestamp > mDoneTimestamp)) {
+    if (mState == State::kFinished && header->baseTimestamp > mDoneTimestamp) {
       EXPECT_FAIL_RETURN("SensorDataHeader is from after DONE");
     }
     *timeToUpdate = header->baseTimestamp;
@@ -470,9 +475,10 @@ void BasicSensorTestBase::handleSamplingChangeEvent(
        eventData->status.interval, eventData->status.latency,
        eventData->status.enabled);
   if (mPrevSensorHandle.has_value() &&
-      (mPrevSensorHandle.value() == eventData->sensorHandle)) {
+      mPrevSensorHandle.value() == eventData->sensorHandle) {
     // We can get a "DONE" event from the previous sensor for multi-sensor
     // devices, so we ignore these events.
+    LOGI("Ignore the 'Done' event from previous sensor");
     return;
   }
 
@@ -492,8 +498,8 @@ void BasicSensorTestBase::handleSamplingChangeEvent(
       LOGW("SamplingChangeEvent disabled the sensor.");
     }
 
-    if ((mNewStatus.interval != eventData->status.interval) ||
-        (mNewStatus.latency != eventData->status.latency)) {
+    if (mNewStatus.interval != eventData->status.interval ||
+        mNewStatus.latency != eventData->status.latency) {
       // This is from someone other than us.  Let's note that so we know
       // our consistency checks are invalid.
       mExternalSamplingStatusChange = true;
@@ -503,7 +509,7 @@ void BasicSensorTestBase::handleSamplingChangeEvent(
 
 void BasicSensorTestBase::handleSensorDataEvent(uint16_t eventType,
                                                 const void *eventData) {
-  if ((mState == State::kPreStart) || (mState == State::kPreConfigure)) {
+  if (mState == State::kPreStart || mState == State::kPreConfigure) {
     EXPECT_FAIL_RETURN("SensorDataEvent sent too early.");
   }
   // Note, if mState is kFinished, we could be getting batched data which
@@ -517,11 +523,13 @@ void BasicSensorTestBase::handleSensorDataEvent(uint16_t eventType,
   // Send to the sensor itself for any additional checks of actual data.
   confirmDataIsSane(eventData);
   if (mState == State::kExpectingInitialDataEvent) {
+    LOGI("Received the initial data event");
     mState = State::kExpectingLastDataEvent;
   } else if (mState == State::kExpectingLastDataEvent) {
+    LOGI("Received the last data event");
     finishTest();
   } else if (mState != State::kFinished) {
-    uint32_t value = static_cast<uint32_t>(mState);
+    auto value = static_cast<uint32_t>(mState);
     sendInternalFailureToHost("Illegal mState in handleSensorDataEvent:",
                               &value);
   }
@@ -538,7 +546,7 @@ void BasicSensorTestBase::handleEvent(uint32_t senderInstanceId,
       CHRE_EVENT_SENSOR_DATA_EVENT_BASE + getSensorType();
 
   if (senderInstanceId == mInstanceId) {
-    if ((eventType == kStartEvent) && (mState == State::kPreStart)) {
+    if (eventType == kStartEvent && mState == State::kPreStart) {
       startTest();
     }
   } else if (senderInstanceId != CHRE_INSTANCE_ID) {

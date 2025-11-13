@@ -1,0 +1,51 @@
+/*
+ * Copyright (C) 2025 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package {
+    default_team: "trendy_team_context_hub",
+    default_applicable_licenses: ["system_chre_license"],
+}
+
+cc_binary {
+    name: "chre_aidl_hal_client",
+    vendor: true,
+    cpp_std: "c++20",
+    header_libs: [
+        "chre_api",
+    ],
+    srcs: [
+        "chre_aidl_hal_client/*.cc",
+    ],
+    shared_libs: [
+        "android.hardware.contexthub-V4-ndk",
+        "libbase",
+        "libbinder_ndk",
+        "libjsoncpp",
+        "liblog",
+        "libutils",
+    ],
+    static_libs: [
+        "chre_client",
+        "chre_host_common",
+        "chre_host_util",
+    ],
+    cflags: [
+        "-DLOG_TAG=\"CHRE.HAL.CLIENT\"",
+        "-Wall",
+        "-Werror",
+        "-fexceptions",
+    ],
+}

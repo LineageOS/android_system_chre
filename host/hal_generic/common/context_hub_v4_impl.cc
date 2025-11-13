@@ -43,8 +43,9 @@ void ContextHubV4Impl::init() {
   // is used both to initialize the CHRE-side host hub proxies and to request
   // embedded hub state.
   HostProtocolHostV4::encodeGetMessageHubsAndEndpointsRequest(builder);
-  if (!mSendMessageFn(builder))
+  if (!mSendMessageFn(builder)) {
     LOGE("Failed to initialize CHRE host hub proxies");
+  }
   mManager.forEachHostHub([this](HostHub &hub) {
     flatbuffers::FlatBufferBuilder builder;
     HostProtocolHostV4::encodeRegisterMessageHub(builder, hub.info());
@@ -304,12 +305,14 @@ ScopedAStatus HostHubInterface::endpointSessionOpenComplete(int32_t sessionId) {
 
 ScopedAStatus HostHubInterface::unregister() {
   std::lock_guard lock(mHostHubOpLock);  // See header documentation.
-  if (auto status = mHub->unregister(); !status.ok())
+  if (auto status = mHub->unregister(); !status.ok()) {
     return fromPwStatus(status);
+  }
   flatbuffers::FlatBufferBuilder builder;
   HostProtocolHostV4::encodeUnregisterMessageHub(builder, mHub->id());
-  if (!mSendMessageFn(builder))
+  if (!mSendMessageFn(builder)) {
     LOGE("Failed to send UnregisterMessageHub for hub 0x%" PRIx64, mHub->id());
+  }
   return ScopedAStatus::ok();
 }
 
@@ -354,10 +357,11 @@ bool ContextHubV4Impl::handleMessageFromChre(
     case ChreMessage::EndpointReady:
       onEndpointReady(*message.AsEndpointReady());
       break;
-    default:
+    default: {
       LOGW("Got unexpected message type %" PRIu8,
            static_cast<uint8_t>(message.type));
       return false;
+    }
   }
   return true;
 }
@@ -499,7 +503,9 @@ void ContextHubV4Impl::onEndpointSessionMessage(
     return;
   }
   auto status = hub->handleMessage(sessionId, message);
-  if (status.ok()) return;
+  if (status.ok()) {
+    return;
+  }
   handleSessionFailure(hub, sessionId, status);
 }
 
@@ -516,7 +522,9 @@ void ContextHubV4Impl::onEndpointSessionMessageDeliveryStatus(
     return;
   }
   auto status = hub->handleMessageDeliveryStatus(sessionId, deliveryStatus);
-  if (status.ok()) return;
+  if (status.ok()) {
+    return;
+  }
   handleSessionFailure(hub, sessionId, status);
 }
 
@@ -524,7 +532,9 @@ void ContextHubV4Impl::unlinkDeadHostHub(
     std::function<pw::Result<int64_t>()> unlinkFn) {
   std::lock_guard lock(mHostHubOpLock);  // See header documentation.
   auto statusOrHubId = unlinkFn();
-  if (!statusOrHubId.ok()) return;
+  if (!statusOrHubId.ok()) {
+    return;
+  }
   flatbuffers::FlatBufferBuilder builder;
   HostProtocolHostV4::encodeUnregisterMessageHub(builder, *statusOrHubId);
   if (!mSendMessageFn(builder)) {

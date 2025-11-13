@@ -65,7 +65,7 @@ public class ContextHubAudioConcurrencyTestExecutor extends ContextHubClientCall
 
     private CountDownLatch mCountDownLatch;
 
-    private boolean mInitialized = false;
+    private boolean mInitAttempted = false;
 
     private boolean mVerifyAudioGaps = false;
 
@@ -133,11 +133,11 @@ public class ContextHubAudioConcurrencyTestExecutor extends ContextHubClientCall
      * Should be invoked before run() is invoked to set up the test, e.g. in a @Before method.
      */
     public void init() {
-        Assert.assertFalse("init() must not be invoked when already initialized", mInitialized);
+        Assert.assertFalse("init() must not be invoked when already initialized", mInitAttempted);
+        mInitAttempted = true;
         ChreTestUtil.loadNanoAppAssertSuccess(mContextHubManager, mContextHubInfo, mNanoAppBinary);
 
         mVerifyAudioGaps = shouldVerifyAudioGaps();
-        mInitialized = true;
     }
 
     /**
@@ -177,12 +177,11 @@ public class ContextHubAudioConcurrencyTestExecutor extends ContextHubClientCall
      * Cleans up the test, should be invoked in e.g. @After method.
      */
     public void deinit() {
-        Assert.assertTrue("deinit() must be invoked after init()", mInitialized);
+        Assert.assertTrue("deinit() must be invoked after init()", mInitAttempted);
+        mInitAttempted = false;
 
         ChreTestUtil.unloadNanoAppAssertSuccess(mContextHubManager, mContextHubInfo, mNanoAppId);
         mContextHubClient.close();
-
-        mInitialized = false;
     }
 
     /**

@@ -69,6 +69,18 @@ void PlatformNanoapp::end() {
   closeNanoapp();
 }
 
+void PlatformNanoapp::invokeEventFreeCallback(
+    chreEventCompleteFunction *function, const uint16_t eventType,
+    void *const eventData) const {
+  function(eventType, eventData);
+}
+
+void PlatformNanoapp::invokeMessageFreeCallback(
+    chreMessageFreeFunction *function, void *message,
+    const size_t messageSize) const {
+  function(message, messageSize);
+}
+
 bool PlatformNanoappBase::setAppInfo(uint64_t appId, uint32_t appVersion,
                                      const char *appFilename,
                                      uint32_t targetApiVersion) {

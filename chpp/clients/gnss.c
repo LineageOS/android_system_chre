@@ -120,6 +120,11 @@ static const struct ChppClient kGnssClientConfig = {
     .minLength = sizeof(struct ChppAppHeader),
 };
 
+static const struct chrePalGnssCallbacks *getPalCallbacks(void) {
+  gSystemApi->forceDramAccess();
+  return gCallbacks;
+}
+
 /************************************************
  *  Prototypes
  ***********************************************/
@@ -197,7 +202,7 @@ static enum ChppAppErrorCode chppDispatchGnssResponse(void *clientContext,
         chppClientProcessOpenResponse(&gnssClientContext->client, buf, len);
         if (rxHeader->error == CHPP_APP_ERROR_NONE &&
             gnssClientContext->requestStateResyncPending) {
-          gCallbacks->requestStateResync();
+          getPalCallbacks()->requestStateResync();
           gnssClientContext->requestStateResyncPending = false;
         }
         break;
@@ -422,7 +427,7 @@ static void chppGnssControlLocationSessionResult(
 
   if (len < sizeof(struct ChppGnssControlLocationSessionResponse)) {
     // Short response length indicates an error
-    gCallbacks->locationStatusChangeCallback(
+    getPalCallbacks()->locationStatusChangeCallback(
         false, chppAppShortResponseErrorHandler(buf, len, "ControlLocation"));
 
   } else {
@@ -434,8 +439,8 @@ static void chppGnssControlLocationSessionResult(
         "errorCode=%" PRIu8,
         result->enabled, result->errorCode);
 
-    gCallbacks->locationStatusChangeCallback(result->enabled,
-                                             result->errorCode);
+    getPalCallbacks()->locationStatusChangeCallback(result->enabled,
+                                                    result->errorCode);
   }
 }
 
@@ -455,7 +460,7 @@ static void chppGnssControlMeasurementSessionResult(
 
   if (len < sizeof(struct ChppGnssControlMeasurementSessionResponse)) {
     // Short response length indicates an error
-    gCallbacks->measurementStatusChangeCallback(
+    getPalCallbacks()->measurementStatusChangeCallback(
         false, chppAppShortResponseErrorHandler(buf, len, "Measurement"));
 
   } else {
@@ -467,8 +472,8 @@ static void chppGnssControlMeasurementSessionResult(
         "errorCode=%" PRIu8,
         result->enabled, result->errorCode);
 
-    gCallbacks->measurementStatusChangeCallback(result->enabled,
-                                                result->errorCode);
+    getPalCallbacks()->measurementStatusChangeCallback(result->enabled,
+                                                       result->errorCode);
   }
 }
 
@@ -517,7 +522,7 @@ static void chppGnssStateResyncNotification(
     // when the open has succeeded.
     clientContext->requestStateResyncPending = true;
   } else {
-    gCallbacks->requestStateResync();
+    getPalCallbacks()->requestStateResync();
     clientContext->requestStateResyncPending = false;
   }
 }
@@ -546,7 +551,7 @@ static void chppGnssLocationResultNotification(
   if (chre == NULL) {
     CHPP_LOGE("Location result conversion failed: len=%" PRIuSIZE, len);
   } else {
-    gCallbacks->locationEventCallback(chre);
+    getPalCallbacks()->locationEventCallback(chre);
   }
 }
 
@@ -575,7 +580,7 @@ static void chppGnssMeasurementResultNotification(
   if (chre == NULL) {
     CHPP_LOGE("Measurement result conversion failed len=%" PRIuSIZE, len);
   } else {
-    gCallbacks->measurementEventCallback(chre);
+    getPalCallbacks()->measurementEventCallback(chre);
   }
 }
 

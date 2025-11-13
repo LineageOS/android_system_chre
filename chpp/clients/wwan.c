@@ -120,6 +120,11 @@ static const struct ChppClient kWwanClientConfig = {
     .minLength = sizeof(struct ChppAppHeader),
 };
 
+static const struct chrePalWwanCallbacks *getPalCallbacks(void) {
+  gSystemApi->forceDramAccess();
+  return gCallbacks;
+}
+
 /************************************************
  *  Prototypes
  ***********************************************/
@@ -385,7 +390,7 @@ static void chppWwanGetCellInfoAsyncResult(
   }
 
   if (chre != NULL) {
-    gCallbacks->cellInfoResultCallback(chre);
+    getPalCallbacks()->cellInfoResultCallback(chre);
   }
 }
 

@@ -22,29 +22,21 @@
 #include "chre_host/log.h"
 
 #include <android-base/properties.h>
-#include <android_chre_flags.h>
+#include <android/binder_manager.h>
 #include <utils/SystemClock.h>
-
-#include <cinttypes>
 #include <thread>
 
 namespace android::chre {
 
-using ::aidl::android::hardware::contexthub::IContextHub;
-using ::aidl::android::hardware::contexthub::IContextHubCallback;
-using ::android::base::GetBoolProperty;
-using ::ndk::ScopedAStatus;
+using aidl::android::hardware::contexthub::IContextHub;
+using aidl::android::hardware::contexthub::IContextHubCallback;
+using base::GetBoolProperty;
+using ndk::ScopedAStatus;
 
 namespace {
-constexpr char kHalEnabledProperty[]{"vendor.chre.multiclient_hal.enabled"};
-
 // Multiclient HAL needs getUuid() added since V3 to identify each client.
 constexpr int kMinHalInterfaceVersion = 3;
 }  // namespace
-
-bool HalClient::isServiceAvailable() {
-  return GetBoolProperty(kHalEnabledProperty, /* default_value= */ false);
-}
 
 std::unique_ptr<HalClient> HalClient::create(
     const std::shared_ptr<IContextHubCallback> &callback,
@@ -54,22 +46,16 @@ std::unique_ptr<HalClient> HalClient::create(
     return nullptr;
   }
 
-  if (!isServiceAvailable()) {
-    LOGE("CHRE Multiclient HAL is not enabled on this device");
-    return nullptr;
-  }
-
-  if (callback->version < kMinHalInterfaceVersion) {
+  if (IContextHubCallback::version < kMinHalInterfaceVersion) {
     LOGE("Callback interface version is %" PRIi32 ". It must be >= %" PRIi32,
          callback->version, kMinHalInterfaceVersion);
     return nullptr;
   }
-
   return std::unique_ptr<HalClient>(new HalClient(callback, contextHubId));
 }
 
 HalError HalClient::initConnection() {
-  std::lock_guard<std::shared_mutex> lockGuard{mConnectionLock};
+  std::lock_guard lockGuard{mConnectionLock};
 
   if (mContextHub != nullptr) {
     LOGW("%s is already connected to CHRE HAL", mClientName.c_str());
@@ -128,10 +114,10 @@ HalError HalClient::initConnection() {
 }
 
 void HalClient::onHalDisconnected(void *cookie) {
-  int64_t startTime = ::android::elapsedRealtime();
+  int64_t startTime = elapsedRealtime();
   auto *halClient = static_cast<HalClient *>(cookie);
   {
-    std::lock_guard<std::shared_mutex> lockGuard(halClient->mConnectionLock);
+    std::lock_guard lockGuard(halClient->mConnectionLock);
     halClient->mContextHub = nullptr;
     halClient->mIsHalConnected = false;
   }
@@ -139,13 +125,14 @@ void HalClient::onHalDisconnected(void *cookie) {
        halClient->mClientName.c_str());
 
   HalError result = halClient->initConnection();
-  uint64_t duration = ::android::elapsedRealtime() - startTime;
+  uint64_t duration = elapsedRealtime() - startTime;
   if (result != HalError::SUCCESS) {
     LOGE("Failed to fully reconnect to CHRE HAL after %" PRIu64
          "ms, HalErrorCode: %" PRIi32,
          duration, result);
     return;
   }
+
   tryReconnectEndpoints(halClient);
   LOGI("%s is reconnected to CHRE HAL after %" PRIu64 "ms",
        halClient->mClientName.c_str(), duration);
@@ -232,7 +219,7 @@ void HalClient::tryReconnectEndpoints(HalClient *halClient) {
 }
 
 HalClient::~HalClient() {
-  std::lock_guard<std::mutex> lock(mBackgroundConnectionFuturesLock);
+  std::lock_guard lock(mBackgroundConnectionFuturesLock);
   for (const auto &future : mBackgroundConnectionFutures) {
     // Calling std::thread.join() has chance to hang if the background thread
     // being joined is still waiting for connecting to the service. Therefore

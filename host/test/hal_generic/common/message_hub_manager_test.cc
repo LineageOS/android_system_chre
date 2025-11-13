@@ -113,7 +113,7 @@ const HubInfo kHub1Info{.hubId = kHub1Id};
 const HubInfo kHub2Info{.hubId = kHub2Id};
 const Service kTestService{.serviceDescriptor = kTestServiceDescriptor};
 const EndpointInfo kEndpoint1_1Info{
-    .id = {.id = kEndpoint1Id, .hubId = kHub1Id}};
+    .id = {.id = kEndpoint1Id, .hubId = kHub1Id}, .name = "endpoint1_1"};
 const EndpointInfo kEndpoint1_2Info{
     .id = {.id = kEndpoint2Id, .hubId = kHub1Id}, .services = {kTestService}};
 const EndpointInfo kEndpoint2_1Info{
@@ -371,12 +371,24 @@ TEST_F(MessageHubManagerTest, AddAndRemoveHostEndpoint) {
   EXPECT_THAT(mHostHub->getEndpoints(), IsEmpty());
 }
 
-TEST_F(MessageHubManagerTest, AddDuplicateEndpoint) {
+TEST_F(MessageHubManagerTest, AddDuplicateEndpointId) {
   mHostHubCb = SharedRefBase::make<MockEndpointCallback>();
   mHostHub = *mManager->createHostHub(mHostHubCb, kHub1Info, 0, 0);
   ASSERT_TRUE(mHostHub->addEndpoint(kEndpoint1_1Info).ok());
+  EndpointInfo duplicate = kEndpoint1_1Info;
+  duplicate.name = "notEndpoint1_1";
+  EXPECT_EQ(mHostHub->addEndpoint(duplicate), pw::Status::AlreadyExists());
   EXPECT_EQ(mHostHub->addEndpoint(kEndpoint1_1Info),
             pw::Status::AlreadyExists());
+}
+
+TEST_F(MessageHubManagerTest, AddDuplicateEndpointName) {
+  mHostHubCb = SharedRefBase::make<MockEndpointCallback>();
+  mHostHub = *mManager->createHostHub(mHostHubCb, kHub1Info, 0, 0);
+  ASSERT_TRUE(mHostHub->addEndpoint(kEndpoint1_1Info).ok());
+  EndpointInfo duplicate = kEndpoint1_1Info;
+  duplicate.id.id++;
+  EXPECT_EQ(mHostHub->addEndpoint(duplicate), pw::Status::AlreadyExists());
 }
 
 TEST_F(MessageHubManagerTest, RemoveNonexistentEndpoint) {

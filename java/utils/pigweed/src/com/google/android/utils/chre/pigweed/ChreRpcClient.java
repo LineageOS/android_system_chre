@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.google.android.chre.utils.pigweed;
+package com.google.android.utils.chre.pigweed;
 
 import android.content.Intent;
 import android.hardware.location.ContextHubClient;
@@ -34,7 +34,7 @@ import dev.pigweed.pw_rpc.Service;
 /**
  * Pigweed RPC Client Helper.
  *
- * See https://g3doc.corp.google.com/location/lbs/contexthub/g3doc/nanoapps/pw_rpc_host.md
+ * <p>See https://g3doc.corp.google.com/location/lbs/contexthub/g3doc/nanoapps/pw_rpc_host.md
  */
 public class ChreRpcClient {
 
@@ -52,17 +52,20 @@ public class ChreRpcClient {
     /**
      * Creates a ContextHubClient and initializes the helper.
      *
-     * Use this constructor for persistent clients using callbacks.
+     * <p>Use this constructor for persistent clients using callbacks.
      *
-     * @param manager         The context manager used to create a client, non null
-     * @param info            Context hub info, non null
+     * @param manager The context manager used to create a client, non null
+     * @param info Context hub info, non null
      * @param serverNanoappId The ID of the RPC server nanoapp
-     * @param services        The list of services provided by the server, non null
-     * @param callback        The callbacks receiving messages and life-cycle events from nanoapps,
-     *                        nullable
+     * @param services The list of services provided by the server, non null
+     * @param callback The callbacks receiving messages and life-cycle events from nanoapps,
+     *     nullable
      */
-    public ChreRpcClient(ContextHubManager manager, ContextHubInfo info,
-            long serverNanoappId, List<Service> services,
+    public ChreRpcClient(
+            ContextHubManager manager,
+            ContextHubInfo info,
+            long serverNanoappId,
+            List<Service> services,
             ContextHubClientCallback callback) {
         Objects.requireNonNull(manager);
         Objects.requireNonNull(info);
@@ -79,16 +82,16 @@ public class ChreRpcClient {
     /**
      * Initializes the helper
      *
-     * Use this constructor for non-persistent clients using intents.
+     * <p>Use this constructor for non-persistent clients using intents.
      *
-     * handleIntent() must be called with any CHRE intent received by the BroadcastReceiver.
+     * <p>handleIntent() must be called with any CHRE intent received by the BroadcastReceiver.
      *
      * @param contextHubClient The context hub client providing the RPC server nanoapp, non null
-     * @param serverNanoappId  The ID of the RPC server nanoapp
-     * @param services         The list of services provided by the server, non null
+     * @param serverNanoappId The ID of the RPC server nanoapp
+     * @param services The list of services provided by the server, non null
      */
-    public ChreRpcClient(ContextHubClient contextHubClient, long serverNanoappId,
-            List<Service> services) {
+    public ChreRpcClient(
+            ContextHubClient contextHubClient, long serverNanoappId, List<Service> services) {
         mContextHubClient = Objects.requireNonNull(contextHubClient);
         Objects.requireNonNull(services);
         mServerNanoappId = serverNanoappId;
@@ -100,14 +103,14 @@ public class ChreRpcClient {
     /**
      * Returns whether the state matches the server nanoapp and the service is provided.
      *
-     * @param state           A nanoapp state
+     * @param state A nanoapp state
      * @param serverNanoappId The ID of the RPC server nanoapp
-     * @param serviceId       ID of the service
-     * @param serviceVersion  Version of the service
+     * @param serviceId ID of the service
+     * @param serviceVersion Version of the service
      * @return the state matches the server nanoapp and the service is provided
      */
-    public static boolean hasService(NanoAppState state, long serverNanoappId, long serviceId,
-            int serviceVersion) {
+    public static boolean hasService(
+            NanoAppState state, long serverNanoappId, long serviceId, int serviceVersion) {
         if (state.getNanoAppId() != serverNanoappId) {
             return false;
         }
@@ -130,16 +133,12 @@ public class ChreRpcClient {
         ChreIntentHandler.handle(intent, mServerNanoappId, mRpcClient, mChannelOutput);
     }
 
-    /**
-     * Returns the context hub client.
-     */
+    /** Returns the context hub client. */
     public ContextHubClient getContextHubClient() {
         return mContextHubClient;
     }
 
-    /**
-     * Shorthand for closing the underlying ContextHubClient.
-     */
+    /** Shorthand for closing the underlying ContextHubClient. */
     public void close() {
         mContextHubClient.close();
     }
@@ -147,7 +146,7 @@ public class ChreRpcClient {
     /**
      * Returns a MethodClient.
      *
-     * Use the client to invoke the service.
+     * <p>Use the client to invoke the service.
      *
      * @param methodName the method name as "package.Service.Method" or "package.Service/Method"
      * @return The MethodClient instance

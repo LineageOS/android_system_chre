@@ -34,6 +34,7 @@ java_library {
         "chre_pigweed_utils",
         "chre_reliable_message_test_java_proto",
         "chre_test_common_java_proto",
+        "endpoint_echo_test_proto_java_lite",
         "guava",
         "pw_rpc_java_client",
         "truth",

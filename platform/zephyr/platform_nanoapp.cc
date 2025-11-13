@@ -57,6 +57,18 @@ bool PlatformNanoapp::isSystemNanoapp() const {
   return (mAppInfo != nullptr && mAppInfo->isSystemNanoapp);
 }
 
+void PlatformNanoapp::invokeEventFreeCallback(
+    chreEventCompleteFunction *function, const uint16_t eventType,
+    void *const eventData) const {
+  function(eventType, eventData);
+}
+
+void PlatformNanoapp::invokeMessageFreeCallback(
+    chreMessageFreeFunction *function, void *message,
+    const size_t messageSize) const {
+  function(message, messageSize);
+}
+
 bool PlatformNanoappBase::isLoaded() const {
   return mIsStatic;
 }

@@ -93,25 +93,22 @@ class Event : public NonCopyable {
     return (mRefCount == 0);
   }
 
-  //! @return true if this event has an associated callback which needs to be
-  //! called prior to deallocating the event
-  bool hasFreeCallback() {
-    return (targetInstanceId == kSystemInstanceId || freeCallback != nullptr);
+  /**
+   * Invoke the callback sent from and targeting the system.
+   *
+   * targetInstanceId must be kSystemInstanceId in this case.
+   */
+  void invokeSystemEventCallback() const {
+    systemEventCallback(eventType, eventData, extraData);
   }
 
   /**
-   * Invoke the callback associated with this event with the applicable function
-   * signature (passing extraData if this is a system event).
+   * Invoke the free callback for a system-generated event targeting a nanoapp.
    *
-   * The caller MUST confirm that hasFreeCallback() is true before calling this
-   * method.
+   * This function is only to be used for system-generated events.
    */
-  void invokeFreeCallback() {
-    if (targetInstanceId == kSystemInstanceId) {
-      systemEventCallback(eventType, eventData, extraData);
-    } else {
-      freeCallback(eventType, eventData);
-    }
+  void invokeEventFreeCallback() const {
+    freeCallback(eventType, eventData);
   }
 
   //! @return Monotonic time reference for initializing receivedTimeMillis

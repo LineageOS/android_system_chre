@@ -112,4 +112,9 @@ void memoryFree(void *pointer) {
     vPortFree(pointer);
   }
 }
+
+void palSystemApiForceDramAccess() {
+  forceDramAccess();
+}
+
 }  // namespace chre

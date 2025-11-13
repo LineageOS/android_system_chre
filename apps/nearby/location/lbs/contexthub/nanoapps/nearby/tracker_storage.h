@@ -152,6 +152,12 @@ class TrackerStorage {
   void AddOrUpdateAdvertisingData(TrackerReport &tracker_report,
                                   const chreBleAdvertisingReport &report);
 
+  // Returns whether the tracker report is exempt from updating advertising
+  // data.
+  bool IsExemptFromUpdateAdvertisingData(
+      const TrackerReport &tracker_report,
+      const chreBleAdvertisingReport &report);
+
   // Returns whether advertising address is same.
   bool IsEqualAddress(const TrackerReport &tracker_report,
                       const chreBleAdvertisingReport &report) const;

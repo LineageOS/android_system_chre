@@ -16,6 +16,7 @@
 
 #include "chre/core/host_message_hub_manager.h"
 #include "chre/target_platform/log.h"
+#include "chre_api/chre.h"
 
 #ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
 
@@ -186,7 +187,9 @@ void HostMessageHubManager::closeSession(MessageHubId hubId,
 
 void HostMessageHubManager::sendMessage(MessageHubId hubId, SessionId sessionId,
                                         pw::span<const std::byte> data,
-                                        uint32_t type, uint32_t permissions) {
+                                        uint32_t type, uint32_t permissions,
+                                        bool isReliable,
+                                        uint32_t sequenceNumber) {
   LockGuard<Mutex> lock(mHubsLock);
   for (auto &hub : mHubs) {
     if (hub->getMessageHub().getId() != hubId) continue;
@@ -201,8 +204,18 @@ void HostMessageHubManager::sendMessage(MessageHubId hubId, SessionId sessionId,
 
     // Note: We are assuming here that no host hubs will create sessions with
     // themselves as it is not allowed by the HAL API.
-    hub->getMessageHub().sendMessage(std::move(dataCopy), type, permissions,
-                                     sessionId);
+    bool status = hub->getMessageHub().sendMessage(std::move(dataCopy), type,
+                                                   permissions, sessionId);
+    if (!status) {
+      LOGE("Failed to send message on session with ID: 0x%" PRIx16, sessionId);
+    }
+
+    if (isReliable) {
+      // TODO(b/406803626): Add proper support for reliable messages and
+      // duplicate detection.
+      mCb->onMessageDeliveryStatus(hubId, sessionId, sequenceNumber,
+                                   status ? CHRE_ERROR_NONE : CHRE_ERROR);
+    }
     return;
   }
   LOGE("No host hub 0x%" PRIx64 " for send message", hubId);

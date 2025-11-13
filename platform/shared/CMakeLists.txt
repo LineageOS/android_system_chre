@@ -18,6 +18,8 @@ pw_add_facade(chre.platform.shared.bt_snoop_log INTERFACE
     include/chre/platform/shared/bt_snoop_log.h
   PUBLIC_INCLUDES
     include
+  PUBLIC_DEPS
+    chre.platform.shared.log_common
 )
 
 # Implements chre_api/chre/audio.h's:
@@ -380,6 +382,20 @@ pw_add_library(chre.platform.shared.log_buffer STATIC
     chre.util
 )
 
+pw_add_library(chre.platform.shared.log_common STATIC
+  HEADERS
+    include/chre/platform/shared/log_common.h
+  PUBLIC_INCLUDES
+    include
+  PUBLIC_DEPS
+    chre.platform.shared.log_buffer_manager
+  SOURCES
+    log_common.cc
+  PRIVATE_DEPS
+    pw_log_tokenized.config
+    pw_tokenizer
+)
+
 # This requires the backend to provide an implementation for:
 # - void LogBufferManager::preSecondaryBufferUse() const
 pw_add_facade(chre.platform.shared.log_buffer_manager STATIC
@@ -515,6 +531,14 @@ pw_add_library(chre.platform.shared.nanoapp_tokenized_log STATIC
     chre.platform.shared.log_buffer_manager
     pw_log_tokenized.config
     pw_tokenizer
+)
+
+# Note that this is only for building purpose. In the future it can be changed to a facade if needed
+pw_add_library(chre.platform.shared.nanoapp_memory_guard_no_op INTERFACE
+  HEADERS
+    nanoapp_memory_guard_no_op/include/chre/target_platform/nanoapp_memory_guard_base.h
+  PUBLIC_INCLUDES
+    nanoapp_memory_guard_no_op/include
 )
 
 pw_add_library(chre.platform.shared.pal_audio_stub STATIC

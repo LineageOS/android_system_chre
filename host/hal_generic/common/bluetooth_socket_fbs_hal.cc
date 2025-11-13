@@ -18,6 +18,9 @@
 
 #include <cstdint>
 #include <future>
+#include <memory>
+#include <mutex>
+#include <string>
 
 #include "chre/platform/shared/host_protocol_common.h"
 #include "chre_host/generated/host_messages_generated.h"
@@ -38,15 +41,7 @@ ScopedAStatus BluetoothSocketFbsHal::registerCallback(
 
 ScopedAStatus BluetoothSocketFbsHal::getSocketCapabilities(
     SocketCapabilities *result) {
-  std::future<SocketCapabilities> future = mCapabilitiesPromise.get_future();
-
-  flatbuffers::FlatBufferBuilder builder(64);
-  auto socketCapabilitiesRequest =
-      ::chre::fbs::CreateBtSocketCapabilitiesRequest(builder);
-  ::chre::HostProtocolCommon::finalize(
-      builder, ::chre::fbs::ChreMessage::BtSocketCapabilitiesRequest,
-      socketCapabilitiesRequest.Union());
-
+  LOGI("Received getSocketCapabilities request");
   if (!mOffloadLinkAvailable) {
     LOGE("BT Socket Offload Link not available");
     return ScopedAStatus::fromServiceSpecificErrorWithMessage(
@@ -54,16 +49,14 @@ ScopedAStatus BluetoothSocketFbsHal::getSocketCapabilities(
         "BT offload link not available");
   }
 
-  if (!mOffloadLink->sendMessageToOffloadStack(builder.GetBufferPointer(),
-                                               builder.GetSize())) {
-    LOGE("Failed to send BT socket capabilities request message");
+  std::future<SocketCapabilities> future = sendSocketCapabilitiesRequest();
+  if (!future.valid()) {
+    LOGE("BT socket capabilities future is not valid");
     return ScopedAStatus::fromServiceSpecificErrorWithMessage(
         static_cast<int32_t>(STATUS_UNKNOWN_ERROR),
-        "Failed to send BT socket message");
+        "BT socket capabilities future is not valid");
   }
-
-  std::future_status status = future.wait_for(std::chrono::seconds(5));
-  if (status != std::future_status::ready) {
+  if (future.wait_for(std::chrono::seconds(5)) != std::future_status::ready) {
     LOGE("BT Socket capabilities request timed out");
     return ScopedAStatus::fromServiceSpecificErrorWithMessage(
         static_cast<int32_t>(STATUS_UNKNOWN_ERROR),
@@ -72,6 +65,25 @@ ScopedAStatus BluetoothSocketFbsHal::getSocketCapabilities(
 
   *result = future.get();
   return ScopedAStatus::ok();
+}
+
+std::future<SocketCapabilities>
+BluetoothSocketFbsHal::sendSocketCapabilitiesRequest() {
+  std::lock_guard lock(mMutex);
+  flatbuffers::FlatBufferBuilder builder(64);
+  auto socketCapabilitiesRequest =
+      ::chre::fbs::CreateBtSocketCapabilitiesRequest(builder);
+  ::chre::HostProtocolCommon::finalize(
+      builder, ::chre::fbs::ChreMessage::BtSocketCapabilitiesRequest,
+      socketCapabilitiesRequest.Union());
+  if (!mOffloadLink->sendMessageToOffloadStack(builder.GetBufferPointer(),
+                                               builder.GetSize())) {
+    LOGE("Failed to send BT socket capabilities request message");
+    return std::future<SocketCapabilities>();
+  }
+
+  mCapabilitiesPromise = std::make_optional<std::promise<SocketCapabilities>>();
+  return mCapabilitiesPromise->get_future();
 }
 
 ScopedAStatus BluetoothSocketFbsHal::opened(const SocketContext &context) {
@@ -204,6 +216,11 @@ void BluetoothSocketFbsHal::handleBtSocketClose(
 void BluetoothSocketFbsHal::handleBtSocketCapabilitiesResponse(
     const ::chre::fbs::BtSocketCapabilitiesResponseT &response) {
   LOGD("Got BT Socket capabilities response");
+  std::lock_guard lock(mMutex);
+  if (!mCapabilitiesPromise.has_value()) {
+    LOGE("Received BT Socket capabilities response with no pending request");
+    return;
+  }
   SocketCapabilities capabilities = {
       .leCocCapabilities =
           {
@@ -218,7 +235,8 @@ void BluetoothSocketFbsHal::handleBtSocketCapabilitiesResponse(
               .maxFrameSize = response.rfcommCapabilities->maxFrameSize,
           },
   };
-  mCapabilitiesPromise.set_value(capabilities);
+  mCapabilitiesPromise->set_value(capabilities);
+  mCapabilitiesPromise = std::nullopt;
 }
 
 void BluetoothSocketFbsHal::sendOpenedCompleteMessage(int64_t socketId,

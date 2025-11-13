@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "chre/core/event.h"
 #include "chre/target_platform/platform_nanoapp_base.h"
 #include "chre/util/non_copyable.h"
 #include "chre/util/system/debug_dump.h"
@@ -119,6 +120,37 @@ class PlatformNanoapp : public PlatformNanoappBase, public NonCopyable {
    * into.
    */
   void logStateToBuffer(DebugDumpWrapper &debugDump) const;
+
+  /**
+   * Invokes the `chreEventCompleteFunction` for an event that was originally
+   * sent by this nanoapp.
+   *
+   * @param function A non-null pointer to the event completion callback
+   *        function originally provided by this nanoapp when it sent the event.
+   * @param eventType The type of the event being freed.
+   * @param eventData The data associated with the event being freed.
+   *
+   * @see chreEventCompleteFunction
+   * @see NanoappMemoryGuard
+   */
+  void invokeEventFreeCallback(chreEventCompleteFunction *function,
+                               uint16_t eventType, void *eventData) const;
+
+  /**
+   * Invokes the freeing callback provided by a nanoapp for a message sent to
+   * the host.
+   *
+   * @param function The callback function pointer provided by the
+   * nanoapp.
+   * @param message The message data pointer originally passed to
+   *        chreSendMessageToHostEndpoint() or similar.
+   * @param messageSize The size of the message data.
+   *
+   * @see chreMessageFreeFunction
+   * @see HostCommsManager::freeMessageToHost
+   */
+  void invokeMessageFreeCallback(chreMessageFreeFunction *function,
+                                 void *message, size_t messageSize) const;
 
  protected:
   /**

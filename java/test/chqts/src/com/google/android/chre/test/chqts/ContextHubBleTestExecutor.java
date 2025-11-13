@@ -33,6 +33,7 @@ import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
 import android.hardware.location.NanoAppBinary;
 import android.os.ParcelUuid;
+import android.util.Log;
 
 import com.google.android.utils.chre.ChreApiTestUtil;
 import com.google.common.collect.ImmutableList;
@@ -40,6 +41,8 @@ import com.google.protobuf.ByteString;
 
 import org.junit.Assert;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
@@ -70,6 +73,11 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
      * The ID for the Google Eddystone beacon.
      */
     public static final UUID EDDYSTONE_UUID = to128BitUuid((short) 0xFEAA);
+
+    /**
+     * The ID for the service data beacon for multi-device test.
+     */
+    public static final UUID CHRE_TEST_SERVICE_DATA_UUID = to128BitUuid((short) 0xABCD);
 
     /**
      * The delay to report results in milliseconds.
@@ -105,7 +113,8 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
     /**
      * CHRE BLE test manufacturer ID.
      */
-    private static final int CHRE_BLE_TEST_MANUFACTURER_ID = 0xEEEE;
+    public static final int CHRE_BLE_TEST_MANUFACTURER_ID = 0xEEEE;
+
 
     private BluetoothAdapter mBluetoothAdapter = null;
     private BluetoothLeAdvertiser mBluetoothLeAdvertiser = null;
@@ -127,6 +136,11 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
     private AtomicBoolean mIsAdvertising = new AtomicBoolean();
 
     /**
+     * List to store BLE scan received by host.
+     */
+    public final List<ScanResult> mScanResults = Collections.synchronizedList(new ArrayList<>());
+
+    /**
      * Callback for BLE scans.
      */
     private final ScanCallback mScanCallback = new ScanCallback() {
@@ -142,7 +156,13 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
 
         @Override
         public void onScanResult(int callbackType, ScanResult result) {
-            // do nothing
+            if (result == null) {
+                Log.w(TAG, "Received null scan result.");
+                return;
+            }
+            synchronized (mScanResults) {
+                mScanResults.add(result);
+            }
         }
     };
 
@@ -194,9 +214,10 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
      *
      * @param useEddystone          if true, filter for Google Eddystone.
      * @param useNearbyFastpair     if true, filter for Nearby Fastpair.
+     * @param useChreTestServiceData if true, filter for Test Service Data.
      */
     public static ChreApiTest.ChreBleScanFilter getDefaultScanFilter(boolean useEddystone,
-            boolean useNearbyFastpair) {
+            boolean useNearbyFastpair, boolean useChreTestServiceData) {
         ChreApiTest.ChreBleScanFilter.Builder builder =
                 ChreApiTest.ChreBleScanFilter.newBuilder()
                         .setRssiThreshold(RSSI_THRESHOLD);
@@ -221,6 +242,17 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
                             .setMask(ByteString.copyFrom(HexFormat.of().parseHex("FFFF")))
                             .build();
             builder = builder.addScanFilters(nearbyFastpairFilter);
+        }
+
+        if (useChreTestServiceData) {
+            ChreApiTest.ChreBleGenericFilter eddystoneFilter =
+                    ChreApiTest.ChreBleGenericFilter.newBuilder()
+                            .setType(CHRE_BLE_AD_TYPE_SERVICE_DATA_WITH_UUID_16)
+                            .setLength(2)
+                            .setData(ByteString.copyFrom(HexFormat.of().parseHex("CDAB")))
+                            .setMask(ByteString.copyFrom(HexFormat.of().parseHex("FFFF")))
+                            .build();
+            builder = builder.addScanFilters(eddystoneFilter);
         }
 
         return builder.build();
@@ -249,15 +281,17 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
      * Generates a BLE scan filter that filters only for the known Google beacons:
      * Google Eddystone and Nearby Fastpair.
      */
-    public static ChreApiTest.ChreBleScanFilter getServiceDataScanFilterChre() {
-        return getDefaultScanFilter(true /* useEddystone */, true /* useNearbyFastpair */);
+    public static ChreApiTest.ChreBleScanFilter getGoogleServiceDataScanFilterChre() {
+        return getDefaultScanFilter(true /* useEddystone */, true /* useNearbyFastpair */,
+                    false /* useChreTestServiceData */);
     }
 
     /**
-     * Generates a BLE scan filter that filters only for Google Eddystone.
+     * Generates a BLE scan filter that filters for a test service data UUID.
      */
-    public static ChreApiTest.ChreBleScanFilter getGoogleEddystoneScanFilter() {
-        return getDefaultScanFilter(true /* useEddystone */, false /* useNearbyFastpair */);
+    public static ChreApiTest.ChreBleScanFilter getTestServiceDataFilterChre() {
+        return getDefaultScanFilter(false /* useEddystone */, false /* useNearbyFastpair */,
+                    true /* useChreTestServiceData */);
     }
 
     /**
@@ -265,7 +299,7 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
      * Google Eddystone and Nearby Fastpair. We specify the filter data in (little-endian) LE
      * here as the CHRE code will take BE input and transform it to LE.
      */
-    public static List<ScanFilter> getServiceDataScanFilterHost() {
+    public static List<ScanFilter> getGoogleServiceDataScanFilterHost() {
         assertThat(CHRE_BLE_AD_TYPE_SERVICE_DATA_WITH_UUID_16)
                 .isEqualTo(ScanRecord.DATA_TYPE_SERVICE_DATA_16_BIT);
 
@@ -283,6 +317,25 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
                 .build();
 
         return ImmutableList.of(scanFilter, scanFilter2);
+    }
+
+    /**
+     * Generates a BLE scan filter for a Test Service Data UUID.
+     * We specify the filter data in (little-endian) LE
+     * here as the CHRE code will take BE input and transform it to LE.
+     */
+    public static List<ScanFilter> getTestServiceDataScanFilterHost() {
+        assertThat(CHRE_BLE_AD_TYPE_SERVICE_DATA_WITH_UUID_16)
+                .isEqualTo(ScanRecord.DATA_TYPE_SERVICE_DATA_16_BIT);
+
+        ScanFilter scanFilter = new ScanFilter.Builder()
+                .setAdvertisingDataTypeWithData(
+                        ScanRecord.DATA_TYPE_SERVICE_DATA_16_BIT,
+                        ByteString.copyFrom(HexFormat.of().parseHex("CDAB")).toByteArray(),
+                        ByteString.copyFrom(HexFormat.of().parseHex("FFFF")).toByteArray())
+                .build();
+
+        return ImmutableList.of(scanFilter);
     }
 
     /**
@@ -377,14 +430,17 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
     }
 
     /**
-     * Starts a BLE scan on the host side with known Google beacon filters.
+     * Starts a BLE scan on the host side with the given scan filters.
      */
-    public void startBleScanOnHost() {
+    public void startBleScanOnHost(List<ScanFilter> scanFilter) throws Exception {
+        if (scanFilter == null) {
+            throw new IllegalAccessException("Scan filters must not be empty or null");
+        }
         ScanSettings scanSettings = new ScanSettings.Builder()
                 .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                 .build();
-        mBluetoothLeScanner.startScan(getServiceDataScanFilterHost(),
+        mBluetoothLeScanner.startScan(scanFilter,
                 scanSettings, mScanCallback);
     }
 
@@ -412,6 +468,34 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
 
         AdvertiseData data = new AdvertiseData.Builder()
                 .addServiceData(new ParcelUuid(EDDYSTONE_UUID), new byte[] {0})
+                .setIncludeDeviceName(false)
+                .setIncludeTxPowerLevel(true)
+                .build();
+
+        mBluetoothLeAdvertiser.startAdvertisingSet(parameters, data,
+                /* ownAddress= */ null, /* periodicParameters= */ null,
+                /* periodicData= */ null, mAdvertisingSetCallback);
+        mAdvertisingStartLatch.await();
+        assertThat(mIsAdvertising.get()).isTrue();
+    }
+
+    /**
+     * Starts broadcasting the CHRE test Service Data beacon from the AP.
+     */
+    public void startBleAdvertisingTestServiceData() throws InterruptedException {
+        if (mIsAdvertising.get()) {
+            return;
+        }
+
+        AdvertisingSetParameters parameters = new AdvertisingSetParameters.Builder()
+                .setLegacyMode(true)
+                .setConnectable(false)
+                .setInterval(AdvertisingSetParameters.INTERVAL_LOW)
+                .setTxPowerLevel(AdvertisingSetParameters.TX_POWER_MEDIUM)
+                .build();
+
+        AdvertiseData data = new AdvertiseData.Builder()
+                .addServiceData(new ParcelUuid(CHRE_TEST_SERVICE_DATA_UUID), new byte[] {0})
                 .setIncludeDeviceName(false)
                 .setIncludeTxPowerLevel(true)
                 .build();

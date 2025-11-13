@@ -7,6 +7,7 @@ pw_add_library(chre.platform.freertos.platform_nanoapp STATIC
     public_platform_nanoapp
   PUBLIC_DEPS
     chre.platform.shared.memory
+    chre.platform.shared.nanoapp_memory_guard_no_op
     chre.platform.shared.nanoapp_support_lib_dso
   SOURCES
     platform_nanoapp.cc

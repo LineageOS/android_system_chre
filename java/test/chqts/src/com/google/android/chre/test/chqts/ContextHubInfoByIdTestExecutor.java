@@ -15,6 +15,8 @@
  */
 package com.google.android.chre.test.chqts;
 
+import static com.google.common.truth.Truth.assertThat;
+
 import android.hardware.location.ContextHubInfo;
 import android.hardware.location.ContextHubManager;
 import android.hardware.location.NanoAppBinary;
@@ -25,16 +27,16 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
 /**
- * Verify NanoApp info by appId/instanceId
+ * A test executor to verify that the nanoapp version can be queried by App ID or Instance ID.
  *
- * Protocol:
- * Host to App: mTestName, no data
- * App to Host: CONTINUE, no data
- * Host to App: CONTINUE, 32-bit app version
- * App to Host: SUCCESS, no data
+ * <p>This test verifies that the nanoapp version retrieved by the host-side API matches the
+ * nanoapp version retrieved by the nanoapp via CHRE APIs. The test nanoapp sends a message to
+ * this executor, which then retrieves the nanoapp version using the host-side API and sends it
+ * back to the nanoapp. The nanoapp then compares this version with the one it retrieved via CHRE
+ * APIs and verifies that they match.
  */
+
 public class ContextHubInfoByIdTestExecutor extends ContextHubGeneralTestExecutor {
-    private boolean mFirstMessage = true;
 
     public ContextHubInfoByIdTestExecutor(ContextHubManager manager, ContextHubInfo info,
             NanoAppBinary binary, ContextHubTestConstants.TestNames testName) {
@@ -44,10 +46,7 @@ public class ContextHubInfoByIdTestExecutor extends ContextHubGeneralTestExecuto
     @Override
     protected void handleMessageFromNanoApp(long nanoAppId,
             ContextHubTestConstants.MessageType type, byte[] data) {
-        if (type != ContextHubTestConstants.MessageType.CONTINUE) {
-            fail("Unexpected message type " + type);
-            return;
-        }
+        assertThat(type).isEqualTo(ContextHubTestConstants.MessageType.CONTINUE);
 
         int version =
                 ChreTestUtil.getNanoAppVersion(getContextHubManager(), getContextHubInfo(),

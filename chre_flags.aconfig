@@ -23,27 +23,6 @@ flag {
 }
 
 flag {
-  name: "reconnect_host_endpoints_after_hal_restart"
-  namespace: "context_hub"
-  description: "Reconnect host endpoints of ContextHubService after Context Hub HAL restarts."
-  bug: "348253728"
-}
-
-flag {
-  name: "reliable_message_duplicate_detection_service"
-  namespace: "context_hub"
-  description: "Enable duplicate detection for reliable messages in the Context Hub Service"
-  bug: "331795143"
-}
-
-flag {
-  name: "reliable_message_retry_support_service"
-  namespace: "context_hub"
-  description: "Enable retries for reliable messages in the Context Hub Service"
-  bug: "331795143"
-}
-
-flag {
   name: "reliable_message_test_mode_behavior"
   namespace: "context_hub"
   description: "Enables test mode behaviors in the Context Hub Service for reliable messages"
@@ -51,47 +30,10 @@ flag {
 }
 
 flag {
-  name: "bug_fix_hal_reliable_message_record"
-  namespace: "context_hub"
-  description: "A flag guarding the fix of how the Context Hub HAL stores the reliable message records."
-  bug: "333567700"
-  metadata {
-    purpose: PURPOSE_BUGFIX
-  }
-}
-
-flag {
-  name: "fix_api_check"
-  namespace: "context_hub"
-  description: "Fixes API check errors in Context Hub classes"
-  bug: "340880058"
-}
-
-flag {
-  name: "refactor_hal_xport_agnostic"
-  namespace: "context_hub"
-  description: "Flag guarding refactor of ContextHub HAL to be transport agnostic"
-  bug: "360926711"
-  metadata {
-    purpose: PURPOSE_BUGFIX
-  }
-}
-
-flag {
   name: "remove_old_context_hub_apis"
   namespace: "context_hub"
   description: "Removes the implementation of the deprecated old ContextHub APIs"
   bug: "359925548"
-  metadata {
-    purpose: PURPOSE_BUGFIX
-  }
-}
-
-flag {
-  name: "reduce_locking_context_hub_transaction_manager"
-  namespace: "context_hub"
-  description: "Reduces locking in the ContextHubTransactionManager"
-  bug: "362299144"
   metadata {
     purpose: PURPOSE_BUGFIX
   }
@@ -110,16 +52,6 @@ flag {
   namespace: "context_hub"
   description: "Enables support for generic offload"
   bug: "361573382"
-}
-
-flag {
-  name: "efw_xport_rewind_on_error"
-  namespace: "context_hub"
-  description: "Flag guarding the AOC-dependent behavior to rewind to the last good message"
-  bug: "371057943"
-  metadata {
-    purpose: PURPOSE_BUGFIX
-  }
 }
 
 flag {
@@ -150,8 +82,11 @@ flag {
 }
 
 flag {
-  name: "bt_socket_hal_supported"
+  name: "gnss_hal_use_endpoint_messaging"
   namespace: "context_hub"
-  description: "Flag guarding whether a working implementation of the BT socket HAL is supported in the ContextHub HAL process or a stub version"
-  bug: "380946927"
+  description: "Flag guarding the use of endpoint messaging for the GNSS HAL"
+  bug: "407810084"
+  metadata {
+    purpose: PURPOSE_BUGFIX
+  }
 }

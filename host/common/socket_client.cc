@@ -213,12 +213,12 @@ bool SocketClient::receiveThreadRunning() const {
 
 bool SocketClient::reconnect() {
   constexpr auto kMinDelay = std::chrono::duration<int32_t, std::milli>(250);
-  constexpr auto kMaxDelay = std::chrono::minutes(5);
+  constexpr auto kMaxDelay = std::chrono::seconds(4);
   // Try reconnecting at initial delay this many times before backing off
   constexpr unsigned int kExponentialBackoffDelay =
       std::chrono::seconds(10) / kMinDelay;
-  // Give up after this many tries (~2.5 hours)
-  constexpr unsigned int kRetryLimit = kExponentialBackoffDelay + 40;
+  // Give up after this many tries (a little under 3 hours)
+  constexpr unsigned int kRetryLimit = 2500;
   auto delay = kMinDelay;
   unsigned int retryCount = 0;
 

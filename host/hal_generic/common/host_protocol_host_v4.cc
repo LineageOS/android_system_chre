@@ -18,6 +18,7 @@
 
 #include <chre_host/host_protocol_host.h>
 
+#include "error_util.h"
 #include "permissions_util.h"
 
 namespace android::hardware::contexthub::common::implementation {
@@ -137,8 +138,7 @@ void HostProtocolHostV4::encodeEndpointSessionMessageDeliveryStatus(
     FlatBufferBuilder &builder, int64_t hostHubId, uint16_t sessionId,
     const AidlMessageDeliveryStatus &status) {
   auto fbsStatus = ::chre::fbs::CreateMessageDeliveryStatus(
-      builder, status.messageSequenceNumber,
-      static_cast<int8_t>(status.errorCode));
+      builder, status.messageSequenceNumber, toChreErrorCode(status.errorCode));
   auto msg = ::chre::fbs::CreateEndpointSessionMessageDeliveryStatus(
       builder, hostHubId, sessionId, fbsStatus);
   finalize(builder, ChreMessage::EndpointSessionMessageDeliveryStatus,
@@ -245,7 +245,7 @@ void HostProtocolHostV4::decodeEndpointSessionMessageDeliveryStatus(
   sessionId = msg.session_id;
   status = {.messageSequenceNumber =
                 static_cast<int32_t>(msg.status->message_sequence_number),
-            .errorCode = static_cast<AidlErrorCode>(msg.status->error_code)};
+            .errorCode = toErrorCode(msg.status->error_code)};
 }
 
 Offset<MessageHub> HostProtocolHostV4::aidlToFbsMessageHub(

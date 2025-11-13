@@ -19,7 +19,7 @@ VARIANT_PREFIX = $(ANDROID_BUILD_TOP)/system/chre/variant
 COMMIT_HASH_COMMAND = git describe --always --long --dirty
 COMMIT_HASH = $(shell $(COMMIT_HASH_COMMAND))
 
-COMMON_CFLAGS += -DCHRE_VERSION_STRING="\"chre=tinysys@$(COMMIT_HASH)\""
+COMMON_CFLAGS += -DCHRE_VERSION_STRING='"chre=tinysys@$(COMMIT_HASH)"'
 
 # Platform-specific Settings ###################################################
 
@@ -55,9 +55,11 @@ TINYSYS_CFLAGS += -I$(RISCV_TINYSYS_PREFIX)/scp/project/RV55_A/common/platform/i
 
 # Common Compiler Flags ########################################################
 
-# Supply a symbol to indicate that the build variant supplies the static
-# nanoapp list.
+# Supply a symbol to indicate that the build variant supplies the static nanoapp list.
 COMMON_CFLAGS += -DCHRE_VARIANT_SUPPLIES_STATIC_NANOAPP_LIST
+
+# Support for tinysys specific exported symbols
+COMMON_CFLAGS += -DCHREX_SYMBOL_EXTENSIONS
 
 # Enable nanoapp authentication by default
 TINYSYS_CFLAGS += -DCHRE_NAPP_AUTHENTICATION_ENABLED

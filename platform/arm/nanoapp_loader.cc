@@ -42,8 +42,8 @@ bool NanoappLoader::relocateTable(DynamicHeader *dyn, int tag) {
       for (i = 0; i < nRelocs; ++i) {
         ElfRel *curr = &reloc[i];
         int relocType = ELFW_R_TYPE(curr->r_info);
-        ElfAddr *addr = reinterpret_cast<ElfAddr *>(mMapping + curr->r_offset);
-
+        ElfAddr *addr =
+            reinterpret_cast<ElfAddr *>(mMapping.getPhyAddrOf(curr->r_offset));
         switch (relocType) {
           case R_ARM_RELATIVE:
             LOGV("Resolving ARM_RELATIVE at offset %lx",
@@ -51,7 +51,8 @@ bool NanoappLoader::relocateTable(DynamicHeader *dyn, int tag) {
             // TODO(b/155512914): When we move to DRAM allocations, we need to
             // check if the above address is in a Read-Only section of memory,
             // and give it temporary write permission if that is the case.
-            *addr += reinterpret_cast<uintptr_t>(mMapping);
+            mMapping.replace(curr->r_offset, reinterpret_cast<ElfAddr>(
+                                                 mMapping.getPhyAddrOf(*addr)));
             break;
 
           case R_ARM_ABS32: {
@@ -61,7 +62,7 @@ bool NanoappLoader::relocateTable(DynamicHeader *dyn, int tag) {
             auto *dynamicSymbolTable =
                 reinterpret_cast<ElfSym *>(mDynamicSymbolTablePtr);
             ElfSym *sym = &dynamicSymbolTable[posInSymbolTable];
-            *addr = reinterpret_cast<uintptr_t>(mMapping + sym->st_value);
+            *addr = mMapping.getPhyAddrOf(sym->st_value);
             break;
           }
 
@@ -116,7 +117,7 @@ bool NanoappLoader::relocateTable(DynamicHeader *dyn, int tag) {
 bool NanoappLoader::resolveGot() {
   ElfAddr *addr;
   ElfRel *reloc = reinterpret_cast<ElfRel *>(
-      mMapping + getDynEntry(getDynamicHeader(), DT_JMPREL));
+      mMapping.getPhyAddrOf(getDynEntry(getDynamicHeader(), DT_JMPREL)));
   size_t relocSize = getDynEntry(getDynamicHeader(), DT_PLTRELSZ);
   size_t nRelocs = relocSize / sizeof(ElfRel);
   LOGV("Resolving GOT with %zu relocations", nRelocs);
@@ -131,7 +132,8 @@ bool NanoappLoader::resolveGot() {
       case R_ARM_JUMP_SLOT: {
         LOGV("Resolving ARM_JUMP_SLOT at offset %lx",
              static_cast<long unsigned int>(curr->r_offset));
-        addr = reinterpret_cast<ElfAddr *>(mMapping + curr->r_offset);
+        addr =
+            reinterpret_cast<ElfAddr *>(mMapping.getPhyAddrOf(curr->r_offset));
         size_t posInSymbolTable = ELFW_R_SYM(curr->r_info);
         void *resolved = resolveData(posInSymbolTable);
         if (resolved == nullptr) {

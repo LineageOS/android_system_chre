@@ -17,11 +17,14 @@
 #ifndef CHRE_PLATFORM_LINUX_LOG_H_
 #define CHRE_PLATFORM_LINUX_LOG_H_
 
+#include "chre/platform/system_time.h"
 #include "chre_api/chre/re.h"
 
 #ifndef __FILENAME__
 #define __FILENAME__ __FILE__
 #endif
+
+#include <cinttypes>
 
 #ifdef GTEST
 // When using GoogleTest, just output to stdout since tests are single-threaded.
@@ -29,17 +32,31 @@
 // used.
 #include <stdio.h>
 
-#define CHRE_LINUX_LOG(logLevel, levelStr, color, fmt, ...)               \
-  printf("\e[" color "m%s %s:%d\t" fmt "\e[0m\n", levelStr, __FILENAME__, \
-         __LINE__, ##__VA_ARGS__)
+#define CHRE_LINUX_LOG(logLevel, levelStr, color, fmt, ...)                \
+  do {                                                                     \
+    uint64_t timeMs =                                                      \
+        chre::SystemTime::getMonotonicTime().toRawNanoseconds() / 1000000; \
+    uint64_t secondsPart = timeMs / 1000;                                  \
+    uint64_t millisPart = timeMs % 1000;                                   \
+    printf("\e[" color "m%s %s:%d\t@ %" PRIu64 ".03%" PRIu64 ": " fmt      \
+           "\e[0m\n",                                                      \
+           levelStr, __FILENAME__, __LINE__, secondsPart, millisPart,      \
+           ##__VA_ARGS__);                                                 \
+  } while (0);
 #else
 #include "chre/platform/linux/platform_log.h"
 
-#define CHRE_LINUX_LOG(logLevel, levelStr, color, fmt, ...)        \
-  if (::chre::PlatformLogSingleton::isInitialized()) {             \
-    ::chre::PlatformLogSingleton::get()->log(                      \
-        logLevel, "\e[" color "m%s %s:%d\t" fmt "\e[0m", levelStr, \
-        __FILENAME__, __LINE__, ##__VA_ARGS__);                    \
+#define CHRE_LINUX_LOG(logLevel, levelStr, color, fmt, ...)                 \
+  if (::chre::PlatformLogSingleton::isInitialized()) {                      \
+    uint64_t timeMs =                                                       \
+        chre::SystemTime::getMonotonicTime().toRawNanoseconds() / 1000000;  \
+    uint64_t secondsPart = timeMs / 1000;                                   \
+    uint64_t millisPart = timeMs % 1000;                                    \
+    ::chre::PlatformLogSingleton::get()->log(                               \
+        logLevel,                                                           \
+        "\e[" color "m%s %s:%d\t@ %" PRIu64 ".03%" PRIu64 ": " fmt "\e[0m", \
+        levelStr, __FILENAME__, __LINE__, secondsPart, millisPart,          \
+        ##__VA_ARGS__);                                                     \
   }
 #endif
 

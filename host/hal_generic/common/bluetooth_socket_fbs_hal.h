@@ -19,6 +19,9 @@
 #include <atomic>
 #include <cstdint>
 #include <future>
+#include <mutex>
+#include <optional>
+#include <string>
 
 #include "aidl/android/hardware/bluetooth/socket/BnBluetoothSocket.h"
 #include "bluetooth_socket_offload_link.h"
@@ -69,7 +72,11 @@ class BluetoothSocketFbsHal : public BnBluetoothSocket,
 
   // A promise that is set when getSocketCapabilities is called and is fulfilled
   // when a response is received from the offload stack.
-  std::promise<SocketCapabilities> mCapabilitiesPromise;
+  std::optional<std::promise<SocketCapabilities>> mCapabilitiesPromise =
+      std::nullopt;
+
+  // A mutex to guard the mCapabilitiesPromise.
+  std::mutex mMutex;
 
   void sendOpenedCompleteMessage(int64_t socketId, Status status,
                                  std::string reason);
@@ -81,6 +88,10 @@ class BluetoothSocketFbsHal : public BnBluetoothSocket,
 
   void handleBtSocketCapabilitiesResponse(
       const ::chre::fbs::BtSocketCapabilitiesResponseT &response);
+
+  // Sends a socket capabilities request to the offload stack and returns a
+  // future that is fulfilled with the capabilities response.
+  std::future<SocketCapabilities> sendSocketCapabilitiesRequest();
 };
 
 }  // namespace aidl::android::hardware::bluetooth::socket::impl

@@ -1,6 +1,7 @@
 #include "location/lbs/contexthub/nanoapps/nearby/tracker_filter.h"
 
 #include <inttypes.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
