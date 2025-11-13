@@ -267,9 +267,12 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
 
     @Override
     public ContextHubTransaction<List<NanoAppState>> queryNanoApps() {
-        // Not implemented for AP environment
+        NanoAppState[] nanoAppInfos = ContextHubAPNative.listNanoapps();
         ContextHubTransaction<List<NanoAppState>> transaction =
                 new ContextHubTransaction<>(ContextHubTransaction.TYPE_QUERY_NANOAPPS);
+        transaction.setResponse(
+                new ContextHubTransaction.Response<>(
+                        ContextHubTransaction.RESULT_SUCCESS, List.of(nanoAppInfos)));
         return transaction;
     }
 

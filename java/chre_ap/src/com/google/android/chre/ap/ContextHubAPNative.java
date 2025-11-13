@@ -35,12 +35,7 @@ public class ContextHubAPNative {
 
     static native boolean unloadNanoApp(long nanoAppInstanceId);
 
-    /**
-     * List running nanoapps on CHRE AP.
-     *
-     * @return NanoAppInfo array
-     */
-    public static native NanoAppState[] listNanoapps();
+    static native NanoAppState[] listNanoapps();
 
     /**
      * Send message to nanoapp.
