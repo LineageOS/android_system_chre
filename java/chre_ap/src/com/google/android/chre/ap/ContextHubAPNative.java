@@ -37,6 +37,10 @@ public class ContextHubAPNative {
 
     static native NanoAppState[] listNanoapps();
 
+    static native boolean isInitialized();
+
+    static native void stopEventLoop();
+
     /**
      * Send message to nanoapp.
      *

@@ -74,11 +74,14 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
     }
 
     /**
-     * Initializes the CHRE AP environment.
+     * Initializes the CHRE AP environment. Repeated calls will be no-op.
      *
      * @throws RuntimeException if the initialization fails.
      */
     public void init(Context appContext) {
+        if (isInitialized()) {
+            return;
+        }
         // Init the CHRE AP environment
         int initRes = ContextHubAPNative.init();
         if (initRes != 0) {
@@ -88,6 +91,10 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
         ContextHubAPNative.nativeRegister(this);
         AlarmManagerBridge.initialize(appContext);
         Log.i(TAG, "ContextHubAPManager initialized successfully.");
+    }
+
+    public boolean isInitialized() {
+        return ContextHubAPNative.isInitialized();
     }
 
     /**
@@ -139,7 +146,7 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
     }
 
     /**
-     * Runs the event loop of the CHRE AP environment.
+     * Runs the event loop of the CHRE AP environment. Repeated calls will be no-op.
      *
      * @param mode The running mode for the event loop.
      */
@@ -167,10 +174,12 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
         }
     }
 
-    /** Destroys the CHRE AP environment. */
+    /** Destroys the CHRE AP environment. Repeated calls will be no-op. */
     public void destroy() {
-        ContextHubAPNative.destroy();
-
+        if (!isInitialized()) {
+            return;
+        }
+        ContextHubAPNative.stopEventLoop();
         if (mEventLoopThread != null) {
             mEventLoopThread.interrupt();
             try {
@@ -181,6 +190,7 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
             mEventLoopThread = null;
         }
         mEventLoopRunning = false;
+        ContextHubAPNative.destroy();
 
         mClientMap.clear();
     }
@@ -206,6 +216,9 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
             @Nullable Context context,
             Executor executor,
             ContextHubClientCallback callback) {
+        if (!isInitialized()) {
+            throw new IllegalStateException("CHRE AP environment not initialized.");
+        }
         Objects.requireNonNull(callback, "Callback cannot be null");
         Objects.requireNonNull(executor, "Executor cannot be null");
         var clientId = mClientIdCounter.incrementAndGet();
@@ -226,21 +239,25 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
     }
 
     /**
-     * Unregister a client from manager.
+     * Unregister a client from manager. Does nothing if the client is already unregistered.
      *
      * @param client The client to unregister.
      */
-    public void unregisterClient(ContextHubAPClient client) {
-        mClientMap.remove(client.getId(), client);
+    public void unregisterClient(ContextHubClientInterface client) {
+        mClientMap.remove(client.getId());
     }
 
     /**
-     * Loads a nanoapp from a file into the simulated CHRE environment.
+     * Loads a nanoapp from a file into the simulated CHRE environment. Loading a file multiple
+     * times will result in duplicated nanoapp instances, which may not be desired.
      *
      * @param filename The path to the nanoapp shared object (.so) file.
      * @return {@code true} if the nanoapp was loaded successfully, {@code false} otherwise.
      */
     public boolean loadNanoApp(String filename) {
+        if (!isInitialized()) {
+            throw new IllegalStateException("CHRE AP environment not initialized.");
+        }
         boolean success = ContextHubAPNative.loadNanoAppFromFile(filename);
         if (!success) {
             Log.d(TAG, "Load nano app failed for " + filename);
@@ -248,8 +265,17 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
         return success;
     }
 
+    /**
+     * Unload a nanoapp from CHRE AP environment.
+     *
+     * @param nanoAppInstanceId The ID of the nanoapp to unload.
+     * @return A ContextHubTransaction containing the result of the unload operation.
+     */
     @Override
     public ContextHubTransaction<Void> unloadNanoApp(long nanoAppInstanceId) {
+        if (!isInitialized()) {
+            throw new IllegalStateException("CHRE AP environment not initialized.");
+        }
         boolean unloadRes = ContextHubAPNative.unloadNanoApp(nanoAppInstanceId);
         if (!unloadRes) {
             Log.d(TAG, "Unload nano app failed for instance id: " + nanoAppInstanceId);
@@ -265,8 +291,16 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
         return transaction;
     }
 
+    /**
+     * Queries the current running nanoapps.
+     *
+     * @return A ContextHubTransaction containing the list of nanoapps.
+     */
     @Override
     public ContextHubTransaction<List<NanoAppState>> queryNanoApps() {
+        if (!isInitialized()) {
+            throw new IllegalStateException("CHRE AP environment not initialized.");
+        }
         NanoAppState[] nanoAppInfos = ContextHubAPNative.listNanoapps();
         ContextHubTransaction<List<NanoAppState>> transaction =
                 new ContextHubTransaction<>(ContextHubTransaction.TYPE_QUERY_NANOAPPS);
@@ -301,9 +335,9 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
         }
     }
 
+    // Not implemented for AP environment
     @Override
     public long[] getPreloadedNanoAppIds() {
-        // Not implemented for AP environment
         return new long[0];
     }
 }

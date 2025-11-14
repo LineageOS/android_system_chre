@@ -236,8 +236,8 @@ public class ContextHubAPTester extends Activity {
 
         // Create a Button to send message to Message World nanoapp.
         var callback = new MessageCallback(mMessageTextView);
-        var client = ContextHubAPManager.getInstance().createClient(callback);
         messageButton.setOnClickListener(v -> {
+            var client = ContextHubAPManager.getInstance().createClient(callback);
             var message = NanoAppMessage.createMessageToNanoApp(
                     0x0123456789000003L /*Message World Nanoapp ID*/, 100,
                     "Test message".getBytes(StandardCharsets.UTF_8));
