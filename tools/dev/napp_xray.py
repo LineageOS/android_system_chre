@@ -16,7 +16,7 @@
 # limitations under the License.
 #
 
-"""Displays the metadata of nanoapp .so files.
+"""Displays the metadata of nanoapp .so or .napp files.
 
 Usage: python3 napp_xray.py path_or_file
 """
@@ -95,8 +95,7 @@ def _find_elf_offset(file_path: Path) -> int | None:
 
 
 def get_padded_mem_size(file_path: Path) -> int | None:
-  """Reads an ELF file's program headers and calculates the total padded memory size.
-  """
+  """Reads an ELF file's program headers and calculates the total padded memory size."""
   reader = os.environ.get("CHRE_TARGET_ELF_READER", "readelf")
 
   cmd = [reader, "-l", str(file_path)]
@@ -333,7 +332,7 @@ def get_chre_nanoapp_info(file_path: Path) -> dict | None:
     return None
 
 
-def process_files(files_to_process: list[Path], original_path: Path):
+def process_files(files_to_process: list[Path]):
   """Main function to find files, collect data, sort, and print results."""
   # --- Data Collection ---
   file_data = []
@@ -349,9 +348,12 @@ def process_files(files_to_process: list[Path], original_path: Path):
     is_signed = "No"
     elf_offset = _find_elf_offset(file_path)
     if elf_offset is not None:
-      is_signed = "Yes" if elf_offset > 0 else "No"
+      # Given there is no standard way signing a nanoapp the simple heuristic
+      # logic here is to see if there is any header (elf_offset). 40 is the
+      # size of NanoAppBinaryHeader appended at the beginning of a .napp file.
+      is_signed = "Yes" if elf_offset > 40 else "No"
       if elf_offset > 0:
-        # Signed binary, extract ELF to a temp file for analysis
+        # Extract ELF to a temp file for analysis
         with tempfile.NamedTemporaryFile(
             delete=True, prefix="napp_xray_"
         ) as temp_elf:
@@ -399,10 +401,6 @@ def process_files(files_to_process: list[Path], original_path: Path):
     total_size += size
 
   file_count = len(file_data)
-  if file_count == 0:
-    print("--------------------------------")
-    print(f"No .so files found in '{original_path}'.")
-    return
 
   # --- Sort the collected data ---
   # Use float('-inf') as the sort key for None values (like the no_val_marker)
@@ -553,7 +551,8 @@ def main():
   """Parses command-line arguments and runs the processing function."""
   parser = argparse.ArgumentParser(
       description=(
-          "Extract size and general nanoapp info for CHRE nanoapp .so files."
+          "Extract size and general nanoapp info for CHRE nanoapp .so or .napp"
+          " files."
       ),
       epilog=(
           "This script analyzes CHRE nanoapp ELF files to provide size and"
@@ -561,7 +560,7 @@ def main():
       ),
   )
   parser.add_argument(
-      "path_or_file", help="The directory or .so file to analyze."
+      "path_or_file", help="The directory or file name to analyze."
   )
   args = parser.parse_args()
 
@@ -572,17 +571,21 @@ def main():
 
   files_to_process = []
   if input_path.is_dir():
-    files_to_process = sorted(list(input_path.glob("*.so")))
+    for pattern in ("*.so", "*.napp"):
+      files_to_process.extend(sorted(list(input_path.glob(pattern))))
   elif input_path.is_file():
-    if input_path.name.endswith(".so"):
+    if input_path.name.endswith(".so") or input_path.name.endswith(".napp"):
       files_to_process.append(input_path)
-    else:
-      print(
-          f"Error: Input file must be a .so file: {input_path}", file=sys.stderr
-      )
-      sys.exit(1)
 
-  process_files(files_to_process, input_path)
+  if not files_to_process:
+    print(
+        "Error: No valid .so or .napp file(s) found. Input path/file:"
+        f" `{input_path}`",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+  process_files(files_to_process)
 
 
 if __name__ == "__main__":
