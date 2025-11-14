@@ -37,6 +37,7 @@ cc_library_static {
     ],
     static_libs: [
         "absl_flags_flag",
+        "absl_log",
         "chre_linux_nanoapp_unit_test",
         "chre_linux_integration",
         "libgmock",
@@ -87,6 +88,7 @@ cc_test_host {
     ],
     static_libs: [
         "absl_flags_flag",
+        "absl_log",
         "nanoapp_unit_test_lib",
         "chre_linux_nanoapp_unit_test",
         "chre_linux_integration",
