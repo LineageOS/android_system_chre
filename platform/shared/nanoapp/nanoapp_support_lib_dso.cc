@@ -420,7 +420,7 @@ int32_t chreBleSocketSend(uint64_t socketId, const void *data, uint16_t length,
                           chreBleSocketPacketFreeFunction *freeCallback) {
   auto *fptr = CHRE_NSL_LAZY_LOOKUP(chreBleSocketSend);
   return (fptr != nullptr) ? fptr(socketId, data, length, freeCallback)
-                           : CHRE_ERROR_NOT_SUPPORTED;
+                           : static_cast<uint32_t>(CHRE_ERROR_NOT_SUPPORTED);
 }
 #endif  // CHRE_NSL_SHOULD_PROVIDE_BACKCOMPAT_FOR(CHRE_API_VERSION_1_11)
 

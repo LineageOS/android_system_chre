@@ -22,6 +22,11 @@
 #include <cinttypes>
 #include <mutex>
 
+extern "C" {
+void chreApSetAlarm(uint64_t timerId, uint64_t delayNs);
+void chreApCancelAlarm(uint64_t timerId);
+}
+
 namespace chre {
 
 /**

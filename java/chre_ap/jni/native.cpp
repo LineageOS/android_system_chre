@@ -167,7 +167,7 @@ static void runEventLoop(JNIEnv * /*env*/, jobject /*thiz*/,
   }
 }
 
-static void destroy(JNIEnv * /*env*/, jobject /*thiz*/) {
+static void stopEventLoop(JNIEnv * /*env*/, jobject /*thiz*/) {
   if (!g_chre_initialized) {
     ALOGE("Environment not initialized");
     return;
@@ -176,6 +176,13 @@ static void destroy(JNIEnv * /*env*/, jobject /*thiz*/) {
   if (chreThread != nullptr) {
     chreThread->join();
     chreThread.reset();
+  }
+}
+
+static void destroy(JNIEnv * /*env*/, jobject /*thiz*/) {
+  if (!g_chre_initialized) {
+    ALOGE("Environment not initialized");
+    return;
   }
   chre::deinitCommon();
   g_chre_initialized = false;
@@ -306,6 +313,10 @@ static void nativeRegister(JNIEnv *env, jobject, jobject instance) {
   }
 }
 
+static jboolean isInitialized(JNIEnv * /*env*/, jobject /*thiz*/) {
+  return g_chre_initialized;
+}
+
 static JNINativeMethod methods[] = {
     {(char *)"init", (char *)"()I", (void *)init},
     {(char *)"destroy", (char *)"()V", (void *)destroy},
@@ -320,6 +331,8 @@ static JNINativeMethod methods[] = {
     {(char *)"nativeRegister",
      (char *)"(Lcom/google/android/chre/ap/ContextHubAPManager;)V",
      (void *)nativeRegister},
+    {(char *)"isInitialized", (char *)"()Z", (void *)isInitialized},
+    {(char *)"stopEventLoop", (char *)"()V", (void *)stopEventLoop},
     {(char *)"onAlarmFired", (char *)"(J)V", (void *)onAlarmFired},
 };
 

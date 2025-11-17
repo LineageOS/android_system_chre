@@ -32,7 +32,6 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.google.android.chre.ap.ContextHubAPManager;
-import com.google.android.chre.ap.ContextHubAPNative;
 import com.google.android.chre.ap.ContextHubTransaction;
 import com.google.android.chre.ap.NanoAppMessage;
 import com.google.android.chre.ap.NanoAppState;
@@ -42,6 +41,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Enumeration;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -112,9 +112,18 @@ public class ContextHubAPTester extends Activity {
         mMainHandler.postDelayed(() -> {
             mNanoAppListLayout.removeAllViews();
 
-            NanoAppState[] nanoAppInfos = ContextHubAPNative.listNanoapps();
+            ContextHubTransaction<List<NanoAppState>> queryTransaction =
+                    ContextHubAPManager.getInstance().queryNanoApps();
+            ContextHubTransaction.Response<List<NanoAppState>> resp = null;
+            try {
+                resp = queryTransaction.waitForResponse(/* timeout= */1, TimeUnit.SECONDS);
+            } catch (TimeoutException | InterruptedException e) {
+                mResultTextView.setText("Query timed out");
+                return;
+            }
+            List<NanoAppState> nanoAppInfos = resp.getContents();
 
-            if (nanoAppInfos == null || nanoAppInfos.length == 0) {
+            if (nanoAppInfos == null || nanoAppInfos.isEmpty()) {
                 TextView emptyView = new TextView(this);
                 emptyView.setText("No nanoapps currently loaded.");
                 emptyView.setPadding(8, 8, 8, 8);
@@ -197,7 +206,8 @@ public class ContextHubAPTester extends Activity {
             ContextHubAPManager.getInstance().init(this);
 
             mEventLoopThread = new Thread(() -> {
-                ContextHubAPManager.getInstance().runEventLoop(false /*useNativeThread*/);
+                ContextHubAPManager.getInstance().runEventLoop(
+                        ContextHubAPManager.EventLoopMode.PROVIDED);
             });
             mEventLoopThread.start();
             ContextHubAPManager.getInstance().setEventLoopThread(mEventLoopThread);
@@ -226,8 +236,8 @@ public class ContextHubAPTester extends Activity {
 
         // Create a Button to send message to Message World nanoapp.
         var callback = new MessageCallback(mMessageTextView);
-        var client = ContextHubAPManager.getInstance().createClient(callback);
         messageButton.setOnClickListener(v -> {
+            var client = ContextHubAPManager.getInstance().createClient(callback);
             var message = NanoAppMessage.createMessageToNanoApp(
                     0x0123456789000003L /*Message World Nanoapp ID*/, 100,
                     "Test message".getBytes(StandardCharsets.UTF_8));

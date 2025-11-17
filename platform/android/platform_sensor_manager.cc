@@ -24,12 +24,27 @@
 #include "chre_api/chre/sensor_types.h"
 
 #include <android/sensor.h>
+#include <dlfcn.h>
 #include <cstdint>
+#include <set>
 #include <string>
 #include <unordered_map>
 
 namespace chre {
 namespace {
+
+// The function pointer to ASensorEventQueue_registerSensor.
+// This function is not available in lower NDK API versions, but we need this
+// function to be able to set the batching parameters for the sensor. So we need
+// to use the dynamic linking to be able to load the function pointer at
+// runtime. If the function is not available, we will just disable CHRE sensor
+// processing by returning empty sensor list.
+// Using dynamic finding for this function is mainly used to bypass some build
+// systems that are strict to a lower NDK API version.
+typedef int (*PFN_ASensorEventQueue_registerSensor)(
+    ASensorEventQueue *queue, ASensor const *sensor, int32_t samplingPeriodUs,
+    int64_t maxBatchReportLatencyUs);
+static PFN_ASensorEventQueue_registerSensor gRegisterSensorFunc = nullptr;
 
 const size_t MAX_EVENT_BUFFER_SIZE = 64;
 
@@ -74,11 +89,29 @@ PlatformSensorManager::~PlatformSensorManager() {
 
   Looper::deinit();
 
-  mAndroidHandleToChreHandleMap.clear();
+  mSensorTypeToHandleMap.clear();
 }
 
 void PlatformSensorManager::init() {
-  mSensorManager = ASensorManager_getInstanceForPackage("");
+  if (gRegisterSensorFunc == nullptr) {
+    void *handle = dlopen("libandroid.so", RTLD_NOW);
+    if (handle == nullptr) {
+      LOGE("Failed to open libandroid.so: %s", dlerror());
+      return;
+    }
+    gRegisterSensorFunc = (PFN_ASensorEventQueue_registerSensor)dlsym(
+        handle, "ASensorEventQueue_registerSensor");
+    if (gRegisterSensorFunc == nullptr) {
+      LOGE("Failed to find ASensorEventQueue_registerSensor in libandroid.so");
+      return;
+    }
+  }
+
+  if (__builtin_available(android 26, *)) {
+    mSensorManager = ASensorManager_getInstanceForPackage("");
+  } else {
+    mSensorManager = ASensorManager_getInstance();
+  }
 
   mLooper = Looper::init();
   if (mLooper == nullptr) {
@@ -102,19 +135,29 @@ void PlatformSensorManager::init() {
     return;
   }
   // Inits sensors.
-  uint8_t chreSensorIndex = 0;
+  uint8_t chreSensorHandle = 0;
+  std::set<int32_t> initializedAndroidSensorTypes;
   for (int i = 0; i < sensorCount; ++i) {
     const ASensor *androidSensor = sensorList[i];
     const char *chreName = ASensor_getName(androidSensor);
     int32_t type = ASensor_getType(androidSensor);
     std::optional<uint8_t> chreType = mapAndroidToChreSensorType(type);
+
     // Skip unsupported sensors.
     if (chreType == std::nullopt) {
       continue;
     }
+    // Skip sensors that are already initialized.
+    // Each type of sensor is only initialized once.
+    // TODO(b/445584823): Add support for multiple sensors of the same type.
+    if (initializedAndroidSensorTypes.find(type) !=
+        initializedAndroidSensorTypes.end()) {
+      continue;
+    }
+    initializedAndroidSensorTypes.insert(type);
+
     uint64_t minIntervalNs =
         static_cast<uint64_t>(ASensor_getMinDelay(androidSensor) * 1000);
-    int32_t androidHandle = ASensor_getHandle(androidSensor);
     int reportingMode = ASensor_getReportingMode(androidSensor);
 
     // Prepares sensor info.
@@ -131,17 +174,17 @@ void PlatformSensorManager::init() {
                 .minInterval = (minIntervalNs > 0)
                                    ? minIntervalNs
                                    : CHRE_SENSOR_INTERVAL_DEFAULT,
-                .sensorIndex = chreSensorIndex,
+                .sensorIndex = 0,
             },
         .androidSensor = androidSensor,
-        .androidSensorHandle = androidHandle,
-        .chreSensorHandle = chreSensorIndex,
+        .androidSensorType = type,
+        .chreSensorHandle = chreSensorHandle,
     });
 
     // Populate the map
-    mAndroidHandleToChreHandleMap[androidHandle] = chreSensorIndex;
+    mSensorTypeToHandleMap[type] = chreSensorHandle;
 
-    chreSensorIndex++;
+    chreSensorHandle++;
   }
 }
 
@@ -200,8 +243,8 @@ bool PlatformSensorManager::configureSensor(Sensor &sensor,
         (intervalNs > 0) ? static_cast<int32_t>(intervalNs / 1000) : 0;
     int64_t latencyUs =
         (latencyNs > 0) ? static_cast<int64_t>(latencyNs / 1000) : 0;
-    int result = ASensorEventQueue_registerSensor(
-        mSharedEventQueue, context->androidSensor, samplingRateUs, latencyUs);
+    int result = gRegisterSensorFunc(mSharedEventQueue, context->androidSensor,
+                                     samplingRateUs, latencyUs);
     if (result == 0) {
       context->intervalNs = intervalNs;
       context->latencyNs = latencyNs;
@@ -355,10 +398,9 @@ int PlatformSensorManagerBase::looperCallback(int /*fd*/, int /*events*/,
   for (ssize_t i = 0; i < numEvents; ++i) {
     const ASensorEvent &event = eventBuffer[i];
     // Find the corresponding CHRE sensor handle using the map.
-    auto it = manager->mAndroidHandleToChreHandleMap.find(event.sensor);
-    if (it == manager->mAndroidHandleToChreHandleMap.end()) {
-      LOGW("Received event for unknown Android sensor handle: %d",
-           event.sensor);
+    auto it = manager->mSensorTypeToHandleMap.find(event.type);
+    if (it == manager->mSensorTypeToHandleMap.end()) {
+      LOGW("Received event for unknown Android sensor type: %d", event.type);
       continue;
     }
     // Increase the sample data size of this event group.

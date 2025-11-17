@@ -47,6 +47,8 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
     private final AtomicInteger mClientIdCounter = new AtomicInteger(0);
 
     private Thread mEventLoopThread = null;
+    private boolean mEventLoopRunning = false;
+    private ThreadFactory mThreadFactory = new DefaultThreadFactory();
 
     // One nano app should have only one client created.
     private final ConcurrentHashMap<Integer, ContextHubAPClient> mClientMap =
@@ -72,11 +74,14 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
     }
 
     /**
-     * Initializes the CHRE AP environment.
+     * Initializes the CHRE AP environment. Repeated calls will be no-op.
      *
      * @throws RuntimeException if the initialization fails.
      */
     public void init(Context appContext) {
+        if (isInitialized()) {
+            return;
+        }
         // Init the CHRE AP environment
         int initRes = ContextHubAPNative.init();
         if (initRes != 0) {
@@ -88,20 +93,93 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
         Log.i(TAG, "ContextHubAPManager initialized successfully.");
     }
 
-    /**
-     * Runs the event loop of the CHRE AP environment.
-     *
-     * @param useNativeThread Whether to use a native thread to run the event loop. If false, the
-     *                        event loop will run on the calling thread.
-     */
-    public void runEventLoop(boolean useNativeThread) {
-        ContextHubAPNative.runEventLoop(useNativeThread);
+    public boolean isInitialized() {
+        return ContextHubAPNative.isInitialized();
     }
 
-    /** Destroys the CHRE AP environment. */
-    public void destroy() {
-        ContextHubAPNative.destroy();
+    /**
+     * ThreadFactory to use for creating event loop.
+     */
+    public interface ThreadFactory {
+        /**
+         * Creates a new thread.
+         * @param runnable
+         * @return Created thread with the runnable.
+         */
+        Thread newThread(Runnable runnable);
+    }
 
+    /**
+     * Default implementation of ThreadFactory.
+     */
+    public static class DefaultThreadFactory implements ThreadFactory {
+        @Override
+        public Thread newThread(Runnable runnable) {
+            return new Thread(runnable);
+        }
+    }
+
+    /**
+     * Sets the thread factory used to create event loop thread. Must be set before event loop is
+     * created.
+     * @param factory The thread factory to use.
+     */
+    public void setThreadFactory(ThreadFactory factory) {
+        if (mEventLoopRunning) {
+            Log.w(TAG, "Cannot set ThreadFactory while event loop is running.");
+            return;
+        }
+        mThreadFactory = Objects.requireNonNull(factory, "ThreadFactory cannot be null");
+    }
+
+    /**
+     * Specify the running mode for CHRE event loop.
+     */
+    public enum EventLoopMode {
+        // A new thread will be created in native library.
+        NATIVE,
+        // The event loop will be run on a newly created thread, owned and managed by the manager.
+        OWNED,
+        // The event loop will run on the calling thread. Caller is also expected to call
+        // setEventLoopThread to make sure the thread is joined upon destroy.
+        PROVIDED,
+    }
+
+    /**
+     * Runs the event loop of the CHRE AP environment. Repeated calls will be no-op.
+     *
+     * @param mode The running mode for the event loop.
+     */
+    public void runEventLoop(EventLoopMode mode) {
+        if (mEventLoopRunning) {
+            Log.e(TAG, "EventLoop is already running, nothing to do.");
+            return;
+        }
+        mEventLoopRunning = true;
+        switch (mode) {
+            case NATIVE:
+                ContextHubAPNative.runEventLoop(true /*useNativeThread*/);
+                break;
+            case PROVIDED:
+                ContextHubAPNative.runEventLoop(false /*useNativeThread*/);
+                break;
+            case OWNED:
+                mEventLoopThread = mThreadFactory.newThread(() -> {
+                    ContextHubAPNative.runEventLoop(false /*useNativeThread*/);
+                });
+                mEventLoopThread.start();
+                break;
+            default:
+                Log.e(TAG, "Unknown event loop mode");
+        }
+    }
+
+    /** Destroys the CHRE AP environment. Repeated calls will be no-op. */
+    public void destroy() {
+        if (!isInitialized()) {
+            return;
+        }
+        ContextHubAPNative.stopEventLoop();
         if (mEventLoopThread != null) {
             mEventLoopThread.interrupt();
             try {
@@ -111,6 +189,10 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
             }
             mEventLoopThread = null;
         }
+        mEventLoopRunning = false;
+        ContextHubAPNative.destroy();
+
+        mClientMap.clear();
     }
 
     /**
@@ -134,6 +216,9 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
             @Nullable Context context,
             Executor executor,
             ContextHubClientCallback callback) {
+        if (!isInitialized()) {
+            throw new IllegalStateException("CHRE AP environment not initialized.");
+        }
         Objects.requireNonNull(callback, "Callback cannot be null");
         Objects.requireNonNull(executor, "Executor cannot be null");
         var clientId = mClientIdCounter.incrementAndGet();
@@ -154,21 +239,25 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
     }
 
     /**
-     * Unregister a client from manager.
+     * Unregister a client from manager. Does nothing if the client is already unregistered.
      *
      * @param client The client to unregister.
      */
-    public void unregisterClient(ContextHubAPClient client) {
-        mClientMap.remove(client.getId(), client);
+    public void unregisterClient(ContextHubClientInterface client) {
+        mClientMap.remove(client.getId());
     }
 
     /**
-     * Loads a nanoapp from a file into the simulated CHRE environment.
+     * Loads a nanoapp from a file into the simulated CHRE environment. Loading a file multiple
+     * times will result in duplicated nanoapp instances, which may not be desired.
      *
      * @param filename The path to the nanoapp shared object (.so) file.
      * @return {@code true} if the nanoapp was loaded successfully, {@code false} otherwise.
      */
     public boolean loadNanoApp(String filename) {
+        if (!isInitialized()) {
+            throw new IllegalStateException("CHRE AP environment not initialized.");
+        }
         boolean success = ContextHubAPNative.loadNanoAppFromFile(filename);
         if (!success) {
             Log.d(TAG, "Load nano app failed for " + filename);
@@ -176,8 +265,17 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
         return success;
     }
 
+    /**
+     * Unload a nanoapp from CHRE AP environment.
+     *
+     * @param nanoAppInstanceId The ID of the nanoapp to unload.
+     * @return A ContextHubTransaction containing the result of the unload operation.
+     */
     @Override
     public ContextHubTransaction<Void> unloadNanoApp(long nanoAppInstanceId) {
+        if (!isInitialized()) {
+            throw new IllegalStateException("CHRE AP environment not initialized.");
+        }
         boolean unloadRes = ContextHubAPNative.unloadNanoApp(nanoAppInstanceId);
         if (!unloadRes) {
             Log.d(TAG, "Unload nano app failed for instance id: " + nanoAppInstanceId);
@@ -193,11 +291,22 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
         return transaction;
     }
 
+    /**
+     * Queries the current running nanoapps.
+     *
+     * @return A ContextHubTransaction containing the list of nanoapps.
+     */
     @Override
     public ContextHubTransaction<List<NanoAppState>> queryNanoApps() {
-        // Not implemented for AP environment
+        if (!isInitialized()) {
+            throw new IllegalStateException("CHRE AP environment not initialized.");
+        }
+        NanoAppState[] nanoAppInfos = ContextHubAPNative.listNanoapps();
         ContextHubTransaction<List<NanoAppState>> transaction =
                 new ContextHubTransaction<>(ContextHubTransaction.TYPE_QUERY_NANOAPPS);
+        transaction.setResponse(
+                new ContextHubTransaction.Response<>(
+                        ContextHubTransaction.RESULT_SUCCESS, List.of(nanoAppInfos)));
         return transaction;
     }
 
@@ -213,25 +322,22 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
         var message =
                 NanoAppMessage.createMessageFromNanoApp(nanoAppId, messageType, messageBody, false);
         Log.d(TAG, "Message received for NanoApp ID: " + nanoAppId);
-        mMainHandler.post(
-                () -> {
-                    for (ContextHubAPClient client : mClientMap.values()) {
-                        client.getExecutor()
-                                .execute(
-                                        new Runnable() {
-                                            @Override
-                                            public void run() {
-                                                client.getCallback()
-                                                        .onMessageFromNanoApp(null, message);
-                                            }
-                                        });
-                    }
-                });
+        for (ContextHubAPClient client : mClientMap.values()) {
+            client.getExecutor()
+                    .execute(
+                            new Runnable() {
+                                @Override
+                                public void run() {
+                                    client.getCallback()
+                                            .onMessageFromNanoApp(null, message);
+                                }
+                            });
+        }
     }
 
+    // Not implemented for AP environment
     @Override
     public long[] getPreloadedNanoAppIds() {
-        // Not implemented for AP environment
         return new long[0];
     }
 }

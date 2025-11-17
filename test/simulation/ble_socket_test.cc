@@ -22,6 +22,7 @@
 #include "test_util.h"
 
 #include "chre/core/ble_l2cap_coc_socket_data.h"
+#include "chre/core/ble_socket_manager.h"
 #include "chre/core/event_loop_manager.h"
 #include "chre/platform/linux/pal_ble.h"
 #include "chre/util/macros.h"
@@ -77,6 +78,37 @@ class BleSocketTest : public TestBase {
   void SetUp() override {
     TestBase::SetUp();
     resetSocketVariables();
+
+    sendLeConnectionCompleteSubevent(mSocketData.connectionHandle);
+  }
+
+  // Send an LE connection complete event to the ProxyHost indicating the
+  // provided handle has connected.
+  pw::Status sendLeConnectionCompleteSubevent(uint16_t handle) {
+    std::array<uint8_t,
+               pbe::LEConnectionCompleteSubevent::IntrinsicSizeInBytes()>
+        hciArray{};
+    pw::bluetooth::proxy::H4PacketWithHci h4Packet{pbe::H4PacketType::EVENT,
+                                                   hciArray};
+    PW_TRY_ASSIGN(
+        pbe::LEConnectionCompleteSubeventWriter view,
+        pw::bluetooth::MakeEmbossWriter<
+            pbe::LEConnectionCompleteSubeventWriter>(h4Packet.GetHciSpan()));
+    view.le_meta_event().header().event_code().Write(
+        pbe::EventCode::LE_META_EVENT);
+    view.le_meta_event().subevent_code_enum().Write(
+        pbe::LeSubEventCode::CONNECTION_COMPLETE);
+    view.status().Write(pbe::StatusCode::SUCCESS);
+    view.connection_handle().Write(handle);
+    view.connection_interval().Write(0x0006);
+    view.supervision_timeout().Write(0x000A);
+
+    EXPECT_TRUE(view.Ok());
+
+    mProxyHost.value().HandleH4HciFromController(
+        {h4Packet.GetH4Type(), h4Packet.GetHciSpan()});
+
+    return pw::OkStatus();
   }
 
   // Send an LE_Read_Buffer_Size (V2) CommandComplete event to the ProxyHost
@@ -194,7 +226,8 @@ TEST_F(BleSocketTest, BleSocketCapabilitesTest) {
       ->getBleSocketManager()
       .handleSocketCapabilitiesRequestByHost();
   BtSocketCapabilities capabilities = getSocketCapabilities();
-  EXPECT_EQ(capabilities.leCocNumberOfSupportedSockets, 3);
+  EXPECT_EQ(capabilities.leCocNumberOfSupportedSockets,
+            BleSocketManager::kMaxNumSockets);
   EXPECT_EQ(capabilities.leCocMtu, 2048);
   EXPECT_EQ(capabilities.rfcommNumberOfSupportedSockets, 0);
   EXPECT_EQ(capabilities.rfcommMaxFrameSize, 0);

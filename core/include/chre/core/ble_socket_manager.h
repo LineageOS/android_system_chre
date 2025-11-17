@@ -32,6 +32,9 @@ namespace chre {
  */
 class BleSocketManager : public NonCopyable {
  public:
+  // Public for testing purposes.
+  static constexpr uint8_t kMaxNumSockets = 2;
+
   // Forward all arguments passed to the BleSocketManager constructor to the
   // PlatformBtSocketResources constructor
   template <typename... Args>
@@ -139,8 +142,6 @@ class BleSocketManager : public NonCopyable {
    * @see handleSocketClosedByHost
    */
   void handleSocketClosedByHostSync(uint64_t socketId);
-
-  static constexpr uint8_t kMaxNumSockets = 3;
 
   /**
    * Tracks BT sockets and their corresponding nanoapp.
