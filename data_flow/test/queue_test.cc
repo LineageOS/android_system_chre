@@ -14,14 +14,14 @@
  * limitations under the License.
  */
 
-#include "data_flow/queue.h"
-
 #include <optional>
 #include <utility>
 #include <vector>
 
 #include "data_flow/internal/queue_internal.h"
+#include "data_flow/queue.h"
 #include "data_flow/queue_defs.h"
+#include "data_flow/untyped_queue.h"
 #include "gtest/gtest.h"
 #include "pw_allocator/first_fit.h"
 #include "pw_bytes/span.h"
@@ -89,6 +89,8 @@ class QueueTest : public ::testing::Test {
     mProducer.reset();
     mVarDataConsumers.clear();
     mVarDataProducer.reset();
+    mUntypedConsumers.clear();
+    mUntypedProducer.reset();
     mAllocator.Deallocate(mQueue);
     mAllocator.Deallocate(mVarDataQueue);
   }
@@ -241,8 +243,10 @@ class QueueTest : public ::testing::Test {
   DataNotifier mDataNotifier;
   std::optional<Producer<int>> mProducer;
   std::optional<VariableDataProducer> mVarDataProducer;
+  std::optional<UntypedProducer> mUntypedProducer;
   std::vector<Consumer<int>> mConsumers;
   std::vector<VariableDataConsumer> mVarDataConsumers;
+  std::vector<UntypedConsumer> mUntypedConsumers;
 };
 
 TEST_F(QueueTest, ProducerCreateLocalAndDestroy) {
@@ -972,6 +976,116 @@ TEST_F(QueueTest, VariableDataProducerTruncateFailsSizeTooLarge) {
 
   ASSERT_EQ(mVarDataProducer->reserve(5).status(), pw::OkStatus());
   EXPECT_EQ(mVarDataProducer->truncate(10), pw::Status::OutOfRange());
+}
+
+TEST_F(QueueTest, UntypedProducerAndTypedConsumer) {
+  auto maybeProducer = UntypedProducer::createLocal(
+      {{.base = base(), .size = size()}, .allocator = &mAllocator}, mQueue,
+      kBaseMaxBlockCount, kBaseMinBlockCount, mDataNotifier,
+      kEmptyLocalNotifyArgs);
+  ASSERT_EQ(maybeProducer.status(), pw::OkStatus());
+  mUntypedProducer.emplace(std::move(*maybeProducer));
+  ASSERT_EQ(mUntypedProducer->getElementSize(), sizeof(int));
+  ASSERT_EQ(mUntypedProducer->getElementAlignment(), alignof(int));
+
+  pw::Result<uint32_t> descOffsetResult =
+      mUntypedProducer->getConsumerManager().addConsumer(
+          kZeroId, ConsumerPolicyBuilder().setNonOverwritable());
+  ASSERT_EQ(descOffsetResult.status(), pw::OkStatus());
+
+  auto maybeConsumer =
+      Consumer<int>::createLocal({.base = base(), .size = size()},
+                                 reinterpret_cast<uintptr_t>(mQueue) - base(),
+                                 *descOffsetResult, kEmptyLocalNotifyArgs);
+  ASSERT_EQ(maybeConsumer.status(), pw::OkStatus());
+  mConsumers.emplace_back(std::move(*maybeConsumer));
+
+  int pushedValue = 123;
+  pw::ConstByteSpan data = pw::as_bytes(pw::span(&pushedValue, 1));
+  EXPECT_RESULT_EQ(mUntypedProducer->push(data), 1);
+
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 1);
+  EXPECT_RESULT_EQ(mConsumers[0].pop(), pushedValue);
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 0);
+}
+
+TEST_F(QueueTest, TypedProducerAndUntypedConsumer) {
+  initLocalProducer(kEmptyLocalNotifyArgs);
+
+  pw::Result<uint32_t> descOffsetResult =
+      mProducer->getConsumerManager().addConsumer(
+          kZeroId, ConsumerPolicyBuilder().setNonOverwritable());
+  ASSERT_EQ(descOffsetResult.status(), pw::OkStatus());
+
+  auto maybeConsumer =
+      UntypedConsumer::createLocal({.base = base(), .size = size()},
+                                   reinterpret_cast<uintptr_t>(mQueue) - base(),
+                                   *descOffsetResult, kEmptyLocalNotifyArgs);
+  ASSERT_EQ(maybeConsumer.status(), pw::OkStatus());
+  mUntypedConsumers.emplace_back(std::move(*maybeConsumer));
+  ASSERT_EQ(mUntypedConsumers[0].getElementSize(), sizeof(int));
+  ASSERT_EQ(mUntypedConsumers[0].getElementAlignment(), alignof(int));
+
+  int pushedValue = 456;
+  EXPECT_EQ(mProducer->push(pushedValue), pw::OkStatus());
+
+  EXPECT_RESULT_EQ(mUntypedConsumers[0].size(), 1);
+  int poppedValue;
+  pw::ByteSpan data = pw::as_writable_bytes(pw::span(&poppedValue, 1));
+  EXPECT_EQ(mUntypedConsumers[0].pop(data), pw::OkStatus());
+  EXPECT_EQ(poppedValue, pushedValue);
+  EXPECT_RESULT_EQ(mUntypedConsumers[0].size(), 0);
+}
+
+TEST_F(QueueTest, UntypedProducerAndUntypedConsumer) {
+  auto maybeProducer = UntypedProducer::createLocal(
+      {{.base = base(), .size = size()}, .allocator = &mAllocator}, mQueue,
+      kBaseMaxBlockCount, kBaseMinBlockCount, mDataNotifier,
+      kEmptyLocalNotifyArgs);
+  ASSERT_EQ(maybeProducer.status(), pw::OkStatus());
+  mUntypedProducer.emplace(std::move(*maybeProducer));
+
+  pw::Result<uint32_t> descOffsetResult =
+      mUntypedProducer->getConsumerManager().addConsumer(
+          kZeroId, ConsumerPolicyBuilder().setNonOverwritable());
+  ASSERT_EQ(descOffsetResult.status(), pw::OkStatus());
+
+  auto maybeConsumer =
+      UntypedConsumer::createLocal({.base = base(), .size = size()},
+                                   reinterpret_cast<uintptr_t>(mQueue) - base(),
+                                   *descOffsetResult, kEmptyLocalNotifyArgs);
+  ASSERT_EQ(maybeConsumer.status(), pw::OkStatus());
+  mUntypedConsumers.emplace_back(std::move(*maybeConsumer));
+
+  ASSERT_EQ(mUntypedProducer->getElementSize(), sizeof(int));
+  ASSERT_EQ(mUntypedProducer->getElementAlignment(), alignof(int));
+  ASSERT_EQ(mUntypedConsumers[0].getElementSize(), sizeof(int));
+  ASSERT_EQ(mUntypedConsumers[0].getElementAlignment(), alignof(int));
+
+  int pushedValue = 789;
+  pw::ConstByteSpan pushData = pw::as_bytes(pw::span(&pushedValue, 1));
+  EXPECT_RESULT_EQ(mUntypedProducer->push(pushData), 1);
+
+  EXPECT_RESULT_EQ(mUntypedConsumers[0].size(), 1);
+  int poppedValue;
+  pw::ByteSpan popData = pw::as_writable_bytes(pw::span(&poppedValue, 1));
+  EXPECT_EQ(mUntypedConsumers[0].pop(popData), pw::OkStatus());
+  EXPECT_EQ(poppedValue, pushedValue);
+  EXPECT_RESULT_EQ(mUntypedConsumers[0].size(), 0);
+}
+
+TEST_F(QueueTest, CreateQueueUntypedIsSameAsCreateQueue) {
+  auto maybeTypedQueue = createQueue<int, 4>(mAllocator, /*local=*/true);
+  ASSERT_EQ(maybeTypedQueue.status(), pw::OkStatus());
+  auto maybeUntypedQueue =
+      createQueueUntyped(mAllocator, /*blockCapacity=*/4, sizeof(int),
+                         alignof(int), /*local=*/true);
+  ASSERT_EQ(maybeUntypedQueue.status(), pw::OkStatus());
+  EXPECT_EQ(std::memcmp(*maybeTypedQueue, *maybeUntypedQueue,
+                        sizeof(internal::Queue)),
+            0);
+  mAllocator.Deallocate(*maybeTypedQueue);
+  mAllocator.Deallocate(*maybeUntypedQueue);
 }
 
 }  // namespace

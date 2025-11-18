@@ -100,6 +100,7 @@ class DataNotifier {
 // Forward declaration for friend access.
 template <typename ElementType>
 class Producer;
+class UntypedProducer;
 class VariableDataProducer;
 class ConsumerManager;
 
@@ -270,6 +271,7 @@ class ConsumerManager {
  protected:
   template <typename ElementType>
   friend class Producer;
+  friend class UntypedProducer;
   friend class VariableDataProducer;
 
   /**
@@ -322,7 +324,8 @@ class Producer : protected internal::ProducerBase {
     if (queuePtr->config.mode !=
             internal::Queue::DataConfig::Mode::kFixedSize ||
         queuePtr->config.fixedSize.elementSize != sizeof(ElementType) ||
-        queuePtr->config.fixedSize.elementAlignment != alignof(ElementType)) {
+        queuePtr->config.fixedSize.elementAlignment != alignof(ElementType) ||
+        !queuePtr->localNotify) {
       return pw::Status::FailedPrecondition();
     }
     auto blockLayout =
@@ -354,7 +357,8 @@ class Producer : protected internal::ProducerBase {
     if (queuePtr->config.mode !=
             internal::Queue::DataConfig::Mode::kFixedSize ||
         queuePtr->config.fixedSize.elementSize != sizeof(ElementType) ||
-        queuePtr->config.fixedSize.elementAlignment != alignof(ElementType)) {
+        queuePtr->config.fixedSize.elementAlignment != alignof(ElementType) ||
+        queuePtr->localNotify) {
       return pw::Status::FailedPrecondition();
     }
     auto blockLayout =
@@ -941,8 +945,8 @@ pw::allocator::Layout queueLayout() {
  * @param elementAlignment The alignment of an element.
  * @param local True iff the queue is local.
  */
-void initQueue(void *queue, size_t capacity, size_t elementSize,
-               size_t elementAlignment, bool local);
+pw::Status initQueue(void *queue, size_t capacity, size_t elementSize,
+                     size_t elementAlignment, bool local);
 
 /**
  * Initializes the queue metadata for a fixed-element queue.
@@ -953,9 +957,9 @@ void initQueue(void *queue, size_t capacity, size_t elementSize,
  * @param local True iff the queue is local.
  */
 template <typename ElementType, size_t kBlockCapacity>
-void initQueue(void *queue, bool local) {
-  initQueue(queue, kBlockCapacity * sizeof(ElementType), sizeof(ElementType),
-            alignof(ElementType), local);
+pw::Status initQueue(void *queue, bool local) {
+  return initQueue(queue, kBlockCapacity * sizeof(ElementType),
+                   sizeof(ElementType), alignof(ElementType), local);
 }
 
 /**
@@ -970,7 +974,7 @@ void initQueue(void *queue, bool local) {
 template <typename ElementType, size_t kBlockCapacity>
 pw::Result<void *> createQueue(pw::Allocator &allocator, bool local) {
   if (auto *queue = allocator.New<internal::QueuePrivate>(); queue) {
-    initQueue<ElementType, kBlockCapacity>(queue, local);
+    PW_TRY((initQueue<ElementType, kBlockCapacity>(queue, local)));
     return queue;
   }
   return pw::Status::ResourceExhausted();

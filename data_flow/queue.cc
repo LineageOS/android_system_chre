@@ -24,6 +24,7 @@
 
 #include "data_flow/internal/queue_internal.h"
 #include "data_flow/queue_defs.h"
+#include "data_flow/untyped_queue.h"
 #include "pw_allocator/layout.h"
 #include "pw_assert/assert.h"
 #include "pw_bytes/span.h"
@@ -297,6 +298,41 @@ uint32_t indexCorrectionIncrement(BlockHeader *curr, BlockHeader *next,
   auto skipIndex = curr->skipIndex.load();
   uint32_t diffBase = skipIndex == capacity ? baseIndex : skipIndex;
   return ringDiff(next->baseIndex.load(), diffBase, capacity);
+}
+
+/**
+ * @return the value aligned to the given alignment.
+ * @param value The value to align.
+ * @param alignment The alignment to use.
+ */
+constexpr size_t alignTo(size_t value, size_t alignment) {
+  const auto kUnalignedBits = alignment - 1;
+  return value & kUnalignedBits ? value + alignment - (value & kUnalignedBits)
+                                : value;
+}
+
+/**
+ * @return the offset of data within a block for a fixed-size element queue.
+ * @param queue The queue metadata.
+ */
+size_t getDataOffset(internal::Queue &queue) {
+  // Calculate the offset of data within the block based on the element
+  // alignment. This must be equivalent to the offset of Block<T>.data for some
+  // T of the same size and alignment.
+  size_t elementAlignment = queue.config.fixedSize.elementAlignment;
+  return internal::alignTo(sizeof(internal::BlockHeader), elementAlignment);
+}
+
+/**
+ * @return the block layout for the given fixed-size element queue.
+ * @param queue The queue metadata.
+ */
+pw::allocator::Layout getBlockLayout(internal::Queue &queue) {
+  size_t elementAlignment = queue.config.fixedSize.elementAlignment;
+  size_t blockAlignment =
+      std::max(alignof(internal::BlockHeader), elementAlignment);
+  return pw::allocator::Layout(getDataOffset(queue) + queue.blockCapacity,
+                               blockAlignment);
 }
 
 }  // namespace
@@ -755,6 +791,9 @@ ConsumerBase::ConsumerBase(const Region &region, Queue &queue,
 
 pw::Status ConsumerBase::initialize(
     IdOrNotifyFn idOrNotifyFn, std::optional<size_t> overwriteResetOffset) {
+  if (!mRemoteNotifyFn != mQueue->localNotify) {
+    return pw::Status::FailedPrecondition();
+  }
   auto consumerFlags = mDesc->consumerFlags.load();
   mCurrentFlags = mDesc->producerFlags.load();
   if (getAndCheckProducerFlags(mCurrentFlags, consumerFlags) !=
@@ -1038,7 +1077,8 @@ pw::Result<VariableDataProducer> VariableDataProducer::createLocal(
     return pw::Status::InvalidArgument();
   }
   auto queuePtr = static_cast<internal::QueuePrivate *>(queue);
-  if (queuePtr->config.mode == DataConfigMode::kFixedSize) {
+  if (queuePtr->config.mode == DataConfigMode::kFixedSize ||
+      !queuePtr->localNotify) {
     return pw::Status::FailedPrecondition();
   } else if (queuePtr->config.mode == DataConfigMode::kVariableSizeAligned) {
     return pw::Status::Unimplemented();
@@ -1059,7 +1099,8 @@ pw::Result<VariableDataProducer> VariableDataProducer::createRemote(
     return pw::Status::InvalidArgument();
   }
   auto queuePtr = static_cast<internal::QueuePrivate *>(queue);
-  if (queuePtr->config.mode == DataConfigMode::kFixedSize) {
+  if (queuePtr->config.mode == DataConfigMode::kFixedSize ||
+      queuePtr->localNotify) {
     return pw::Status::FailedPrecondition();
   } else if (queuePtr->config.mode == DataConfigMode::kVariableSizeAligned) {
     return pw::Status::Unimplemented();
@@ -1249,12 +1290,15 @@ pw::Result<size_t> VariableDataConsumer::size() {
   return pw::Status::Unimplemented();
 }
 
-void initQueue(void *queue, size_t capacity, size_t elementSize,
-               size_t elementAlignment, bool local) {
+pw::Status initQueue(void *queue, size_t capacity, size_t elementSize,
+                     size_t elementAlignment, bool local) {
   auto &queueRef = *static_cast<internal::Queue *>(queue);
   queueRef.producerOffset = internal::kOffsetInvalid;
   queueRef.blockCapacity = capacity;
   if (elementSize) {
+    if (capacity % elementSize != 0) {
+      return pw::Status::InvalidArgument();
+    }
     queueRef.config.mode = DataConfigMode::kFixedSize;
     queueRef.config.fixedSize.elementSize = elementSize;
     queueRef.config.fixedSize.elementAlignment = elementAlignment;
@@ -1262,16 +1306,131 @@ void initQueue(void *queue, size_t capacity, size_t elementSize,
     queueRef.config.mode = DataConfigMode::kVariableSizeBasic;
   }
   queueRef.localNotify = local;
+  return pw::OkStatus();
 }
 
 pw::Result<void *> createVariableDataQueue(pw::Allocator &allocator,
                                            size_t blockCapacity, bool local) {
   if (auto *queue = allocator.New<internal::QueuePrivate>(); queue) {
-    initQueue(queue, blockCapacity, /*elementSize=*/0,
-              /*elementAlignment=*/0, local);
+    PW_TRY(initQueue(queue, blockCapacity, /*elementSize=*/0,
+                     /*elementAlignment=*/0, local));
     return queue;
   }
   return pw::Status::ResourceExhausted();
 }
+
+pw::Result<void *> createQueueUntyped(pw::Allocator &allocator,
+                                      size_t blockCapacity, size_t elementSize,
+                                      size_t elementAlignment, bool local) {
+  if (auto *queue = allocator.New<internal::QueuePrivate>(); queue) {
+    PW_TRY(initQueue(queue, blockCapacity * elementSize, elementSize,
+                     elementAlignment, local));
+    return queue;
+  }
+  return pw::Status::ResourceExhausted();
+}
+
+pw::Result<UntypedProducer> UntypedProducer::createLocal(
+    AllocatorRegion region, void *queue, size_t maxBlockCount,
+    size_t minBlockCount, DataNotifier &dataNotifier,
+    LocalNotifyArgs notifyArgs, MemoryAccess *memAccess) {
+  if (notifyArgs.fn == nullptr || !queue) {
+    return pw::Status::InvalidArgument();
+  }
+  auto queuePtr = static_cast<internal::QueuePrivate *>(queue);
+  if (queuePtr->config.mode != DataConfigMode::kFixedSize ||
+      queuePtr->blockCapacity % queuePtr->config.fixedSize.elementSize != 0 ||
+      !queuePtr->localNotify) {
+    return pw::Status::FailedPrecondition();
+  }
+  auto blockLayout = internal::getBlockLayout(*queuePtr);
+  PW_TRY(ProducerBase::initialize(region, queuePtr, blockLayout, maxBlockCount,
+                                  minBlockCount, {.localNotify = notifyArgs}));
+  return UntypedProducer(region, *queuePtr, blockLayout, maxBlockCount,
+                         minBlockCount, dataNotifier, {}, memAccess);
+}
+
+pw::Result<UntypedProducer> UntypedProducer::createRemote(
+    AllocatorRegion region, void *queue, size_t maxBlockCount,
+    size_t minBlockCount, DataNotifier &dataNotifier,
+    RemoteNotifyArgs notifyArgs, MemoryAccess *memAccess) {
+  if (notifyArgs.fn == nullptr || !queue) {
+    return pw::Status::InvalidArgument();
+  }
+  auto queuePtr = static_cast<internal::QueuePrivate *>(queue);
+  if (queuePtr->config.mode != DataConfigMode::kFixedSize ||
+      queuePtr->blockCapacity % queuePtr->config.fixedSize.elementSize != 0 ||
+      queuePtr->localNotify) {
+    return pw::Status::FailedPrecondition();
+  }
+  auto blockLayout = internal::getBlockLayout(*queuePtr);
+  PW_TRY(ProducerBase::initialize(region, queuePtr, blockLayout, maxBlockCount,
+                                  minBlockCount, {.remoteId = notifyArgs.id}));
+  return UntypedProducer(region, *queuePtr, blockLayout, maxBlockCount,
+                         minBlockCount, dataNotifier, std::move(notifyArgs.fn),
+                         memAccess);
+}
+
+UntypedProducer::UntypedProducer(const AllocatorRegion &region,
+                                 internal::QueuePrivate &queue,
+                                 pw::allocator::Layout blockLayout,
+                                 size_t maxBlockCount, size_t minBlockCount,
+                                 DataNotifier &dataNotifier,
+                                 RemoteNotifyFn remoteNotifyFn,
+                                 MemoryAccess *memAccess)
+    : ProducerBase(region, queue, blockLayout, internal::getDataOffset(queue),
+                   maxBlockCount, minBlockCount, dataNotifier,
+                   std::move(remoteNotifyFn), memAccess),
+      mElementSize(queue.config.fixedSize.elementSize),
+      mElementAlignment(queue.config.fixedSize.elementAlignment) {}
+
+pw::Result<UntypedConsumer> UntypedConsumer::createLocal(
+    Region region, uint32_t queueOffset, uint32_t descOffset,
+    LocalNotifyArgs notifyArgs, MemoryAccess *memAccess,
+    std::optional<size_t> overwriteResetOffset) {
+  if (!notifyArgs.fn) {
+    return pw::Status::InvalidArgument();
+  }
+  PW_TRY_ASSIGN(auto queueAndDesc, checkArgs(region, /*descRegion=*/nullptr,
+                                             queueOffset, descOffset));
+  if (queueAndDesc.first->config.mode != DataConfigMode::kFixedSize) {
+    return pw::Status::FailedPrecondition();
+  }
+  UntypedConsumer consumer(region, *queueAndDesc.first, *queueAndDesc.second,
+                           /*remoteNotifyFn=*/{}, memAccess);
+  PW_TRY(
+      consumer.initialize({.localNotify = notifyArgs}, overwriteResetOffset));
+  return consumer;
+}
+
+pw::Result<UntypedConsumer> UntypedConsumer::createRemote(
+    Region region, std::optional<Region> descRegion, uint32_t queueOffset,
+    uint32_t descOffset, RemoteNotifyArgs notifyArgs, MemoryAccess *memAccess,
+    std::optional<size_t> overwriteResetOffset) {
+  if (!notifyArgs.fn) {
+    return pw::Status::InvalidArgument();
+  }
+  auto *descRegionPtr = descRegion ? &*descRegion : nullptr;
+  PW_TRY_ASSIGN(auto queueAndDesc,
+                checkArgs(region, descRegionPtr, queueOffset, descOffset));
+  if (queueAndDesc.first->config.mode != DataConfigMode::kFixedSize) {
+    return pw::Status::FailedPrecondition();
+  }
+  UntypedConsumer consumer(region, *queueAndDesc.first, *queueAndDesc.second,
+                           std::move(notifyArgs.fn), memAccess);
+  PW_TRY(
+      consumer.initialize({.remoteId = notifyArgs.id}, overwriteResetOffset));
+  return consumer;
+}
+
+UntypedConsumer::UntypedConsumer(const Region &region, internal::Queue &queue,
+                                 internal::ConsumerDesc &desc,
+                                 RemoteNotifyFn remoteNotifyFn,
+                                 MemoryAccess *memAccess)
+    : ConsumerBase(region, queue, desc, internal::getBlockLayout(queue),
+                   internal::getDataOffset(queue), std::move(remoteNotifyFn),
+                   memAccess),
+      mElementSize(queue.config.fixedSize.elementSize),
+      mElementAlignment(queue.config.fixedSize.elementAlignment) {}
 
 }  // namespace android::contexthub::data_flow
