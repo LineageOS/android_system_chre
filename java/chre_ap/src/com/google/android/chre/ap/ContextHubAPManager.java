@@ -78,7 +78,7 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
      *
      * @throws RuntimeException if the initialization fails.
      */
-    public void init(Context appContext) {
+    public void init(Context appContext, @Nullable WakeLockBridge.LockFactory lockFactory) {
         if (isInitialized()) {
             return;
         }
@@ -91,6 +91,8 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
         }
         ContextHubAPNative.nativeRegister(this);
         AlarmManagerBridge.initialize(appContext);
+        WakeLockBridge.setLockFactory(Objects.requireNonNullElseGet(lockFactory,
+                () -> new WakeLockBridge.DefaultLockFactory(appContext)));
         Log.i(TAG, "ContextHubAPManager initialized successfully.");
     }
 
