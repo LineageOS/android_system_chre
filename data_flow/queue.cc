@@ -34,6 +34,9 @@
 #include "pw_status/try.h"
 
 namespace android::contexthub::data_flow {
+
+using DataConfigMode = internal::Queue::DataConfig::Mode;
+
 namespace internal {
 namespace {
 
@@ -84,7 +87,7 @@ BlockHeader *allocateBlock(pw::Allocator &allocator,
   }
   if (variableData) {
     auto *variableDataBlock = reinterpret_cast<VariableDataBlock *>(block);
-    variableDataBlock->firstElementIndex = blockCapacity;
+    variableDataBlock->header.firstElementIndex = blockCapacity;
   }
   return block;
 }
@@ -169,20 +172,6 @@ constexpr ProducerFlags getAndCheckProducerFlags(uint32_t producerFlags,
     return internal::ProducerFlags::kNone;
   }
   return value;
-}
-
-/** @return The NotificationPolicy given the raw ConsumerPolicy value. */
-NotificationPolicy notificationPolicy(uint32_t policyRaw) {
-  return static_cast<NotificationPolicy>(
-      reinterpret_cast<ConsumerPolicy *>(&policyRaw)->policy &
-      static_cast<uint8_t>(NotificationPolicy::kMask));
-}
-
-/** @return The OverwritePolicy given the raw ConsumerPolicy value. */
-OverwritePolicy overwritePolicy(uint32_t policyRaw) {
-  return static_cast<OverwritePolicy>(
-      reinterpret_cast<ConsumerPolicy *>(&policyRaw)->policy &
-      static_cast<uint8_t>(OverwritePolicy::kMask));
 }
 
 /**
@@ -315,17 +304,16 @@ uint32_t indexCorrectionIncrement(BlockHeader *curr, BlockHeader *next,
 pw::Status ProducerBase::initialize(const AllocatorRegion &region,
                                     QueuePrivate *queue,
                                     pw::allocator::Layout layout,
-                                    uint32_t blockCapacity,
                                     size_t maxBlockCount, size_t minBlockCount,
                                     IdOrNotifyFn idOrNotifyFn) {
-  if (!queue || region.size > UINT32_MAX || !region.allocator ||
+  if (region.size > UINT32_MAX || !region.allocator ||
       maxBlockCount < minBlockCount) {
     return pw::Status::InvalidArgument();
   }
-  bool variableData = queue->elementAlignment < 0;
+  bool variableData = queue->config.mode != DataConfigMode::kFixedSize;
   PW_TRY_ASSIGN(auto *tailBlock,
-                allocateBlockRing(region, layout, blockCapacity, minBlockCount,
-                                  variableData));
+                allocateBlockRing(region, layout, queue->blockCapacity,
+                                  minBlockCount, variableData));
   auto &desc = tailBlock->producerDesc;
   initProducerDesc(desc, /*writeIndex=*/0, /*correction=*/0, tailBlock,
                    region.base);
@@ -337,8 +325,8 @@ pw::Status ProducerBase::initialize(const AllocatorRegion &region,
 
 ProducerBase::ProducerBase(const AllocatorRegion &region, QueuePrivate &queue,
                            pw::allocator::Layout blockLayout,
-                           size_t /*maxBlockCount*/, size_t minBlockCount,
-                           uint32_t dataOffset, DataNotifier &dataNotifier,
+                           uint32_t dataOffset, size_t /*maxBlockCount*/,
+                           size_t minBlockCount, DataNotifier &dataNotifier,
                            RemoteNotifyFn remoteNotifyFn,
                            MemoryAccess *memAccess)
     : mRegion(region),
@@ -385,8 +373,8 @@ void ProducerBase::stop() {
   // Mark the producer as torn down and notify all consumers.
   forAllConsumers(
       /*excludeMask=*/0,
-      [this](internal::ConsumerDesc &desc, uint32_t producerFlags) {
-        setConsumerFlag(desc, producerFlags, ProducerFlags::kFinished,
+      [this](internal::ConsumerNode &node, uint32_t producerFlags) {
+        setConsumerFlag(node, producerFlags, ProducerFlags::kFinished,
                         /*forceNotify=*/true);
       });
 }
@@ -582,25 +570,24 @@ void ProducerBase::updateAvailable(uint32_t increment) {
   auto excludeMask = ~(static_cast<uint16_t>(ProducerFlags::kBlocking));
   forAllConsumers(
       excludeMask,
-      [this](internal::ConsumerDesc &desc, uint32_t producerFlags,
+      [this](internal::ConsumerNode &node, uint32_t producerFlags,
              uint32_t tail, uint32_t increment) {
-        auto readIndex = desc.readIndex.load();
+        auto readIndex = node.desc->readIndex.load();
         auto diff = writeReadDiff(tail, readIndex);
-        bool overwritable =
-            overwritePolicy(desc.policy.load()) == OverwritePolicy::kAllowed;
+        bool overwritable = node.policy.overwrite == OverwritePolicy::kAllowed;
         bool overwritten = false;
         if (overwritable && diff + increment > capacity()) {
           // If the consumer is behind by more than the current capacity or
           // would be if the increment is applied, mark it overwritten.
           // TODO(b/448384247): When the queue supports dynamic expansion,
           // this needs to be more conservative.
-          setConsumerFlag(desc, producerFlags, ProducerFlags::kOverwrite);
+          setConsumerFlag(node, producerFlags, ProducerFlags::kOverwrite);
           overwritten = true;
         } else if (!overwritable && diff + increment >= capacity()) {
           // If the queue is at capacity or would be if the increment is
           // applied and the consumer cannot be overwritten, indicate that the
           // producer is blocked.
-          setConsumerFlag(desc, producerFlags, ProducerFlags::kBlocking);
+          setConsumerFlag(node, producerFlags, ProducerFlags::kBlocking);
         }
         // If this consumer is not overwritten, update the available space.
         if (!overwritten) {
@@ -610,15 +597,15 @@ void ProducerBase::updateAvailable(uint32_t increment) {
       tail, increment);
 }
 
-void ProducerBase::setConsumerFlag(ConsumerDesc &desc, uint32_t current,
+void ProducerBase::setConsumerFlag(ConsumerNode &node, uint32_t current,
                                    ProducerFlags flag, bool forceNotify) {
   uint32_t flagCounter = getFlagsCounter(current) + kFlagCountInc;
-  desc.producerFlags.store(static_cast<uint32_t>(flag) | flagCounter);
+  node.desc->producerFlags.store(static_cast<uint32_t>(flag) | flagCounter);
   // NOTE: If forceNotify, still check that the consumer has been initialized.
   if ((forceNotify &&
        getProducerFlags(current) != ProducerFlags::kPendingInit) ||
-      notificationPolicy(desc.policy.load()) != NotificationPolicy::kNever) {
-    notifyConsumer(desc);
+      node.policy.notification != NotificationPolicy::kNever) {
+    notifyConsumer(*node.desc);
   }
 }
 
@@ -626,7 +613,9 @@ void ProducerBase::notifyConsumer(ConsumerDesc &desc) {
   notify(desc.idOrNotifyFn, mRemoteNotifyFn);
 }
 
-pw::Result<uint32_t> ProducerBase::addConsumer(const AllocatorRegion &region) {
+pw::Result<uint32_t> ProducerBase::addConsumer(pw::ConstByteSpan id,
+                                               const AllocatorRegion &region,
+                                               ConsumerPolicy policy) {
   if (mState != State::kActive) {
     return pw::Status::FailedPrecondition();
   }
@@ -637,13 +626,16 @@ pw::Result<uint32_t> ProducerBase::addConsumer(const AllocatorRegion &region) {
   }
   // Attempt to allocate a ConsumerNode to track the descriptor from the queue's
   // primary region.
-  auto *node = mRegion.allocator->New<internal::ConsumerNode>(region, desc);
+  auto *node =
+      mRegion.allocator->New<internal::ConsumerNode>(id, region, desc, policy);
   if (!node) {
     region.allocator->Deallocate(desc);
     return pw::Status::ResourceExhausted();
   }
   // Initialize the descriptor.
   std::memset(desc, 0, sizeof(internal::ConsumerDesc));
+  // Let the consumer know if they are overwritable.
+  desc->overwritePolicy = policy.overwrite;
   desc->consumerFlags.store(
       static_cast<uint32_t>(internal::ConsumerFlags::kFlagsCleared));
   desc->producerFlags.store(
@@ -655,17 +647,31 @@ pw::Result<uint32_t> ProducerBase::addConsumer(const AllocatorRegion &region) {
   return toOffset(region.base, desc);
 }
 
+pw::Status ProducerBase::updateConsumerPolicy(pw::ConstByteSpan id,
+                                              ConsumerPolicy policy) {
+  for (auto node = mQueue->consumerList.begin();
+       node != mQueue->consumerList.end();) {
+    if (id.size() == node->id.size() &&
+        !std::memcmp(node->id.data(), id.data(), id.size())) {
+      node->policy = policy;
+      node->desc->overwritePolicy = policy.overwrite;
+      return pw::OkStatus();
+    }
+    ++node;
+  }
+  return pw::Status::NotFound();
+}
+
 pw::Status ProducerBase::pruneConsumers(
-    const pw::Function<bool(pw::ConstByteSpan remoteId)> &match) {
+    const pw::Function<bool(pw::ConstByteSpan id)> &match) {
   if (mState == State::kMovedFrom || !mRemoteNotifyFn) {
     return pw::Status::FailedPrecondition();
   }
   for (auto node = mQueue->consumerList.begin();
        node != mQueue->consumerList.end();) {
-    auto *desc = node->desc;
-    if (match(desc->idOrNotifyFn.remoteId)) {
+    if (match(node->id)) {
       // If the consumer is matched, mark it disconnected and remove it.
-      setConsumerFlag(*desc, desc->producerFlags.load(),
+      setConsumerFlag(*node, node->desc->producerFlags.load(),
                       ProducerFlags::kDisconnected);
       eraseConsumerNode(node);
     } else {
@@ -685,7 +691,7 @@ size_t ProducerBase::getNumConsumers() {
   // pruned and not counted.
   forAllConsumers(
       /*excludeMask=*/0,
-      [&count](internal::ConsumerDesc &, uint32_t) { ++count; });
+      [&count](internal::ConsumerNode &, uint32_t) { ++count; });
   return count;
 }
 
@@ -721,9 +727,11 @@ void ProducerBase::eraseConsumerNode(
 }
 
 pw::Result<std::pair<Queue *, ConsumerDesc *>> ConsumerBase::checkArgs(
-    const Region &region, uint32_t queueOffset, uint32_t descOffset) {
+    const Region &region, const Region *descRegion, uint32_t queueOffset,
+    uint32_t descOffset) {
   auto *queue = fromOffset<Queue>(region, queueOffset);
-  auto *desc = fromOffset<ConsumerDesc>(region, descOffset);
+  auto *desc = descRegion ? fromOffset<ConsumerDesc>(*descRegion, descOffset)
+                          : fromOffset<ConsumerDesc>(region, descOffset);
   if (!queue || !desc) {
     return pw::Status::InvalidArgument();
   }
@@ -746,8 +754,7 @@ ConsumerBase::ConsumerBase(const Region &region, Queue &queue,
       kDataOffset(dataOffset) {}
 
 pw::Status ConsumerBase::initialize(
-    IdOrNotifyFn idOrNotifyFn, ConsumerPolicyBuilder &policyBuilder,
-    std::optional<size_t> overwriteResetOffset) {
+    IdOrNotifyFn idOrNotifyFn, std::optional<size_t> overwriteResetOffset) {
   auto consumerFlags = mDesc->consumerFlags.load();
   mCurrentFlags = mDesc->producerFlags.load();
   if (getAndCheckProducerFlags(mCurrentFlags, consumerFlags) !=
@@ -755,7 +762,6 @@ pw::Status ConsumerBase::initialize(
     return pw::Status::FailedPrecondition();
   }
   mDesc->idOrNotifyFn = idOrNotifyFn;
-  mDesc->policy.store(policyBuilder.build().rawValue);
   PW_TRY(syncToProducer());
   mOverwriteResetOffset = overwriteResetOffset.value_or(capacity() / 2);
   clearFlags();
@@ -767,12 +773,6 @@ ConsumerBase::~ConsumerBase() {
     return;
   }
   disableAndNotify();
-}
-
-pw::Status ConsumerBase::updatePolicy(ConsumerPolicyBuilder &policyBuilder) {
-  PW_TRY(checkState());
-  mDesc->policy.store(policyBuilder.build().rawValue);
-  return pw::OkStatus();
 }
 
 void ConsumerBase::disable() {
@@ -1031,34 +1031,42 @@ void DataNotifier::updatePeriod(internal::ProducerBase & /*producer*/,
 }
 
 pw::Result<VariableDataProducer> VariableDataProducer::createLocal(
-    AllocatorRegion region, void *queue, size_t blockCapacity,
-    size_t maxBlockCount, size_t minBlockCount, DataNotifier &dataNotifier,
+    AllocatorRegion region, void *queue, size_t maxBlockCount,
+    size_t minBlockCount, DataNotifier &dataNotifier,
     LocalNotifyArgs notifyArgs, MemoryAccess *memAccess) {
-  if (!notifyArgs.fn) {
+  if (!notifyArgs.fn || !queue) {
     return pw::Status::InvalidArgument();
   }
   auto queuePtr = static_cast<internal::QueuePrivate *>(queue);
-  auto blockLayout = internal::variableDataBlockLayout(blockCapacity);
-  PW_TRY(Base::initialize(region, queuePtr, blockLayout, blockCapacity,
-                          maxBlockCount, minBlockCount,
-                          {.localNotify = notifyArgs}));
+  if (queuePtr->config.mode == DataConfigMode::kFixedSize) {
+    return pw::Status::FailedPrecondition();
+  } else if (queuePtr->config.mode == DataConfigMode::kVariableSizeAligned) {
+    return pw::Status::Unimplemented();
+  }
+  auto blockLayout = internal::variableDataBlockLayout(queuePtr->blockCapacity);
+  PW_TRY(Base::initialize(region, queuePtr, blockLayout, maxBlockCount,
+                          minBlockCount, {.localNotify = notifyArgs}));
   return VariableDataProducer(region, *queuePtr, blockLayout, maxBlockCount,
                               minBlockCount, dataNotifier,
                               /*remoteNotifyFn=*/{}, memAccess);
 }
 
 pw::Result<VariableDataProducer> VariableDataProducer::createRemote(
-    AllocatorRegion region, void *queue, size_t blockCapacity,
-    size_t maxBlockCount, size_t minBlockCount, DataNotifier &dataNotifier,
+    AllocatorRegion region, void *queue, size_t maxBlockCount,
+    size_t minBlockCount, DataNotifier &dataNotifier,
     RemoteNotifyArgs notifyArgs, MemoryAccess *memAccess) {
-  if (!notifyArgs.fn) {
+  if (!notifyArgs.fn || !queue) {
     return pw::Status::InvalidArgument();
   }
   auto queuePtr = static_cast<internal::QueuePrivate *>(queue);
-  auto blockLayout = internal::variableDataBlockLayout(blockCapacity);
-  PW_TRY(Base::initialize(region, queuePtr, blockLayout, blockCapacity,
-                          maxBlockCount, minBlockCount,
-                          {.remoteId = notifyArgs.id}));
+  if (queuePtr->config.mode == DataConfigMode::kFixedSize) {
+    return pw::Status::FailedPrecondition();
+  } else if (queuePtr->config.mode == DataConfigMode::kVariableSizeAligned) {
+    return pw::Status::Unimplemented();
+  }
+  auto blockLayout = internal::variableDataBlockLayout(queuePtr->blockCapacity);
+  PW_TRY(Base::initialize(region, queuePtr, blockLayout, maxBlockCount,
+                          minBlockCount, {.remoteId = notifyArgs.id}));
   return VariableDataProducer(region, *queuePtr, blockLayout, maxBlockCount,
                               minBlockCount, dataNotifier,
                               std::move(notifyArgs.fn), memAccess);
@@ -1069,9 +1077,10 @@ VariableDataProducer::VariableDataProducer(
     pw::allocator::Layout blockLayout, size_t maxBlockCount,
     size_t minBlockCount, DataNotifier &dataNotifier,
     RemoteNotifyFn remoteNotifyFn, MemoryAccess *memAccess)
-    : ProducerBase(region, queue, blockLayout, maxBlockCount, minBlockCount,
-                   offsetof(internal::Block<std::byte>, data), dataNotifier,
-                   std::move(remoteNotifyFn), memAccess) {}
+    : ProducerBase(region, queue, blockLayout,
+                   offsetof(internal::VariableDataBlock, data), maxBlockCount,
+                   minBlockCount, dataNotifier, std::move(remoteNotifyFn),
+                   memAccess) {}
 
 pw::Result<pw::ByteSpan> VariableDataProducer::reserve(size_t count) {
   if (mCurrentHdrPtr) {
@@ -1131,10 +1140,10 @@ pw::Status VariableDataProducer::push(pw::ConstByteSpan element) {
 void VariableDataProducer::updateFirstElementIndex() {
   auto *tailBlock = internal::fromOffset<internal::VariableDataBlock>(
       mRegion, mDesc->tailBlockOffset, kBlockLayout);
-  if (tailBlock->firstElementIndex == kBlockCapacity) {
+  if (tailBlock->header.firstElementIndex == kBlockCapacity) {
     // Only set the first element index if this is the first variable size
     // element to be written into this block (on this pass through the block).
-    tailBlock->firstElementIndex =
+    tailBlock->header.firstElementIndex =
         (mDesc->writeIndex.load() + mDesc->indexCorrection) % kBlockCapacity;
   }
 }
@@ -1144,7 +1153,7 @@ void VariableDataProducer::enterNextBlock(internal::BlockHeader *&block,
                                           bool convertSkipToBase) {
   Base::enterNextBlock(block, correction, index, convertSkipToBase);
   auto *varDataBlock = reinterpret_cast<internal::VariableDataBlock *>(block);
-  varDataBlock->firstElementIndex = kBlockCapacity;
+  varDataBlock->header.firstElementIndex = kBlockCapacity;
 }
 
 void VariableDataProducer::alignWriteIndex() {
@@ -1156,33 +1165,48 @@ void VariableDataProducer::alignWriteIndex() {
 
 pw::Result<VariableDataConsumer> VariableDataConsumer::createLocal(
     Region region, uint32_t queueOffset, uint32_t descOffset,
-    LocalNotifyArgs notifyArgs, ConsumerPolicyBuilder &policyBuilder,
-    MemoryAccess *memAccess, std::optional<size_t> overwriteResetOffset) {
+    LocalNotifyArgs notifyArgs, MemoryAccess *memAccess,
+    std::optional<size_t> overwriteResetOffset) {
   if (!notifyArgs.fn) {
     return pw::Status::InvalidArgument();
   }
-  PW_TRY_ASSIGN(auto queueAndDesc, checkArgs(region, queueOffset, descOffset));
+  PW_TRY_ASSIGN(auto queueAndDesc, checkArgs(region, /*descRegion=*/nullptr,
+                                             queueOffset, descOffset));
+  if (queueAndDesc.first->config.mode == DataConfigMode::kFixedSize) {
+    return pw::Status::FailedPrecondition();
+  } else if (queueAndDesc.first->config.mode ==
+             DataConfigMode::kVariableSizeAligned) {
+    return pw::Status::Unimplemented();
+  }
   VariableDataConsumer consumer(region, *queueAndDesc.first,
                                 *queueAndDesc.second,
                                 /*remoteNotifyFn=*/{}, memAccess);
-  PW_TRY(consumer.initialize({.localNotify = notifyArgs}, policyBuilder,
-                             overwriteResetOffset));
+  PW_TRY(
+      consumer.initialize({.localNotify = notifyArgs}, overwriteResetOffset));
   return consumer;
 }
 
 pw::Result<VariableDataConsumer> VariableDataConsumer::createRemote(
-    Region region, uint32_t queueOffset, uint32_t descOffset,
-    RemoteNotifyArgs notifyArgs, ConsumerPolicyBuilder &policyBuilder,
-    MemoryAccess *memAccess, std::optional<size_t> overwriteResetOffset) {
+    Region region, std::optional<Region> descRegion, uint32_t queueOffset,
+    uint32_t descOffset, RemoteNotifyArgs notifyArgs, MemoryAccess *memAccess,
+    std::optional<size_t> overwriteResetOffset) {
   if (!notifyArgs.fn) {
     return pw::Status::InvalidArgument();
   }
-  PW_TRY_ASSIGN(auto queueAndDesc, checkArgs(region, queueOffset, descOffset));
+  auto *descRegionPtr = descRegion ? &*descRegion : nullptr;
+  PW_TRY_ASSIGN(auto queueAndDesc,
+                checkArgs(region, descRegionPtr, queueOffset, descOffset));
+  if (queueAndDesc.first->config.mode == DataConfigMode::kFixedSize) {
+    return pw::Status::FailedPrecondition();
+  } else if (queueAndDesc.first->config.mode ==
+             DataConfigMode::kVariableSizeAligned) {
+    return pw::Status::Unimplemented();
+  }
   VariableDataConsumer consumer(region, *queueAndDesc.first,
                                 *queueAndDesc.second, std::move(notifyArgs.fn),
                                 memAccess);
-  PW_TRY(consumer.initialize({.remoteId = notifyArgs.id}, policyBuilder,
-                             overwriteResetOffset));
+  PW_TRY(
+      consumer.initialize({.remoteId = notifyArgs.id}, overwriteResetOffset));
   return consumer;
 }
 
@@ -1225,18 +1249,26 @@ pw::Result<size_t> VariableDataConsumer::size() {
   return pw::Status::Unimplemented();
 }
 
-void initQueue(void *queue, size_t capacity, int16_t alignment, bool local) {
+void initQueue(void *queue, size_t capacity, size_t elementSize,
+               size_t elementAlignment, bool local) {
   auto &queueRef = *static_cast<internal::Queue *>(queue);
   queueRef.producerOffset = internal::kOffsetInvalid;
   queueRef.blockCapacity = capacity;
-  queueRef.elementAlignment = alignment;
+  if (elementSize) {
+    queueRef.config.mode = DataConfigMode::kFixedSize;
+    queueRef.config.fixedSize.elementSize = elementSize;
+    queueRef.config.fixedSize.elementAlignment = elementAlignment;
+  } else {
+    queueRef.config.mode = DataConfigMode::kVariableSizeBasic;
+  }
   queueRef.localNotify = local;
 }
 
 pw::Result<void *> createVariableDataQueue(pw::Allocator &allocator,
                                            size_t blockCapacity, bool local) {
   if (auto *queue = allocator.New<internal::QueuePrivate>(); queue) {
-    initQueue(queue, blockCapacity, /*alignment=*/-1, local);
+    initQueue(queue, blockCapacity, /*elementSize=*/0,
+              /*elementAlignment=*/0, local);
     return queue;
   }
   return pw::Status::ResourceExhausted();
