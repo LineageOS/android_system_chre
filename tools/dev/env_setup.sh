@@ -93,7 +93,7 @@ _setup_pyenv() {
 _install_py_pkgs() {
   local general_requirements="${CHRE_DEV_SCRIPT_PATH}/requirements.txt"
   echo -e "\nThe following python packages would be installed if they are not yet.\n"
-  cat $general_requirements
+  cat "${CHRE_DEV_SCRIPT_PATH}/requirements.in"
   echo ""
 
   echo -ne "\nInstalling python packages..."

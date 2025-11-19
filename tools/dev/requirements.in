@@ -1,6 +1,10 @@
-mypy-protobuf
-grpcio-tools
-yapf
-pexpect
 cryptography
+grpcio-tools==1.60.0
+mypy-protobuf==3.5.0
+pexpect
 pyclibrary
+
+# To stay compatible with grpc
+setuptools<81
+
+yapf
