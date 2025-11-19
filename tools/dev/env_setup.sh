@@ -92,14 +92,12 @@ _setup_pyenv() {
 #######################################
 _install_py_pkgs() {
   local general_requirements="${CHRE_DEV_SCRIPT_PATH}/requirements.txt"
-  local protobuf_requirements="${CHRE_DEV_SCRIPT_PATH}/requirements_protobuf.txt"
   echo -e "\nThe following python packages would be installed if they are not yet.\n"
   cat $general_requirements
   echo ""
-  cat $protobuf_requirements
+
   echo -ne "\nInstalling python packages..."
-  pip install -r "$general_requirements" >/dev/null 2>&1 && \
-  pip install -r "$protobuf_requirements" >/dev/null 2>&1
+  pip install  --require-hashes -r "$general_requirements" >/dev/null 2>&1
   if [[ $? -ne 0 ]]; then
     echo -e "\nFailed to install python packages."
     return 1

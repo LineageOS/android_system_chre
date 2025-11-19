@@ -311,15 +311,5 @@ needs. Run them with `-h` or `--help` to see the instructions.
 
 ## Python Packages
 
-There are two package list files used to specifiy what packages are needed:
-
--   `requirements.txt`: The general list of packages. New package should be
-    added here.
--   `requirements_protobuf.txt`: The list for protobuf specifically.
-
-A reason to have a separate requirement file for protobuf is to avoid an
-infinite dependency overriding loop observed when multiple packages fetch
-different versions of protobuf.
-
-TODO(b/374392644) - Consider separate requirements based on different platform
-and target combinations.
+The required packages are specified in `requirements.in` and the installation
+is done via `requirements.txt` that enforcing hashes of the packages.
