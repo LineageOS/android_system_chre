@@ -80,7 +80,7 @@ class DataNotifier {
    * @return true iff the endpoint is active, e.g. core is on and endpoint
    * available.
    */
-  virtual bool isActive(pw::span<const uint8_t, 16> /*id*/) {
+  virtual bool isActive(pw::span<const std::byte, 16> /*id*/) {
     return true;
   }
 
@@ -88,13 +88,25 @@ class DataNotifier {
    * Updates the consumer's batching period during onWrite().
    *
    * @param producer The associated producer.
-   * @param consumerId The consumer id.
+   * @param consumer The consumer node.
    * @param periodMs The period to update to in milliseconds. Disables timer if
    * empty.
    */
   virtual void updatePeriod(internal::ProducerBase &producer,
-                            pw::span<const uint8_t, 16> consumerId,
+                            internal::ConsumerNode &consumer,
                             std::optional<uint32_t> periodMs);
+
+  /**
+   * Notifies the consumer if the watermark has been reached.
+   *
+   * @param producer The associated producer.
+   * @param writeIndex The current write index.
+   * @param policyData The data field from the notification policy.
+   * @param consumer The consumer descriptor.
+   */
+  virtual void notifyIfAtWatermark(internal::ProducerBase &producer,
+                                   uint32_t writeIndex, uint32_t policyData,
+                                   internal::ConsumerDesc &consumer);
 };
 
 // Forward declaration for friend access.

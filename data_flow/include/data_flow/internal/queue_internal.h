@@ -671,6 +671,14 @@ class ProducerBase {
    */
   void eraseConsumerNode(decltype(QueuePrivate::consumerList)::iterator &node);
 
+  /**
+   * Checks that the policy is valid.
+   *
+   * @param policy The policy to check.
+   * @return pw::InvalidArgument() if the policy is invalid.
+   */
+  pw::Status checkPolicy(ConsumerPolicy policy);
+
   // Members fixed on construction.
   AllocatorRegion mRegion;
   RemoteNotifyFn mRemoteNotifyFn;

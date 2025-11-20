@@ -1088,5 +1088,69 @@ TEST_F(QueueTest, CreateQueueUntypedIsSameAsCreateQueue) {
   mAllocator.Deallocate(*maybeUntypedQueue);
 }
 
+TEST_F(QueueTest, RemoteNotificationNever) {
+  static int notificationCount = 0;
+  RemoteNotifyFn notifyFn = [](pw::ConstByteSpan) { notificationCount++; };
+  std::vector<std::pair<RemoteNotifyFn, ConsumerPolicyBuilder>> consumerArgs;
+  consumerArgs.emplace_back(
+      getEmptyRemoteNotifyFn(),
+      ConsumerPolicyBuilder().setNonOverwritable().setNeverNotify());
+  initRemoteEndpoints(std::move(notifyFn), consumerArgs);
+
+  EXPECT_EQ(mProducer->push(1), pw::OkStatus());
+  EXPECT_EQ(notificationCount, 0);
+}
+
+TEST_F(QueueTest, RemoteNotificationStreaming) {
+  static int notificationCount = 0;
+  RemoteNotifyFn notifyFn = [](pw::ConstByteSpan) { notificationCount++; };
+  std::vector<std::pair<RemoteNotifyFn, ConsumerPolicyBuilder>> consumerArgs;
+  consumerArgs.emplace_back(
+      getEmptyRemoteNotifyFn(),
+      ConsumerPolicyBuilder().setNonOverwritable().setStreaming());
+  initRemoteEndpoints(std::move(notifyFn), consumerArgs);
+
+  EXPECT_EQ(mProducer->push(1), pw::OkStatus());
+  EXPECT_EQ(notificationCount, 1);
+  EXPECT_EQ(mProducer->push(2), pw::OkStatus());
+  EXPECT_EQ(notificationCount, 2);
+}
+
+TEST_F(QueueTest, RemoteNotificationHighWaterMark) {
+  static int notificationCount = 0;
+  RemoteNotifyFn notifyFn = [](pw::ConstByteSpan) { notificationCount++; };
+  constexpr size_t kHighWatermark = 4;
+  std::vector<std::pair<RemoteNotifyFn, ConsumerPolicyBuilder>> consumerArgs;
+  consumerArgs.emplace_back(
+      getEmptyRemoteNotifyFn(),
+      ConsumerPolicyBuilder().setNonOverwritable().setHighWaterMark(
+          kHighWatermark));
+  initRemoteEndpoints(std::move(notifyFn), consumerArgs);
+
+  for (size_t i = 0; i < kHighWatermark - 1; ++i) {
+    EXPECT_EQ(mProducer->push(0), pw::OkStatus());
+    EXPECT_EQ(notificationCount, 0);
+  }
+
+  // Crossing the watermark should trigger a notification.
+  EXPECT_EQ(mProducer->push(0), pw::OkStatus());
+  EXPECT_EQ(notificationCount, 1);
+
+  // Every subsequent push should also trigger a notification.
+  EXPECT_EQ(mProducer->push(0), pw::OkStatus());
+  EXPECT_EQ(notificationCount, 2);
+
+  // Pop three elements so that a subsequent push will not cross the watermark.
+  for (int i = 0; i < 3; ++i) {
+    EXPECT_EQ(mConsumers[0].pop().status(), pw::OkStatus());
+  }
+  EXPECT_EQ(mProducer->push(0), pw::OkStatus());
+  EXPECT_EQ(notificationCount, 2);
+
+  // Push another element, which should trigger a notification.
+  EXPECT_EQ(mProducer->push(0), pw::OkStatus());
+  EXPECT_EQ(notificationCount, 3);
+}
+
 }  // namespace
 }  // namespace android::contexthub::data_flow

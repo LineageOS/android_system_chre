@@ -470,6 +470,7 @@ pw::Status ProducerBase::commit(size_t count) {
   }
   mReserved -= count;
   advanceWriteIndex(count, /*data=*/std::nullopt);
+  mDataNotifier->onWrite(*this);
   return pw::OkStatus();
 }
 
@@ -483,6 +484,7 @@ pw::Result<size_t> ProducerBase::push(pw::ConstByteSpan data,
   }
   PW_TRY_ASSIGN(auto count, checkAvailable(data.size(), allOrNothing));
   advanceWriteIndex(count, data);
+  mDataNotifier->onWrite(*this);
   return count;
 }
 
@@ -668,6 +670,9 @@ pw::Result<uint32_t> ProducerBase::addConsumer(pw::ConstByteSpan id,
     region.allocator->Deallocate(desc);
     return pw::Status::ResourceExhausted();
   }
+  PW_TRY(checkPolicy(policy));
+  // Set the policy on the node.
+  node->policy = policy;
   // Initialize the descriptor.
   std::memset(desc, 0, sizeof(internal::ConsumerDesc));
   // Let the consumer know if they are overwritable.
@@ -685,6 +690,7 @@ pw::Result<uint32_t> ProducerBase::addConsumer(pw::ConstByteSpan id,
 
 pw::Status ProducerBase::updateConsumerPolicy(pw::ConstByteSpan id,
                                               ConsumerPolicy policy) {
+  PW_TRY(checkPolicy(policy));
   for (auto node = mQueue->consumerList.begin();
        node != mQueue->consumerList.end();) {
     if (id.size() == node->id.size() &&
@@ -760,6 +766,20 @@ void ProducerBase::eraseConsumerNode(
   // Delete the descriptor and node.
   nodePtr->region.allocator->Delete(nodePtr->desc);
   mRegion.allocator->Delete(nodePtr);
+}
+
+pw::Status ProducerBase::checkPolicy(ConsumerPolicy policy) {
+  if (policy.notification == NotificationPolicy::kHighWaterMark ||
+      policy.notification == NotificationPolicy::kOpportunistic) {
+    uint64_t threshold = policy.data;
+    if (mQueue->config.mode == Queue::DataConfig::Mode::kFixedSize) {
+      threshold *= mQueue->config.fixedSize.elementSize;
+    }
+    if (threshold > capacity()) {
+      return pw::Status::InvalidArgument();
+    }
+  }
+  return pw::OkStatus();
 }
 
 pw::Result<std::pair<Queue *, ConsumerDesc *>> ConsumerBase::checkArgs(
@@ -1059,14 +1079,74 @@ void ConsumerBase::clearFlags() {
 
 }  // namespace internal
 
-void DataNotifier::onWrite(internal::ProducerBase & /*producer*/) {
-  // TODO(b/445482700): Implement.
+void DataNotifier::onWrite(internal::ProducerBase &producer) {
+  // Only notify consumers that are in a good state to read (i.e. either no
+  // flags or ProducerFlags::kBlocking).
+  uint16_t excludeMask =
+      ~(static_cast<uint16_t>(internal::ProducerFlags::kBlocking));
+  uint32_t tail = producer.mDesc->writeIndex.load();
+  producer.forAllConsumers(
+      excludeMask,
+      [&](internal::ConsumerNode &node, uint32_t /*producerFlags*/,
+          uint32_t tail) {
+        auto &desc = *node.desc;
+        bool clearPeriod = true;
+        auto policyData = node.policy.data;
+        switch (node.policy.notification) {
+          case NotificationPolicy::kNever:
+            break;
+          case NotificationPolicy::kOpportunistic:
+            // Check that either the queue is local or the remote endpoint is
+            // active. Then check that the low watermark has been reached.
+            if ((!producer.mRemoteNotifyFn || isActive(node.id))) {
+              notifyIfAtWatermark(producer, tail, policyData, desc);
+            }
+            break;
+          case NotificationPolicy::kHighWaterMark:
+            notifyIfAtWatermark(producer, tail, policyData, desc);
+            break;
+          case NotificationPolicy::kStreaming:
+            producer.notifyConsumer(desc);
+            break;
+          case NotificationPolicy::kPeriodic:
+            clearPeriod = false;
+            updatePeriod(producer, node, policyData);
+            break;
+          default:
+            // Invalid policy. Ignore.
+            break;
+        }
+        if (clearPeriod) {
+          // Disable any timers associated with this consumer.
+          updatePeriod(producer, node, /*periodMs=*/std::nullopt);
+        }
+      },
+      tail);
 }
 
-void DataNotifier::updatePeriod(internal::ProducerBase & /*producer*/,
-                                pw::span<const uint8_t, 16> /*consumerId*/,
-                                std::optional<uint32_t> /*periodMs*/) {
-  // TODO(b/445482700): Implement.
+void DataNotifier::updatePeriod(internal::ProducerBase &producer,
+                                internal::ConsumerNode &consumer,
+                                std::optional<uint32_t> periodMs) {
+  if (periodMs) {
+    // The default implementation has no timer support, so just notify the
+    // consumer.
+    producer.notifyConsumer(*consumer.desc);
+  }
+}
+
+void DataNotifier::notifyIfAtWatermark(internal::ProducerBase &producer,
+                                       uint32_t writeIndex, uint32_t policyData,
+                                       internal::ConsumerDesc &consumer) {
+  // Calculate the threshold in bytes from the policy data and queue
+  // configuration.
+  uint32_t threshold = policyData;
+  if (producer.mQueue->config.mode == DataConfigMode::kFixedSize) {
+    threshold *= producer.mQueue->config.fixedSize.elementSize;
+  }
+  if (internal::writeReadDiff(writeIndex, consumer.readIndex.load()) >=
+      threshold) {
+    producer.notifyConsumer(consumer);
+  }
 }
 
 pw::Result<VariableDataProducer> VariableDataProducer::createLocal(
@@ -1175,6 +1255,8 @@ pw::Status VariableDataProducer::push(pw::ConstByteSpan element) {
   advanceWriteIndex(sizeof(hdr), pw::as_bytes(pw::span(&hdr, 1)));
   advanceWriteIndex(hdr.size, element);
   alignWriteIndex();  // Next element header should be aligned.
+  // Notify consumers as required.
+  mDataNotifier->onWrite(*this);
   return pw::OkStatus();
 }
 
