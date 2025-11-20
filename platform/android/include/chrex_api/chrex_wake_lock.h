@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 #ifdef __cplusplus
 extern "C" {
