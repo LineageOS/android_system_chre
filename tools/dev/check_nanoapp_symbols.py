@@ -26,29 +26,30 @@ symbols by:
 3.  Reading platform-specific lists of exported symbols.
 4.  Reading an optional user-provided file of additional allowed symbols.
 
-It then compares the nanoapp's undefined symbols (extracted using the corresponding
-elf reader of the target) against this allowed list and reports any discrepancies,
-exiting with an error if unresolvable symbols are found.
+It then compares the nanoapp's undefined symbols (extracted using the
+corresponding elf reader of the target) against this allowed list and reports
+any discrepancies, exiting with an error if unresolvable symbols are found.
 """
 
 import argparse
 import os
+from os import listdir
+from os.path import join
 import re
 import subprocess
 import warnings
-from os import listdir
-from os.path import join
 
 import pyclibrary
-
-from shell_util import warning, log_w, success
+from shell_util import log_w, success, warning
 
 # The number of rows to discard from the output of the elf reader
 NUM_ROWS_TO_DISCARD = 4
 
 
 def _get_env_list(env_var_name: str):
-  return os.getenv(env_var_name).split(":") if env_var_name in os.environ else []
+  return (
+      os.getenv(env_var_name).split(':') if env_var_name in os.environ else []
+  )
 
 
 def _get_known_exported_functions() -> list:
@@ -62,10 +63,12 @@ def _get_known_exported_functions() -> list:
   # Regex to match both macro forms:
   # 1. ADD_EXPORTED_SYMBOL(internal_name, "external_name") - Captures 'external_name'
   # 2. ADD_EXPORTED_C_SYMBOL(function_name) - Captures 'function_name'
-  regex = r'ADD_EXPORTED_SYMBOL\s*\([^,]+,\s*"([^"]+)"\)|' \
-          r'ADD_EXPORTED_C_SYMBOL\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)'
+  regex = (
+      r'ADD_EXPORTED_SYMBOL\s*\([^,]+,\s*"([^"]+)"\)|'
+      r'ADD_EXPORTED_C_SYMBOL\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)'
+  )
 
-  exported_macro_files = _get_env_list("EXPORTED_MACRO_FILES")
+  exported_macro_files = _get_env_list('EXPORTED_MACRO_FILES')
   for file in exported_macro_files:
     symbols = []
     with open(file, 'r') as f:
@@ -73,9 +76,11 @@ def _get_known_exported_functions() -> list:
         matches = re.search(regex, line)
         if matches:
           name_from_symbol, name_from_c_symbol = matches.groups()
-          symbols.append(name_from_symbol if name_from_symbol else name_from_c_symbol)
+          symbols.append(
+              name_from_symbol if name_from_symbol else name_from_c_symbol
+          )
 
-    print(f"{len(symbols)} dynamic symbols found in {file}")
+    print(f'{len(symbols)} dynamic symbols found in {file}')
     exported_names.extend(symbols)
   return exported_names
 
@@ -92,7 +97,9 @@ def _get_allowed_symbols() -> list:
   Returns:
       A list of all allowed symbol names.
   """
-  chre_api_path = f"{os.environ['ANDROID_BUILD_TOP']}/system/chre/chre_api/include/chre_api"
+  chre_api_path = (
+      f"{os.environ['ANDROID_BUILD_TOP']}/system/chre/chre_api/include/chre_api"
+  )
   header_files = []
   for f in listdir(chre_api_path + '/chre'):
     header_files.append(join(chre_api_path + '/chre', f))
@@ -108,21 +115,25 @@ def _get_allowed_symbols() -> list:
       #  - have a vararg parameter
       #  - have a trailing macro
       # so removing them from the header file before parsing
-      pyc_parser = pyclibrary.CParser(h, replace={r', \.\.\.': '', r'[A-Z_]+;': ';'})
+      pyc_parser = pyclibrary.CParser(
+          h, replace={r', \.\.\.': '', r'[A-Z_]+;': ';'}
+      )
       fnames.extend(list(pyc_parser.defs['functions'].keys()))
   finally:
     warnings.simplefilter('default', SyntaxWarning)
 
-  print(f"{len(fnames)} dynamic symbols found in chre header files")
+  print(f'{len(fnames)} dynamic symbols found in chre header files')
 
   fnames.extend(_get_known_exported_functions())
 
-  lst_files = _get_env_list("EXTERNAL_SYMBOL_LISTS")
+  lst_files = _get_env_list('EXTERNAL_SYMBOL_LISTS')
   for lst_file in lst_files:
     with open(lst_file) as f:
       platform_external_symbols = [s.strip() for s in f.readlines()]
       print(
-        f"{len(platform_external_symbols)} dynamic symbols found in {lst_file}")
+          f'{len(platform_external_symbols)} dynamic symbols found in'
+          f' {lst_file}'
+      )
       fnames.extend(platform_external_symbols)
   return fnames
 
@@ -140,16 +151,16 @@ def _get_symbols_from_nanoapp(file_name: str) -> list:
     A list of undefined symbol names found in the nanoapp.
   """
   elf_reader = os.environ['CHRE_TARGET_ELF_READER']
-  readelf_cmd = f"{elf_reader} --dyn-syms --wide {file_name}"
+  readelf_cmd = f'{elf_reader} --dyn-syms --wide {file_name}'
   out = subprocess.check_output(readelf_cmd.split(), text=True)
 
   symbols = []
   for line in out.splitlines()[NUM_ROWS_TO_DISCARD:]:
     words = line.split()
     idx_type, symbol_name = words[-2:]
-    if "UND" == idx_type:
+    if 'UND' == idx_type:
       symbols.append(symbol_name)
-  print(f"{len(symbols)} dynamic symbols found in {file_name}")
+  print(f'{len(symbols)} dynamic symbols found in {file_name}')
   return symbols
 
 
@@ -186,22 +197,27 @@ def _disallowed_symbols(observed_symbols: list, allowed_symbols: list) -> list:
   # the observed symbols to be allowed
   for allowed in allowed_symbols:
     if '*' in allowed:
-      prefix = allowed[:allowed.find('*')]
+      prefix = allowed[: allowed.find('*')]
       diff_list = [sym for sym in diff_list if not sym.startswith(prefix)]
   return diff_list
 
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(
-    description="Check nanoapp for illegal" +
-                " symbols in file provided by --nanoapp argument")
-  parser.add_argument('--nanoapp', type=str, help="nanoapp file", required=True)
-  parser.add_argument('--allowed_symbols_file', type=str,
-                      help="a file containing a list of allowed symbols", required=False)
+      description='Check nanoapp for illegal'
+      + ' symbols in file provided by --nanoapp argument'
+  )
+  parser.add_argument('--nanoapp', type=str, help='nanoapp file', required=True)
+  parser.add_argument(
+      '--allowed_symbols_file',
+      type=str,
+      help='a file containing a list of allowed symbols',
+      required=False,
+  )
   args = parser.parse_args()
   nanoapp_filename = args.nanoapp
 
-  print("\n------- Checking unresolvable external symbols -------")
+  print('\n------- Checking unresolvable external symbols -------')
 
   specific_allowed_symbols_file = args.allowed_symbols_file
 
@@ -210,14 +226,16 @@ if __name__ == '__main__':
 
   if specific_allowed_symbols_file is not None:
     allowed_symbols += _get_allowed_symbols_from_file(
-      specific_allowed_symbols_file)
+        specific_allowed_symbols_file
+    )
 
-  disallowed_symbols_list = _disallowed_symbols(observed_symbols,
-                                                allowed_symbols)
+  disallowed_symbols_list = _disallowed_symbols(
+      observed_symbols, allowed_symbols
+  )
 
   if len(disallowed_symbols_list) > 0:
-    warning(f"{len(disallowed_symbols_list)} unresolvable symbol(s) found:\n")
+    warning(f'{len(disallowed_symbols_list)} unresolvable symbol(s) found:\n')
     for sym in disallowed_symbols_list:
-      log_w(f" - {sym}")
+      log_w(f' - {sym}')
   else:
-    success(f"All the dynamic symbols are resolvable!")
+    success(f'All the dynamic symbols are resolvable!')
