@@ -18,6 +18,7 @@
 
 #include <cstdint>
 #include "chre/core/event_loop_manager.h"
+#include "chre/core/wwan_request_manager.h"
 #include "chre/pal/wwan.h"
 #include "chre/platform/android/jni_manager.h"
 #include "chre/platform/log.h"
@@ -183,8 +184,8 @@ static void parseWcdmaInfo(JNIEnv *env, jobject cellInfo,
   if (sig) {
     outInfo->CellInfo.wcdma.signalStrengthWcdma.signalStrength =
         env->CallIntMethod(sig, getWwanJniCache().wcdmaSigGetDbm);
-    outInfo->CellInfo.wcdma.signalStrengthWcdma.bitErrorRate =
-        env->CallIntMethod(sig, getWwanJniCache().wcdmaSigGetBer);
+    // WCDMA getBitErrorRate is not available in standard API
+    outInfo->CellInfo.wcdma.signalStrengthWcdma.bitErrorRate = INT32_MAX;
     env->DeleteLocalRef(sig);
   }
 }

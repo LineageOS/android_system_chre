@@ -127,8 +127,6 @@ void JniManager::init(JavaVM *vm) {
         env->GetMethodID(idWcdma, "getUarfcn", "()I");
 
     mWwanJniCache.wcdmaSigGetDbm = env->GetMethodID(sigWcdma, "getDbm", "()I");
-    mWwanJniCache.wcdmaSigGetBer =
-        env->GetMethodID(sigWcdma, "getBitErrorRate", "()I");
   }
 
   // NR (5G)

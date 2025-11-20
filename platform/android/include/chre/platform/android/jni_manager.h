@@ -105,7 +105,6 @@ class JniManager {
     jmethodID wcdmaIdGetUarfcn;
     // CellSignalStrengthWcdma
     jmethodID wcdmaSigGetDbm;
-    jmethodID wcdmaSigGetBer;
 
     // --- NR (5G) Methods ---
     jmethodID nrGetIdentity;
