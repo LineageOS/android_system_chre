@@ -125,9 +125,9 @@ def _assert_and_expand_env_variable(env_name, env_type: str, env_value: str):
       if not os.path.isfile(_expanded_value):
         fatal_error(f"File '{value}' does not exist.")
     elif v_type == "value":
-      if not re.match(r"^[\w\-]+$", value, flags=re.ASCII):
+      if not re.match(r"^[\w\-]+$", _expanded_value, flags=re.ASCII):
         fatal_error(
-          f"Invalid value '{value}'. Only dash and characters in [a-zA-Z0-9_] are allowed.")
+          f"Invalid value '{_expanded_value}'. Only dash and characters in [a-zA-Z0-9_] are allowed.")
     else:
       fatal_error(f"Unknown value type '{v_type}' for value '{value}'")
     return _expanded_value
