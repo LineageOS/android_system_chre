@@ -67,10 +67,14 @@ is a list of commands available after sourcing the `env_setup.sh` script.
 
 -   `chre_envs`: Prints all the environment variables set up for CHRE
     development.
--   `chre_lunch [-c <config_file>] <platform-target>`: Sets up the environment
-    for specific platform and target combination. The `-c` option allows
-    specifying an alternative configuration file instead of the default
-    `env_config.json`.
+-   `chre_lunch [-c <config_file>] [-i|--interactive] <platform-target>`: Sets
+    up the environment for specific platform and target combination.
+    -   `-c <config_file>`: specifying an alternative configuration file instead
+        of the default `env_config.json`.
+    -   `-i` or `--interactive`: By default, if a default value is provided in
+        the config file for an environment variable it will be used directly
+        without asking the user to specify. This option allows the user to
+        manually enter a value for each environment variable regardless.
 -   `chre_make [-C] [-s <src_path>]`: Builds the CHRE target. `-s` option allows
     the user to specify a separate source path. `-C` option generates
     `CMakeLists.txt` and `compile_commands.json`.

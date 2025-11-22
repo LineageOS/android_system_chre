@@ -153,17 +153,28 @@ def log_i(message: str):
   print(f"{message}", file=sys.stderr)
 
 
-def get_input_from_shell(prompt: str) -> str:
+def get_input_from_shell(prompt: str, color: str = None) -> str:
   """Prompts the user for input from the shell and returns the response.
 
   Args:
     prompt: The prompt message to display to the user.
+    color: The color of the prompt. Typically green indicates something
+      accomplished successfully, red means a blocking error and yellow indicates
+      either a non-blocking error or some important information worth notice.
 
   Returns:
     The string entered by the user.
   """
+  if color == "green":
+    prompt = f"\033[32m{prompt}\033[0m"
+  elif color == "yellow":
+    prompt = f"\033[33m{prompt}\033[0m"
+  elif color == "red":
+    prompt = f"\033[31m{prompt}\033[0m"
+  else:
+    pass
   print(prompt, end="", file=sys.stderr, flush=True)
-  return input()
+  return input().strip()
 
 
 def not_have(pattern: str):
@@ -183,11 +194,15 @@ class ShellSession:
     import pexpect
 
     if env is None:
-      env = {"SCRIPT_ONLY": "yes"}
+      env = os.environ.copy()
     self.cmd_width = cmd_width  # Used for pretty printing
-    self.session = pexpect.spawn(shell_cmd, env=env)
+    rows, cols = (
+        24,
+        180,
+    )  # large enough cols to make sure a single line output fits
+    self.session = pexpect.spawn(shell_cmd, env=env, dimensions=(rows, cols))
     self.session.expect(r"(.*)[$#>] ")
-    self.prompt = self.session.match.group(1).decode()
+    self.prompt = re.escape(self.session.match.group(1).decode())
 
   # When the keyword argument timeout is -1 (default), then TIMEOUT exception
   # will be raised after the default value specified by the class timeout

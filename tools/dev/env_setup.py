@@ -37,7 +37,7 @@ import subprocess
 import sys
 from typing import Any
 
-from shell_util import check_dependencies, fatal_error, init_file, log_e, log_i, log_w
+from shell_util import check_dependencies, fatal_error, get_input_from_shell, init_file, log_e, log_i, log_w
 
 
 def _print_env_var_pair(env_var: str):
@@ -49,27 +49,6 @@ def _get_canonical_path(path: str):
   return os.path.expanduser(os.path.expandvars(path))
 
 
-def _get_input_from_shell(prompt: str, color: str = None) -> str:
-  """Prompts the user for input from the shell and returns the response.
-
-  Args:
-    prompt: The prompt message to display to the user.
-
-  Returns:
-    The string entered by the user.
-  """
-  if color == "green":
-    prompt = f"\033[32m{prompt}\033[0m"
-  elif color == "yellow":
-    prompt = f"\033[33m{prompt}\033[0m"
-  elif color == "red":
-    prompt = f"\033[31m{prompt}\033[0m"
-  else:
-    pass
-  print(prompt, end="", file=sys.stderr, flush=True)
-  return input()
-
-
 def _action_clone_repo(url: str, branch: str, dest: str) -> None:
   """Clones a Git repository from 'url' with a specific 'branch' into 'dest'.
 
@@ -79,7 +58,7 @@ def _action_clone_repo(url: str, branch: str, dest: str) -> None:
       dest (str): The destination directory to clone the repository into.
   """
   if os.path.exists(dest):
-    answer = _get_input_from_shell(
+    answer = get_input_from_shell(
         f"{dest} already exists. Shall we override it? (y/N):", color="yellow"
     )
     if not answer or answer.lower() == "n":
@@ -104,6 +83,25 @@ def _action_clone_repo(url: str, branch: str, dest: str) -> None:
     )
 
 
+def _check_single_value(value, v_type):
+  _expanded_value = _get_canonical_path(value)
+  if v_type == "path":
+    if not os.path.isdir(_expanded_value):
+      raise ValueError(f"Path '{value}' does not exist")
+  elif v_type == "file":
+    if not os.path.isfile(_expanded_value):
+      raise ValueError(f"File '{value}' does not exist")
+  elif v_type == "value":
+    if not re.match(r"^[\w\-]+$", _expanded_value, flags=re.ASCII):
+      raise ValueError(
+          f"Invalid value '{_expanded_value}'. Only dash and characters in"
+          " [a-zA-Z0-9_] are allowed"
+      )
+  else:
+    raise ValueError(f"Unknown value type '{v_type}' for value '{value}'")
+  return _expanded_value
+
+
 def _assert_and_expand_env_variable(env_name, env_type: str, env_value: str):
   """Expands and validates an environment variable, then sets it.
 
@@ -120,25 +118,6 @@ def _assert_and_expand_env_variable(env_name, env_type: str, env_value: str):
   Returns:
     The expanded value of the environment variable.
   """
-
-  def _check_single_value(value, v_type):
-    _expanded_value = _get_canonical_path(value)
-    if v_type == "path":
-      if not os.path.isdir(_expanded_value):
-        fatal_error(f"Path '{value}' does not exist.")
-    elif v_type == "file":
-      if not os.path.isfile(_expanded_value):
-        fatal_error(f"File '{value}' does not exist.")
-    elif v_type == "value":
-      if not re.match(r"^[\w\-]+$", _expanded_value, flags=re.ASCII):
-        fatal_error(
-            f"Invalid value '{_expanded_value}'. Only dash and characters in"
-            " [a-zA-Z0-9_] are allowed."
-        )
-    else:
-      fatal_error(f"Unknown value type '{v_type}' for value '{value}'")
-    return _expanded_value
-
   matched_list_type = re.match(r"^list\[(.*)]$", env_type)
   if matched_list_type:
     expanded_value = ":".join(
@@ -268,7 +247,7 @@ def _parse_platform_and_target_configs(
   )
 
 
-def _parse_env_variable_fields(env_vars, predefined_envs):
+def _parse_env_variable_fields(env_vars, predefined_envs, interactive: bool):
   """Interactively prompts for and processes environment variables.
 
   Iterates through a list of environment variable definitions, prompts the user
@@ -282,6 +261,7 @@ def _parse_env_variable_fields(env_vars, predefined_envs):
       platform and the target.
     env_vars: A list of dictionaries, where each dictionary defines an
       environment variable customizable by the user.
+    interactive: A boolean indicating whether to run in interactive mode.
 
   Returns:
     A list of <name>=<value> pairs representing the environment variables.
@@ -301,19 +281,31 @@ def _parse_env_variable_fields(env_vars, predefined_envs):
         prompt = "{} ({})".format(
             env_name, default_value if default_value else "EMPTY"
         )
-      print("\n{}".format(env_var.get("description", "")), file=sys.stderr)
-      user_entered_value = _get_input_from_shell(f"{prompt}: ").strip()
+
+      if interactive or default_value is None:
+        print("\n{}".format(env_var.get("description", "")), file=sys.stderr)
+        while True:
+          user_entered_value = get_input_from_shell(f"{prompt}: ")
+          if not user_entered_value and default_value:
+            user_entered_value = default_value
+            break
+          try:
+            _check_single_value(user_entered_value, env_var["type"])
+            break
+          except ValueError as e:
+            log_w(f"{e.args[0]}. Try again.")
+      else:
+        user_entered_value = default_value
 
       if user_entered_value:
         expanded_value = _assert_and_expand_env_variable(
             env_name, env_var["type"], user_entered_value
         )
         env_var_pairs.append(f'{env_name}="{expanded_value}"')
-        # User entered a value, skip the default action
         continue
 
       # Either user has to enter a value or default_value must be provided
-      if default_value is None:
+      if default_value is None and not user_entered_value:
         fatal_error(f"{env_name} must be provided. Please try it again")
 
       if default_action:
@@ -343,7 +335,12 @@ def main():
       "platform_and_target", nargs="?", default=None, type=str
   )
   arg_parser.add_argument("-c", "--config", type=str)
-
+  arg_parser.add_argument(
+      "-i",
+      "--interactive",
+      action="store_true",
+      help="Enable interactive mode to confirm default values.",
+  )
   args = arg_parser.parse_args()
   config_data, config_file_path = _load_config(args.config)
   if config_file_path:
@@ -371,7 +368,7 @@ def main():
       for env_var_pair in f:
         _print_env_var_pair(env_var_pair)
         predefined_vars.append(env_var_pair.strip())
-      answer = _get_input_from_shell(
+      answer = get_input_from_shell(
           "\nShall we keep using them? (Y/n):", color="yellow"
       )
       if not answer or answer.lower() == "y":
@@ -380,7 +377,9 @@ def main():
       else:
         log_w("Overriding the existing dev environment settings...\n")
 
-  env_var_pairs = _parse_env_variable_fields(target_envs_configs, fixed_env_map)
+  env_var_pairs = _parse_env_variable_fields(
+      target_envs_configs, fixed_env_map, args.interactive
+  )
 
   # env_vars_file is only created after parsing env variables successfully.
   if not os.path.exists(env_vars_file):
