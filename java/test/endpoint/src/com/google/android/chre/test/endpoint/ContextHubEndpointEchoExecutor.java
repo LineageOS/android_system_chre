@@ -47,9 +47,8 @@ import com.google.protobuf.Empty;
 import com.google.protobuf.MessageLite;
 
 import org.junit.Assert;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.anyOf;
-import static org.hamcrest.Matchers.is;
+import static com.google.common.truth.Truth.assertThat;
+import static com.google.common.truth.Truth.assertWithMessage;
 import org.junit.Assume;
 
 import java.util.ArrayList;
@@ -515,15 +514,14 @@ public class ContextHubEndpointEchoExecutor {
      * A test to see if the getHubs API returns a valid list of hubs.
      */
     public void testGetHubs() throws Exception {
-        List<HubInfo> hubs = mContextHubManager.getHubs();
-        Assert.assertNotNull(hubs);
+        List<HubInfo> hubs = new ArrayList<>();
+        checkApiSupport((manager) -> hubs.addAll(manager.getHubs()));
+        assertThat(hubs).isNotEmpty();
         Set<Long> hubIds = new HashSet<>();
         for (HubInfo hub : hubs) {
             Log.d(TAG, "Found hub: " + hub);
-            assertThat(
-                    "Hub type is invalid",
-                     hub.getType(),
-                     anyOf(is(HubInfo.TYPE_CONTEXT_HUB), is(HubInfo.TYPE_VENDOR_HUB)));
+            assertWithMessage("Hub type is invalid").that(hub.getType())
+                    .isAnyOf(HubInfo.TYPE_CONTEXT_HUB, HubInfo.TYPE_VENDOR_HUB);
             Assert.assertFalse("Hub ID 0x" + Long.toHexString(hub.getId())
                                 + " is not unique", hubIds.contains(hub.getId()));
             if (hub.getType() == HubInfo.TYPE_CONTEXT_HUB) {
