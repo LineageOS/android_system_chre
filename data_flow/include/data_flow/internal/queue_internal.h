@@ -49,20 +49,20 @@ static_assert(std::atomic<uint32_t>::is_always_lock_free);
 //! Analog to nullptr for offsets in shared memory.
 constexpr uint32_t kOffsetInvalid = UINT32_MAX;
 
-/** Consumer notification and overwrite policy. */
-union ConsumerPolicy {
-  struct {
-    uint8_t policy;   // NotificationPolicy | OverwritePolicy.
-    uint8_t data[3];  // Interpreted based on NotificationPolicy.
-  };
-  uint32_t rawValue;
-};
-static_assert(sizeof(ConsumerPolicy) == 4);
+//! Maximum size of an endpoint id.
+constexpr size_t kMaxIdSize = 16;
 
 //! Endpoint id for remote notifications or local callback.
 union alignas(8) IdOrNotifyFn {
   LocalNotifyArgs localNotify;
-  std::array<std::byte, 16> remoteId;
+  union {
+    // Specialized id definition for use with ContextHub data flows.
+    struct {
+      uint64_t hubId;
+      uint64_t endpointId;
+    };
+    std::array<std::byte, kMaxIdSize> remoteId;
+  };
 } __attribute__((packed));
 static_assert(sizeof(IdOrNotifyFn) == 16);
 
@@ -136,17 +136,21 @@ struct ConsumerDesc {
   // clearing it.
   // { 0-15: ProducerFlags | 16-31: counter incremented on write }
   std::atomic<uint32_t> producerFlags;
-  // { 0-15: ConsumerFlags | 16-31: latest value of producerFlags counter }
-  std::atomic<uint32_t> consumerFlags;
-  // Consumer policy.
-  std::atomic<uint32_t> policy;
   // Id for remote notification or local callback.
   IdOrNotifyFn idOrNotifyFn;
+  // { 0-15: ConsumerFlags | 16-31: latest value of producerFlags counter }
+  std::atomic<uint32_t> consumerFlags;
+  // Set by the producer. Indicates whether this consumer may be overwritten.
+  // This field is intended to inform a consumer of the policy. The consumer
+  // cannot modify this field to affect producer behavior.
+  OverwritePolicy overwritePolicy;
+  // Padding bytes. Reserved for future use.
+  uint8_t padding[11];
 } __attribute__((packed));
-static_assert(sizeof(ConsumerDesc) == 40);
+static_assert(sizeof(ConsumerDesc) == 48);
 
 /** Queue metadata in shared memory. */
-struct Queue {
+struct alignas(8) Queue {
   // Producer version.
   Version version;
   // Offset of the ProducerDesc in shared memory. Updated by the producer.
@@ -157,17 +161,37 @@ struct Queue {
   // by the producer.
   // Format: { 0-15: epoch counter | 16-31: block count }
   std::atomic<uint32_t> blockListEpoch;
-  // Block capacity (in elements).
+  // Block capacity in bytes.
   uint32_t blockCapacity;
-  // Element alignment. Used to check Consumer compatibility. <0 indicates that
-  // this is a variable data queue.
-  int16_t elementAlignment;
+  // Configuration of the data in the queue.
+  struct DataConfig {
+    enum class Mode : uint8_t {
+      kFixedSize = 0,
+      // Variable-size elements preceded by a 4-byte header containing the size.
+      kVariableSizeBasic = 1,
+      // Variable-size elements with the header and data aligned as requested.
+      kVariableSizeAligned = 2,
+    };
+    union {
+      struct {  // kFixedSize
+        uint32_t elementSize;
+        uint16_t elementAlignment;
+      } __attribute__((packed)) fixedSize;
+      struct {  // kVariableSizeAligned
+        uint16_t elementAlignment;
+        uint8_t elementHdrSize;
+        uint8_t elementHdrAlignment;
+      } __attribute__((packed)) variableSize;
+      uint8_t size[7];  // Future configs can use up to 7 bytes.
+    } __attribute__((packed));
+    Mode mode;
+  } __attribute__((packed)) config;
   // True iff notifications are done using IdOrNotifyFn.fn
   uint8_t localNotify;
   // Padding bytes. Reserved for future use.
-  uint8_t padding[5];
+  uint8_t padding[7];
 } __attribute__((packed));
-static_assert(sizeof(Queue) == 40);
+static_assert(sizeof(Queue) == 48);
 
 /** Header that precedes the aligned array of elements. */
 struct alignas(8) BlockHeader {
@@ -184,6 +208,20 @@ struct alignas(8) BlockHeader {
 } __attribute__((packed));
 static_assert(sizeof(BlockHeader) == 48);
 
+/** Header that precedes the storage for variable-size elements. */
+struct alignas(8) VariableDataBlockHeader {
+  BlockHeader base;
+  uint32_t firstElementIndex;  // Initialized to block capacity.
+  uint8_t reserved[12];        // Reserved for future use.
+} __attribute__((packed));
+static_assert(sizeof(VariableDataBlockHeader) == 64);
+
+/** Header preceding each variable-size element. */
+struct alignas(4) VariableDataHeader {
+  uint32_t size;  // Element size in bytes.
+} __attribute__((packed));
+static_assert(sizeof(VariableDataHeader) == 4);
+
 /** Block of element storage. */
 template <typename ElementType>
 struct Block {
@@ -199,26 +237,22 @@ constexpr pw::allocator::Layout blockLayout(size_t blockCapacity) {
       alignof(Block<ElementType>));
 }
 
-/** Header preceding each variable-size element. */
-struct alignas(8) VariableDataHeader {
-  uint32_t size;         // Element size in bytes.
-  uint8_t reserved[12];  // Reserved for future use.
-};
-static_assert(sizeof(VariableDataHeader) == 16);
-
 /** Block of variable-size element storage. */
 struct VariableDataBlock {
-  BlockHeader header;
-  uint32_t firstElementIndex;  // Initialized to block capacity.
-  // Element storage is 4-byte aligned to ensure that element size is always
-  // aligned.
-  std::byte data alignas(VariableDataHeader)[];
+  VariableDataBlockHeader header;
+  // Element storage is aligned to the size of the header so that the header can
+  // always be read contiguously.
+  alignas(VariableDataHeader) std::byte data[];
 };
-static_assert(offsetof(VariableDataBlock, data) == 56);
 
 /** @return Layout for allocating VariableDataBlocks using pw::Allocator. */
 constexpr pw::allocator::Layout variableDataBlockLayout(size_t blockCapacity) {
-  auto size = (blockCapacity + 0x3) & ~0x3;  // Round up to 4-byte aligned size.
+  constexpr auto kHdrAlignment = alignof(VariableDataHeader);
+  constexpr auto kUnalignedBits = kHdrAlignment - 1;
+  // Round up the block capacity to a multiple of the element header alignment
+  // (power-of-2) to ensure that an element header is never split in an
+  // alignment-breaking way.
+  auto size = (blockCapacity + kUnalignedBits) & ~kUnalignedBits;
   return pw::allocator::Layout(offsetof(VariableDataBlock, data) + size,
                                alignof(VariableDataBlock));
 }
@@ -227,13 +261,30 @@ constexpr pw::allocator::Layout variableDataBlockLayout(size_t blockCapacity) {
 struct ConsumerListNode
     : public pw::containers::future::IntrusiveList<ConsumerListNode>::Item {};
 
+/** Consumer notification and overwrite policy. */
+struct ConsumerPolicy {
+  NotificationPolicy notification;
+  OverwritePolicy overwrite;
+  union {
+    uint32_t watermark;
+    uint32_t periodMs;
+    uint32_t data;
+  };
+};
+
 /** Node for tracking a consumer descriptor in multiple containers. */
 struct ConsumerNode : public ConsumerListNode {
   AllocatorRegion region;  // The region the descriptor was allocated from.
+  std::array<std::byte, kMaxIdSize> id;  // The consumer's id.
   ConsumerDesc *desc;      // The descriptor in shared memory.
+  ConsumerPolicy policy;   // The consumer's policy.
 
-  ConsumerNode(const AllocatorRegion &_region, ConsumerDesc *_desc)
-      : region(_region), desc(_desc) {}
+  ConsumerNode(pw::ConstByteSpan _id, const AllocatorRegion &_region,
+               ConsumerDesc *_desc, ConsumerPolicy _policy)
+      : region(_region), desc(_desc), policy(_policy) {
+    PW_ASSERT(_id.size() == kMaxIdSize);
+    std::memcpy(id.data(), _id.data(), kMaxIdSize);
+  }
 };
 
 /** Queue shared metadata and producer data that is not part of the ABI. */
@@ -407,7 +458,6 @@ class ProducerBase {
    * @param region Shared memory region for the queue.
    * @param queue The queue metadata in shared memory.
    * @param layout Layout for allocating Blocks.
-   * @param blockCapacity The capacity of each Block in bytes.
    * @param maxBlockCount The maximum allowed blocks of element storage. Must
    * be >= minBlockCount.
    * @param minBlockCount The minimum required blocks of element storage. Must
@@ -419,21 +469,21 @@ class ProducerBase {
   static pw::Status initialize(const AllocatorRegion &region,
                                QueuePrivate *queue,
                                pw::allocator::Layout layout,
-                               uint32_t blockCapacity, size_t maxBlockCount,
-                               size_t minBlockCount, IdOrNotifyFn idOrNotifyFn);
+                               size_t maxBlockCount, size_t minBlockCount,
+                               IdOrNotifyFn idOrNotifyFn);
 
   /**
    * See {@link Producer::createLocal()} for a description of most parameters.
    *
    * @param queue The queue metadata in shared memory.
    * @param blockLayout Layout for allocating Blocks.
-   * @param dataOffset The offset of the data from the start of BlockHeader.
+   * @param dataOffset Offset of the data field in a Block.
    * @param remoteNotifyFn Function for notifying Consumers out-of-band only for
    * remote queues.
    */
   ProducerBase(const AllocatorRegion &region, QueuePrivate &queue,
-               pw::allocator::Layout blockLayout, size_t maxBlockCount,
-               size_t minBlockCount, uint32_t dataOffset,
+               pw::allocator::Layout blockLayout, uint32_t dataOffset,
+               size_t maxBlockCount, size_t minBlockCount,
                DataNotifier &dataNotifier, RemoteNotifyFn remoteNotifyFn,
                MemoryAccess *memAccess);
 
@@ -528,12 +578,12 @@ class ProducerBase {
   /**
    * Sets the given flag on a consumer.
    *
-   * @param desc The consumer descriptor.
+   * @param node The consumer node.
    * @param current The current desc.producerFlags value.
    * @param flag The flag to set.
    * @param forceNotify If true, notify the consumer regardless of their policy.
    */
-  void setConsumerFlag(ConsumerDesc &desc, uint32_t current, ProducerFlags flag,
+  void setConsumerFlag(ConsumerNode &node, uint32_t current, ProducerFlags flag,
                        bool forceNotify = false);
 
   /**
@@ -546,21 +596,35 @@ class ProducerBase {
   /**
    * Allocates a new consumer and links it to the list in shared memory.
    *
+   * @param id The id of the consumer. Expected to be exactly kMaxIdSize bytes
+   * long. This may or may not be the same as the remote id used for
+   * notifications for remote queues.
    * @param region The region from which to allocate the consumer.
+   * @param policy The policy to apply to the consumer.
    * @return The offset of the consumer descriptor in shared memory. Used to
    * initialize a Consumer instance.
    */
-  pw::Result<uint32_t> addConsumer(const AllocatorRegion &region);
+  pw::Result<uint32_t> addConsumer(pw::ConstByteSpan id,
+                                   const AllocatorRegion &region,
+                                   ConsumerPolicy policy);
 
   /**
-   * Removes the descriptor for the consumer at given offset.
+   * Updates the policy associated with a consumer.
+   *
+   * @param id The id of the consumer previously registered with addConsumer().
+   * @param policy The new policy to apply to the consumer.
+   */
+  pw::Status updateConsumerPolicy(pw::ConstByteSpan id, ConsumerPolicy policy);
+
+  /**
+   * Removes and deletes all consumers whose ids are matched by the predicate.
    *
    * @param match A predicate that returns true iff the consumer should be
    * removed.
    * @return pw::OkStatus() on success.
    */
   pw::Status pruneConsumers(
-      const pw::Function<bool(pw::ConstByteSpan remoteId)> &match);
+      const pw::Function<bool(pw::ConstByteSpan id)> &match);
 
   /**
    * Returns the current number of consumers on the queue.
@@ -579,7 +643,7 @@ class ProducerBase {
    * state.
    *
    * fn has the signature:
-   * void(ConsumerDesc &desc, uint32_t producerFlags, Args... args).
+   * void(ConsumerNode &node, uint32_t producerFlags, Args... args).
    *
    * The producerFlags value is provided to avoid an extra atomic operation.
    */
@@ -606,6 +670,14 @@ class ProducerBase {
    * @param [in,out] node The consumer node to erase. Updated to the next node.
    */
   void eraseConsumerNode(decltype(QueuePrivate::consumerList)::iterator &node);
+
+  /**
+   * Checks that the policy is valid.
+   *
+   * @param policy The policy to check.
+   * @return pw::InvalidArgument() if the policy is invalid.
+   */
+  pw::Status checkPolicy(ConsumerPolicy policy);
 
   // Members fixed on construction.
   AllocatorRegion mRegion;
@@ -662,14 +734,6 @@ class ConsumerBase {
   }
 
   virtual ~ConsumerBase();
-
-  /**
-   * Updates the current policy. Notifies the Producer.
-   *
-   * @param policyBuilder Builder for the new consumer policy.
-   * @return pw::OkStatus() on success.
-   */
-  pw::Status updatePolicy(ConsumerPolicyBuilder &policy);
 
   /** Disables this instance. Should be called when the Producer crashes. */
   void disable();
@@ -734,12 +798,15 @@ class ConsumerBase {
    * Checks arguments before initializing.
    *
    * @param region The shared memory region containing the queue.
+   * @param descRegion If not nullptr, the region containing the consumer
+   * descriptor. Otherwise, the descriptor is in the primary region.
    * @param queueOffset The queue metadata in region.
    * @param descOffset The consumer descriptor in region.
    * @return On success, a pair of pointers to the Queue and ConsumerDesc.
    */
   static pw::Result<std::pair<Queue *, ConsumerDesc *>> checkArgs(
-      const Region &region, uint32_t queueOffset, uint32_t descOffset);
+      const Region &region, const Region *descRegion, uint32_t queueOffset,
+      uint32_t descOffset);
 
   /**
    * See {@link Consumer::createDynamic()} for most parameters.
@@ -761,13 +828,11 @@ class ConsumerBase {
    *
    * @param idOrNotifyFn The new instance's id for remote notifications or the
    * LocalNotifyFn for notifying it.
-   * @param policyBuilder Builder for the consumer's policy.
    * @param overwriteResetOffset [optional] When recovering from being
    * overwritten, the offset from the write index to attempt to sync to.
    * @return pw::OkStatus() on success.
    */
   pw::Status initialize(IdOrNotifyFn idOrNotifyFn,
-                        ConsumerPolicyBuilder &policyBuilder,
                         std::optional<size_t> overwriteResetOffset);
 
   /**
@@ -887,7 +952,7 @@ void ProducerBase::forAllConsumers(uint16_t excludeMask, const Fn &fn,
       // NOTE: producerFlag and consumerFlags are cached and passed in to
       // avoid an unnecessary load(). fn() may reload them if required.
       if (!isFlagInMask(*desc, producerFlags, consumerFlags, excludeMask)) {
-        fn(*desc, producerFlags, args...);
+        fn(*node, producerFlags, args...);
       }
       ++node;
     }

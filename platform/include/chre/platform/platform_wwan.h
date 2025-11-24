@@ -17,7 +17,10 @@
 #ifndef CHRE_PLATFORM_PLATFORM_WWAN_H_
 #define CHRE_PLATFORM_PLATFORM_WWAN_H_
 
+#include <cstdint>
+
 #include "chre/target_platform/platform_wwan_base.h"
+#include "chre_api/chre/wwan.h"
 
 namespace chre {
 

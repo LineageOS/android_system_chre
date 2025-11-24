@@ -78,11 +78,12 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
      *
      * @throws RuntimeException if the initialization fails.
      */
-    public void init(Context appContext) {
+    public void init(Context appContext, @Nullable WakeLockBridge.LockFactory lockFactory) {
         if (isInitialized()) {
             return;
         }
         // Init the CHRE AP environment
+        ContextHubAPNative.setContext(appContext);
         int initRes = ContextHubAPNative.init();
         if (initRes != 0) {
             Log.e(TAG, "Failed to initialize native CHRE AP environment: " + initRes);
@@ -90,6 +91,8 @@ public final class ContextHubAPManager implements ContextHubManagerInterface {
         }
         ContextHubAPNative.nativeRegister(this);
         AlarmManagerBridge.initialize(appContext);
+        WakeLockBridge.setLockFactory(Objects.requireNonNullElseGet(lockFactory,
+                () -> new WakeLockBridge.DefaultLockFactory(appContext)));
         Log.i(TAG, "ContextHubAPManager initialized successfully.");
     }
 

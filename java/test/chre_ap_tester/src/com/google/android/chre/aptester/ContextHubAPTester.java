@@ -16,6 +16,7 @@
 
 package com.google.android.chre.aptester;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.pm.ApplicationInfo;
@@ -59,6 +60,13 @@ public class ContextHubAPTester extends Activity {
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
     private TextView mMessageTextView;
     private Thread mEventLoopThread = null;
+
+    private static final int PERMISSION_REQUEST_CODE = 0;
+
+    private static final String[] REQUIRED_PERMISSIONS = {
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.READ_PHONE_STATE
+    };
 
     private Set<String> getBundledSoFileNames() {
         Set<String> soFileNames = new HashSet<>();
@@ -189,6 +197,8 @@ public class ContextHubAPTester extends Activity {
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        requestPermissions(REQUIRED_PERMISSIONS, PERMISSION_REQUEST_CODE);
+
         setContentView(R.layout.activity_main);
         mResultTextView = findViewById(R.id.resultTextView);
         Button initButton = findViewById(R.id.initButton);
@@ -203,8 +213,7 @@ public class ContextHubAPTester extends Activity {
 
         initButton.setOnClickListener(v -> {
             // Start the CHRE environment.
-            ContextHubAPManager.getInstance().init(this);
-
+            ContextHubAPManager.getInstance().init(this, null /*lockFactory*/);
             mEventLoopThread = new Thread(() -> {
                 ContextHubAPManager.getInstance().runEventLoop(
                         ContextHubAPManager.EventLoopMode.PROVIDED);

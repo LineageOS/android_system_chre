@@ -18,9 +18,11 @@
 #include "chre/core/event_loop.h"
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/static_nanoapps.h"
+#include "chre/platform/android/jni_manager.h"
 #include "chre/platform/android/platform_log.h"
 #include "chre/platform/shared/init.h"
 #include "chre/platform/system_timer.h"
+#include "chrex_api/chrex_wake_lock.h"
 
 #include <android/log_macros.h>
 
@@ -40,6 +42,9 @@ static jmethodID g_onMessageMethodID = nullptr;
 static jclass g_alarmBridgeClass = nullptr;
 static jmethodID g_setAlarmMethod = nullptr;
 static jmethodID g_cancelAlarmMethod = nullptr;
+static jclass g_wakeLockBridgeClass = nullptr;
+static jmethodID g_wakeLockAcquireMethod = nullptr;
+static jmethodID g_wakeLockReleaseMethod = nullptr;
 
 void messageCallback(int64_t nanoAppId, int32_t messageType, void *messageBody,
                      size_t messageBodyLen) {
@@ -124,9 +129,61 @@ void chreApCancelAlarm(uint64_t timerId) {
   }
 }
 
-void onAlarmFired(JNIEnv /**env*/, jclass /*clazz*/, jlong timerId) {
+void onAlarmFired(JNIEnv * /*env*/, jclass /*clazz*/, jlong timerId) {
   chre::SystemTimerBase::systemTimerNotifyCallback(
       {.sival_ptr = (void *)timerId});
+}
+
+void chrexApWakeLockAcquire(const std::string &lock_name,
+                            uint64_t timeout_millis) {
+  if (g_javaVM == nullptr || g_wakeLockBridgeClass == nullptr ||
+      g_wakeLockAcquireMethod == nullptr) {
+    ALOGE("JNI not initialized for wake lock acquire");
+    return;
+  }
+
+  JNIEnv *env;
+  jint attachResult = g_javaVM->AttachCurrentThread(&env, nullptr);
+  if (attachResult != JNI_OK) {
+    ALOGE("Failed to attach current thread to JVM.");
+    return;
+  }
+  jstring nameStr = env->NewStringUTF(lock_name.c_str());
+  env->CallStaticVoidMethod(g_wakeLockBridgeClass, g_wakeLockAcquireMethod,
+                            nameStr, (jlong)timeout_millis);
+
+  env->DeleteLocalRef(nameStr);
+  if (chreThread) {
+    g_javaVM->DetachCurrentThread();
+  }
+}
+
+void chrexApWakeLockRelease(const std::string &lock_name) {
+  if (g_javaVM == nullptr || g_wakeLockBridgeClass == nullptr ||
+      g_wakeLockAcquireMethod == nullptr) {
+    ALOGE("JNI not initialized for wake lock acquire");
+    return;
+  }
+
+  JNIEnv *env;
+  jint attachResult = g_javaVM->AttachCurrentThread(&env, nullptr);
+  if (attachResult != JNI_OK) {
+    ALOGE("Failed to attach current thread to JVM.");
+    return;
+  }
+  jstring nameStr = env->NewStringUTF(lock_name.c_str());
+  env->CallStaticVoidMethod(g_wakeLockBridgeClass, g_wakeLockReleaseMethod,
+                            nameStr);
+
+  env->DeleteLocalRef(nameStr);
+  if (chreThread) {
+    g_javaVM->DetachCurrentThread();
+  }
+}
+
+static void onCellInfoReceived(JNIEnv *env, jclass /*clazz*/,
+                               jobjectArray cellInfoList) {
+  chre::JniManagerSingleton::get()->onCellInfoReceived(env, cellInfoList);
 }
 
 static jint init(JNIEnv * /*env*/, jobject /*thiz*/) {
@@ -135,6 +192,7 @@ static jint init(JNIEnv * /*env*/, jobject /*thiz*/) {
     return 0;
   }
   // Initialize the system.
+  chre::JniManagerSingleton::get()->init(g_javaVM);
   chre::initCommon();
   chre::EventLoopManagerSingleton::get()->lateInit();
   chre::EventLoopManagerSingleton::get()
@@ -296,13 +354,13 @@ static void nativeRegister(JNIEnv *env, jobject, jobject instance) {
   }
   env->DeleteLocalRef(managerClass);
 
-  jclass bridgeClass =
+  jclass alarmBridgeClass =
       env->FindClass("com/google/android/chre/ap/AlarmManagerBridge");
-  if (bridgeClass == nullptr) {
+  if (alarmBridgeClass == nullptr) {
     ALOGE("Failed to find class 'AlarmManagerBridge'.");
     return;
   }
-  g_alarmBridgeClass = (jclass)env->NewGlobalRef(bridgeClass);
+  g_alarmBridgeClass = (jclass)env->NewGlobalRef(alarmBridgeClass);
   g_setAlarmMethod =
       env->GetStaticMethodID(g_alarmBridgeClass, "setAlarm", "(JJ)V");
   g_cancelAlarmMethod =
@@ -310,6 +368,23 @@ static void nativeRegister(JNIEnv *env, jobject, jobject instance) {
 
   if (g_setAlarmMethod == nullptr || g_cancelAlarmMethod == nullptr) {
     ALOGE("Failed to find methods 'setAlarm' or 'cancelAlarm'.");
+  }
+
+  jclass wakeLockBridgeClass =
+      env->FindClass("com/google/android/chre/ap/WakeLockBridge");
+  if (wakeLockBridgeClass == nullptr) {
+    ALOGE("Failed to find class 'WakeLockBridge'.");
+    return;
+  }
+  g_wakeLockBridgeClass = (jclass)env->NewGlobalRef(wakeLockBridgeClass);
+  g_wakeLockAcquireMethod = env->GetStaticMethodID(
+      g_wakeLockBridgeClass, "acquireWakeLock", "(Ljava/lang/String;J)V");
+  g_wakeLockReleaseMethod = env->GetStaticMethodID(
+      g_wakeLockBridgeClass, "releaseWakeLock", "(Ljava/lang/String;)V");
+
+  if (g_wakeLockAcquireMethod == nullptr ||
+      g_wakeLockReleaseMethod == nullptr) {
+    ALOGE("Cannot find methods in WakeLockBridge");
   }
 }
 
@@ -334,6 +409,8 @@ static JNINativeMethod methods[] = {
     {(char *)"isInitialized", (char *)"()Z", (void *)isInitialized},
     {(char *)"stopEventLoop", (char *)"()V", (void *)stopEventLoop},
     {(char *)"onAlarmFired", (char *)"(J)V", (void *)onAlarmFired},
+    {(char *)"onCellInfoReceived", (char *)"([Ljava/lang/Object;)V",
+     (void *)onCellInfoReceived},
 };
 
 // Register native methods for all classes we know about.

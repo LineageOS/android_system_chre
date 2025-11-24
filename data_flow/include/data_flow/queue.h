@@ -80,7 +80,7 @@ class DataNotifier {
    * @return true iff the endpoint is active, e.g. core is on and endpoint
    * available.
    */
-  virtual bool isActive(pw::span<const uint8_t, 16> /*id*/) {
+  virtual bool isActive(pw::span<const std::byte, 16> /*id*/) {
     return true;
   }
 
@@ -88,81 +88,33 @@ class DataNotifier {
    * Updates the consumer's batching period during onWrite().
    *
    * @param producer The associated producer.
-   * @param consumerId The consumer id.
+   * @param consumer The consumer node.
    * @param periodMs The period to update to in milliseconds. Disables timer if
    * empty.
    */
   virtual void updatePeriod(internal::ProducerBase &producer,
-                            pw::span<const uint8_t, 16> consumerId,
+                            internal::ConsumerNode &consumer,
                             std::optional<uint32_t> periodMs);
+
+  /**
+   * Notifies the consumer if the watermark has been reached.
+   *
+   * @param producer The associated producer.
+   * @param writeIndex The current write index.
+   * @param policyData The data field from the notification policy.
+   * @param consumer The consumer descriptor.
+   */
+  virtual void notifyIfAtWatermark(internal::ProducerBase &producer,
+                                   uint32_t writeIndex, uint32_t policyData,
+                                   internal::ConsumerDesc &consumer);
 };
 
 // Forward declaration for friend access.
 template <typename ElementType>
 class Producer;
+class UntypedProducer;
 class VariableDataProducer;
-
-/** User-facing interface for managing consumers on a queue. */
-class ConsumerManager {
- public:
-  /**
-   * Allocates and tracks a new consumer descriptor.
-   *
-   * @param region [optional] If provided, used to allocate the descriptor. It
-   * must outlive the consumer. If not provided, the producer's region is used.
-   * @return The offset of the consumer descriptor in shared memory. Used to
-   * initialize a Consumer instance.
-   */
-  pw::Result<uint32_t> addConsumer(const AllocatorRegion *region = nullptr) {
-    return mProducer->addConsumer(region ? *region : mProducer->mRegion);
-  }
-
-  /**
-   * Removes all remote consumers matched by the given predicate.
-   *
-   * This should only be used to clean up consumers on endpoints that have
-   * either disconnected or crashed. Marks the consumer as no longer valid.
-   *
-   * When a consumer is programmatically removed, e.g. ~ConsumerBase(), the
-   * ProducerBase will automatically detect that and clean up the descriptor
-   * without using this method.
-   *
-   * @param match A predicate that returns true iff the consumer should be
-   * removed.
-   * @return pw::OkStatus() on success.
-   */
-  pw::Status pruneConsumers(
-      const pw::Function<bool(pw::ConstByteSpan remoteId)> &match) {
-    return mProducer->pruneConsumers(match);
-  }
-
-  /**
-   * @return the number of active consumers on the queue.
-   *
-   * Prunes any consumers that have set the ConsumerFlags::kFinished flag. This
-   * can be used after calling Producer::stop() to check for outstanding
-   * consumers.
-   */
-  size_t getNumConsumers() {
-    return mProducer->getNumConsumers();
-  }
-
- protected:
-  template <typename ElementType>
-  friend class Producer;
-  friend class VariableDataProducer;
-
-  /**
-   * @param region The region of shared memory from which to allocate
-   * consumer descriptors.
-   * @param queue The queue metadata.
-   * @param memAccess [optional] MemoryAccess implementation for accessing
-   * shared memory.
-   */
-  ConsumerManager(internal::ProducerBase &producer) : mProducer(&producer) {}
-
-  internal::ProducerBase *mProducer;
-};
+class ConsumerManager;
 
 /**
  * Builder for notification and overwrite policy passed to a Consumer instance.
@@ -236,19 +188,114 @@ class ConsumerPolicyBuilder {
   }
 
  protected:
-  friend class internal::ConsumerBase;
+  friend class ConsumerManager;
 
   internal::ConsumerPolicy build() const {
     internal::ConsumerPolicy policy;
-    policy.policy = static_cast<uint8_t>(mNotificationPolicy) |
-                    static_cast<uint8_t>(mOverwritePolicy);
-    memcpy(policy.data, &mData, sizeof(policy.data));
+    policy.notification = mNotificationPolicy;
+    policy.overwrite = mOverwritePolicy;
+    policy.data = 0;
+    if (mNotificationPolicy == NotificationPolicy::kPeriodic ||
+        mNotificationPolicy == NotificationPolicy::kHighWaterMark ||
+        mNotificationPolicy == NotificationPolicy::kOpportunistic) {
+      policy.data = mData;
+    }
     return policy;
   }
 
   size_t mData;
   NotificationPolicy mNotificationPolicy;
   OverwritePolicy mOverwritePolicy;
+};
+
+/** User-facing interface for managing consumers on a queue. */
+class ConsumerManager {
+ public:
+  /**
+   * Allocates and tracks a new consumer descriptor.
+   *
+   * @param id The id of the consumer. This may or may not be the same as the
+   * remoteId in the case of remote queues. Must be <= 16 bytes long.
+   * @param policyBuilder Builder for the policy to apply to the consumer.
+   * @param region [optional] If provided, used to allocate the descriptor. It
+   * must outlive the consumer. If not provided, the producer's region is used.
+   * @return The offset of the consumer descriptor in shared memory. Used to
+   * initialize a Consumer instance.
+   */
+  pw::Result<uint32_t> addConsumer(pw::ConstByteSpan id,
+                                   ConsumerPolicyBuilder &policyBuilder,
+                                   const AllocatorRegion *region = nullptr) {
+    if (id.size() > internal::kMaxIdSize) {
+      return pw::Status::InvalidArgument();
+    }
+    std::array<std::byte, internal::kMaxIdSize> idArray = {std::byte(0)};
+    std::memcpy(idArray.data(), id.data(),
+                std::min(id.size(), internal::kMaxIdSize));
+    return mProducer->addConsumer(
+        idArray, region ? *region : mProducer->mRegion, policyBuilder.build());
+  }
+
+  /**
+   * Updates the policy associated with a consumer.
+   *
+   * @param id The id of the consumer previously registered with addConsumer().
+   * @param policyBuilder Builder for the new policy to apply to the consumer.
+   * @return pw::NotFound() if the consumer is not found.
+   */
+  pw::Status updateConsumerPolicy(pw::ConstByteSpan id,
+                                  ConsumerPolicyBuilder &policyBuilder) {
+    std::array<std::byte, internal::kMaxIdSize> idArray = {std::byte(0)};
+    std::memcpy(idArray.data(), id.data(),
+                std::min(id.size(), internal::kMaxIdSize));
+    return mProducer->updateConsumerPolicy(idArray, policyBuilder.build());
+  }
+
+  /**
+   * Removes all consumers matched by the given predicate.
+   *
+   * This must be used to clean up consumers on endpoints that have either
+   * disconnected or crashed. Marks the consumer as no longer valid.
+   *
+   * When a consumer is programmatically removed, e.g. ~ConsumerBase(), the
+   * ProducerBase will automatically detect that and clean up the descriptor
+   * without using this method.
+   *
+   * @param match A predicate that returns true iff the consumer should be
+   * removed.
+   * @return pw::OkStatus() on success.
+   */
+  pw::Status pruneConsumers(
+      const pw::Function<bool(pw::ConstByteSpan id)> &match) {
+    return mProducer->pruneConsumers(match);
+  }
+
+  /**
+   * @return the number of active consumers on the queue.
+   *
+   * Prunes any consumers that have set the ConsumerFlags::kFinished flag. This
+   * can be used after calling Producer::stop() to check for outstanding
+   * consumers.
+   */
+  size_t getNumConsumers() {
+    return mProducer->getNumConsumers();
+  }
+
+ protected:
+  template <typename ElementType>
+  friend class Producer;
+  friend class UntypedProducer;
+  friend class VariableDataProducer;
+
+  /**
+   * @param region The region of shared memory from which to allocate
+   * consumer descriptors.
+   * @param queue The queue metadata.
+   * @param memAccess [optional] MemoryAccess implementation for accessing
+   * shared memory.
+   */
+  ConsumerManager(internal::ProducerBase &producer) : mProducer(&producer) {}
+
+  internal::ProducerBase *mProducer;
 };
 
 template <typename ElementType>
@@ -265,7 +312,6 @@ class Producer : protected internal::ProducerBase {
    *
    * @param queue Pointer to queue metadata in shared memory. See {@link
    * #createQueue()}.
-   * @param blockCapacity The capacity of each Block in elements.
    * @param maxBlockCount The maximum allowed blocks of element storage. Must
    * be >= minBlockCount. This can be adjusted at runtime.
    * @param minBlockCount The minimum required blocks of element storage. Must
@@ -277,17 +323,26 @@ class Producer : protected internal::ProducerBase {
    * Queue and element storage.
    * @return An initialized Producer instance on success.
    */
-  static pw::Result<Producer> createLocal(
-      AllocatorRegion region, void *queue, size_t blockCapacity,
-      size_t maxBlockCount, size_t minBlockCount, DataNotifier &dataNotifier,
-      LocalNotifyArgs notifyArgs, MemoryAccess *memAccess = nullptr) {
-    if (notifyArgs.fn == nullptr) {
+  static pw::Result<Producer> createLocal(AllocatorRegion region, void *queue,
+                                          size_t maxBlockCount,
+                                          size_t minBlockCount,
+                                          DataNotifier &dataNotifier,
+                                          LocalNotifyArgs notifyArgs,
+                                          MemoryAccess *memAccess = nullptr) {
+    if (notifyArgs.fn == nullptr || !queue) {
       return pw::Status::InvalidArgument();
     }
     auto queuePtr = static_cast<internal::QueuePrivate *>(queue);
-    auto blockLayout = internal::blockLayout<ElementType>(blockCapacity);
-    PW_TRY(Base::initialize(region, queuePtr, blockLayout,
-                            blockCapacity * sizeof(ElementType), maxBlockCount,
+    if (queuePtr->config.mode !=
+            internal::Queue::DataConfig::Mode::kFixedSize ||
+        queuePtr->config.fixedSize.elementSize != sizeof(ElementType) ||
+        queuePtr->config.fixedSize.elementAlignment != alignof(ElementType) ||
+        !queuePtr->localNotify) {
+      return pw::Status::FailedPrecondition();
+    }
+    auto blockLayout =
+        internal::blockLayout<ElementType>(queuePtr->blockCapacity);
+    PW_TRY(Base::initialize(region, queuePtr, blockLayout, maxBlockCount,
                             minBlockCount, {.localNotify = notifyArgs}));
     return Producer(region, *queuePtr, blockLayout, maxBlockCount,
                     minBlockCount, dataNotifier, /*remoteNotifyFn=*/{},
@@ -301,17 +356,26 @@ class Producer : protected internal::ProducerBase {
    * @param notifyArgs Mechanism for notifying Consumers out-of-band and for
    * Consumers to notify this Producer.
    */
-  static pw::Result<Producer> createRemote(
-      AllocatorRegion region, void *queue, size_t blockCapacity,
-      size_t maxBlockCount, size_t minBlockCount, DataNotifier &dataNotifier,
-      RemoteNotifyArgs notifyArgs, MemoryAccess *memAccess = nullptr) {
-    if (!notifyArgs.fn) {
+  static pw::Result<Producer> createRemote(AllocatorRegion region, void *queue,
+                                           size_t maxBlockCount,
+                                           size_t minBlockCount,
+                                           DataNotifier &dataNotifier,
+                                           RemoteNotifyArgs notifyArgs,
+                                           MemoryAccess *memAccess = nullptr) {
+    if (!notifyArgs.fn || !queue) {
       return pw::Status::InvalidArgument();
     }
     auto queuePtr = static_cast<internal::QueuePrivate *>(queue);
-    auto blockLayout = internal::blockLayout<ElementType>(blockCapacity);
-    PW_TRY(Base::initialize(region, queuePtr, blockLayout,
-                            blockCapacity * sizeof(ElementType), maxBlockCount,
+    if (queuePtr->config.mode !=
+            internal::Queue::DataConfig::Mode::kFixedSize ||
+        queuePtr->config.fixedSize.elementSize != sizeof(ElementType) ||
+        queuePtr->config.fixedSize.elementAlignment != alignof(ElementType) ||
+        queuePtr->localNotify) {
+      return pw::Status::FailedPrecondition();
+    }
+    auto blockLayout =
+        internal::blockLayout<ElementType>(queuePtr->blockCapacity);
+    PW_TRY(Base::initialize(region, queuePtr, blockLayout, maxBlockCount,
                             minBlockCount, {.remoteId = notifyArgs.id}));
     return Producer(region, *queuePtr, blockLayout, maxBlockCount,
                     minBlockCount, dataNotifier, std::move(notifyArgs.fn),
@@ -439,9 +503,10 @@ class Producer : protected internal::ProducerBase {
            pw::allocator::Layout blockLayout, size_t maxBlockCount,
            size_t minBlockCount, DataNotifier &dataNotifier,
            RemoteNotifyFn remoteNotifyFn, MemoryAccess *memAccess)
-      : Base(region, queue, blockLayout, maxBlockCount, minBlockCount,
-             offsetof(internal::Block<ElementType>, data), dataNotifier,
-             std::move(remoteNotifyFn), memAccess) {}
+      : Base(region, queue, blockLayout,
+             offsetof(internal::Block<ElementType>, data), maxBlockCount,
+             minBlockCount, dataNotifier, std::move(remoteNotifyFn),
+             memAccess) {}
 };
 
 template <typename ElementType>
@@ -462,7 +527,6 @@ class Consumer : protected internal::ConsumerBase {
    * @param descOffset The offset of the consumer's descriptor in shared
    * memory. Allocated and shared by the producer endpoint.
    * @param notifyArgs Callback and context for notifying this Consumer.
-   * @param policyBuilder Builder for the consumer's policy.
    * @param memAccess [optional] MemoryAccess implementation for accessing
    * Queue and element storage.
    * @param overwriteResetOffset [optional] Offset before the Producer's write
@@ -472,18 +536,17 @@ class Consumer : protected internal::ConsumerBase {
    */
   static pw::Result<Consumer> createLocal(
       Region region, uint32_t queueOffset, uint32_t descOffset,
-      LocalNotifyArgs notifyArgs, ConsumerPolicyBuilder &policyBuilder,
-      MemoryAccess *memAccess = nullptr,
+      LocalNotifyArgs notifyArgs, MemoryAccess *memAccess = nullptr,
       std::optional<size_t> overwriteResetOffset = std::nullopt) {
     if (!notifyArgs.fn) {
       return pw::Status::InvalidArgument();
     }
-    PW_TRY_ASSIGN(auto queueAndDesc,
-                  checkArgs(region, queueOffset, descOffset));
+    PW_TRY_ASSIGN(auto queueAndDesc, checkArgs(region, /*descRegion=*/nullptr,
+                                               queueOffset, descOffset));
     Consumer consumer(region, *queueAndDesc.first, *queueAndDesc.second,
                       /*remoteNotifyFn=*/{}, memAccess);
-    PW_TRY(consumer.initialize({.localNotify = notifyArgs}, policyBuilder,
-                               overwriteResetOffset));
+    PW_TRY(
+        consumer.initialize({.localNotify = notifyArgs}, overwriteResetOffset));
     return consumer;
   }
 
@@ -491,23 +554,27 @@ class Consumer : protected internal::ConsumerBase {
    * Like {@link #createLocal()} but for a remote queue.
    *
    * All parameters are the same except for the following:
+   * @param descRegion [optional] The shared memory region containing the
+   * consumer descriptor. If not provided, the descriptor is in the primary
+   * region.
    * @param notifyArgs Mechanism for notifying the Producer out-of-band and
    * for the Producer to notify this Consumer.
    */
   static pw::Result<Consumer> createRemote(
-      Region region, uint32_t queueOffset, uint32_t descOffset,
-      RemoteNotifyArgs notifyArgs, ConsumerPolicyBuilder &policyBuilder,
+      Region region, std::optional<Region> descRegion, uint32_t queueOffset,
+      uint32_t descOffset, RemoteNotifyArgs notifyArgs,
       MemoryAccess *memAccess = nullptr,
       std::optional<size_t> overwriteResetOffset = std::nullopt) {
     if (!notifyArgs.fn) {
       return pw::Status::InvalidArgument();
     }
+    auto *regionPtr = descRegion ? &*descRegion : nullptr;
     PW_TRY_ASSIGN(auto queueAndDesc,
-                  checkArgs(region, queueOffset, descOffset));
+                  checkArgs(region, regionPtr, queueOffset, descOffset));
     Consumer consumer(region, *queueAndDesc.first, *queueAndDesc.second,
                       std::move(notifyArgs.fn), memAccess);
-    PW_TRY(consumer.initialize({.remoteId = notifyArgs.id}, policyBuilder,
-                               overwriteResetOffset));
+    PW_TRY(
+        consumer.initialize({.remoteId = notifyArgs.id}, overwriteResetOffset));
     return consumer;
   }
 
@@ -523,13 +590,6 @@ class Consumer : protected internal::ConsumerBase {
   /** If active, marks this consumer removed in shared memory and notifies the
    * producer. */
   virtual ~Consumer() = default;
-
-  /**
-   * Updates the current policy, notifying the producer if necessary.
-   *
-   * See {@link #internal::ConsumerBase::updatePolicy()} for more details.
-   */
-  using Base::updatePolicy;
 
   /** Disables this instance. See {@link #internal::ConsumerBase::disable()} */
   using Base::disable;
@@ -638,8 +698,8 @@ class VariableDataProducer : protected internal::ProducerBase {
    * parameters.
    */
   static pw::Result<VariableDataProducer> createLocal(
-      AllocatorRegion region, void *queue, size_t blockCapacity,
-      size_t maxBlockCount, size_t minBlockCount, DataNotifier &dataNotifier,
+      AllocatorRegion region, void *queue, size_t maxBlockCount,
+      size_t minBlockCount, DataNotifier &dataNotifier,
       LocalNotifyArgs notifyArgs, MemoryAccess *memAccess = nullptr);
 
   /**
@@ -649,8 +709,8 @@ class VariableDataProducer : protected internal::ProducerBase {
    * parameters.
    */
   static pw::Result<VariableDataProducer> createRemote(
-      AllocatorRegion region, void *queue, size_t blockCapacity,
-      size_t maxBlockCount, size_t minBlockCount, DataNotifier &dataNotifier,
+      AllocatorRegion region, void *queue, size_t maxBlockCount,
+      size_t minBlockCount, DataNotifier &dataNotifier,
       RemoteNotifyArgs notifyArgs, MemoryAccess *memAccess = nullptr);
 
   // Moveable.
@@ -778,8 +838,7 @@ class VariableDataConsumer : protected internal::ConsumerBase {
    */
   static pw::Result<VariableDataConsumer> createLocal(
       Region region, uint32_t queueOffset, uint32_t descOffset,
-      LocalNotifyArgs notifyArgs, ConsumerPolicyBuilder &policyBuilder,
-      MemoryAccess *memAccess = nullptr,
+      LocalNotifyArgs notifyArgs, MemoryAccess *memAccess = nullptr,
       std::optional<size_t> overwriteResetOffset = std::nullopt);
 
   /**
@@ -789,8 +848,8 @@ class VariableDataConsumer : protected internal::ConsumerBase {
    * parameters.
    */
   static pw::Result<VariableDataConsumer> createRemote(
-      Region region, uint32_t queueOffset, uint32_t descOffset,
-      RemoteNotifyArgs notifyArgs, ConsumerPolicyBuilder &policyBuilder,
+      Region region, std::optional<Region> descRegion, uint32_t queueOffset,
+      uint32_t descOffset, RemoteNotifyArgs notifyArgs,
       MemoryAccess *memAccess = nullptr,
       std::optional<size_t> overwriteResetOffset = std::nullopt);
 
@@ -804,13 +863,6 @@ class VariableDataConsumer : protected internal::ConsumerBase {
   /** If active, marks this consumer removed in shared memory and notifies the
    * producer. */
   virtual ~VariableDataConsumer() = default;
-
-  /**
-   * Updates the current policy, notifying the producer if necessary.
-   *
-   * See {@link #internal::ConsumerBase::updatePolicy()} for more details.
-   */
-  using Base::updatePolicy;
 
   /** Disables this instance. See {@link #internal::ConsumerBase::disable()} */
   using Base::disable;
@@ -900,11 +952,13 @@ pw::allocator::Layout queueLayout() {
  *
  * @param queue Pointer to queue metadata in shared memory.
  * @param capacity The capacity of each block in bytes.
- * @param alignment The alignment of each element. <0 indicates that this
+ * @param elementSize The size of each element in bytes. 0 indicates that this
  * is a variable data queue.
+ * @param elementAlignment The alignment of an element.
  * @param local True iff the queue is local.
  */
-void initQueue(void *queue, size_t capacity, int16_t alignment, bool local);
+pw::Status initQueue(void *queue, size_t capacity, size_t elementSize,
+                     size_t elementAlignment, bool local);
 
 /**
  * Initializes the queue metadata for a fixed-element queue.
@@ -915,9 +969,9 @@ void initQueue(void *queue, size_t capacity, int16_t alignment, bool local);
  * @param local True iff the queue is local.
  */
 template <typename ElementType, size_t kBlockCapacity>
-void initQueue(void *queue, bool local) {
-  initQueue(queue, kBlockCapacity * sizeof(ElementType), alignof(ElementType),
-            local);
+pw::Status initQueue(void *queue, bool local) {
+  return initQueue(queue, kBlockCapacity * sizeof(ElementType),
+                   sizeof(ElementType), alignof(ElementType), local);
 }
 
 /**
@@ -932,7 +986,7 @@ void initQueue(void *queue, bool local) {
 template <typename ElementType, size_t kBlockCapacity>
 pw::Result<void *> createQueue(pw::Allocator &allocator, bool local) {
   if (auto *queue = allocator.New<internal::QueuePrivate>(); queue) {
-    initQueue<ElementType, kBlockCapacity>(queue, local);
+    PW_TRY((initQueue<ElementType, kBlockCapacity>(queue, local)));
     return queue;
   }
   return pw::Status::ResourceExhausted();

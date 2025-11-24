@@ -21,14 +21,15 @@
 #include <thread>  // NOLINT
 
 #include <gtest/gtest.h>
+#include "absl/log/log.h"
 #include "absl/synchronization/blocking_counter.h"
-#include "android-base/logging.h"
 #include "chre/core/event_loop.h"
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/nanoapp.h"
 #include "chre/platform/linux/thread_context.h"
 #include "chre/platform/static_nanoapp_init.h"
 #include "chre/util/system/event_callbacks.h"
+#include "chre/util/unique_ptr.h"
 #include "location/lbs/contexthub/test_suite/chre_fake_api/chre_api_fake_detector.h"
 #include "location/lbs/contexthub/test_suite/chre_fake_api/chre_api_fake_provider.h"
 #include "location/lbs/contexthub/test_suite/chre_fake_api/chrex_api_fake_detector.h"
@@ -74,8 +75,6 @@ class ChreUnitTest : public ::testing::Test {
   ChreApiDetector *chre_api_fake_detector_;
 
   // Used to dectect if a CHREX API call is done.
-  // Usage: EXPECT_CALL(*chrex_api_fake_detector_,
-  // chrexBleSendMotionGatingEvent).times(1)
   ChrexApiDetector *chrex_api_fake_detector_;
 };
 
@@ -130,9 +129,6 @@ class ChreUnitTest : public ::testing::Test {
     chre::EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(    \
         lbs::contexthub::ChreUnitTest::kStartNanoappTestEventType, nullptr,   \
         chre::freeEventDataCallback, 1);                                      \
-    LOGI("Running the event loop from singleton %p %p ...",                   \
-         chre::EventLoopManagerSingleton::get(),                              \
-         &chre::EventLoopManagerSingleton::get()->getEventLoop());            \
     chre::EventLoopManagerSingleton::get()->getEventLoop().run();             \
     test_name##deinit_counter.DecrementCount();                               \
   }

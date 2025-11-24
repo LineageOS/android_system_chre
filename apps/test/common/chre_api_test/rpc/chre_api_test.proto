@@ -84,6 +84,14 @@ service ChreApiTestService {
   rpc ChreBleStopScanSync(google.protobuf.Empty)
       returns (stream GeneralSyncMessage) {}
 
+  /* Stops a BLE scan synchronously with the v1_9 APIs. This will wait for the
+   * event and will return success if the chreBleStopScanAsync
+   * function returns success and the event is seen. This will
+   * return the event's success field.
+   */
+  rpc ChreBleStopScanSyncV1_9(google.protobuf.Empty)
+      returns (stream GeneralSyncMessage) {}
+
   // Returns events that match the eventType filter
   rpc GatherEvents(GatherEventsInput) returns (stream GeneralEventsMessage) {}
 

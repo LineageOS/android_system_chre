@@ -1020,8 +1020,10 @@ cc_library_static {
     srcs: [
         "variant/android/static_nanoapps.cc",
         "core/static_nanoapps.cc",
-        "apps/sensor_world/sensor_world.cc",
-        "apps/message_world/message_world.cc",
+        // Uncomment these apps for testing.
+        // "apps/sensor_world/sensor_world.cc",
+        // "apps/message_world/message_world.cc",
+        // "apps/wwan_world/wwan_world.cc",
     ],
     local_include_dirs: [
         "apps/include",
@@ -1049,6 +1051,7 @@ cc_defaults {
         "platform/android/context.cc",
         "platform/android/fatal_error.cc",
         "platform/android/host_link.cc",
+        "platform/android/jni_manager.cc",
         "platform/android/memory.cc",
         "platform/android/memory_manager.cc",
         "platform/android/platform_sensor.cc",
@@ -1056,6 +1059,7 @@ cc_defaults {
         "platform/android/platform_debug_dump_manager.cc",
         "platform/android/platform_log.cc",
         "platform/android/platform_nanoapp.cc",
+        "platform/android/platform_wwan.cc",
         "platform/android/power_control_manager.cc",
         "platform/android/system_time.cc",
         "platform/shared/assert.cc",
@@ -1101,6 +1105,7 @@ cc_defaults {
     ],
     header_libs: [
         "chre_api",
+        "jni_headers",
     ],
     defaults: [
         "chre_android_common_cflags",
@@ -1157,6 +1162,7 @@ cc_defaults {
         "-DCHRE_ASSERTIONS_ENABLED=true",
         "-DCHRE_RELIABLE_MESSAGE_SUPPORT_ENABLED",
         "-DCHRE_SENSORS_SUPPORT_ENABLED",
+        "-DCHRE_WWAN_SUPPORT_ENABLED",
         // Other common flags.
         "-DCHRE_FILENAME=__FILE__",
         "-DCHRE_FIRST_SUPPORTED_API_VERSION=CHRE_API_VERSION_1_1",

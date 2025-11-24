@@ -16,7 +16,22 @@
 
 package com.google.android.chre.ap;
 
+import android.content.Context;
+import android.telephony.CellInfo;
+import android.telephony.TelephonyManager;
+import android.util.Log;
+
+import java.util.List;
+
 public class ContextHubAPNative {
+    private static final String TAG = "ContextHubAPNative";
+
+    private static Context sContext;
+
+    public static void setContext(Context context) {
+        sContext = context.getApplicationContext();
+    }
+
     static {
         // The runtime will add "lib" on the front and ".so" on the end of
         // the name supplied to loadLibrary.
@@ -60,4 +75,57 @@ public class ContextHubAPNative {
 
     // Called when an alarm is fired.
     static native void onAlarmFired(long timerId);
+
+    /**
+     * Called by native code to get WWAN capabilities.
+     */
+    static int getWwanCapabilities() {
+        TelephonyManager tm = sContext.getSystemService(TelephonyManager.class);
+        if (tm == null) {
+            return 0; // CHRE_WWAN_CAPABILITIES_NONE
+        }
+        // Assume basic cell info support if TelephonyManager is present.
+        // CHRE_WWAN_GET_CELL_INFO = 1
+        return 1;
+    }
+
+    /**
+     * Called by native code to request cell info.
+     * According to requirements: purely cache based, no new scan, no new threads.
+     */
+    static boolean requestWwanCellInfo() {
+        TelephonyManager tm = sContext.getSystemService(TelephonyManager.class);
+
+        if (tm == null) {
+            Log.e(TAG, "TelephonyManager not found");
+            return false;
+        }
+
+        try {
+            // getAllCellInfo returns cached data and does not trigger a scan.
+            // Requires ACCESS_FINE_LOCATION permission in the Manifest.
+            List<CellInfo> cellInfoList = tm.getAllCellInfo();
+
+            if (cellInfoList == null) {
+                Log.w(TAG, "TelephonyManager returned null cell info list");
+                // Even if null, we should respond to CHRE to complete the async request
+                onCellInfoReceived(new Object[0]);
+            } else {
+                onCellInfoReceived(cellInfoList.toArray());
+            }
+            return true;
+        } catch (SecurityException e) {
+            Log.e(TAG, "Security exception getting cell info", e);
+            return false;
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting cell info", e);
+            return false;
+        }
+    }
+
+    /**
+     * Native method to pass CellInfo data back to CHRE.
+     * using Object[] to avoid generic array creation issues in JNI signatures.
+     */
+    static native void onCellInfoReceived(Object[] cellInfoList);
 }

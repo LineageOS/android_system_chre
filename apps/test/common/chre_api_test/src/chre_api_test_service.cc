@@ -196,6 +196,14 @@ bool ChreApiTestService::validateInputAndCallChreBleStopScanAsync(
   return true;
 }
 
+bool ChreApiTestService::validateInputAndCallChreBleStopScanAsyncV1_9(
+    const google_protobuf_Empty & /* request */, chre_rpc_Status &response) {
+  response.status = chreBleStopScanAsyncV1_9(nullptr);
+  LOGD("ChreBleStopScanAsyncV1_9: status: %s",
+       response.status ? "true" : "false");
+  return true;
+}
+
 bool ChreApiTestService::validateInputAndCallChreSensorFindDefault(
     const chre_rpc_ChreSensorFindDefaultInput &request,
     chre_rpc_ChreSensorFindDefaultOutput &response) {

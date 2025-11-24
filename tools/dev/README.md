@@ -85,9 +85,8 @@ required to enable `chre_make` and `chre_flash` to work.
 Note that a list of command-line tools are required. For example, `pyenv` is
 needed to set up python virtual environment, `cmake` is needed to generate
 `compile_commands.json` from a CMake_lists.txt. When running `chre_lunch`, it
-will abort and list out all the missing command-line tools that are required if
-any of them is missing. Currently, it's left to the user to install them as
-different OS has different commands for installation.
+will list out all the missing command-line tools that are required. The user
+will get an option to have them installed via `sudo apt install ...`.
 
 ### Build a target
 
@@ -311,15 +310,5 @@ needs. Run them with `-h` or `--help` to see the instructions.
 
 ## Python Packages
 
-There are two package list files used to specifiy what packages are needed:
-
--   `requirements.txt`: The general list of packages. New package should be
-    added here.
--   `requirements_protobuf.txt`: The list for protobuf specifically.
-
-A reason to have a separate requirement file for protobuf is to avoid an
-infinite dependency overriding loop observed when multiple packages fetch
-different versions of protobuf.
-
-TODO(b/374392644) - Consider separate requirements based on different platform
-and target combinations.
+The required packages are specified in `requirements.in` and the installation is
+done via `requirements.txt` that enforcing hashes of the packages.
