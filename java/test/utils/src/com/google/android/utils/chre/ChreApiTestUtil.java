@@ -498,6 +498,10 @@ public class ChreApiTestUtil {
                         Empty.parser(),
                         ChreApiTest.GeneralSyncMessage.parser()),
                 Service.serverStreamingMethod(
+                        "ChreBleStopScanSyncV1_9",
+                        Empty.parser(),
+                        ChreApiTest.GeneralSyncMessage.parser()),
+                Service.serverStreamingMethod(
                         "ChreBleSocketOpenedSync",
                         Empty.parser(),
                         ChreApiTest.ChreBleSocketConnectionEvent.parser()),
