@@ -18,6 +18,7 @@
 #include <utility>
 #include <vector>
 
+#include "data_flow/host/remote_consumer.h"
 #include "data_flow/internal/queue_internal.h"
 #include "data_flow/queue.h"
 #include "data_flow/queue_defs.h"
@@ -97,6 +98,7 @@ class QueueTest : public ::testing::Test {
 
   void setRemote() {
     static_cast<internal::Queue *>(mQueue)->localNotify = false;
+    static_cast<internal::Queue *>(mVarDataQueue)->localNotify = false;
   }
 
   uintptr_t base() {
@@ -105,6 +107,14 @@ class QueueTest : public ::testing::Test {
 
   uint32_t size() {
     return mStorage.size();
+  }
+
+  uint32_t queueOffset() {
+    return reinterpret_cast<uintptr_t>(mQueue) - base();
+  }
+
+  uint32_t varDataQueueOffset() {
+    return reinterpret_cast<uintptr_t>(mVarDataQueue) - base();
   }
 
   pw::Result<Producer<int>> createLocalProducer(LocalNotifyArgs notifyArgs) {
@@ -121,6 +131,14 @@ class QueueTest : public ::testing::Test {
         notifyArgs);
   }
 
+  pw::Result<VariableDataProducer> createRemoteVarDataProducer(
+      RemoteNotifyArgs notifyArgs) {
+    return VariableDataProducer::createRemote(
+        {{.base = base(), .size = size()}, .allocator = &mAllocator},
+        mVarDataQueue, kBaseMaxBlockCount, kBaseMinBlockCount, mDataNotifier,
+        std::move(notifyArgs));
+  }
+
   pw::Result<Producer<int>> createRemoteProducer(RemoteNotifyArgs notifyArgs) {
     return Producer<int>::createRemote(
         {{.base = base(), .size = size()}, .allocator = &mAllocator}, mQueue,
@@ -134,9 +152,8 @@ class QueueTest : public ::testing::Test {
     PW_TRY_ASSIGN(
         uint32_t descOffset,
         mProducer->getConsumerManager().addConsumer(id, policyBuilder));
-    return Consumer<int>::createLocal(
-        {.base = base(), .size = size()},
-        reinterpret_cast<uintptr_t>(mQueue) - base(), descOffset, notifyArgs);
+    return Consumer<int>::createLocal({.base = base(), .size = size()},
+                                      queueOffset(), descOffset, notifyArgs);
   }
 
   pw::Result<VariableDataConsumer> createLocalVarDataConsumer(
@@ -145,10 +162,9 @@ class QueueTest : public ::testing::Test {
     PW_TRY_ASSIGN(
         uint32_t descOffset,
         mVarDataProducer->getConsumerManager().addConsumer(id, policyBuilder));
-    return VariableDataConsumer::createLocal(
-        {.base = base(), .size = size()},
-        reinterpret_cast<uintptr_t>(mVarDataQueue) - base(), descOffset,
-        notifyArgs);
+    return VariableDataConsumer::createLocal({.base = base(), .size = size()},
+                                             varDataQueueOffset(), descOffset,
+                                             notifyArgs);
   }
 
   pw::Result<Consumer<int>> createRemoteConsumer(
@@ -156,10 +172,54 @@ class QueueTest : public ::testing::Test {
     PW_TRY_ASSIGN(uint32_t descOffset,
                   mProducer->getConsumerManager().addConsumer(notifyArgs.id,
                                                               policyBuilder));
-    return Consumer<int>::createRemote(
+    return Consumer<int>::createRemote({.base = base(), .size = size()},
+                                       /*descRegion=*/{}, queueOffset(),
+                                       descOffset, std::move(notifyArgs));
+  }
+
+  pw::Result<VariableDataConsumer> createRemoteVarDataConsumer(
+      RemoteNotifyArgs notifyArgs, ConsumerPolicyBuilder &policyBuilder) {
+    PW_TRY_ASSIGN(uint32_t descOffset,
+                  mVarDataProducer->getConsumerManager().addConsumer(
+                      notifyArgs.id, policyBuilder));
+    return VariableDataConsumer::createRemote(
         {.base = base(), .size = size()}, /*descRegion=*/{},
-        reinterpret_cast<uintptr_t>(mQueue) - base(), descOffset,
-        std::move(notifyArgs));
+        varDataQueueOffset(), descOffset, std::move(notifyArgs));
+  }
+
+  pw::Result<VariableDataConsumer> createHostVarDataConsumer(
+      RemoteNotifyArgs notifyArgs, ConsumerPolicyBuilder &policyBuilder) {
+    PW_TRY_ASSIGN(uint32_t descOffset,
+                  mVarDataProducer->getConsumerManager().addConsumer(
+                      notifyArgs.id, policyBuilder));
+    PW_TRY_ASSIGN(auto consumer,
+                  ::android::contexthub::data_flow::createRemoteConsumer(
+                      {.base = base(), .size = size()}, /*descRegion=*/{},
+                      varDataQueueOffset(), descOffset, std::move(notifyArgs)));
+    bool isVarDataConsumer =
+        std::holds_alternative<VariableDataConsumer>(consumer);
+    EXPECT_TRUE(isVarDataConsumer);
+    if (!isVarDataConsumer) {
+      return pw::Status::Internal();
+    }
+    return std::get<VariableDataConsumer>(std::move(consumer));
+  }
+
+  pw::Result<UntypedConsumer> createHostUntypedConsumer(
+      RemoteNotifyArgs notifyArgs, ConsumerPolicyBuilder &policyBuilder) {
+    PW_TRY_ASSIGN(uint32_t descOffset,
+                  mProducer->getConsumerManager().addConsumer(notifyArgs.id,
+                                                              policyBuilder));
+    PW_TRY_ASSIGN(auto consumer,
+                  ::android::contexthub::data_flow::createRemoteConsumer(
+                      {.base = base(), .size = size()}, /*descRegion=*/{},
+                      queueOffset(), descOffset, std::move(notifyArgs)));
+    bool isUntypedConsumer = std::holds_alternative<UntypedConsumer>(consumer);
+    EXPECT_TRUE(isUntypedConsumer);
+    if (!isUntypedConsumer) {
+      return pw::Status::Internal();
+    }
+    return std::get<UntypedConsumer>(std::move(consumer));
   }
 
   void initLocalProducer(LocalNotifyArgs notifyArgs) {
@@ -177,6 +237,13 @@ class QueueTest : public ::testing::Test {
 
   void initLocalVarDataProducer(LocalNotifyArgs notifyArgs) {
     auto maybeProducer = createLocalVarDataProducer(notifyArgs);
+    ASSERT_EQ(maybeProducer.status(), pw::OkStatus());
+    mVarDataProducer.emplace(std::move(*maybeProducer));
+  }
+
+  void initRemoteVarDataProducer(RemoteNotifyArgs notifyArgs) {
+    static_cast<internal::Queue *>(mVarDataQueue)->localNotify = false;
+    auto maybeProducer = createRemoteVarDataProducer(std::move(notifyArgs));
     ASSERT_EQ(maybeProducer.status(), pw::OkStatus());
     mVarDataProducer.emplace(std::move(*maybeProducer));
   }
@@ -1150,6 +1217,34 @@ TEST_F(QueueTest, RemoteNotificationHighWaterMark) {
   // Push another element, which should trigger a notification.
   EXPECT_EQ(mProducer->push(0), pw::OkStatus());
   EXPECT_EQ(notificationCount, 3);
+}
+
+TEST_F(QueueTest, CreateRemoteConsumerForFixedSizeQueue) {
+  RemoteNotifyArgs producerArgs = {.fn = getEmptyRemoteNotifyFn(),
+                                   .id = {std::byte(0)}};
+  initRemoteProducer(std::move(producerArgs));
+
+  ConsumerPolicyBuilder policyBuilder;
+  RemoteNotifyArgs consumerArgs = {.fn = getEmptyRemoteNotifyFn(),
+                                   .id = {std::byte(1)}};
+  auto consumer =
+      createHostUntypedConsumer(std::move(consumerArgs), policyBuilder);
+  ASSERT_EQ(consumer.status(), pw::OkStatus());
+  EXPECT_EQ(consumer->getElementSize(), sizeof(int));
+  EXPECT_EQ(consumer->getElementAlignment(), alignof(int));
+}
+
+TEST_F(QueueTest, CreateRemoteConsumerForVariableSizeQueue) {
+  RemoteNotifyArgs producerArgs = {.fn = getEmptyRemoteNotifyFn(),
+                                   .id = {std::byte(0)}};
+  initRemoteVarDataProducer(std::move(producerArgs));
+
+  ConsumerPolicyBuilder policyBuilder;
+  RemoteNotifyArgs consumerArgs = {.fn = getEmptyRemoteNotifyFn(),
+                                   .id = {std::byte(1)}};
+  EXPECT_EQ(createHostVarDataConsumer(std::move(consumerArgs), policyBuilder)
+                .status(),
+            pw::OkStatus());
 }
 
 }  // namespace
