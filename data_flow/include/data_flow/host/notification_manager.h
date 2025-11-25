@@ -46,6 +46,17 @@ class NotificationManager {
   /** Handle for the eventfds associated with an endpoint on a data flow. */
   using NotificationDataHandle = NotificationData *;
 
+  /** Contains the eventfds for notifying one endpoint on a data flow. */
+  struct EventFds {
+    // Used to send waking notifications to this endpoint.
+    ndk::ScopedFileDescriptor waking;
+    // Used to send non-waking notifications to this endpoint.
+    ndk::ScopedFileDescriptor nonWaking;
+    // Used by this endpoint to acknowledge waking notifications. Only present
+    // if the associated endpoint is on the host.
+    ndk::ScopedFileDescriptor halAck;
+  };
+
   /** Interface for managing triggers on a thread looping on epoll_wait(). */
   class EpollWaiter {
    public:
@@ -96,7 +107,11 @@ class NotificationManager {
    */
   pw::Result<std::pair<::aidl::android::hardware::contexthub::DataFlowInfo,
                        NotificationDataHandle>>
-  prepareHostProducerDataFlow() EXCLUDES(mLock);
+  prepareHostProducerDataFlowInfo() EXCLUDES(mLock);
+
+  /** Version of prepareHostProducerDataFlowInfo() that returns EventFds. */
+  pw::Result<std::pair<EventFds, NotificationDataHandle>>
+  prepareHostProducerDataFlowEventFds() EXCLUDES(mLock);
 
   /** Discards the eventfds associated with the given handle.
    *
@@ -142,8 +157,15 @@ class NotificationManager {
    * pw::Status::NotFound() if the data flow is not known.
    */
   pw::Result<::aidl::android::hardware::contexthub::DataFlowConsumerHandle>
-  addOffloadConsumer(int dataFlow,
-                     ::aidl::android::hardware::contexthub::EndpointId consumer)
+  addOffloadConsumerAndCreateHandle(
+      int dataFlow, ::aidl::android::hardware::contexthub::EndpointId consumer)
+      EXCLUDES(mLock);
+
+  /**
+   * Version of addOffloadConsumerAndCreateHandle() that returns an EventFds.
+   */
+  pw::Result<EventFds> addOffloadConsumerAndGetEventFds(
+      int dataFlow, ::aidl::android::hardware::contexthub::EndpointId consumer)
       EXCLUDES(mLock);
 
   /**
@@ -166,9 +188,27 @@ class NotificationManager {
    * the fds are not valid. pw::Status::Internal() on failure to enable
    * notifications.
    */
-  pw::Status enableHostConsumer(
-      ::aidl::android::hardware::contexthub::DataFlowConsumerHandle &consumer)
-      EXCLUDES(mLock);
+  pw::Status enableHostConsumerFromHandle(
+      const ::aidl::android::hardware::contexthub::DataFlowConsumerHandle
+          &consumer) EXCLUDES(mLock);
+
+  /**
+   * Version of enableHostConsumerFromHandle() that takes EventFds instead of a
+   * DataFlowConsumerHandle.
+   *
+   * @param dataFlow The data flow the consumer will read from.
+   * @param notifyHostFds The eventfds the host endpoint will listen for
+   * notifications on. Must contain the halAck fd.
+   * @param notifyOffloadFds The eventfds to send notifications to the offload
+   * endpoint on.
+   * @return pw::Status::AlreadyExists() if this endpoint is already consuming
+   * on a data flow with the id in consumer. pw::Status::InvalidArgument() if
+   * the fds are not valid. pw::Status::Internal() on failure to enable
+   * notifications.
+   */
+  pw::Status enableHostConsumerFromEventFds(
+      ::aidl::android::hardware::contexthub::DataFlowId dataFlow,
+      EventFds &&notifyHostFds, EventFds &&notifyOffloadFds) EXCLUDES(mLock);
 
   /**
    * Disables notifications for this endpoint on an offload producer data flow.
@@ -210,9 +250,7 @@ class NotificationManager {
     ::aidl::android::hardware::contexthub::DataFlowId dataFlow;
     std::optional<::aidl::android::hardware::contexthub::EndpointId>
         offloadEndpoint;
-    ndk::ScopedFileDescriptor waking;
-    ndk::ScopedFileDescriptor nonWaking;
-    ndk::ScopedFileDescriptor halAck;
+    EventFds eventFds;
   };
 
   NotificationManager(std::unique_ptr<EpollWaiter> waiter,

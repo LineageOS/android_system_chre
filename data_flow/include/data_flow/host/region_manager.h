@@ -27,6 +27,7 @@
 #include <aidl/android/hardware/contexthub/IContextHub.h>
 #include <android-base/thread_annotations.h>
 
+#include "android/binder_auto_utils.h"
 #include "data_flow/queue_defs.h"
 #include "pw_allocator/dl_allocator.h"
 #include "pw_allocator/synchronized_allocator.h"
@@ -44,6 +45,13 @@ namespace android::contexthub::data_flow {
  */
 class RegionManager {
  public:
+  /** Alternative to SharedDataRegion to avoid repackaging AIDL types. */
+  struct RegionToMap {
+    int id;                        // The region identifier.
+    ndk::ScopedFileDescriptor fd;  // The file descriptor to mmap().
+    size_t size;                   // The size of the region.
+  };
+
   /**
    * Maps a shared data region into which this endpoint will produce.
    *
@@ -55,7 +63,17 @@ class RegionManager {
    * pw::Status::Internal() if it is not possible to map the region.
    */
   pw::Result<AllocatorRegion> mapHostProducerRegion(
-      ::aidl::android::hardware::contexthub::SharedDataRegion &&region)
+      const ::aidl::android::hardware::contexthub::SharedDataRegion &region)
+      EXCLUDES(mLock);
+
+  /**
+   * Version of mapHostProducerRegion() when the caller isn't an AIDL client.
+   *
+   * @param region The region to map into this process's virtual memory space.
+   * @return On success, the details of the mapping and an allocator over it.
+   * pw::Status::Internal() if it is not possible to map the region.
+   */
+  pw::Result<AllocatorRegion> mapHostProducerRegion(RegionToMap &&region)
       EXCLUDES(mLock);
 
   /** @return A host producer region's details or pw::Status::NotFound(). */
@@ -118,7 +136,23 @@ class RegionManager {
    * pw::Status::Internal() if it is not possible to map the region.
    */
   pw::Result<AllocatorRegion> mapOffloadConsumerRegion(
-      ::aidl::android::hardware::contexthub::SharedDataRegion &&region,
+      const ::aidl::android::hardware::contexthub::SharedDataRegion &region,
+      const ::aidl::android::hardware::contexthub::EndpointId &consumer,
+      int dataFlow) EXCLUDES(mLock);
+
+  /**
+   * Version of mapOffloadConsumerRegion() when the caller isn't an AIDL client.
+   *
+   * @param region The region to map into this process's virtual memory space.
+   * @param consumer The id of the offload consumer.
+   * @param dataFlow The id of the data flow (NOTE: this doesn't include hub id
+   * since it must be the hub this endpoint is on).
+   * @return On success, the details of the mapping and the allocator over it.
+   * pw::Status::FailedPrecondition() if the data flow is not known.
+   * pw::Status::Internal() if it is not possible to map the region.
+   */
+  pw::Result<AllocatorRegion> mapOffloadConsumerRegion(
+      RegionToMap &&region,
       const ::aidl::android::hardware::contexthub::EndpointId &consumer,
       int dataFlow) EXCLUDES(mLock);
 
@@ -138,9 +172,24 @@ class RegionManager {
    * it is not possible to map the region.
    */
   pw::Result<std::pair<Region, std::optional<Region>>> mapHostConsumerRegions(
-      ::aidl::android::hardware::contexthub::SharedDataRegion &&region,
-      std::optional<::aidl::android::hardware::contexthub::SharedDataRegion>
-          &&metadataRegion,
+      const ::aidl::android::hardware::contexthub::SharedDataRegion &region,
+      const ::aidl::android::hardware::contexthub::SharedDataRegion
+          *metadataRegion,
+      const ::aidl::android::hardware::contexthub::DataFlowId &dataFlow)
+      EXCLUDES(mLock);
+
+  /**
+   * Version of mapHostConsumerRegions() when the caller isn't an AIDL client.
+   *
+   * @param region The region to map into this process's virtual memory space.
+   * @param metadataRegion [optional] If provided, a separate writable region
+   * containing the consumer metadata. If not provided, region will be writable.
+   * @param dataFlow The id of the data flow.
+   * @return On success, the details of the mapping. pw::Status::Internal() if
+   * it is not possible to map the region.
+   */
+  pw::Result<std::pair<Region, std::optional<Region>>> mapHostConsumerRegions(
+      RegionToMap &&region, std::optional<RegionToMap> &&metadataRegion,
       const ::aidl::android::hardware::contexthub::DataFlowId &dataFlow)
       EXCLUDES(mLock);
 
@@ -210,14 +259,13 @@ class RegionManager {
 
   /** Maps a HostAllocatorRegion and links it into the master map. */
   pw::Result<HostAllocatorRegion *> mapAndLinkHostAllocatorRegion(
-      ::aidl::android::hardware::contexthub::SharedDataRegion &&region,
+      RegionToMap &&region,
       std::optional<::aidl::android::hardware::contexthub::EndpointId> consumer)
       EXCLUSIVE_LOCKS_REQUIRED(mLock);
 
   /** Maps a HostConsumerRegion and links it into the master map. */
   pw::Result<HostConsumerRegion *> mapAndLinkHostConsumerRegion(
-      ::aidl::android::hardware::contexthub::SharedDataRegion &&region,
-      bool readOnly) EXCLUSIVE_LOCKS_REQUIRED(mLock);
+      RegionToMap &&region, bool readOnly) EXCLUSIVE_LOCKS_REQUIRED(mLock);
 
   /** Removes a data flow from a HostConsumerRegion, possibly unmapping it. */
   void unlinkDataFlowFromHostConsumerRegion(

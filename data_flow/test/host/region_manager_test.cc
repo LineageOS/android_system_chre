@@ -40,7 +40,18 @@ using ::aidl::android::hardware::contexthub::SharedDataRegion;
 
 class RegionManagerTest : public ::testing::Test {
  protected:
-  pw::Result<SharedDataRegion> createRegion(size_t size, bool writable) {
+  pw::Result<RegionManager::RegionToMap> createRegionToMap(size_t size,
+                                                           bool writable) {
+    PW_TRY_ASSIGN(auto region, createSharedDataRegion(size, writable));
+    return RegionManager::RegionToMap{
+        .id = region.id,
+        .fd = std::move(region.sharedMemory),
+        .size = static_cast<size_t>(region.size),
+    };
+  }
+
+  pw::Result<SharedDataRegion> createSharedDataRegion(size_t size,
+                                                      bool writable) {
     std::string name = "testFd" + std::to_string(mNextRegionId);
     android::base::unique_fd fd(
         syscall(SYS_memfd_create, name.c_str(), MFD_ALLOW_SEALING));
@@ -73,11 +84,11 @@ class RegionManagerTest : public ::testing::Test {
 };
 
 TEST_F(RegionManagerTest, MapAndUnmapHostProducerRegion) {
-  auto sharedDataRegion = createRegion(1024, /*writable=*/true);
-  ASSERT_EQ(sharedDataRegion.status(), pw::OkStatus());
-  int id = sharedDataRegion->id;
+  auto regionToMap = createRegionToMap(1024, /*writable=*/true);
+  ASSERT_EQ(regionToMap.status(), pw::OkStatus());
+  int id = regionToMap->id;
 
-  auto region = mManager.mapHostProducerRegion(std::move(*sharedDataRegion));
+  auto region = mManager.mapHostProducerRegion(std::move(*regionToMap));
   ASSERT_EQ(region.status(), pw::OkStatus());
   EXPECT_TRUE(region->allocator);
   EXPECT_GE(region->size, 1024);
@@ -97,14 +108,31 @@ TEST_F(RegionManagerTest, MapAndUnmapHostProducerRegion) {
   EXPECT_EQ(mManager.unmapHostProducerRegion(id), pw::OkStatus());
 }
 
-TEST_F(RegionManagerTest, UnmapHostProducerRegionInUse) {
-  auto sharedDataRegion = createRegion(1024, /*writable=*/true);
+TEST_F(RegionManagerTest, MapHostProducerRegionFromSharedDataRegion) {
+  auto sharedDataRegion = createSharedDataRegion(1024, /*writable=*/true);
   ASSERT_EQ(sharedDataRegion.status(), pw::OkStatus());
-  int regionId = sharedDataRegion->id;
 
-  ASSERT_EQ(
-      mManager.mapHostProducerRegion(std::move(*sharedDataRegion)).status(),
-      pw::OkStatus());
+  auto region = mManager.mapHostProducerRegion(*sharedDataRegion);
+  ASSERT_EQ(region.status(), pw::OkStatus());
+  EXPECT_TRUE(region->allocator);
+  EXPECT_GE(region->size, 1024);
+  if (region->allocator && region->size >= 1024) {
+    auto *ptr = region->allocator->New<int>();
+    ASSERT_TRUE(ptr);
+    *ptr = 42;
+    region->allocator->Delete(ptr);
+  }
+  EXPECT_EQ(mManager.unmapHostProducerRegion(sharedDataRegion->id),
+            pw::OkStatus());
+}
+
+TEST_F(RegionManagerTest, UnmapHostProducerRegionInUse) {
+  auto regionToMap = createRegionToMap(1024, /*writable=*/true);
+  ASSERT_EQ(regionToMap.status(), pw::OkStatus());
+  int regionId = regionToMap->id;
+
+  ASSERT_EQ(mManager.mapHostProducerRegion(std::move(*regionToMap)).status(),
+            pw::OkStatus());
 
   int dataFlowId = 123;
   EXPECT_EQ(mManager.linkHostProducerDataFlowToRegion(regionId, dataFlowId),
@@ -119,33 +147,30 @@ TEST_F(RegionManagerTest, UnmapHostProducerRegionInUse) {
 }
 
 TEST_F(RegionManagerTest, MapHostProducerRegionAlreadyExists) {
-  auto sharedDataRegion1 = createRegion(1024, /*writable=*/true);
-  ASSERT_EQ(sharedDataRegion1.status(), pw::OkStatus());
-  int id = sharedDataRegion1->id;
+  auto regionToMap1 = createRegionToMap(1024, /*writable=*/true);
+  ASSERT_EQ(regionToMap1.status(), pw::OkStatus());
+  int id = regionToMap1->id;
 
-  auto sharedDataRegion2 = createRegion(1024, /*writable=*/true);
-  ASSERT_EQ(sharedDataRegion2.status(), pw::OkStatus());
-  sharedDataRegion2->id = id;
+  auto regionToMap2 = createRegionToMap(1024, /*writable=*/true);
+  ASSERT_EQ(regionToMap2.status(), pw::OkStatus());
+  regionToMap2->id = id;
 
-  ASSERT_EQ(
-      mManager.mapHostProducerRegion(std::move(*sharedDataRegion1)).status(),
-      pw::OkStatus());
+  ASSERT_EQ(mManager.mapHostProducerRegion(std::move(*regionToMap1)).status(),
+            pw::OkStatus());
 
-  EXPECT_EQ(
-      mManager.mapHostProducerRegion(std::move(*sharedDataRegion2)).status(),
-      pw::Status::AlreadyExists());
+  EXPECT_EQ(mManager.mapHostProducerRegion(std::move(*regionToMap2)).status(),
+            pw::Status::AlreadyExists());
 
   EXPECT_EQ(mManager.unmapHostProducerRegion(id), pw::OkStatus());
 }
 
 TEST_F(RegionManagerTest, LinkAndUnlinkHostProducerDataFlow) {
-  auto sharedDataRegion = createRegion(1024, /*writable=*/true);
-  ASSERT_EQ(sharedDataRegion.status(), pw::OkStatus());
-  int regionId = sharedDataRegion->id;
+  auto regionToMap = createRegionToMap(1024, /*writable=*/true);
+  ASSERT_EQ(regionToMap.status(), pw::OkStatus());
+  int regionId = regionToMap->id;
 
-  ASSERT_EQ(
-      mManager.mapHostProducerRegion(std::move(*sharedDataRegion)).status(),
-      pw::OkStatus());
+  ASSERT_EQ(mManager.mapHostProducerRegion(std::move(*regionToMap)).status(),
+            pw::OkStatus());
 
   int dataFlowId = 123;
   EXPECT_EQ(mManager.linkHostProducerDataFlowToRegion(regionId, dataFlowId),
@@ -164,7 +189,7 @@ TEST_F(RegionManagerTest, LinkAndUnlinkHostProducerDataFlow) {
 }
 
 TEST_F(RegionManagerTest, MapOffloadConsumerRegionWithInvalidDataFlow) {
-  auto consumerRegion = createRegion(1024, /*writable=*/true);
+  auto consumerRegion = createRegionToMap(1024, /*writable=*/true);
   ASSERT_EQ(consumerRegion.status(), pw::OkStatus());
   EndpointId consumerId = {.hubId = 1, .id = 1};
   int nonExistentDataFlowId = 999;
@@ -177,7 +202,7 @@ TEST_F(RegionManagerTest, MapOffloadConsumerRegionWithInvalidDataFlow) {
 }
 
 TEST_F(RegionManagerTest, MapAndPruneOffloadConsumerRegion) {
-  auto hostProducerRegion = createRegion(4096, /*writable=*/true);
+  auto hostProducerRegion = createRegionToMap(4096, /*writable=*/true);
   ASSERT_EQ(hostProducerRegion.status(), pw::OkStatus());
   int producerRegionId = hostProducerRegion->id;
   ASSERT_EQ(
@@ -189,7 +214,7 @@ TEST_F(RegionManagerTest, MapAndPruneOffloadConsumerRegion) {
       mManager.linkHostProducerDataFlowToRegion(producerRegionId, dataFlowId),
       pw::OkStatus());
 
-  auto consumerRegion = createRegion(1024, /*writable=*/true);
+  auto consumerRegion = createRegionToMap(1024, /*writable=*/true);
   ASSERT_EQ(consumerRegion.status(), pw::OkStatus());
   EndpointId consumerId = {.hubId = 1, .id = 1};
 
@@ -211,7 +236,7 @@ TEST_F(RegionManagerTest, MapAndPruneOffloadConsumerRegion) {
 }
 
 TEST_F(RegionManagerTest, MapAndUnlinkHostConsumerRegions) {
-  auto region = createRegion(1024, /*writable=*/true);
+  auto region = createRegionToMap(1024, /*writable=*/true);
   ASSERT_EQ(region.status(), pw::OkStatus());
   DataFlowId dataFlowId = {.hubId = 1, .id = 1};
 
@@ -226,9 +251,9 @@ TEST_F(RegionManagerTest, MapAndUnlinkHostConsumerRegions) {
 }
 
 TEST_F(RegionManagerTest, MapAndUnlinkHostConsumerRegionsWithMetadataRegion) {
-  auto region = createRegion(1024, /*writable=*/false);
+  auto region = createRegionToMap(1024, /*writable=*/false);
   ASSERT_EQ(region.status(), pw::OkStatus());
-  auto metadataRegion = createRegion(256, /*writable=*/true);
+  auto metadataRegion = createRegionToMap(256, /*writable=*/true);
   ASSERT_EQ(metadataRegion.status(), pw::OkStatus());
   DataFlowId dataFlowId = {.hubId = 1, .id = 1};
 

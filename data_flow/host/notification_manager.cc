@@ -23,7 +23,6 @@
 #include <unistd.h>
 
 #include <mutex>
-#include <tuple>
 
 #include <aidl/android/hardware/contexthub/IContextHub.h>
 #include <utils/Log.h>
@@ -50,30 +49,25 @@ pw::Result<int> tryGetFdOp(int fd, int line) {
   return fd;
 }
 
-pw::Result<std::tuple<ndk::ScopedFileDescriptor, ndk::ScopedFileDescriptor,
-                      ndk::ScopedFileDescriptor>>
-createEventFds(bool needsHalAck) {
-  ndk::ScopedFileDescriptor wakingFd, nonWakingFd, halAckFd;
+pw::Result<NotificationManager::EventFds> createEventFds(bool needsHalAck) {
+  NotificationManager::EventFds eventFds;
   PW_TRY_ASSIGN(int fd, tryGetFdOp(eventfd(0, EFD_NONBLOCK), __LINE__));
-  wakingFd = ndk::ScopedFileDescriptor(fd);
+  eventFds.waking = ndk::ScopedFileDescriptor(fd);
   PW_TRY_ASSIGN(fd, tryGetFdOp(eventfd(0, EFD_NONBLOCK), __LINE__));
-  nonWakingFd = ndk::ScopedFileDescriptor(fd);
+  eventFds.nonWaking = ndk::ScopedFileDescriptor(fd);
   if (needsHalAck) {
     PW_TRY_ASSIGN(fd, tryGetFdOp(eventfd(0, EFD_NONBLOCK), __LINE__));
-    halAckFd = ndk::ScopedFileDescriptor(fd);
+    eventFds.halAck = ndk::ScopedFileDescriptor(fd);
   }
-  return std::make_tuple(std::move(wakingFd), std::move(nonWakingFd),
-                         std::move(halAckFd));
+  return eventFds;
 }
 
-pw::Result<std::tuple<ndk::ScopedFileDescriptor, ndk::ScopedFileDescriptor,
-                      ndk::ScopedFileDescriptor>>
-dupEventFds(std::tuple<ndk::ScopedFileDescriptor, ndk::ScopedFileDescriptor,
-                       ndk::ScopedFileDescriptor> &fds,
-            bool needsHalAck) {
-  return std::make_tuple(
-      std::get<0>(fds).dup(), std::get<1>(fds).dup(),
-      needsHalAck ? std::get<2>(fds).dup() : ndk::ScopedFileDescriptor());
+pw::Result<NotificationManager::EventFds> dupEventFds(
+    NotificationManager::EventFds &fds, bool needsHalAck) {
+  return NotificationManager::EventFds{
+      .waking = fds.waking.dup(),
+      .nonWaking = fds.nonWaking.dup(),
+      .halAck = needsHalAck ? fds.halAck.dup() : ndk::ScopedFileDescriptor()};
 }
 
 pw::Status sendNotification(int fd) {
@@ -95,24 +89,30 @@ NotificationManager::~NotificationManager() {
 }
 
 pw::Result<std::pair<DataFlowInfo, NotificationManager::NotificationDataHandle>>
-NotificationManager::prepareHostProducerDataFlow() {
+NotificationManager::prepareHostProducerDataFlowInfo() {
+  PW_TRY_ASSIGN(auto fdsAndHandle, prepareHostProducerDataFlowEventFds());
+  return std::make_pair(
+      DataFlowInfo{
+          .producerEventFd = std::move(fdsAndHandle.first.waking),
+          .producerEventFdNonwake = std::move(fdsAndHandle.first.nonWaking),
+          .halAckEventFd = std::move(fdsAndHandle.first.halAck)},
+      fdsAndHandle.second);
+}
+
+pw::Result<std::pair<NotificationManager::EventFds,
+                     NotificationManager::NotificationDataHandle>>
+NotificationManager::prepareHostProducerDataFlowEventFds() {
   // Create the eventfds. Then dup them to create the DataFlowInfo to send to
   // the service.
-  PW_TRY_ASSIGN(auto fdTuple, createEventFds(/*needsHalAck=*/true));
-  PW_TRY_ASSIGN(auto dupFdTuple, dupEventFds(fdTuple, /*needsHalAck=*/true));
+  PW_TRY_ASSIGN(auto fds, createEventFds(/*needsHalAck=*/true));
+  PW_TRY_ASSIGN(auto dupFds, dupEventFds(fds, /*needsHalAck=*/true));
   // Map the eventfds after successfully duplicating them.
   auto data = std::make_unique<NotificationData>(
-      NotificationData{.waking = std::move(std::get<0>(fdTuple)),
-                       .nonWaking = std::move(std::get<1>(fdTuple)),
-                       .halAck = std::move(std::get<2>(fdTuple))});
+      NotificationData{.eventFds = std::move(fds)});
   auto *dataPtr = data.get();
-  DataFlowInfo info{
-      .producerEventFd = std::move(std::get<0>(dupFdTuple)),
-      .producerEventFdNonwake = std::move(std::get<1>(dupFdTuple)),
-      .halAckEventFd = std::move(std::get<2>(dupFdTuple))};
   std::lock_guard lock(mLock);
   mNotificationDataStorage[dataPtr] = std::move(data);
-  return std::make_pair(std::move(info), dataPtr);
+  return std::make_pair(std::move(dupFds), dataPtr);
 }
 
 pw::Status NotificationManager::discardNotificationDataHandle(
@@ -172,7 +172,17 @@ pw::Status NotificationManager::removeHostProducerDataFlow(int id) {
 }
 
 pw::Result<::aidl::android::hardware::contexthub::DataFlowConsumerHandle>
-NotificationManager::addOffloadConsumer(int dataFlow, EndpointId consumer) {
+NotificationManager::addOffloadConsumerAndCreateHandle(int dataFlow,
+                                                       EndpointId consumer) {
+  PW_TRY_ASSIGN(auto fds, addOffloadConsumerAndGetEventFds(dataFlow, consumer));
+  return DataFlowConsumerHandle{
+      .consumerEventFd = std::move(fds.waking),
+      .consumerEventFdNonwake = std::move(fds.nonWaking)};
+}
+
+pw::Result<NotificationManager::EventFds>
+NotificationManager::addOffloadConsumerAndGetEventFds(int dataFlow,
+                                                      EndpointId consumer) {
   std::lock_guard lock(mLock);
   auto it = mHostDataFlowToHandles.find(dataFlow);
   if (it == mHostDataFlowToHandles.end()) {
@@ -187,23 +197,19 @@ NotificationManager::addOffloadConsumer(int dataFlow, EndpointId consumer) {
   }
   // Create and duplicate the eventfds. The halAck fd is not needed since this
   // endpoint will not be receiving notifications from the HAL on these fds.
-  PW_TRY_ASSIGN(auto fdTuple, createEventFds(/*needsHalAck=*/false));
-  PW_TRY_ASSIGN(auto dupFdTuple, dupEventFds(fdTuple, /*needsHalAck=*/false));
+  PW_TRY_ASSIGN(auto fds, createEventFds(/*needsHalAck=*/false));
+  PW_TRY_ASSIGN(auto dupFds, dupEventFds(fds, /*needsHalAck=*/false));
   auto data = std::make_unique<NotificationData>(NotificationData{
       .dataFlow = {.hubId = HubInfo::HUB_ID_INVALID, .id = dataFlow},
       .offloadEndpoint = consumer,
-      .waking = std::move(std::get<0>(fdTuple)),
-      .nonWaking = std::move(std::get<1>(fdTuple))});
+      .eventFds = std::move(fds)});
   auto *dataPtr = data.get();
-  DataFlowConsumerHandle consumerHandle{
-      .consumerEventFd = std::move(std::get<0>(dupFdTuple)),
-      .consumerEventFdNonwake = std::move(std::get<1>(dupFdTuple))};
   // Store the notification data and map both the data flow and consumer id to
   // the data.
   mNotificationDataStorage[dataPtr] = std::move(data);
   it->second.insert(dataPtr);
   mOffloadConsumerToHandle[consumer] = dataPtr;
-  return consumerHandle;
+  return std::move(dupFds);
 }
 
 pw::Status NotificationManager::removeOffloadConsumer(EndpointId consumer) {
@@ -222,21 +228,33 @@ pw::Status NotificationManager::removeOffloadConsumer(EndpointId consumer) {
   return pw::OkStatus();
 }
 
-pw::Status NotificationManager::enableHostConsumer(
-    DataFlowConsumerHandle &consumer) {
+pw::Status NotificationManager::enableHostConsumerFromHandle(
+    const DataFlowConsumerHandle &consumer) {
+  EventFds notifyHostFds{.waking = consumer.consumerEventFd.dup(),
+                         .nonWaking = consumer.consumerEventFdNonwake.dup(),
+                         .halAck = consumer.halAckEventFd.dup()};
+  EventFds notifyOffloadFds{
+      .waking = consumer.info->producerEventFd.dup(),
+      .nonWaking = consumer.info->producerEventFdNonwake.dup()};
+  return enableHostConsumerFromEventFds(consumer.id, std::move(notifyHostFds),
+                                        std::move(notifyOffloadFds));
+}
+
+pw::Status NotificationManager::enableHostConsumerFromEventFds(
+    DataFlowId dataFlow, EventFds &&notifyHostFds,
+    EventFds &&notifyOffloadFds) {
   std::lock_guard lock(mLock);
-  auto dataFlow = consumer.id;
   auto it = mOffloadDataFlowToHandles.find(dataFlow);
   if (it != mOffloadDataFlowToHandles.end()) {
     ALOGE("Attempted to add duplicate handle for offload data flow (%" PRIx64
           ", %" PRIx32 ")",
           dataFlow.hubId, dataFlow.id);
     return pw::Status::AlreadyExists();
-  } else if (consumer.consumerEventFd.get() < 0 ||
-             consumer.consumerEventFdNonwake.get() < 0 ||
-             consumer.halAckEventFd.get() < 0 || !consumer.info ||
-             consumer.info->producerEventFd.get() < 0 ||
-             consumer.info->producerEventFdNonwake.get() < 0) {
+  } else if (notifyHostFds.waking.get() < 0 ||
+             notifyHostFds.nonWaking.get() < 0 ||
+             notifyHostFds.halAck.get() < 0 ||
+             notifyOffloadFds.waking.get() < 0 ||
+             notifyOffloadFds.nonWaking.get() < 0) {
     ALOGE(
         "Received invalid event fds from the HAL for offload data flow %" PRIx64
         ", %" PRIx32 ")",
@@ -245,20 +263,15 @@ pw::Status NotificationManager::enableHostConsumer(
   }
   auto &dataPair = mOffloadDataFlowToHandles[dataFlow];
   // Set up the NotificationData for incoming notifications to this consumer.
-  auto data = std::make_unique<NotificationData>(
-      NotificationData{.dataFlow = dataFlow,
-                       .waking = std::move(consumer.consumerEventFd),
-                       .nonWaking = std::move(consumer.consumerEventFdNonwake),
-                       .halAck = std::move(consumer.halAckEventFd)});
+  auto data = std::make_unique<NotificationData>(NotificationData{
+      .dataFlow = dataFlow, .eventFds = std::move(notifyHostFds)});
   auto *dataPtr = data.get();
   dataPair.second = dataPtr;
   enableNotifications(dataPtr);
   mNotificationDataStorage[dataPtr] = std::move(data);
   // Set up the NotificationData for outgoing notifications to the producer.
   data = std::make_unique<NotificationData>(NotificationData{
-      .dataFlow = dataFlow,
-      .waking = std::move(consumer.info->producerEventFd),
-      .nonWaking = std::move(consumer.info->producerEventFdNonwake)});
+      .dataFlow = dataFlow, .eventFds = std::move(notifyOffloadFds)});
   dataPtr = data.get();
   dataPair.first = dataPtr;
   mNotificationDataStorage[dataPtr] = std::move(data);
@@ -295,7 +308,8 @@ pw::Status NotificationManager::notifyOffloadProducer(DataFlowId dataFlow,
     return pw::Status::NotFound();
   }
   auto *producerData = it->second.first;
-  auto fd = waking ? producerData->waking.get() : producerData->nonWaking.get();
+  auto fd = waking ? producerData->eventFds.waking.get()
+                   : producerData->eventFds.nonWaking.get();
   if (!sendNotification(fd).ok()) {
     ALOGE(
         "Failed to write notification to producer of offload data flow "
@@ -317,7 +331,8 @@ pw::Status NotificationManager::notifyOffloadConsumer(EndpointId consumer,
     return pw::Status::NotFound();
   }
   auto *data = it->second;
-  auto fd = waking ? data->waking.get() : data->nonWaking.get();
+  auto fd =
+      waking ? data->eventFds.waking.get() : data->eventFds.nonWaking.get();
   if (!sendNotification(fd).ok()) {
     ALOGE("Failed to write notification to consumer (%" PRIx64 ", %" PRIx64
           ") on data flow %" PRIx32 " with %" PRId32,
@@ -336,15 +351,15 @@ void NotificationManager::handleNotification(int fd, bool error) {
     return;
   }
   auto &data = *it->second;
-  bool waking = fd == data.waking.get();
+  bool waking = fd == data.eventFds.waking.get();
   if (error) {
     ALOGE("Error event on epoll trigger for fd %d, disabling.", fd);
     // Disable the epoll triggers. This will be cleaned up later.
     mWaiter->removeFd(fd);
     if (waking) {
-      data.waking.set(-1);
+      data.eventFds.waking.set(-1);
     } else {
-      data.nonWaking.set(-1);
+      data.eventFds.nonWaking.set(-1);
     }
     mWaitFdToHandle.erase(it);
     return;
@@ -363,26 +378,27 @@ void NotificationManager::handleNotification(int fd, bool error) {
   // If this was waking and the data flow is still active, ack it to the HAL.
   if (auto it = mWaitFdToHandle.find(fd);
       it != mWaitFdToHandle.end() && waking && rv >= 0) {
-    TEMP_FAILURE_RETRY(write(data.halAck.get(), &wakeCount, sizeof(wakeCount)));
+    TEMP_FAILURE_RETRY(
+        write(data.eventFds.halAck.get(), &wakeCount, sizeof(wakeCount)));
   }
 }
 
 void NotificationManager::enableNotifications(NotificationData *data) {
-  mWaitFdToHandle[data->waking.get()] = data;
-  mWaiter->addFd(data->waking.get());
-  mWaitFdToHandle[data->nonWaking.get()] = data;
-  mWaiter->addFd(data->nonWaking.get());
+  mWaitFdToHandle[data->eventFds.waking.get()] = data;
+  mWaiter->addFd(data->eventFds.waking.get());
+  mWaitFdToHandle[data->eventFds.nonWaking.get()] = data;
+  mWaiter->addFd(data->eventFds.nonWaking.get());
 }
 
 void NotificationManager::disableNotifications(NotificationData *data) {
-  if (data->waking.get() >= 0) {
-    mWaiter->removeFd(data->waking.get());
+  if (data->eventFds.waking.get() >= 0) {
+    mWaiter->removeFd(data->eventFds.waking.get());
   }
-  mWaitFdToHandle.erase(data->waking.get());
-  if (data->nonWaking.get() >= 0) {
-    mWaiter->removeFd(data->nonWaking.get());
+  mWaitFdToHandle.erase(data->eventFds.waking.get());
+  if (data->eventFds.nonWaking.get() >= 0) {
+    mWaiter->removeFd(data->eventFds.nonWaking.get());
   }
-  mWaitFdToHandle.erase(data->nonWaking.get());
+  mWaitFdToHandle.erase(data->eventFds.nonWaking.get());
 }
 
 }  // namespace android::contexthub::data_flow

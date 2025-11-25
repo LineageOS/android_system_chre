@@ -37,17 +37,30 @@ using ::aidl::android::hardware::contexthub::DataFlowId;
 using ::aidl::android::hardware::contexthub::EndpointId;
 using ::aidl::android::hardware::contexthub::SharedDataRegion;
 
+pw::Result<RegionManager::RegionToMap> convertSharedDataRegion(
+    const SharedDataRegion &region) {
+  auto fd = region.sharedMemory.dup();
+  if (fd.get() < 0) {
+    return pw::Status::Internal();
+  }
+  return RegionManager::RegionToMap{
+      .id = region.id,
+      .fd = std::move(fd),
+      .size = static_cast<size_t>(region.size),
+  };
+}
+
 /** Map a shared data region into this process's virtual memory space. */
-pw::Result<uintptr_t> mapSharedDataRegion(SharedDataRegion &&region,
+pw::Result<uintptr_t> mapSharedDataRegion(RegionManager::RegionToMap &&region,
                                           bool readOnly) {
   // Move the region into this scope so that any fds are closed.
   auto tmp = std::move(region);
-  if (tmp.size < 0 || tmp.sharedMemory.get() < 0) {
+  if (tmp.size < 0 || tmp.fd.get() < 0) {
     return pw::Status::InvalidArgument();
   }
   int prot = readOnly ? PROT_READ : PROT_READ | PROT_WRITE;
-  void *addr = mmap(/*addr=*/nullptr, tmp.size, prot, MAP_SHARED,
-                    tmp.sharedMemory.get(), /*offset=*/0);
+  void *addr = mmap(/*addr=*/nullptr, tmp.size, prot, MAP_SHARED, tmp.fd.get(),
+                    /*offset=*/0);
   if (addr != MAP_FAILED) {
     return reinterpret_cast<uintptr_t>(addr);
   }
@@ -70,7 +83,13 @@ pw::Result<uintptr_t> mapSharedDataRegion(SharedDataRegion &&region,
 }  // namespace
 
 pw::Result<AllocatorRegion> RegionManager::mapHostProducerRegion(
-    SharedDataRegion &&region) {
+    const SharedDataRegion &region) {
+  PW_TRY_ASSIGN(auto regionToMap, convertSharedDataRegion(region));
+  return mapHostProducerRegion(std::move(regionToMap));
+}
+
+pw::Result<AllocatorRegion> RegionManager::mapHostProducerRegion(
+    RegionToMap &&region) {
   std::lock_guard lock(mLock);
   if (mIdToHostAllocatorRegion.contains(region.id)) {
     return pw::Status::AlreadyExists();
@@ -164,7 +183,13 @@ pw::Result<size_t> RegionManager::unlinkHostProducerDataFlow(int id) {
 }
 
 pw::Result<AllocatorRegion> RegionManager::mapOffloadConsumerRegion(
-    SharedDataRegion &&region, const EndpointId &consumer, int dataFlow) {
+    const SharedDataRegion &region, const EndpointId &consumer, int dataFlow) {
+  PW_TRY_ASSIGN(auto regionToMap, convertSharedDataRegion(region));
+  return mapOffloadConsumerRegion(std::move(regionToMap), consumer, dataFlow);
+}
+
+pw::Result<AllocatorRegion> RegionManager::mapOffloadConsumerRegion(
+    RegionToMap &&region, const EndpointId &consumer, int dataFlow) {
   std::lock_guard lock(mLock);
   auto regionsIt = mHostProducerDataFlowToRegions.find(dataFlow);
   if (regionsIt == mHostProducerDataFlowToRegions.end()) {
@@ -188,8 +213,22 @@ pw::Result<AllocatorRegion> RegionManager::mapOffloadConsumerRegion(
 }
 
 pw::Result<std::pair<Region, std::optional<Region>>>
+RegionManager::mapHostConsumerRegions(const SharedDataRegion &region,
+                                      const SharedDataRegion *metadataRegion,
+                                      const DataFlowId &dataFlow) {
+  PW_TRY_ASSIGN(auto regionToMap, convertSharedDataRegion(region));
+  std::optional<RegionToMap> metadataRegionToMap;
+  if (metadataRegion) {
+    PW_TRY_ASSIGN(metadataRegionToMap,
+                  convertSharedDataRegion(*metadataRegion));
+  }
+  return mapHostConsumerRegions(std::move(regionToMap),
+                                std::move(metadataRegionToMap), dataFlow);
+}
+
+pw::Result<std::pair<Region, std::optional<Region>>>
 RegionManager::mapHostConsumerRegions(
-    SharedDataRegion &&region, std::optional<SharedDataRegion> &&metadataRegion,
+    RegionToMap &&region, std::optional<RegionToMap> &&metadataRegion,
     const DataFlowId &dataFlow) {
   std::lock_guard lock(mLock);
   // Create and map the region(s) if necessary.
@@ -270,7 +309,7 @@ void RegionManager::pruneOffloadConsumer(const EndpointId &consumer) {
 
 pw::Result<RegionManager::HostAllocatorRegion *>
 RegionManager::mapAndLinkHostAllocatorRegion(
-    SharedDataRegion &&region, std::optional<EndpointId> consumer) {
+    RegionToMap &&region, std::optional<EndpointId> consumer) {
   int id = region.id;
   uint32_t size = region.size;
   PW_TRY_ASSIGN(auto base,
@@ -282,7 +321,7 @@ RegionManager::mapAndLinkHostAllocatorRegion(
 }
 
 pw::Result<RegionManager::HostConsumerRegion *>
-RegionManager::mapAndLinkHostConsumerRegion(SharedDataRegion &&region,
+RegionManager::mapAndLinkHostConsumerRegion(RegionToMap &&region,
                                             bool readOnly) {
   int id = region.id;
   size_t size = region.size;
