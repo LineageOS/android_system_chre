@@ -17,10 +17,19 @@
 #pragma once
 
 #include <cstddef>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <set>
+#include <unordered_map>
+#include <unordered_set>
 
 #include <aidl/android/hardware/contexthub/IContextHub.h>
+#include <android-base/thread_annotations.h>
 
 #include "data_flow/queue_defs.h"
+#include "pw_allocator/dl_allocator.h"
+#include "pw_allocator/synchronized_allocator.h"
 #include "pw_result/result.h"
 #include "pw_status/status.h"
 
@@ -160,6 +169,85 @@ class RegionManager {
   void pruneOffloadConsumer(
       const ::aidl::android::hardware::contexthub::EndpointId &consumer)
       EXCLUDES(mLock);
+
+ private:
+  /** Represents a host producer region. */
+  struct HostAllocatorRegion : public Region {
+    pw::allocator::DlAllocator<> allocator;
+    pw::allocator::SynchronizedAllocator<std::mutex> syncAllocator;
+    std::unordered_set<int> dataFlows;
+    // Set only if used to allocate descriptors for an offload consumer.
+    std::optional<std::set<::aidl::android::hardware::contexthub::EndpointId>>
+        consumers;
+    int id;
+
+    HostAllocatorRegion(int id, uintptr_t base, uint32_t size, bool isConsumer)
+        : Region(base, size),
+          allocator(pw::ByteSpan(reinterpret_cast<std::byte *>(base), size)),
+          syncAllocator(allocator),
+          id(id) {
+      if (isConsumer) {
+        consumers.emplace();
+      }
+    }
+
+    operator AllocatorRegion() {
+      return AllocatorRegion{
+          {.base = base, .size = size},
+          .allocator = &syncAllocator,
+      };
+    }
+  };
+
+  /** Represents a host consumer region. */
+  struct HostConsumerRegion : public Region {
+    std::set<::aidl::android::hardware::contexthub::DataFlowId> dataFlows;
+    int id;
+
+    HostConsumerRegion(int id, uintptr_t base, uint32_t size)
+        : Region(base, size), id(id) {}
+  };
+
+  /** Maps a HostAllocatorRegion and links it into the master map. */
+  pw::Result<HostAllocatorRegion *> mapAndLinkHostAllocatorRegion(
+      ::aidl::android::hardware::contexthub::SharedDataRegion &&region,
+      std::optional<::aidl::android::hardware::contexthub::EndpointId> consumer)
+      EXCLUSIVE_LOCKS_REQUIRED(mLock);
+
+  /** Maps a HostConsumerRegion and links it into the master map. */
+  pw::Result<HostConsumerRegion *> mapAndLinkHostConsumerRegion(
+      ::aidl::android::hardware::contexthub::SharedDataRegion &&region,
+      bool readOnly) EXCLUSIVE_LOCKS_REQUIRED(mLock);
+
+  /** Removes a data flow from a HostConsumerRegion, possibly unmapping it. */
+  void unlinkDataFlowFromHostConsumerRegion(
+      HostConsumerRegion *region,
+      ::aidl::android::hardware::contexthub::DataFlowId dataFlow)
+      EXCLUSIVE_LOCKS_REQUIRED(mLock);
+
+  /** Unmaps a HostAllocatorRegion and removes it from the master map. */
+  void unmapHostAllocatorRegion(HostAllocatorRegion *region)
+      EXCLUSIVE_LOCKS_REQUIRED(mLock);
+
+  /** Guards internal state. */
+  std::mutex mLock;
+  /** Master map of all mapped HostAllocatorRegions. */
+  std::unordered_map<int, std::unique_ptr<HostAllocatorRegion>>
+      mIdToHostAllocatorRegion GUARDED_BY(mLock);
+  /** Master map of all mapped HostConsumerRegions. */
+  std::unordered_map<int, std::unique_ptr<HostConsumerRegion>>
+      mIdToHostConsumerRegion GUARDED_BY(mLock);
+  /** Map of host producer data flow to HostAllocatorRegions. */
+  std::unordered_map<int, std::unordered_set<HostAllocatorRegion *>>
+      mHostProducerDataFlowToRegions GUARDED_BY(mLock);
+  /** Map of offload consumer to associated HostAllocatorRegions. */
+  std::map<::aidl::android::hardware::contexthub::EndpointId,
+           std::unordered_set<HostAllocatorRegion *>>
+      mOffloadConsumerToRegions GUARDED_BY(mLock);
+  /** Map of offload producer data flow to region. */
+  std::map<::aidl::android::hardware::contexthub::DataFlowId,
+           std::pair<HostConsumerRegion *, HostConsumerRegion *>>
+      mOffloadProducerDataFlowToRegions GUARDED_BY(mLock);
 };
 
 }  // namespace android::contexthub::data_flow

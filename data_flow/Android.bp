@@ -37,17 +37,25 @@ cc_library {
     export_include_dirs: ["include"],
     shared_libs: [
         "android.hardware.contexthub-V5-ndk",
+        "libbase",
+        "liblog",
     ],
     static_libs: [
         "contexthub_data_flow_queue",
         "pw_allocator",
+        "pw_bytes",
+        "pw_containers",
         "pw_result",
+        "pw_span",
         "pw_status",
     ],
     export_static_lib_headers: [
         "contexthub_data_flow_queue",
         "pw_allocator",
+        "pw_bytes",
+        "pw_containers",
         "pw_result",
+        "pw_span",
         "pw_status",
     ],
 }
@@ -107,6 +115,39 @@ cc_test_host {
     ],
     shared_libs: [
         "contexthub_data_flow_queue",
+        "liblog",
+    ],
+    static_libs: [
+        "libgmock",
+        "libgtest",
+        "pw_allocator",
+        "pw_bytes",
+        "pw_containers",
+        "pw_function",
+        "pw_span",
+        "pw_status",
+        "pw_result",
+    ],
+    sanitize: {
+        address: true,
+    },
+}
+
+cc_test_host {
+    name: "contexthub_data_flow_unit_tests",
+    srcs: ["test/host/region_manager_test.cc"],
+    local_include_dirs: ["include"],
+    header_libs: [
+        "pw_assert",
+    ],
+    export_header_lib_headers: [
+        "pw_assert",
+    ],
+    shared_libs: [
+        "android.hardware.common-V2-cpp",
+        "android.hardware.contexthub-V5-ndk",
+        "contexthub_data_flow",
+        "libbase",
         "liblog",
     ],
     static_libs: [
