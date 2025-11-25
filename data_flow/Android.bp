@@ -39,6 +39,7 @@ cc_library {
         "android.hardware.contexthub-V5-ndk",
         "libbase",
         "liblog",
+        "libutils",
     ],
     static_libs: [
         "contexthub_data_flow_queue",
@@ -135,7 +136,10 @@ cc_test_host {
 
 cc_test_host {
     name: "contexthub_data_flow_unit_tests",
-    srcs: ["test/host/region_manager_test.cc"],
+    srcs: [
+        "test/host/notification_manager_test.cc",
+        "test/host/region_manager_test.cc",
+    ],
     local_include_dirs: ["include"],
     header_libs: [
         "pw_assert",

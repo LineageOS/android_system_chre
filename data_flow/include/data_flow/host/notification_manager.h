@@ -21,11 +21,12 @@
 #include <optional>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 
 #include <aidl/android/hardware/contexthub/IContextHub.h>
 #include <android-base/thread_annotations.h>
-#include <android-base/unique_fd.h>
 
+#include "android/binder_auto_utils.h"
 #include "pw_function/function.h"
 #include "pw_result/result.h"
 #include "pw_status/status.h"
@@ -34,13 +35,16 @@ namespace android::contexthub::data_flow {
 
 /** Handles sending and receiving notifications on data flow eventfds. */
 class NotificationManager {
+  struct NotificationData;
+
  public:
   /** Callback for a notification on a data flow this endpoint part of. */
-  using NotificationCallback =
-      pw::Function<void(::aidl::android::hardware::contexthub::DataFlowId)>;
+  using NotificationCallback = pw::Function<void(
+      ::aidl::android::hardware::contexthub::DataFlowId /*dataFlow*/,
+      bool /*waking*/)>;
 
   /** Handle for the eventfds associated with an endpoint on a data flow. */
-  using NotificationDataHandle = void *;
+  using NotificationDataHandle = NotificationData *;
 
   /** Interface for managing triggers on a thread looping on epoll_wait(). */
   class EpollWaiter {
@@ -48,23 +52,38 @@ class NotificationManager {
     virtual ~EpollWaiter() = default;
 
     /** Registers NotificationManager instance on creation. */
-    virtual void registerManager(NotificationManager &manager) = 0;
+    void registerManager(std::weak_ptr<NotificationManager> manager) {
+      mManager = manager;
+    }
 
-    /** Adds an epoll trigger on the given fd. */
+    /** Adds an epoll trigger for input events on the given fd. */
     virtual void addFd(int fd) = 0;
 
-    /** Removes an epoll trigger on the given fd. */
+    /** Removes the epoll trigger on the given fd. */
     virtual void removeFd(int fd) = 0;
 
    protected:
     EpollWaiter() = default;
+
+    /** Passes an epoll event into the NotificationManager instance if valid. */
+    void handleNotification(int fd, bool error) {
+      if (auto manager = mManager.lock(); manager) {
+        manager->handleNotification(fd, error);
+      }
+    }
+
+    std::weak_ptr<NotificationManager> mManager;
   };
 
-  /** Starts a background thread to handle incoming data flow notifications. */
-  NotificationManager(std::unique_ptr<EpollWaiter> waiter,
-                      NotificationCallback &&cb);
+  static std::shared_ptr<NotificationManager> create(
+      std::unique_ptr<EpollWaiter> waiter, NotificationCallback &&cb) {
+    auto manager = std::shared_ptr<NotificationManager>(
+        new NotificationManager(std::move(waiter), std::move(cb)));
+    manager->mWaiter->registerManager(manager);
+    return manager;
+  }
 
-  /** Stops the background thread. */
+  /** Removes any outstanding epoll triggers. */
   ~NotificationManager();
 
   /**
@@ -78,6 +97,17 @@ class NotificationManager {
   pw::Result<std::pair<::aidl::android::hardware::contexthub::DataFlowInfo,
                        NotificationDataHandle>>
   prepareHostProducerDataFlow() EXCLUDES(mLock);
+
+  /** Discards the eventfds associated with the given handle.
+   *
+   * This should only be called if the data flow the eventfds were prepared for
+   * was not successfully registered with the HAL.
+   *
+   * @param handle The handle returned from prepareHostProducerDataFlow().
+   * @return pw::Status::NotFound() if the handle is not known.
+   */
+  pw::Status discardNotificationDataHandle(NotificationDataHandle handle)
+      EXCLUDES(mLock);
 
   /**
    * Activates notifications for a new host producer data flow.
@@ -108,10 +138,10 @@ class NotificationManager {
    *
    * @param dataFlow The data flow to create a consumer for.
    * @param consumer The offload endpoint to associate notifications with.
-   * @return On success, a DataFlowConsumer populated only with eventfds.
+   * @return On success, a DataFlowConsumerHandle populated only with eventfds.
    * pw::Status::NotFound() if the data flow is not known.
    */
-  pw::Result<::aidl::android::hardware::contexthub::DataFlowConsumer>
+  pw::Result<::aidl::android::hardware::contexthub::DataFlowConsumerHandle>
   addOffloadConsumer(int dataFlow,
                      ::aidl::android::hardware::contexthub::EndpointId consumer)
       EXCLUDES(mLock);
@@ -137,7 +167,7 @@ class NotificationManager {
    * notifications.
    */
   pw::Status enableHostConsumer(
-      ::aidl::android::hardware::contexthub::DataFlowConsumer &&consumer)
+      ::aidl::android::hardware::contexthub::DataFlowConsumerHandle &consumer)
       EXCLUDES(mLock);
 
   /**
@@ -151,15 +181,28 @@ class NotificationManager {
       EXCLUDES(mLock);
 
   /**
-   * Sends an outgoing notification on a data flow.
+   * Sends an outgoing notification to an offload producer.
    *
    * @param dataFlow The data flow to send a notification on.
    * @param waking Whether the notification should wake the other endpoint.
    * @return pw::Status::NotFound() if the data flow is not known.
    * pw::Status::Internal() if the notification fails.
    */
-  pw::Status notify(::aidl::android::hardware::contexthub::DataFlowId dataFlow,
-                    bool waking) EXCLUDES(mLock);
+  pw::Status notifyOffloadProducer(
+      ::aidl::android::hardware::contexthub::DataFlowId dataFlow, bool waking)
+      EXCLUDES(mLock);
+
+  /**
+   * Sends an outgoing notification to an offload consumer.
+   *
+   * @param consumer The offload consumer to send a notification to.
+   * @param waking Whether the notification should wake the other endpoint.
+   * @return pw::Status::NotFound() if the consumer is not known.
+   * pw::Status::Internal() if the notification fails.
+   */
+  pw::Status notifyOffloadConsumer(
+      ::aidl::android::hardware::contexthub::EndpointId consumer, bool waking)
+      EXCLUDES(mLock);
 
  private:
   /** Contains the data for handling notifications on one data flow. */
@@ -167,13 +210,25 @@ class NotificationManager {
     ::aidl::android::hardware::contexthub::DataFlowId dataFlow;
     std::optional<::aidl::android::hardware::contexthub::EndpointId>
         offloadEndpoint;
-    android::base::unique_fd waking;
-    android::base::unique_fd nonWaking;
-    android::base::unique_fd halAck;
+    ndk::ScopedFileDescriptor waking;
+    ndk::ScopedFileDescriptor nonWaking;
+    ndk::ScopedFileDescriptor halAck;
   };
 
-  /** Called by the EpollWaiter on an epoll event. */
-  void handleNotification(int fd, int events) EXCLUDES(mLock);
+  NotificationManager(std::unique_ptr<EpollWaiter> waiter,
+                      NotificationCallback &&cb)
+      : mWaiter(std::move(waiter)), mNotifyCb(std::move(cb)) {}
+
+  /** Called by the EpollWaiter on an input or error epoll event. */
+  void handleNotification(int fd, bool error) EXCLUDES(mLock);
+
+  /** Enables waiting and maps the eventfds for a NotificationData. */
+  void enableNotifications(NotificationData *data)
+      EXCLUSIVE_LOCKS_REQUIRED(mLock);
+
+  /** Disables waiting and unmaps the eventfds for a NotificationData.   */
+  void disableNotifications(NotificationData *data)
+      EXCLUSIVE_LOCKS_REQUIRED(mLock);
 
   std::unique_ptr<EpollWaiter> mWaiter;
   NotificationCallback mNotifyCb;
@@ -186,10 +241,16 @@ class NotificationManager {
   std::map<::aidl::android::hardware::contexthub::EndpointId,
            NotificationData *>
       mOffloadConsumerToHandle GUARDED_BY(mLock);
+  // The mapped set contains the NotificationData* for receiving notifications
+  // from consumers, as well as the NotificationData*s for notifying every
+  // consumer.
+  std::unordered_map<int, std::unordered_set<NotificationData *>>
+      mHostDataFlowToHandles GUARDED_BY(mLock);
+  // The first NotificationData* in the mapped pair is for notifying the
+  // producer, the second is for waiting on notifications from the producer.
   std::map<::aidl::android::hardware::contexthub::DataFlowId,
-           NotificationData *>
-      mDataFlowToHandle GUARDED_BY(mLock);
-  bool mDestroyed GUARDED_BY(mLock) = false;
+           std::pair<NotificationData *, NotificationData *>>
+      mOffloadDataFlowToHandles GUARDED_BY(mLock);
 };
 
 }  // namespace android::contexthub::data_flow
