@@ -46,7 +46,7 @@ class RegionManagerTest : public ::testing::Test {
     return RegionManager::RegionToMap{
         .id = region.id,
         .fd = std::move(region.sharedMemory),
-        .size = static_cast<size_t>(region.size),
+        .size = static_cast<size_t>(region.sizeBytes),
     };
   }
 
@@ -76,7 +76,7 @@ class RegionManagerTest : public ::testing::Test {
     return SharedDataRegion{
         .id = mNextRegionId++,
         .sharedMemory = ndk::ScopedFileDescriptor(fd.release()),
-        .size = static_cast<uint32_t>(size)};
+        .sizeBytes = static_cast<uint32_t>(size)};
   }
 
   RegionManager mManager;

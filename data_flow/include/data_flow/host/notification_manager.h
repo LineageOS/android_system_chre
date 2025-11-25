@@ -33,6 +33,19 @@
 
 namespace android::contexthub::data_flow {
 
+/**
+ * Does a deep-copy of the DataFlowNotificationFds.
+ *
+ * @param fds The DataFlowNotificationFds to dup.
+ * @param needsHalAck Whether the DataFlowNotificationFds needs a halAck fd. If
+ * false, an empty ScopedFileDescriptor will be used.
+ * @return On success, a DataFlowNotificationFds with dups of the input fds.
+ */
+pw::Result<::aidl::android::hardware::contexthub::DataFlowNotificationFds>
+dupEventFds(
+    const ::aidl::android::hardware::contexthub::DataFlowNotificationFds &fds,
+    bool needsHalAck);
+
 /** Handles sending and receiving notifications on data flow eventfds. */
 class NotificationManager {
   struct NotificationData;
@@ -45,17 +58,6 @@ class NotificationManager {
 
   /** Handle for the eventfds associated with an endpoint on a data flow. */
   using NotificationDataHandle = NotificationData *;
-
-  /** Contains the eventfds for notifying one endpoint on a data flow. */
-  struct EventFds {
-    // Used to send waking notifications to this endpoint.
-    ndk::ScopedFileDescriptor waking;
-    // Used to send non-waking notifications to this endpoint.
-    ndk::ScopedFileDescriptor nonWaking;
-    // Used by this endpoint to acknowledge waking notifications. Only present
-    // if the associated endpoint is on the host.
-    ndk::ScopedFileDescriptor halAck;
-  };
 
   /** Interface for managing triggers on a thread looping on epoll_wait(). */
   class EpollWaiter {
@@ -109,8 +111,11 @@ class NotificationManager {
                        NotificationDataHandle>>
   prepareHostProducerDataFlowInfo() EXCLUDES(mLock);
 
-  /** Version of prepareHostProducerDataFlowInfo() that returns EventFds. */
-  pw::Result<std::pair<EventFds, NotificationDataHandle>>
+  /** Version of prepareHostProducerDataFlowInfo() that returns just the
+   * DataFlowNotificationFds. */
+  pw::Result<
+      std::pair<::aidl::android::hardware::contexthub::DataFlowNotificationFds,
+                NotificationDataHandle>>
   prepareHostProducerDataFlowEventFds() EXCLUDES(mLock);
 
   /** Discards the eventfds associated with the given handle.
@@ -162,9 +167,11 @@ class NotificationManager {
       EXCLUDES(mLock);
 
   /**
-   * Version of addOffloadConsumerAndCreateHandle() that returns an EventFds.
+   * Version of addOffloadConsumerAndCreateHandle() that returns just the
+   * ::aidl::android::hardware::contexthub::DataFlowNotificationFds.
    */
-  pw::Result<EventFds> addOffloadConsumerAndGetEventFds(
+  pw::Result<::aidl::android::hardware::contexthub::DataFlowNotificationFds>
+  addOffloadConsumerAndGetEventFds(
       int dataFlow, ::aidl::android::hardware::contexthub::EndpointId consumer)
       EXCLUDES(mLock);
 
@@ -193,8 +200,8 @@ class NotificationManager {
           &consumer) EXCLUDES(mLock);
 
   /**
-   * Version of enableHostConsumerFromHandle() that takes EventFds instead of a
-   * DataFlowConsumerHandle.
+   * Version of enableHostConsumerFromHandle() that takes
+   * DataFlowNotificationFds instead of a DataFlowConsumerHandle.
    *
    * @param dataFlow The data flow the consumer will read from.
    * @param notifyHostFds The eventfds the host endpoint will listen for
@@ -208,7 +215,10 @@ class NotificationManager {
    */
   pw::Status enableHostConsumerFromEventFds(
       ::aidl::android::hardware::contexthub::DataFlowId dataFlow,
-      EventFds &&notifyHostFds, EventFds &&notifyOffloadFds) EXCLUDES(mLock);
+      ::aidl::android::hardware::contexthub::DataFlowNotificationFds
+          &&notifyHostFds,
+      ::aidl::android::hardware::contexthub::DataFlowNotificationFds
+          &&notifyOffloadFds) EXCLUDES(mLock);
 
   /**
    * Disables notifications for this endpoint on an offload producer data flow.
@@ -250,7 +260,7 @@ class NotificationManager {
     ::aidl::android::hardware::contexthub::DataFlowId dataFlow;
     std::optional<::aidl::android::hardware::contexthub::EndpointId>
         offloadEndpoint;
-    EventFds eventFds;
+    ::aidl::android::hardware::contexthub::DataFlowNotificationFds eventFds;
   };
 
   NotificationManager(std::unique_ptr<EpollWaiter> waiter,

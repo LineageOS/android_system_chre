@@ -46,7 +46,7 @@ pw::Result<RegionManager::RegionToMap> convertSharedDataRegion(
   return RegionManager::RegionToMap{
       .id = region.id,
       .fd = std::move(fd),
-      .size = static_cast<size_t>(region.size),
+      .size = static_cast<size_t>(region.sizeBytes),
   };
 }
 
