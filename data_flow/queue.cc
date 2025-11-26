@@ -899,7 +899,7 @@ pw::Result<pw::ConstByteSpan> ConsumerBase::peek(size_t count) {
   return pw::ConstByteSpan(data, count);
 }
 
-pw::Status ConsumerBase::release(size_t count) {
+pw::Status ConsumerBase::releaseNoNotify(size_t count) {
   PW_TRY(checkState());
   // It is valid to peek more than the available count. If so, clear mPeeked
   // and update mAvailable.
@@ -920,7 +920,7 @@ pw::Status ConsumerBase::release(size_t count) {
   return pw::OkStatus();
 }
 
-pw::Status ConsumerBase::pop(pw::ByteSpan data) {
+pw::Status ConsumerBase::popNoNotify(pw::ByteSpan data) {
   if (mPeeked) {  // pop() is not allowed when there is un-release()d data.
     return pw::Status::FailedPrecondition();
   }
@@ -936,6 +936,7 @@ pw::Status ConsumerBase::resync(size_t offset) {
     return pw::Status::OutOfRange();
   }
   advanceReadIndex(mAvailable - offset, /*buf=*/std::nullopt);
+  maybeNotifyOnRead();
   mAvailable -= offset;
   mPeeked = 0;  // Reset the current block/index to the new head.
   return pw::OkStatus();
@@ -967,8 +968,9 @@ pw::Status ConsumerBase::checkAvailable(size_t count) {
   return pw::OkStatus();
 }
 
-void ConsumerBase::advanceReadIndex(size_t count,
-                                    std::optional<pw::ByteSpan> buf) {
+size_t ConsumerBase::advanceReadIndex(size_t count,
+                                      std::optional<pw::ByteSpan> buf,
+                                      bool stopOnNextBlock) {
   auto pending = count;
   auto readIndex = mDesc->readIndex.load();
   uint32_t blockIndex = (readIndex + mDesc->indexCorrection) % kBlockCapacity;
@@ -993,10 +995,17 @@ void ConsumerBase::advanceReadIndex(size_t count,
           indexCorrectionIncrement(mHeadBlock, nextBlock, kBlockCapacity);
       mHeadBlock = nextBlock;
       blockIndex = mHeadBlock->baseIndex.load();
+      if (stopOnNextBlock) {
+        break;
+      }
     }
   }
-  mDesc->readIndex.store(readIndex + count);
+  mDesc->readIndex.store(readIndex + count - pending);
   mDesc->indexCorrection = correction;
+  return count - pending;
+}
+
+void ConsumerBase::maybeNotifyOnRead() {
   if (getProducerFlags(mCurrentFlags) == ProducerFlags::kBlocking) {
     notifyProducer();
     clearFlags();
@@ -1018,8 +1027,7 @@ pw::Status ConsumerBase::handleOverwrite() {
   // as that would require the capacity to have increased (meaning the epoch
   // would have changed).
   PW_ASSERT(mAvailable >= offset);
-  advanceReadIndex(mAvailable - offset, /*buf=*/std::nullopt);
-  mAvailable -= offset;
+  PW_TRY(overwriteFastForward(offset));
   // If the epoch changed since we attempted to fast forward, the fast forward
   // is invalidated. Sync to the producer.
   if (mQueue->blockListEpoch.load() != mBlockListEpoch) {
@@ -1032,6 +1040,12 @@ pw::Status ConsumerBase::updateAvailable() {
   PW_TRY_ASSIGN(auto *producerDesc, getProducerDesc());
   mAvailable =
       writeReadDiff(producerDesc->writeIndex.load(), mDesc->readIndex.load());
+  return pw::OkStatus();
+}
+
+pw::Status ConsumerBase::overwriteFastForward(size_t offset) {
+  advanceReadIndex(mAvailable - offset, /*buf=*/std::nullopt);
+  mAvailable -= offset;
   return pw::OkStatus();
 }
 
@@ -1237,9 +1251,13 @@ pw::Status VariableDataProducer::commit() {
   }
   mCurrentHdrPtr = nullptr;
   updateFirstElementIndex();  // Enable consumers to seek to an element.
-  // Commit the entire reservation. Notifies consumers as required.
+  // Commit the entire reservation. Notifies consumers as required. Round up the
+  // reservation size to the header alignment. This should always be possible as
+  // the reservation is header aligned and the block capacity is a multiple of
+  // the header size.
+  mReserved =
+      internal::alignTo(mReserved, alignof(internal::VariableDataHeader));
   PW_TRY(Base::commit(mReserved));
-  alignWriteIndex();  // Next element header should be aligned.
   return pw::OkStatus();
 }
 
@@ -1247,14 +1265,19 @@ pw::Status VariableDataProducer::push(pw::ConstByteSpan element) {
   if (mReserved) {
     return pw::Status::FailedPrecondition();
   }
-  PW_TRY(checkAvailable(element.size() + sizeof(internal::VariableDataHeader),
-                        /*allOrNothing=*/true));
+  // Calculate the total size of the element and header, rounding up to align
+  // the next header.
+  const auto kTotalSize =
+      internal::alignTo(element.size() + sizeof(internal::VariableDataHeader),
+                        alignof(internal::VariableDataHeader));
+  PW_TRY(checkAvailable(kTotalSize, /*allOrNothing=*/true));
   updateFirstElementIndex();  // Enable consumers to seek to an element.
   internal::VariableDataHeader hdr{.size =
                                        static_cast<uint32_t>(element.size())};
   advanceWriteIndex(sizeof(hdr), pw::as_bytes(pw::span(&hdr, 1)));
   advanceWriteIndex(hdr.size, element);
-  alignWriteIndex();  // Next element header should be aligned.
+  advanceWriteIndex(kTotalSize - element.size() - sizeof(hdr),
+                    /*data=*/std::nullopt);
   // Notify consumers as required.
   mDataNotifier->onWrite(*this);
   return pw::OkStatus();
@@ -1277,13 +1300,6 @@ void VariableDataProducer::enterNextBlock(internal::BlockHeader *&block,
   Base::enterNextBlock(block, correction, index, convertSkipToBase);
   auto *varDataBlock = reinterpret_cast<internal::VariableDataBlock *>(block);
   varDataBlock->header.firstElementIndex = kBlockCapacity;
-}
-
-void VariableDataProducer::alignWriteIndex() {
-  constexpr size_t kAlignment = alignof(internal::VariableDataHeader);
-  if (auto offset = mDesc->writeIndex.load() & (kAlignment - 1); offset) {
-    advanceWriteIndex(kAlignment - offset, /*buf=*/std::nullopt);
-  }
 }
 
 pw::Result<VariableDataConsumer> VariableDataConsumer::createLocal(
@@ -1343,48 +1359,109 @@ VariableDataConsumer::VariableDataConsumer(const Region &region,
                    std::move(remoteNotifyFn), memAccess) {}
 
 pw::Result<size_t> VariableDataConsumer::getHeadSize() {
-  // TODO(b/455007019): Implement
-  return pw::Status::Unimplemented();
+  if (mCurrentHdr) {
+    return mCurrentHdr->size;
+  }
+  internal::VariableDataHeader hdr;
+  PW_TRY(Base::popNoNotify(pw::as_writable_bytes(pw::span(&hdr, 1))));
+  mCurrentHdr = hdr;
+  return mCurrentHdr->size;
 }
 
 pw::Result<pw::ConstByteSpan> VariableDataConsumer::peek() {
-  // TODO(b/455007019): Implement
-  return pw::Status::Unimplemented();
+  if (!mCurrentHdr) {
+    PW_TRY(getHeadSize());
+  }
+  // Peek from the remaining bytes of the current head element.
+  return Base::peek(mCurrentHdr->size - mPeeked);
 }
 
-pw::Status VariableDataConsumer::release() {
-  // TODO(b/455007019): Implement
-  return pw::Status::Unimplemented();
+pw::Status VariableDataConsumer::releaseNoNotify() {
+  // If an element hasn't yet been peeked, get the size of the next element.
+  if (!mCurrentHdr) {
+    PW_TRY(getHeadSize());
+  }
+  // Get the total size including alignment adjustment.
+  auto totalSize = internal::alignTo(mCurrentHdr->size,
+                                     alignof(internal::VariableDataHeader));
+  PW_TRY(Base::releaseNoNotify(totalSize));
+  mCurrentHdr.reset();
+  return pw::OkStatus();
 }
 
-pw::Status VariableDataConsumer::pop(pw::ByteSpan & /*buffer*/) {
-  // TODO(b/455007019): Implement
-  return pw::Status::Unimplemented();
+pw::Status VariableDataConsumer::pop(pw::ByteSpan &buffer) {
+  if (!mCurrentHdr) {
+    PW_TRY(getHeadSize());
+  }
+  buffer = buffer.subspan(0, mCurrentHdr->size);
+  PW_TRY(Base::popNoNotify(buffer));
+  // Move the read index to the start of the next element, notifying the
+  // producer if required.
+  constexpr size_t kAlignment = alignof(internal::VariableDataHeader);
+  auto offset = mCurrentHdr->size & (kAlignment - 1);
+  auto adjustment = offset ? kAlignment - offset : 0;
+  PW_TRY(Base::release(adjustment));
+  mCurrentHdr.reset();
+  return pw::OkStatus();
 }
 
-pw::Status VariableDataConsumer::resync(size_t /*offset*/) {
-  // TODO(b/455007019): Implement
-  return pw::Status::Unimplemented();
+pw::Status VariableDataConsumer::resync(size_t offset) {
+  mCurrentHdr.reset();
+  PW_TRY(checkState());
+  PW_TRY(updateAvailable());
+  if (offset > mAvailable) {
+    return pw::Status::OutOfRange();
+  }
+  // Fast-forward through elements until the offset is reached.
+  while (mAvailable > offset) {
+    PW_TRY(releaseNoNotify());
+  }
+  maybeNotifyOnRead();
+  return pw::OkStatus();
 }
 
-pw::Result<size_t> VariableDataConsumer::size() {
-  // TODO(b/455007019): Implement
-  return pw::Status::Unimplemented();
+pw::Status VariableDataConsumer::overwriteFastForward(size_t offset) {
+  // Fast-forward through blocks until we reach an identifiable element boundary
+  // past where the producer has overwritten.
+  while (mAvailable > offset) {
+    auto advance = advanceReadIndex(mAvailable, /*buf=*/std::nullopt,
+                                    /*stopOnNextBlock=*/true);
+    mAvailable -= advance;
+    uint32_t firstElementIndex =
+        reinterpret_cast<internal::VariableDataBlock *>(mHeadBlock)
+            ->header.firstElementIndex;
+    if (firstElementIndex != kBlockCapacity && mAvailable < capacity()) {
+      auto diff = internal::ringDiff(
+          firstElementIndex, mHeadBlock->baseIndex.load(), kBlockCapacity);
+      mAvailable -= advanceReadIndex(diff, /*buf=*/std::nullopt);
+      break;
+    }
+  }
+  // If the epoch changed since we attempted to fast forward, the fast forward
+  // is invalidated. Sync to the producer.
+  if (mQueue->blockListEpoch.load() != mBlockListEpoch) {
+    return syncToProducer();
+  }
+  clearFlags();
+  // We're in a good state now. Just resync().
+  return resync(offset);
 }
 
 pw::Status initQueue(void *queue, size_t capacity, size_t elementSize,
                      size_t elementAlignment, bool local) {
   auto &queueRef = *static_cast<internal::Queue *>(queue);
   queueRef.producerOffset = internal::kOffsetInvalid;
-  queueRef.blockCapacity = capacity;
   if (elementSize) {
     if (capacity % elementSize != 0) {
       return pw::Status::InvalidArgument();
     }
+    queueRef.blockCapacity = capacity;
     queueRef.config.mode = DataConfigMode::kFixedSize;
     queueRef.config.fixedSize.elementSize = elementSize;
     queueRef.config.fixedSize.elementAlignment = elementAlignment;
   } else {
+    queueRef.blockCapacity =
+        internal::alignTo(capacity, alignof(internal::VariableDataHeader));
     queueRef.config.mode = DataConfigMode::kVariableSizeBasic;
   }
   queueRef.localNotify = local;
