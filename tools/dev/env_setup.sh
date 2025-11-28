@@ -248,17 +248,14 @@ chre_make() {
     shift
     make clean && \
     python3 $CHRE_DEV_SCRIPT_PATH/cml_gen.py -c "make -n $CHRE_BUILD_TARGET" -o out/$CHRE_BUILD_TARGET "$@" && \
-    mkdir out/$CHRE_BUILD_TARGET/build && \
-    pushd out/$CHRE_BUILD_TARGET/build > /dev/null
+    pushd out/$CHRE_BUILD_TARGET > /dev/null
     if [[ $? -eq 0 ]]; then
-      cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON ../ && \
-      mv compile_commands.json ../
-      echo "CMakeLists.txt and compile_commands.json have been generated at out/$CHRE_BUILD_TARGET"
+      cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON . && \
+      echo "CMakeLists.txt and compile_commands.json have been generated at $(realpath .)"
     else
       return
     fi
-    popd > /dev/null && \
-    rm -rf out/$CHRE_BUILD_TARGET/build
+    popd > /dev/null
     return
   fi
 
