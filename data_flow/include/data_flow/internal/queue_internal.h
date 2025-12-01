@@ -913,7 +913,7 @@ class ConsumerBase {
 };
 
 // Returns the offset of the object from base.
-uint32_t toOffset(uintptr_t base, void *ptr) {
+inline uint32_t toOffset(uintptr_t base, void *ptr) {
   auto addr = reinterpret_cast<uintptr_t>(ptr);
   if (addr < base || addr - base > UINT32_MAX) {
     return kOffsetInvalid;

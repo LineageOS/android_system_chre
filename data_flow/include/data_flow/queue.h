@@ -943,7 +943,7 @@ class VariableDataConsumer : protected internal::ConsumerBase {
 };
 
 /** Layout used to allocate queue metadata in shared memory. */
-pw::allocator::Layout queueLayout() {
+inline pw::allocator::Layout queueLayout() {
   return pw::allocator::Layout::Of<internal::QueuePrivate>();
 }
 

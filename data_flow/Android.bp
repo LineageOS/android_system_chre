@@ -19,6 +19,10 @@ package {
     default_applicable_licenses: ["system_chre_license"],
 }
 
+/**
+ * AP-only library for managing shared data regions, producer and consumer
+ * instances, and interfacing with contexthub AIDL.
+ */
 cc_library {
     name: "contexthub_data_flow",
     vendor_available: true,
@@ -28,7 +32,10 @@ cc_library {
         "-Wall",
         "-Werror",
     ],
-    srcs: ["queue.cc"],
+    srcs: [
+        "host/*.cc",
+        "queue.cc",
+    ],
     local_include_dirs: ["include"],
     export_include_dirs: ["include"],
     header_libs: [
@@ -37,7 +44,12 @@ cc_library {
     export_header_lib_headers: [
         "pw_assert",
     ],
-    shared_libs: ["liblog"],
+    shared_libs: [
+        "android.hardware.contexthub-V5-ndk",
+        "libbase",
+        "liblog",
+        "libutils",
+    ],
     static_libs: [
         "pw_allocator",
         "pw_bytes",
@@ -60,7 +72,11 @@ cc_library {
 
 cc_test_host {
     name: "contexthub_data_flow_unit_tests",
-    srcs: ["test/queue_test.cc"],
+    srcs: [
+        "test/host/notification_manager_test.cc",
+        "test/host/region_manager_test.cc",
+        "test/queue_test.cc",
+    ],
     local_include_dirs: ["include"],
     header_libs: [
         "pw_assert",
@@ -69,7 +85,10 @@ cc_test_host {
         "pw_assert",
     ],
     shared_libs: [
+        "android.hardware.common-V2-cpp",
+        "android.hardware.contexthub-V5-ndk",
         "contexthub_data_flow",
+        "libbase",
         "liblog",
     ],
     static_libs: [
