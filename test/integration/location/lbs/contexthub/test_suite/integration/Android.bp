@@ -1,0 +1,163 @@
+/*
+ * Copyright (C) 2025 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+cc_library_static {
+    name: "chre_linux_integration",
+    vendor: true,
+    srcs: [
+        ":chre_linux_common_srcs",
+        "platform/*.cc",
+    ],
+    include_dirs: [
+        "external/abseil-cpp/",
+        "system/chre/",
+    ],
+    header_libs: [
+        "chre_api",
+        "chre_flatbuffers",
+        "chre_integration_headers",
+        "emboss_runtime_headers",
+        "pw_bluetooth_emboss_group",
+    ],
+    defaults: [
+        "chre_linux_integration_cflags",
+        "pw_android_common_backends",
+        "pw_rpc_cflags_chre",
+    ],
+    static_libs: [
+        "libgmock",
+        "libgtest",
+        "pw_allocator",
+        "pw_bluetooth_proxy",
+        "pw_bytes",
+        "pw_containers",
+        "pw_function",
+        "pw_intrusive_ptr",
+        "pw_multibuf",
+        "pw_multibuf_allocator",
+        "pw_result",
+        "pw_rpc_chre",
+        "pw_status",
+        "libbase",
+    ],
+    shared_libs: [
+        "libbase",
+    ],
+    host_supported: true,
+}
+
+cc_library_static {
+    name: "chre_integration_lib",
+    srcs: [
+        "chre_integration_lib.cc",
+        "platform/simulator.cc",
+        "data_feed/data_feed_base.cc",
+        "data_feed/safe_chre_structs.cc",
+        "data_feed/fragment.cc",
+        "verify/verification_data.cc",
+    ],
+    include_dirs: [
+        "external/abseil-cpp/",
+        "system/chre/",
+    ],
+    header_libs: [
+        "chre_api",
+        "chre_flatbuffers",
+        "chre_integration_headers",
+        "emboss_runtime_headers",
+        "pw_bluetooth_emboss_group",
+    ],
+    defaults: [
+        "chre_linux_integration_cflags",
+    ],
+    static_libs: [
+        "absl_container_flat_hash_set",
+        "absl_flags_flag",
+        "chre_linux_integration",
+        "event_logger",
+        "libgtest",
+        "libsndfile",
+        "pw_bluetooth_proxy",
+        "pw_intrusive_ptr",
+    ],
+    vendor: true,
+    shared_libs: [
+        "liblog",
+        "libutils",
+        "libbase",
+    ],
+    host_supported: true,
+}
+
+cc_test_host {
+    name: "chre_integration_simulator_test",
+    srcs: [
+        "platform/simulator_test_static_nanoapp.cc",
+        "platform/simulator_test.cc",
+    ],
+    include_dirs: [
+        "external/abseil-cpp/",
+    ],
+    exclude_srcs: [
+        "platform/shared/platform_bt_socket.cc",
+        "util/tests/**/*",
+    ],
+    header_libs: [
+        "chre_api",
+        "chre_flatbuffers",
+        "chre_integration_headers",
+        "emboss_runtime_headers",
+        "pw_bluetooth_emboss_group",
+    ],
+    defaults: [
+        "chre_linux_integration_cflags",
+        "pw_android_common_backends",
+        "pw_rpc_cflags_chre",
+    ],
+    static_libs: [
+        "absl_container_flat_hash_set",
+        "absl_container_node_hash_map",
+        "absl_log",
+        "absl_log_check",
+        "absl_flags_flag",
+        "chre_integration_lib",
+        "event_logger",
+        "libgmock",
+        "libgtest",
+        "libgtest_main",
+        "pw_allocator",
+        "chre_linux_integration",
+    ],
+    shared_libs: [
+        "libbase",
+    ],
+    vendor: true,
+    test_suites: ["general-tests"],
+}
+
+cc_defaults {
+    name: "chre_linux_integration_cflags",
+    cflags: [
+        "-DCHRE_IS_SIMULATOR_BUILD",
+        "-DCHRE_VARIANT_SUPPLIES_STATIC_NANOAPP_LIST",
+        "-DSIMULATION_LOAD_STATIC",
+        "-DCHRE_INTEGRATION_TEST_STATIC_NANOAPP_LIST",
+        "-DCHRE_WWAN_SUPPORT_ENABLED",
+    ],
+    defaults: [
+        "chre_linux_common_cflags",
+    ],
+}
