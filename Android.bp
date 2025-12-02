@@ -1226,6 +1226,7 @@ cc_binary {
         "host/msm/daemon/main.cc",
     ],
     static_libs: [
+        "pw_base64",
         "pw_detokenizer",
         "pw_polyfill",
         "pw_span",
