@@ -42,13 +42,20 @@ bool canRunGnss() {
   return chreGnssGetCapabilities() != 0;
 }
 
+// Defines a test case named TestCaseOne that belongs to the SomeNanoappTest
+// suite, automatically handling the CHRE test fixture setup. This Macro
+// TEST_NANOAPP is for your unit test it is specialized to ensure your test run
+// with the correct CHRE simulation environment.
 TEST_NANOAPP(SomeNanoappTest, TestCaseOne) {
   SetConstantTime();
 
+  // Verifies get time is called twice. Function needs to be under the test to
+  // verify.
   EXPECT_CALL(*chre_api_fake_detector_, chreGetTime()).Times(2);
-  callGetTimeTwice();
-  SetGnssFullCapabilities();
-  EXPECT_TRUE(canRunGnss());
-  SetGnssNoCapabilities();
-  EXPECT_FALSE(canRunGnss());
+  callGetTimeTwice();          // Function under test.
+  SetGnssFullCapabilities();   // Set GNSS to be available.
+  EXPECT_TRUE(canRunGnss());   // Check result to expect true.
+  SetGnssNoCapabilities();     // Change GNSS functionality (Make GNSS
+                               // unavailable).
+  EXPECT_FALSE(canRunGnss());  // Check the result to expect false.
 }
