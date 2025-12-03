@@ -45,9 +45,8 @@ ifneq ($(IS_NANOAPP_BUILD),)
 TARGET_CFLAGS += -fpic
 endif
 
-ifeq ($(IS_ARCHIVE_ONLY_BUILD), true)
 COMMON_CXX_CFLAGS += -fno-use-cxa-atexit
-endif
+
 
 # Sadly we must disable double promotion warnings due to logging macros. There
 # is a bug for this here: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=53431
@@ -60,7 +59,7 @@ TARGET_SO_LDFLAGS += -z max-page-size=0x8
 
 # Supported Cortex-M Architectures #############################################
 
-CORTEXM_SUPPORTED_ARCHS = m4 m4_hardfp
+CORTEXM_SUPPORTED_ARCHS = m4 m4_hardfp m55
 
 # Environment Checks ###########################################################
 
@@ -85,6 +84,13 @@ GCC_CFLAGS += -mcpu=cortex-m4
 CLANG_CFLAGS += --target=arm-none-eabi
 TARGET_CFLAGS += -mfloat-abi=hard
 TARGET_CFLAGS += -mfpu=fpv4-sp-d16
+endif
+
+ifeq ($(CORTEXM_ARCH), m55)
+GCC_CFLAGS += -mcpu=cortex-m55
+CLANG_CFLAGS += --target=arm-none-eabi
+TARGET_CFLAGS += -mfloat-abi=hard
+TARGET_CFLAGS += -mfpu=fpv5-sp-d16
 endif
 
 
