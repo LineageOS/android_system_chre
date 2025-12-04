@@ -295,6 +295,12 @@ def _parse_env_variable_fields(env_vars, predefined_envs, interactive: bool):
           except ValueError as e:
             log_w(f"{e.args[0]}. Try again.")
       else:
+        # Take default action if the default value is not valid
+        try:
+          _check_single_value(default_value, env_var["type"])
+        except ValueError:
+          if default_action:
+            _run_action(default_action)
         user_entered_value = default_value
 
       if user_entered_value:
@@ -308,8 +314,6 @@ def _parse_env_variable_fields(env_vars, predefined_envs, interactive: bool):
       if default_value is None and not user_entered_value:
         fatal_error(f"{env_name} must be provided. Please try it again")
 
-      if default_action:
-        _run_action(default_action)
       # Default action is supposed to have made the default value valid
       expanded_value = _assert_and_expand_env_variable(
           env_name, env_var["type"], default_value
