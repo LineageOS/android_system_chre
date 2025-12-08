@@ -63,16 +63,6 @@ std::shared_ptr<ContextHubCallback> gCallback = nullptr;
 std::shared_ptr<IEndpointCallback> gEndpointCallback = nullptr;
 std::shared_ptr<IEndpointCommunication> gCommunication = nullptr;
 
-void registerHostCallback() {
-  if (gCallback != nullptr) {
-    gCallback.reset();
-  }
-  gCallback = ContextHubCallback::make<ContextHubCallback>();
-  if (!gContextHub->registerCallback(kContextHubId, gCallback).isOk()) {
-    throwError("Failed to register the callback");
-  }
-}
-
 /** Initializes gContextHub and register gCallback. */
 std::shared_ptr<IContextHub> getContextHub() {
   if (gContextHub == nullptr) {
@@ -85,10 +75,22 @@ std::shared_ptr<IContextHub> getContextHub() {
     }
     gContextHub = IContextHub::fromBinder(binder);
   }
+
   if (gCallback == nullptr) {
-    registerHostCallback();
+    gCallback = ContextHubCallback::make<ContextHubCallback>();
+    if (!gContextHub->registerCallback(kContextHubId, gCallback).isOk()) {
+      throwError("Failed to register the callback");
+    }
   }
+
   return gContextHub;
+}
+
+void registerHostCallback() {
+  if (gCallback != nullptr) {
+    gCallback.reset();
+  }
+  getContextHub();
 }
 
 void verifyStatus(const std::string &operation, const ScopedAStatus &status) {
@@ -209,21 +211,22 @@ HostEndpointInfo createHostEndpointInfo(const std::string &hexEndpointId) {
 }
 
 void onEndpointConnected(const std::string &hexEndpointId) {
-  auto contextHub = getContextHub();
   HostEndpointInfo info = createHostEndpointInfo(hexEndpointId);
   // connect the endpoint to HAL
   verifyStatus(/* operation= */ "connect endpoint",
-               contextHub->onHostEndpointConnected(info));
-  std::cout << "Connected." << std::endl;
+               getContextHub()->onHostEndpointConnected(info));
+  std::cout << "Endpoint 0x" << std::hex
+            << static_cast<uint16_t>(info.hostEndpointId) << " is connected"
+            << std::endl;
 }
 
 void onEndpointDisconnected(const std::string &hexEndpointId) {
-  auto contextHub = getContextHub();
   uint16_t hostEndpointId = verifyAndConvertEndpointHexId(hexEndpointId);
   // disconnect the endpoint from HAL
   verifyStatus(/* operation= */ "disconnect endpoint",
-               contextHub->onHostEndpointDisconnected(hostEndpointId));
-  std::cout << "Disconnected." << std::endl;
+               getContextHub()->onHostEndpointDisconnected(hostEndpointId));
+  std::cout << "Endpoint 0x" << std::hex << hostEndpointId << " is disconnected"
+            << std::endl;
 }
 
 ContextHubMessage createContextHubMessage(const std::string &hexHostEndpointId,
@@ -254,21 +257,19 @@ void sendMessageToNanoapp(const std::string &hexHostEndpointId,
                           const std::string &hexPayload) {
   ContextHubMessage contextHubMessage =
       createContextHubMessage(hexHostEndpointId, appIdOrName, hexPayload);
-  // send the message
-  auto contextHub = getContextHub();
-  auto status = contextHub->sendMessageToHub(kContextHubId, contextHubMessage);
+  auto status =
+      getContextHub()->sendMessageToHub(kContextHubId, contextHubMessage);
   verifyStatusAndSignal(/* operation= */ "sending a message to " + appIdOrName,
                         status, gCallback->promise.get_future());
 }
 
 void changeSetting(const std::string &setting, bool enabled) {
-  auto contextHub = getContextHub();
   int settingType = std::stoi(setting);
   if (settingType < 1 || settingType > 7) {
     throwError("setting type must be within [1, 7].");
   }
-  ScopedAStatus status =
-      contextHub->onSettingChanged(static_cast<Setting>(settingType), enabled);
+  ScopedAStatus status = getContextHub()->onSettingChanged(
+      static_cast<Setting>(settingType), enabled);
   std::cout << "onSettingChanged is called to "
             << (enabled ? "enable" : "disable") << " setting type "
             << settingType << std::endl;

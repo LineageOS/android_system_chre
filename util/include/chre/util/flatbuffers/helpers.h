@@ -44,6 +44,12 @@ class ChreFlatBufferBuilder : public flatbuffers::FlatBufferBuilder {
   explicit ChreFlatBufferBuilder(size_t initialSize = 1024)
       : flatbuffers::FlatBufferBuilder(initialSize, &mAllocator) {}
 
+  ~ChreFlatBufferBuilder() {
+    // Free any memory allocated by the FlatBufferBuilder to ensure mAllocator
+    // will not be used by the FlatBufferBuilder's destructor.
+    Reset();
+  }
+
   // This is defined in flatbuffers::FlatBufferBuilder, but must be further
   // defined here since template functions aren't inherited.
   template <typename T>

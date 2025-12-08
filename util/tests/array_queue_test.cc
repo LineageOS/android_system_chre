@@ -607,3 +607,38 @@ TEST(ArrayQueueTest, KickPushNonCopyable) {
   EXPECT_EQ(*q.front(), 43);
   EXPECT_EQ(*q.back(), 44);
 }
+
+TEST(ArrayQueueTest, GetSpans) {
+  ArrayQueue<int, 2> q;
+  std::pair<const int *, const int *> span1, span2;
+
+  q.push(1);
+  q.get_spans(span1, span2);
+  EXPECT_EQ(span1.first, &q.front());
+  EXPECT_EQ(span1.second, &q.front() + 1);
+  EXPECT_EQ(span2.first, span2.second);
+
+  q.kick_push(2);
+  q.kick_push(3);
+  q.get_spans(span1, span2);
+  EXPECT_EQ(span1.first, &q.front());
+  EXPECT_EQ(span1.second, q.data() + q.capacity());
+  EXPECT_EQ(span2.first, q.data());
+  EXPECT_EQ(span2.second, &q.front());
+}
+
+TEST(ArrayQueueTest, CopyTo) {
+  ArrayQueue<int, 2> q;
+  int buf[] = {-1, -1};
+
+  q.kick_push(1);
+  q.copy_to(buf);
+  EXPECT_EQ(buf[0], 1);
+  EXPECT_EQ(buf[1], -1);
+
+  q.kick_push(2);
+  q.kick_push(3);
+  q.copy_to(buf);
+  EXPECT_EQ(buf[0], 2);
+  EXPECT_EQ(buf[1], 3);
+}

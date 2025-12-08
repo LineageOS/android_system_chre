@@ -72,7 +72,7 @@ static void hkdfExpand(const void *inPrk, const size_t prkLen, const void *info,
     } else {
       block_output_len = okmLen - i * SHA2_HASH_SIZE;
     }
-    memcpy((uint8_t *)outKm + i * SHA2_HASH_SIZE, exp_hmac, block_output_len);
+    memcpy((uint8_t*)outKm + i * SHA2_HASH_SIZE, exp_hmac, block_output_len);
   }
 }
 

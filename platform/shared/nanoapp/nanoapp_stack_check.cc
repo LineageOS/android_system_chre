@@ -36,7 +36,7 @@ extern "C" {
 
 uintptr_t __stack_chk_guard = 0x56494342;
 
-// Terminate a function in case of stack overflow.
+// Terminate a function in case of stack corruption.
 void __stack_chk_fail(void) CHRE_NO_RETURN;
 void __stack_chk_fail(void) {
   LOGE("Stack corruption detected");

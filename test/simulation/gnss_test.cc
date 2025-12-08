@@ -333,7 +333,6 @@ TEST_F(GnssTest, GnssCanSubscribeAndUnsubscribeToMeasurement) {
 
     void handleEvent(uint32_t, uint16_t eventType,
                      const void *eventData) override {
-      static uint32_t cookie;
       switch (eventType) {
         case CHRE_EVENT_GNSS_ASYNC_RESULT: {
           auto *event = static_cast<const chreAsyncResult *>(eventData);
@@ -357,7 +356,6 @@ TEST_F(GnssTest, GnssCanSubscribeAndUnsubscribeToMeasurement) {
                 success = chreGnssMeasurementSessionStartAsync(
                     1000 /*minIntervalMs*/, &mCookie);
               } else {
-                cookie = request->cookie;
                 success = chreGnssMeasurementSessionStopAsync(&mCookie);
               }
               TestEventQueueSingleton::get()->pushEvent(MEASUREMENT_REQUEST,

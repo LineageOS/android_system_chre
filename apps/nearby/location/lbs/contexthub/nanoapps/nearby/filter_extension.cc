@@ -11,11 +11,31 @@
 #include "chre_api/chre.h"
 #include "location/lbs/contexthub/nanoapps/nearby/nearby_extension.h"
 #include "location/lbs/contexthub/nanoapps/nearby/proto/nearby_extension.nanopb.h"
+#include "third_party/contexthub/chre/util/include/chre/util/dynamic_vector.h"
 #include "third_party/contexthub/chre/util/include/chre/util/nanoapp/log.h"
 
 #define LOG_TAG "[NEARBY][FILTER_EXTENSION]"
 
 namespace nearby {
+namespace {
+/* Adds a FilterExtensionResult (initialized by endpoint_id) to filter_results
+ * if it has not been included in filter_results.
+ * Returns the index of the entry.
+ */
+size_t AddToFilterResults(
+    const HostEndpointInfo& host,
+    chre::DynamicVector<FilterExtensionResult>* filter_results,
+    bool set_timeout = true) {
+  FilterExtensionResult result(host.host_info.hostEndpointId,
+                               host.cache_expire_ms, set_timeout);
+  size_t idx = filter_results->find(result);
+  if (filter_results->size() == idx) {
+    filter_results->push_back(std::move(result));
+  }
+  return idx;
+}
+
+}  // namespace
 
 const size_t kChreBleGenericFilterDataSize = 29;
 
@@ -23,23 +43,24 @@ constexpr nearby_extension_FilterResult kEmptyFilterResult =
     nearby_extension_FilterResult_init_zero;
 
 void FilterExtension::Update(
-    const chreHostEndpointInfo &host_info,
-    const nearby_extension_ExtConfigRequest_FilterConfig &filter_config,
-    chre::DynamicVector<chreBleGenericFilter> *generic_filters,
-    nearby_extension_ExtConfigResponse *config_response) {
+    const chreHostEndpointInfo& host_info,
+    const nearby_extension_ExtConfigRequest_FilterConfig& filter_config,
+    chre::DynamicVector<chreBleGenericFilter>* generic_filters,
+    chre::DynamicVector<FilterExtensionResult>* screen_on_filter_results,
+    nearby_extension_ExtConfigResponse* config_response) {
   LOGD("Update extension filter");
   const int32_t host_index = FindOrCreateHostIndex(host_info);
   if (host_index < 0) {
     LOGE("Failed to find or create the host.");
     return;
   }
-  HostEndpointInfo &host = host_list_[static_cast<size_t>(host_index)];
+  HostEndpointInfo& host = host_list_[static_cast<size_t>(host_index)];
   config_response->has_result = true;
   config_response->has_vendor_status = true;
 
   // Returns hardware filters.
   for (int i = 0; i < filter_config.hardware_filter_count; i++) {
-    const nearby_extension_ChreBleGenericFilter &hw_filter =
+    const nearby_extension_ChreBleGenericFilter& hw_filter =
         filter_config.hardware_filter[i];
     chreBleGenericFilter generic_filter;
     generic_filter.type = hw_filter.type;
@@ -64,7 +85,8 @@ void FilterExtension::Update(
                                          &config_response->vendor_status));
   if (config_response->result != CHREX_NEARBY_RESULT_OK) {
     LOGE("Failed to config filters, result %" PRId32, config_response->result);
-    host_list_.erase(static_cast<size_t>(host_index));
+    RemoveHostAndFilterResults(static_cast<size_t>(host_index),
+                               screen_on_filter_results);
     return;
   }
   // Removes the host if both hardware and oem filters are empty.
@@ -73,14 +95,31 @@ void FilterExtension::Update(
     LOGD("Remove host: id (%d), package name (%s)",
          host.host_info.hostEndpointId,
          host.host_info.isNameValid ? host.host_info.packageName : "unknown");
-    host_list_.erase(static_cast<size_t>(host_index));
+    RemoveHostAndFilterResults(static_cast<size_t>(host_index),
+                               screen_on_filter_results);
   }
 }
 
+void FilterExtension::RemoveHostAndFilterResults(
+    size_t host_index,
+    chre::DynamicVector<FilterExtensionResult>* filter_results) {
+  if (host_index >= host_list_.size()) {
+    LOGE("Host index is out of range.");
+    return;
+  }
+  const HostEndpointInfo& host = host_list_[host_index];
+  FilterExtensionResult result(host.host_info.hostEndpointId);
+  size_t idx = filter_results->find(result);
+  if (idx < filter_results->size()) {
+    filter_results->erase(idx);
+  }
+  host_list_.erase(host_index);
+}
+
 void FilterExtension::ConfigureService(
-    const chreHostEndpointInfo &host_info,
-    const nearby_extension_ExtConfigRequest_ServiceConfig &service_config,
-    nearby_extension_ExtConfigResponse *config_response) {
+    const chreHostEndpointInfo& host_info,
+    const nearby_extension_ExtConfigRequest_ServiceConfig& service_config,
+    nearby_extension_ExtConfigResponse* config_response) {
   LOGD("Configure extension service");
   config_response->has_result = true;
   config_response->has_vendor_status = true;
@@ -95,7 +134,7 @@ void FilterExtension::ConfigureService(
 }
 
 int32_t FilterExtension::FindOrCreateHostIndex(
-    const chreHostEndpointInfo &host_info) {
+    const chreHostEndpointInfo& host_info) {
   for (size_t index = 0; index < host_list_.size(); index++) {
     if (host_info.hostEndpointId ==
         host_list_[index].host_info.hostEndpointId) {
@@ -109,28 +148,11 @@ int32_t FilterExtension::FindOrCreateHostIndex(
   return static_cast<int32_t>(host_list_.size() - 1);
 }
 
-/* Adds a FilterExtensionResult (initialized by endpoint_id) to filter_results
- * if it has not been included in filter_results.
- * Returns the index of the entry.
- */
-size_t AddToFilterResults(
-    const HostEndpointInfo &host,
-    chre::DynamicVector<FilterExtensionResult> *filter_results,
-    bool set_timeout = true) {
-  FilterExtensionResult result(host.host_info.hostEndpointId,
-                               host.cache_expire_ms, set_timeout);
-  size_t idx = filter_results->find(result);
-  if (filter_results->size() == idx) {
-    filter_results->push_back(std::move(result));
-  }
-  return idx;
-}
-
 void FilterExtension::Match(
-    const chre::DynamicVector<chreBleAdvertisingReport> &ble_adv_list,
-    chre::DynamicVector<FilterExtensionResult> *filter_results,
-    chre::DynamicVector<FilterExtensionResult> *screen_on_filter_results) {
-  for (const HostEndpointInfo &host : host_list_) {
+    const chre::DynamicVector<chreBleAdvertisingReport>& ble_adv_list,
+    chre::DynamicVector<FilterExtensionResult>* filter_results,
+    chre::DynamicVector<FilterExtensionResult>* screen_on_filter_results) {
+  for (const HostEndpointInfo& host : host_list_) {
     // Get the index of the FilterExtensionResult to deliver immediately.
     // The FilterExtensionResult is initialized without timeout so that it
     // won't be expired.
@@ -138,7 +160,7 @@ void FilterExtension::Match(
         AddToFilterResults(host, filter_results, /*set_timeout=*/false);
     // Get the index of the FilterExtensionResult to deliver on wake.
     size_t screen_on_idx = AddToFilterResults(host, screen_on_filter_results);
-    for (const auto &ble_adv_report : ble_adv_list) {
+    for (const auto& ble_adv_report : ble_adv_list) {
       switch (
           chrexNearbyMatchExtendedFilter(&host.host_info, &ble_adv_report)) {
         case CHREX_NEARBY_FILTER_ACTION_IGNORE:
@@ -158,8 +180,8 @@ void FilterExtension::Match(
 }
 
 bool FilterExtension::EncodeConfigResponse(
-    const nearby_extension_ExtConfigResponse &config_response,
-    ByteArray data_buf, size_t *encoded_size) {
+    const nearby_extension_ExtConfigResponse& config_response,
+    ByteArray data_buf, size_t* encoded_size) {
   if (!pb_get_encoded_size(encoded_size,
                            nearby_extension_ExtConfigResponse_fields,
                            &config_response)) {
@@ -177,11 +199,11 @@ bool FilterExtension::EncodeConfigResponse(
   return true;
 }
 
-bool FilterExtension::EncodeAdvReport(chreBleAdvertisingReport &report,
+bool FilterExtension::EncodeAdvReport(chreBleAdvertisingReport& report,
                                       ByteArray data_buf,
-                                      size_t *encoded_size) {
+                                      size_t* encoded_size) {
   nearby_extension_FilterResult filter_result = kEmptyFilterResult;
-  nearby_extension_ChreBleAdvertisingReport &report_proto =
+  nearby_extension_ChreBleAdvertisingReport& report_proto =
       filter_result.report[0];
   report_proto.has_timestamp = true;
   report_proto.timestamp =

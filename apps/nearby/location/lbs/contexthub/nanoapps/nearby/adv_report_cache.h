@@ -43,12 +43,10 @@ class AdvReportCache {
 #endif
 
   // Deconstructs advertise report cache and releases all resources.
-  ~AdvReportCache() {
-    Clear();
-  }
+  ~AdvReportCache() { Clear(); }
 
   // Move assignment operator
-  AdvReportCache &operator=(AdvReportCache &&other) {
+  AdvReportCache& operator=(AdvReportCache&& other) {
     if (&other == this) {
       return *this;
     }

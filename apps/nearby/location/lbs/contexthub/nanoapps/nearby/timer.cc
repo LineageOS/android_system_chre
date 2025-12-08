@@ -35,7 +35,7 @@ bool Timer::StartTimer() {
     timer_id_ = CHRE_TIMER_INVALID;
   }
   timer_id_ = chreTimerSet(duration_ms_ * chre::kOneMillisecondInNanoseconds,
-                           &timer_id_, /*oneShot=*/is_one_shot_);
+                          &timer_id_, /*oneShot=*/is_one_shot_);
   if (timer_id_ == CHRE_TIMER_INVALID) {
     LOGE("Error in configuring timer.");
     return false;
@@ -49,9 +49,8 @@ bool Timer::StopTimer() {
     return false;
   }
   if (!chreTimerCancel(timer_id_)) {
-    LOGW(
-        "Error in stopping timer. For a one-shot timer, it may have just "
-        "fired or expired.");
+    LOGW("Error in stopping timer. For a one-shot timer, it may have just "
+         "fired or expired.");
     return false;
   }
   timer_id_ = CHRE_TIMER_INVALID;

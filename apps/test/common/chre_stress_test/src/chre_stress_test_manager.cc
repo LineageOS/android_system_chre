@@ -350,6 +350,7 @@ void Manager::handleGnssAsyncResult(const chreAsyncResult *result) {
 void Manager::handleAudioDataEvent(const chreAudioDataEvent *event) {
   uint64_t timestamp = event->timestamp;
 
+  LOGI("Received audio data event at %" PRIu64 " ms", timestamp);
   checkTimestamp(timestamp, mPrevAudioEventTimestampMs);
   mPrevAudioEventTimestampMs = timestamp;
 }
@@ -381,6 +382,7 @@ void Manager::handleBleAdvertismentEvent(
     uint64_t timestamp =
         event->reports[i].timestamp / chre::kOneMillisecondInNanoseconds;
 
+    LOGI("Received BLE advertisement event at %" PRIu64 " ms", timestamp);
     checkTimestamp(timestamp, mPrevBleAdTimestampMs);
     mPrevBleAdTimestampMs = timestamp;
   }
@@ -406,7 +408,11 @@ void Manager::handleBleAsyncResult(const chreAsyncResult *result) {
 void Manager::checkTimestamp(uint64_t timestamp, uint64_t pastTimestamp) {
   if (timestamp < pastTimestamp) {
     sendFailure("Timestamp was too old");
+    LOGI("Current timestamp %" PRIu64, timestamp);
+    LOGI("Past timestamp %" PRIu64, pastTimestamp);
+    sendFailure("Timestamp was too old");
   } else if (timestamp == pastTimestamp) {
+    LOGI("Current and Past timestamp %" PRIu64, pastTimestamp);
     sendFailure("Timestamp was duplicate");
   }
 }
@@ -417,7 +423,7 @@ void Manager::checkTimestampInterval(uint64_t timestamp, uint64_t pastTimestamp,
   if (timestamp - pastTimestamp > maxInterval) {
     LOGE("Timestamp is later than expected");
     LOGI("Current timestamp %" PRIu64, timestamp);
-    LOGI("past timestamp %" PRIu64, pastTimestamp);
+    LOGI("Past timestamp %" PRIu64, pastTimestamp);
     LOGI("Timestamp difference %" PRIu64, timestamp - pastTimestamp);
   }
 }
@@ -473,6 +479,7 @@ void Manager::handleAccelSensorDataEvent(
   // account for processing delays.
   if (header.readingCount == 1) {
     if (mPrevAccelEventTimestampNs != 0) {
+      LOGI("Received accel data event at %" PRIu64 " ns", timestamp);
       checkTimestampInterval(timestamp, mPrevAccelEventTimestampNs,
                              mSensors[kAccelSensorIndex].samplingInterval +
                                  kOneMillisecondInNanoseconds);
@@ -491,6 +498,7 @@ void Manager::handleGyroSensorDataEvent(
   // higher than the sensor sampling interval to account for processing delays.
   if (header.readingCount == 1) {
     if (mPrevGyroEventTimestampNs != 0) {
+      LOGI("Received gyro data event at %" PRIu64 " ns", timestamp);
       checkTimestampInterval(timestamp, mPrevGyroEventTimestampNs,
                              mSensors[kGyroSensorIndex].samplingInterval +
                                  kOneMillisecondInNanoseconds);
@@ -505,6 +513,7 @@ void Manager::handleInstantMotionSensorDataEvent(
   uint64_t timestamp = header.baseTimestamp;
 
   mSensors[kInstantMotionSensorIndex].enabled = false;
+  LOGI("Received instant motion data event at %" PRIu64 " ns", timestamp);
   checkTimestamp(timestamp, mPrevInstantMotionEventTimestampNs);
   mPrevInstantMotionEventTimestampNs = timestamp;
 }

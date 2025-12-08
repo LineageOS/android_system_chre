@@ -34,6 +34,24 @@ extern "C" {
 #endif
 
 /**
+ * A set of enums describing the requested thread priority for a given nanoapp.
+ * These values are a mirror of Android's thread priority (see
+ * system/core/libsystem/include/system/thread_defs.h for reference). Note that
+ * a higher value represents a lower priority in this definition.
+ *
+ * @defgroup NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL
+ * @{
+ */
+
+// Use for nanoapps that want to run at a higher priority than normal.
+#define NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND INT8_C(-2)
+
+// The default setting for most nanoapps.
+#define NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL INT8_C(0)
+
+/** @} */
+
+/**
  * Method invoked by the CHRE when loading the nanoapp.
  *
  * Every CHRE method is legal to call from this method.
@@ -87,7 +105,6 @@ void nanoappHandleEvent(uint32_t senderInstanceId, uint16_t eventType,
  * @see nanoappStart
  */
 void nanoappEnd(void);
-
 
 #ifdef __cplusplus
 }

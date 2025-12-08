@@ -36,18 +36,36 @@ WifiScanResult::WifiScanResult(pb_istream_t *apWifiScanResultStream) {
   }
   mTotalNumResults = wifiScanResultProto.totalNumResults;
   mResultIndex = wifiScanResultProto.resultIndex;
+
+  if (wifiScanResultProto.has_venueGroup) {
+    mVenueGroup = wifiScanResultProto.venueGroup;
+  }
+  if (wifiScanResultProto.has_venueType) {
+    mVenueType = wifiScanResultProto.venueType;
+  }
 }
 
 WifiScanResult::WifiScanResult(const chreWifiScanResult &chreScanResult) {
   memset(mSsid, 0, CHRE_WIFI_SSID_MAX_LEN);
   memcpy(mSsid, chreScanResult.ssid, chreScanResult.ssidLen);
   memcpy(mBssid, chreScanResult.bssid, CHRE_WIFI_BSSID_LEN);
+  mVenueGroup = chreScanResult.venueGroup;
+  mVenueType = chreScanResult.venueType;
 }
 
 bool WifiScanResult::areEqual(const WifiScanResult &result1,
                               const WifiScanResult &result2) {
   // TODO(b/184653034): Compare all fields that are shared between AP and CHRE
   // scan result.
+  if (chreWifiGetCapabilities() & CHRE_WIFI_CAPABILITIES_VENUE_INFO &&
+      (result1.getVenueGroup() != result2.getVenueGroup() ||
+       result1.getVenueType()  != result2.getVenueType())) {
+    LOGE("Venue info mismatch: %d, %d vs %d, %d", result1.getVenueGroup(),
+         result1.getVenueType(), result2.getVenueGroup(),
+         result2.getVenueType());
+    return false;
+  }
+
   return strcmp(result1.mSsid, result2.mSsid) == 0 &&
          bssidsAreEqual(result1, result2);
 }

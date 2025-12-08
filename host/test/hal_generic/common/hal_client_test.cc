@@ -16,6 +16,7 @@
 #include "chre_host/hal_client.h"
 
 #include <unordered_set>
+#include <utility>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -40,6 +41,9 @@ using testing::Field;
 using testing::IsEmpty;
 using testing::Return;
 using testing::UnorderedElementsAre;
+
+using std::chrono::operator""s;
+using std::chrono::operator""ms;
 
 using HostEndpointId = char16_t;
 constexpr HostEndpointId kEndpointId = 0x10;
@@ -68,6 +72,25 @@ class HalClientForTest : public HalClient {
 
   HalClientCallback *getClientCallback() {
     return mCallback.get();
+  }
+
+  void runWatchdogTask(
+      std::chrono::milliseconds timeThreshold,
+      std::function<void(const char *funcName, uint64_t tid)> action) {
+    watchdogTask(timeThreshold, std::move(action));
+  }
+
+  void updateTimestamp() {
+    updateWatchdogSnapshot("funcName", elapsedRealtime());
+    mWatchdogCv.notify_one();
+  }
+
+  void launchWatchdogTask(
+      std::chrono::milliseconds timeThreshold,
+      std::function<void(const char *funcName, uint64_t tid)> action) {
+    std::lock_guard lock(mWatchdogCreationMutex);
+    mWatchdogTask = std::thread(&HalClientForTest::runWatchdogTask, this,
+                                timeThreshold, action);
   }
 };
 
@@ -219,6 +242,50 @@ TEST(HalClientTest, IsConnected) {
       std::vector<HostEndpointId>{kEndpointId, kEndpointId + 1});
 
   EXPECT_THAT(halClient->isConnected(), true);
+}
+
+TEST(HalClientTest, WatchdogMonitoring) {
+  constexpr auto kTimeout = 1000ms;
+  constexpr auto kUpdateInterval = 200ms;
+  auto mockContextHub = ndk::SharedRefBase::make<MockContextHub>();
+  auto halClientForTest = std::make_unique<HalClientForTest>(
+      mockContextHub,
+      std::vector<HostEndpointId>{kEndpointId, kEndpointId + 1});
+
+  std::atomic_bool isTriggered = false;
+  halClientForTest->launchWatchdogTask(
+      kTimeout,
+      [&](const char * /*funcName*/, uint64_t /*tid*/) { isTriggered = true; });
+
+  // Keep updating timestamp in the following kTimeout + 1s such that action()
+  // shouldn't be triggered.
+  for (auto elapsedTime = 0ms; elapsedTime < kTimeout + 1s;
+       elapsedTime += kUpdateInterval) {
+    halClientForTest->updateTimestamp();
+    std::this_thread::sleep_for(kUpdateInterval);
+  }
+  EXPECT_EQ(isTriggered, false);
+}
+
+TEST(HalClientTest, WatchdogTakeAction) {
+  constexpr auto kTimeout = 500ms;
+
+  auto mockContextHub = ndk::SharedRefBase::make<MockContextHub>();
+  auto halClientForTest = std::make_unique<HalClientForTest>(
+      mockContextHub,
+      std::vector<HostEndpointId>{kEndpointId, kEndpointId + 1});
+
+  std::atomic_bool isTriggered = false;
+  halClientForTest->launchWatchdogTask(
+      kTimeout,
+      [&](const char * /*funcName*/, uint64_t /*tid*/) { isTriggered = true; });
+
+  // Update timestamp to be non-zero and leave it there to trigger the action.
+  halClientForTest->updateTimestamp();
+
+  // Wait for kTimeout + 500ms
+  std::this_thread::sleep_for(kTimeout + 500ms);
+  EXPECT_EQ(isTriggered, true);
 }
 
 /** =================== Tests for EndpointInfoBuilder =================== */

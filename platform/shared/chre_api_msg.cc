@@ -15,6 +15,7 @@
  */
 
 #include "chre/core/event_loop_manager.h"
+#include "chre/platform/shared/memory.h"
 #include "chre/util/macros.h"
 #include "chre_api/chre/common.h"
 #include "chre_api/chre/event.h"
@@ -26,11 +27,26 @@
 
 using ::chre::EventLoopManager;
 using ::chre::EventLoopManagerSingleton;
+using ::chre::forceDramAccess;
 using ::chre::Nanoapp;
+
+#ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
+namespace {
+
+// Called prior to all CHRE message API calls.
+void chreMsgPreApiCall() {
+#ifdef CHRE_MESSAGE_ROUTER_HP_SUPPORT_ENABLED
+  forceDramAccess();
+#endif  // CHRE_MESSAGE_ROUTER_HP_SUPPORT_ENABLED
+}
+
+}  // namespace
+#endif  // CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
 
 DLL_EXPORT bool chreMsgGetEndpointInfo(uint64_t hubId, uint64_t endpointId,
                                        struct chreMsgEndpointInfo *info) {
 #ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
+  chreMsgPreApiCall();
   return info != nullptr && EventLoopManagerSingleton::get()
                                 ->getChreMessageHubManager()
                                 .getEndpointInfo(hubId, endpointId, *info);
@@ -46,6 +62,7 @@ DLL_EXPORT bool chreMsgConfigureEndpointReadyEvents(uint64_t hubId,
                                                     uint64_t endpointId,
                                                     bool enable) {
 #ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
+  chreMsgPreApiCall();
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return EventLoopManagerSingleton::get()
       ->getChreMessageHubManager()
@@ -63,6 +80,7 @@ DLL_EXPORT bool chreMsgConfigureEndpointReadyEvents(uint64_t hubId,
 DLL_EXPORT bool chreMsgConfigureServiceReadyEvents(
     uint64_t hubId, const char *serviceDescriptor, bool enable) {
 #ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
+  chreMsgPreApiCall();
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return EventLoopManagerSingleton::get()
       ->getChreMessageHubManager()
@@ -81,6 +99,7 @@ DLL_EXPORT bool chreMsgConfigureServiceReadyEvents(
 DLL_EXPORT bool chreMsgSessionGetInfo(uint16_t sessionId,
                                       struct chreMsgSessionInfo *info) {
 #ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
+  chreMsgPreApiCall();
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return info != nullptr &&
          EventLoopManagerSingleton::get()
@@ -96,6 +115,7 @@ DLL_EXPORT bool chreMsgSessionGetInfo(uint16_t sessionId,
 DLL_EXPORT bool chreMsgPublishServices(
     const struct chreMsgServiceInfo *services, size_t numServices) {
 #ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
+  chreMsgPreApiCall();
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return EventLoopManagerSingleton::get()
       ->getChreMessageHubManager()
@@ -110,6 +130,7 @@ DLL_EXPORT bool chreMsgPublishServices(
 DLL_EXPORT bool chreMsgSessionOpenAsync(uint64_t hubId, uint64_t endpointId,
                                         const char *serviceDescriptor) {
 #ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
+  chreMsgPreApiCall();
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return EventLoopManagerSingleton::get()
       ->getChreMessageHubManager()
@@ -125,6 +146,7 @@ DLL_EXPORT bool chreMsgSessionOpenAsync(uint64_t hubId, uint64_t endpointId,
 
 DLL_EXPORT bool chreMsgSessionCloseAsync(uint16_t sessionId) {
 #ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
+  chreMsgPreApiCall();
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return EventLoopManagerSingleton::get()
       ->getChreMessageHubManager()
@@ -139,6 +161,7 @@ DLL_EXPORT bool chreMsgSend(
     void *message, size_t messageSize, uint32_t messageType, uint16_t sessionId,
     uint32_t messagePermissions, chreMessageFreeFunction *freeCallback) {
 #ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
+  chreMsgPreApiCall();
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return EventLoopManagerSingleton::get()
       ->getChreMessageHubManager()

@@ -24,10 +24,10 @@
 
 namespace nearby {
 
-bool CryptoNonEncryption::decrypt(const ByteArray &input,
-                                  const ByteArray & /*salt*/,
-                                  const ByteArray & /*key*/,
-                                  ByteArray &output) const {
+bool CryptoNonEncryption::decrypt(const ByteArray& input,
+                                  const ByteArray& /*salt*/,
+                                  const ByteArray& /*key*/,
+                                  ByteArray& output) const {
   if (output.length < input.length) {
     LOGE("output length %d  less than input length %d",
          (unsigned int)output.length, (unsigned int)input.length);
@@ -38,9 +38,9 @@ bool CryptoNonEncryption::decrypt(const ByteArray &input,
   return true;
 }
 
-bool CryptoNonEncryption::verify(const ByteArray & /*input*/,
-                                 const ByteArray & /*key*/,
-                                 const ByteArray & /*signature*/) const {
+bool CryptoNonEncryption::verify(const ByteArray& /*input*/,
+                                 const ByteArray& /*key*/,
+                                 const ByteArray& /*signature*/) const {
   return true;
 }
 

@@ -44,7 +44,7 @@ class Singleton : public NonCopyable {
    * @param args The constructor arguments to pass to the singleton instance.
    */
   template <typename... Args>
-  static void init(Args &&...args);
+  static void init(Args &&... args);
 
   /**
    * Invokes the destructor on the underlying object if it has been constructed

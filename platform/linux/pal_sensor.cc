@@ -68,6 +68,10 @@ void chrePalSensorApiClose() {
 
 bool chrePalSensorApiOpen(const struct chrePalSystemApi *systemApi,
                           const struct chrePalSensorCallbacks *callbacks) {
+  if (!TaskManagerSingleton::isInitialized()) {
+    TaskManagerSingleton::init();
+  }
+
   chrePalSensorApiClose();
 
   bool success = false;

@@ -204,7 +204,7 @@ UniquePtr(ObjectType *) -> UniquePtr<ObjectType>;
  * @param args The arguments to pass to the object's constructor.
  */
 template <typename ObjectType, typename... Args>
-UniquePtr<ObjectType> MakeUnique(Args &&...args);
+UniquePtr<ObjectType> MakeUnique(Args &&... args);
 
 /**
  * Allocates an array of objects of type ObjectType on the heap, and returns a

@@ -23,4 +23,6 @@ void LogBufferManager::preSecondaryBufferUse() const {
   forceDramAccess();
 }
 
+void LogBufferManager::postSecondaryBufferUse() const {}
+
 }  // namespace chre

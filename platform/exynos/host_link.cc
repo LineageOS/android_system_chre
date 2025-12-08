@@ -120,6 +120,36 @@ bool HostLink::sendMessageDeliveryStatus(uint32_t /* messageSequenceNumber */,
   return false;
 }
 
+bool HostLink::sendBtSocketGetCapabilitiesResponse(
+    uint32_t leCocNumberOfSupportedSockets, uint32_t leCocMtu,
+    uint32_t rfcommNumberOfSupportedSockets, uint32_t rfcommMaxFrameSize) {
+  constexpr size_t kFixedSizePortion = 52;
+  ChreFlatBufferBuilder builder(kFixedSizePortion);
+  HostProtocolChre::encodeBtSocketGetCapabilitiesResponse(
+      builder, leCocNumberOfSupportedSockets, leCocMtu,
+      rfcommNumberOfSupportedSockets, rfcommMaxFrameSize);
+  return getHostCommsManager().send(builder.GetBufferPointer(),
+                                    builder.GetSize());
+}
+
+bool HostLink::sendBtSocketOpenResponse(uint64_t socketId, bool success,
+                                        const char *reason) {
+  constexpr size_t kFixedSizePortion = 52;
+  ChreFlatBufferBuilder builder(kFixedSizePortion);
+  HostProtocolChre::encodeBtSocketOpenResponse(builder, socketId, success,
+                                               reason);
+  return getHostCommsManager().send(builder.GetBufferPointer(),
+                                    builder.GetSize());
+}
+
+bool HostLink::sendBtSocketClose(uint64_t socketId, const char *reason) {
+  constexpr size_t kFixedSizePortion = 52;
+  ChreFlatBufferBuilder builder(kFixedSizePortion);
+  HostProtocolChre::encodeBtSocketClose(builder, socketId, reason);
+  return getHostCommsManager().send(builder.GetBufferPointer(),
+                                    builder.GetSize());
+}
+
 // TODO(b/239096709): HostMessageHandlers member function implementations are
 // expected to be (mostly) identical for any platform that uses flatbuffers
 // to encode messages - refactor the host link to merge the multiple copies
@@ -221,14 +251,38 @@ void HostMessageHandlers::handleNanConfigurationUpdate(bool /* enabled */) {
   LOGE("NAN unsupported.");
 }
 
-void HostMessageHandlers::handleBtSocketOpen(
-    uint64_t /* hubId */, const BleL2capCocSocketData & /* socketData */,
-    const char * /* name */, uint32_t /* psm */) {
-  LOGE("BT Socket offload not supported");
+void HostMessageHandlers::handleBtSocketCapabilitiesRequest() {
+#ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
+  EventLoopManagerSingleton::get()
+      ->getBleSocketManager()
+      .handleSocketCapabilitiesRequestByHost();
+#else
+  getHostCommsManager().sendBtSocketGetCapabilitiesResponse(
+      /*leCocNumberOfSupportedSockets=*/0, /*leCocMtu=*/0,
+      /*rfcommNumberOfSupportedSockets=*/0, /*rfcommMaxFrameSize=*/0);
+#endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
 }
 
-void HostMessageHandlers::handleBtSocketCapabilitiesRequest() {
-  LOGE("BT Socket offload not supported");
+void HostMessageHandlers::handleBtSocketOpen(
+    uint64_t /* hubId */, const BleL2capCocSocketData &socketData,
+    const char * /* name */, uint32_t /* psm */) {
+#ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
+  EventLoopManagerSingleton::get()
+      ->getBleSocketManager()
+      .handleSocketOpenedByHost(socketData);
+#else
+  getHostCommsManager().sendBtSocketOpenResponse(
+      socketData.socketId, /*success=*/false,
+      /*reason=*/"Socket offload not supported");
+#endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
+}
+
+void HostMessageHandlers::handleBtSocketClosed(uint64_t socketId) {
+#ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
+  EventLoopManagerSingleton::get()
+      ->getBleSocketManager()
+      .handleSocketClosedByHost(socketId);
+#endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
 }
 
 }  // namespace chre

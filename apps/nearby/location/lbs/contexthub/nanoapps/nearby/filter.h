@@ -32,9 +32,7 @@ class Filter {
   // as nearby_Filters.
   bool Update(const uint8_t *message, uint32_t message_size);
   // Returns true when filters are cleared.
-  bool IsEmpty() {
-    return ble_filters_.filter_count == 0;
-  }
+  bool IsEmpty() { return ble_filters_.filter_count == 0; }
 
   // Matches a BLE advertisement report against BLE Filters.
   // Returns matched result in filter_results, which includes a BleFilterResult

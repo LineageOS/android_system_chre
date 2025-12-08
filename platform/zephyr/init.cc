@@ -13,14 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "chre/core/init.h"
 
 #include <errno.h>
-#include <zephyr/sys/printk.h>
 #include <zephyr/kernel.h>
+#include <zephyr/sys/printk.h>
 
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/static_nanoapps.h"
+#include "chre/platform/shared/init.h"
 #include "chre/target_platform/init.h"
 
 namespace chre {
@@ -32,14 +32,14 @@ struct k_thread chre_thread_data;
 k_tid_t chre_tid;
 
 void chreThreadEntry(void *, void *, void *) {
-  chre::init();
+  chre::initCommon();
   chre::EventLoopManagerSingleton::get()->lateInit();
   chre::loadStaticNanoapps();
 
   chre::EventLoopManagerSingleton::get()->getEventLoop().run();
 
   // we only get here if the CHRE EventLoop exited
-  chre::deinit();
+  chre::deinitCommon();
 
   chre_tid = nullptr;
 }
@@ -62,7 +62,7 @@ int init() {
            rc);
   }
 
-//  chpp::init();
+  //  chpp::init();
   return 0;
 }
 
@@ -70,13 +70,13 @@ void deinit() {
   if (chre_tid != nullptr) {
     chre::EventLoopManagerSingleton ::get()->getEventLoop().stop();
   }
-//  chpp::deinit();
+  //  chpp::deinit();
 }
 
 k_tid_t getChreTaskId() {
   return chre_tid;
 }
 
-}  // namespace chre::zephyr
+}  // namespace zephyr
 
 }  // namespace chre

@@ -26,12 +26,12 @@ extern "C" {
 
 #include "chre/core/event_loop.h"
 #include "chre/core/event_loop_manager.h"
-#include "chre/core/init.h"
 #include "chre/core/static_nanoapps.h"
 #include "chre/platform/fatal_error.h"
 #include "chre/platform/log.h"
 #include "chre/platform/memory.h"
 #include "chre/platform/mutex.h"
+#include "chre/platform/shared/init.h"
 #include "chre/platform/slpi/fastrpc.h"
 #include "chre/platform/slpi/uimg_util.h"
 #include "chre/util/lock_guard.h"
@@ -118,7 +118,7 @@ void chreThreadEntry(void * /*data*/) {
   chre::loadStaticNanoapps();
   EventLoopManagerSingleton::get()->getEventLoop().run();
 
-  chre::deinit();
+  chre::deinitCommon();
 
 #if defined(CHRE_SLPI_SEE) && !defined(IMPORT_CHRE_UTILS)
   chre::IslandVoteClientSingleton::deinit();
@@ -174,7 +174,7 @@ extern "C" int chre_slpi_start_thread(void) {
 
     // This must complete before we can receive messages that might result in
     // posting an event
-    chre::init();
+    chre::initCommon();
 
     // Human-readable name for the CHRE thread (not const in QuRT API, but they
     // make a copy)

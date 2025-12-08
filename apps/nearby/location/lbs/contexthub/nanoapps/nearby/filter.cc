@@ -38,7 +38,7 @@ namespace nearby {
 
 constexpr nearby_BleFilters kDefaultBleFilters = nearby_BleFilters_init_zero;
 
-bool Filter::Update(const uint8_t *message, uint32_t message_size) {
+bool Filter::Update(const uint8_t* message, uint32_t message_size) {
   LOGD("Decode a Filters message with size %" PRIu32, message_size);
   ble_filters_ = kDefaultBleFilters;
   pb_istream_t stream = pb_istream_from_buffer(message, message_size);
@@ -66,7 +66,7 @@ bool Filter::Update(const uint8_t *message, uint32_t message_size) {
     }
   }
   for (int i = 0; i < ble_filters_.filter_count; i++) {
-    const nearby_BleFilter *filter = &ble_filters_.filter[i];
+    const nearby_BleFilter* filter = &ble_filters_.filter[i];
     // Sets the scan interval to satisfy the minimal latency requirement.
     if (filter->has_latency_ms && filter->latency_ms < scan_interval_ms_) {
       scan_interval_ms_ = filter->latency_ms;
@@ -76,9 +76,9 @@ bool Filter::Update(const uint8_t *message, uint32_t message_size) {
 }
 
 void Filter::MatchBle(
-    const chreBleAdvertisingReport &report,
-    chre::DynamicVector<nearby_BleFilterResult> *filter_results,
-    chre::DynamicVector<nearby_BleFilterResult> *fp_filter_results) {
+    const chreBleAdvertisingReport& report,
+    chre::DynamicVector<nearby_BleFilterResult>* filter_results,
+    chre::DynamicVector<nearby_BleFilterResult>* fp_filter_results) {
 #ifndef ENABLE_PRESENCE
   UNUSED_VAR(filter_results);
 #endif
@@ -87,7 +87,7 @@ void Filter::MatchBle(
   nearby_BleFilterResult result;
   auto record = BleScanRecord::Parse(report.data, report.dataLength);
   // Log the service data for debug only.
-  for (const auto &ble_service_data : record.service_data) {
+  for (const auto& ble_service_data : record.service_data) {
     LOGD_SENSITIVE_INFO("Receive service data with uuid %" PRIX16,
                         ble_service_data.uuid);
     for (int i = 0; i < ble_service_data.length; i++) {

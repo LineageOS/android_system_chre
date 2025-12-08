@@ -38,7 +38,7 @@ struct BleServiceData {
   // advertisement.
   uint8_t length;
   // byte array of service data, or null if length is 0.
-  const uint8_t *data;
+  const uint8_t* data;
 };
 
 struct BleScanRecord {

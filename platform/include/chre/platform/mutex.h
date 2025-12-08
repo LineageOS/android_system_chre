@@ -19,6 +19,7 @@
 
 #include "chre/target_platform/mutex_base.h"
 #include "chre/util/non_copyable.h"
+#include "chre/util/thread_annotations.h"
 
 namespace chre {
 
@@ -28,7 +29,7 @@ namespace chre {
  * subclassed here to allow platforms to inject their own storage for their
  * mutex implementation.
  */
-class Mutex : public MutexBase, public NonCopyable {
+class CHRE_CAPABILITY("mutex") Mutex : public MutexBase, public NonCopyable {
  public:
   /**
    * Allows the platform to do any mutex initialization at construction time.
@@ -44,7 +45,7 @@ class Mutex : public MutexBase, public NonCopyable {
    * Locks the mutex, or blocks if it is held by another thread. Illegal to call
    * if the current thread already holds the lock.
    */
-  void lock();
+  void lock() CHRE_ACQUIRE();
 
   /**
    * Attempts to lock the mutex. If it is already held by some other thread,
@@ -53,13 +54,13 @@ class Mutex : public MutexBase, public NonCopyable {
    *
    * @return true if the mutex was acquired, false otherwise
    */
-  bool try_lock();
+  bool try_lock() CHRE_TRY_ACQUIRE(true);
 
   /**
    * Unlocks the mutex. Illegal to call if the current thread does not hold the
    * lock.
    */
-  void unlock();
+  void unlock() CHRE_RELEASE();
 };
 
 }  // namespace chre

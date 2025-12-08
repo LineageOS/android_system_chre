@@ -24,6 +24,7 @@
 #include "chpp/app.h"
 #include "chpp/clients.h"
 #include "chpp/common/timesync.h"
+#include "chpp/common/event_log.h"
 #include "chpp/macros.h"
 
 #ifdef __cplusplus
@@ -43,6 +44,17 @@ extern "C" {
 #ifndef CHPP_TIMESYNC_DEFAULT_MAX_AGE_NS
 #define CHPP_TIMESYNC_DEFAULT_MAX_AGE_NS (24 * CHPP_NSEC_PER_HOUR)
 #endif
+
+/**
+ * Event types for the timesync client event log .
+ */
+enum ChppTimesyncClientEventType : uint16_t {
+  CHPP_TIMESYNC_CLIENT_INIT = 0,
+  CHPP_TIMESYNC_CLIENT_RESET,
+  CHPP_TIMESYNC_CLIENT_FIRST_OFFSET,
+  CHPP_TIMESYNC_CLIENT_START_OFFSET_CLIPPING,
+  CHPP_TIMESYNC_CLIENT_END_OFFSET_CLIPPING,
+};
 
 /**
  * Timesync Results.
@@ -123,6 +135,25 @@ int64_t chppTimesyncGetOffset(struct ChppAppState *appState,
  */
 const struct ChppTimesyncResult *chppTimesyncGetResult(
     struct ChppAppState *appState);
+
+/**
+ * Provides the event log of the timesync client.
+ *
+ * @param appState Application layer state.
+ *
+ * @return Event log.
+ */
+const struct ChppEventLog *chppTimesyncGetEventLog(
+    struct ChppAppState *appState);
+
+/**
+ * Returns the name of the event type.
+ *
+ * @param eventType Event type.
+ *
+ * @return Name of the event type.
+ */
+const char* chppGetEventLogName(enum ChppTimesyncClientEventType eventType);
 
 #ifdef __cplusplus
 }

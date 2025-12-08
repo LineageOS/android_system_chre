@@ -23,11 +23,11 @@ namespace nearby {
 class PresenceCryptoIdentityV1Impl : public Crypto {
  public:
   // Decrypts input with salt and key. Places the decrypted result in output.
-  bool decrypt(const ByteArray &input, const ByteArray &salt,
-               const ByteArray &key, ByteArray &output) const override;
+  bool decrypt(const ByteArray& input, const ByteArray& salt,
+               const ByteArray& key, ByteArray& output) const override;
   // Verifies the computed HMAC tag is equal to the signature.
-  bool verify(const ByteArray &input, const ByteArray &key,
-              const ByteArray &signature) const override;
+  bool verify(const ByteArray& input, const ByteArray& key,
+              const ByteArray& signature) const override;
 
  private:
   static constexpr size_t kAuthenticityKeySize = 16;

@@ -18,6 +18,7 @@
 #define CHPP_PLATFORM_TIME_H_
 
 #include <stdint.h>
+#include <time.h>
 
 #include "chpp/macros.h"
 

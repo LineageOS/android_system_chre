@@ -29,7 +29,10 @@
 #include <aidl/android/hardware/contexthub/IContextHub.h>
 #include <aidl/android/hardware/contexthub/IContextHubCallback.h>
 #include <aidl/android/hardware/contexthub/NanoappBinary.h>
+#include <android-base/thread_annotations.h>
+#include <android-base/threads.h>
 #include <android/binder_process.h>
+#include <utils/SystemClock.h>
 
 #include "hal_error.h"
 
@@ -167,10 +170,8 @@ class HalClient {
     return mIsHalConnected;
   }
 
-  /** Connects to CHRE HAL synchronously. */
-  bool connect() {
-    return initConnection() == HalError::SUCCESS;
-  }
+  /** Connects to CHRE HAL synchronously and returns true if successful. */
+  bool connect();
 
   /** Connects to CHRE HAL in background. */
   void connectInBackground(BackgroundConnectionCallback &callback) {
@@ -178,10 +179,8 @@ class HalClient {
     // Policy std::launch::async is required to avoid lazy evaluation which can
     // postpone the execution until get() of the future returned by std::async
     // is called.
-    mBackgroundConnectionFutures.emplace_back(
-        std::async(std::launch::async, [&]() {
-          callback.onInitialization(initConnection() == HalError::SUCCESS);
-        }));
+    mBackgroundConnectionFutures.emplace_back(std::async(
+        std::launch::async, [&] { callback.onInitialization(connect()); }));
   }
 
   ScopedAStatus queryNanoapps() {
@@ -229,6 +228,15 @@ class HalClient {
   }
 
  protected:
+  /**
+   * @brief Callback interface for asynchronous communication with the CHRE HAL.
+   *
+   * Actual implementations of interface IContextHubCallback are provided by the
+   * host clients using @code HalClient. Because IContextHubCallback is NOT
+   * oneway, a client must make sure these callbacks return quickly, otherwise
+   * they may block other clients from running their callbacks. A watchdog is
+   * launched to enforce this requirement once ContextHub HAL is connected.
+   */
   class HalClientCallback : public BnContextHubCallback {
    public:
     explicit HalClientCallback(
@@ -238,16 +246,19 @@ class HalClient {
 
     ScopedAStatus handleNanoappInfo(
         const std::vector<NanoappInfo> &appInfo) override {
+      TimeRefresher refresher(mHalClient, __func__);
       return mCallback->handleNanoappInfo(appInfo);
     }
 
     ScopedAStatus handleContextHubMessage(
         const ContextHubMessage &msg,
         const std::vector<std::string> &msgContentPerms) override {
+      TimeRefresher refresher(mHalClient, __func__);
       return mCallback->handleContextHubMessage(msg, msgContentPerms);
     }
 
     ScopedAStatus handleContextHubAsyncEvent(AsyncEventType event) override {
+      TimeRefresher refresher(mHalClient, __func__);
       if (event == AsyncEventType::RESTARTED) {
         tryReconnectEndpoints(mHalClient);
       }
@@ -256,43 +267,56 @@ class HalClient {
 
     ScopedAStatus handleTransactionResult(int32_t transactionId,
                                           bool success) override {
+      TimeRefresher refresher(mHalClient, __func__);
       return mCallback->handleTransactionResult(transactionId, success);
     }
 
     ScopedAStatus handleNanSessionRequest(
         const NanSessionRequest &request) override {
+      TimeRefresher refresher(mHalClient, __func__);
       return mCallback->handleNanSessionRequest(request);
     }
 
     ScopedAStatus handleMessageDeliveryStatus(
         char16_t hostEndPointId,
         const MessageDeliveryStatus &messageDeliveryStatus) override {
+      TimeRefresher refresher(mHalClient, __func__);
       return mCallback->handleMessageDeliveryStatus(hostEndPointId,
                                                     messageDeliveryStatus);
     }
 
     ScopedAStatus getUuid(std::array<uint8_t, 16> *outUuid) override {
+      TimeRefresher refresher(mHalClient, __func__);
       return mCallback->getUuid(outUuid);
     }
 
     ScopedAStatus getName(std::string *outName) override {
+      TimeRefresher refresher(mHalClient, __func__);
       return mCallback->getName(outName);
     }
 
    private:
+    class TimeRefresher {
+     public:
+      explicit TimeRefresher(HalClient *halClient, const char *funcName)
+          : mHalClient(halClient) {
+        halClient->updateWatchdogSnapshot(funcName, elapsedRealtime());
+        halClient->mWatchdogCv.notify_one();
+      }
+      ~TimeRefresher() {
+        mHalClient->updateWatchdogSnapshot(/*funcName=*/nullptr,
+                                           /* timeMs= */ 0);
+      }
+
+     private:
+      HalClient *mHalClient;
+    };
     std::shared_ptr<IContextHubCallback> mCallback;
     HalClient *mHalClient;
   };
 
   explicit HalClient(const std::shared_ptr<IContextHubCallback> &callback,
-                     int32_t contextHubId = kDefaultContextHubId)
-      : mContextHubId(contextHubId) {
-    mCallback = ndk::SharedRefBase::make<HalClientCallback>(callback, this);
-    ABinderProcess_startThreadPool();
-    mDeathRecipient = ndk::ScopedAIBinder_DeathRecipient(
-        AIBinder_DeathRecipient_new(onHalDisconnected));
-    mCallback->getName(&mClientName);
-  }
+                     int32_t contextHubId = kDefaultContextHubId);
 
   /**
    * Initializes the connection to CHRE HAL.
@@ -349,6 +373,47 @@ class HalClient {
                : ScopedAStatus::fromServiceSpecificError(
                      static_cast<int32_t>(errorCode));
   }
+
+  /**
+   * A watchdog task that monitors the time spent by a single callback call.
+   *
+   * @param timeThreshold time threshold to trigger the action.
+   * @param action action to take when the timeThreshold is triggered.
+   */
+  void watchdogTask(
+      std::chrono::milliseconds timeThreshold,
+      std::function<void(const char *funcName, uint64_t tid)> action);
+
+  void updateWatchdogSnapshot(const char *funcName, const int64_t timeMs) {
+    std::lock_guard lock(mWatchdogMutex);
+    mCallbackFunctionName = funcName;
+    mCallbackTimestamp = timeMs;
+    mCallbackThreadId = timeMs != 0 ? base::GetThreadId() : 0;
+  }
+
+  void logFatalClientCallbackTimeout(const char *funcName, uint64_t tid) const;
+
+  // The mutex guarding the construction and destruction of the watchdog.
+  // Because it's possible that a single HalClient instance is shared among
+  // multiple threads of the same client, we must make sure the watchdog task is
+  // only created once.
+  std::mutex mWatchdogCreationMutex;
+  // The watchdog task handler.
+  std::thread GUARDED_BY(mWatchdogCreationMutex) mWatchdogTask;
+
+  // The mutex guarding the variables below.
+  std::mutex mWatchdogMutex;
+  // Wait on this cv until a callback comes in or the watchdog needs to stop.
+  std::condition_variable mWatchdogCv;
+  // A true value indicates that the watchdog task should be stopped.
+  bool mStopWatchdog GUARDED_BY(mWatchdogMutex) = false;
+  // Timestamp recorded by the last callback, where 0 indicates no callback is
+  // currently being called.
+  int64_t mCallbackTimestamp GUARDED_BY(mWatchdogMutex) = 0;
+  // Name of the callback function triggering the watchdog.
+  const char *mCallbackFunctionName GUARDED_BY(mWatchdogMutex) = nullptr;
+  // Thread id of the callback.
+  uint64_t mCallbackThreadId GUARDED_BY(mWatchdogMutex) = 0;
 
   // Multi-contextHub is not supported at this moment.
   int32_t mContextHubId;

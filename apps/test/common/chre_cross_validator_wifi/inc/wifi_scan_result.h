@@ -79,12 +79,23 @@ class WifiScanResult {
     return mSsid;
   }
 
+  uint8_t getVenueGroup() const {
+    return mVenueGroup;
+  }
+
+  uint8_t getVenueType() const {
+    return mVenueType;
+  }
+
+
  private:
   char mSsid[CHRE_WIFI_SSID_MAX_LEN];
   uint8_t mBssid[CHRE_WIFI_BSSID_LEN];
 
   uint8_t mTotalNumResults = 0;
   uint8_t mResultIndex = 0;
+  uint8_t mVenueGroup = 0;
+  uint8_t mVenueType = 0;
 
   //! If true then, a scan result with this bssid has been seen before in the
   //! other set of scan results.

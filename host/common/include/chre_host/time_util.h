@@ -60,4 +60,11 @@ std::string realtimeNsToWallclockTime(
         std::chrono::system_clock::now(),
     uint64_t nowRealtime = elapsedRealtimeNano());
 
+/**
+ * Format nanoseconds with spaces for readability.
+ *
+ * @param nanos CHRE Timestamp in ns.
+ */
+std::string formatNanos(uint64_t nanos);
+
 }  // namespace android::chre

@@ -132,8 +132,13 @@ void PlatformNanoapp::logStateToBuffer(DebugDumpWrapper &debugDump) const {
     enableDramAccessIfRequired();
     size_t versionLen = 0;
     const char *version = getAppVersionString(&versionLen);
-    debugDump.print("%s (%s) @ build: %.*s", mAppInfo->name, mAppInfo->vendor,
-                    static_cast<int>(versionLen), version);
+    int8_t prio = (mAppInfo->structMinorVersion >=
+                   CHRE_NSL_NANOAPP_INFO_STRUCT_MINOR_VERSION_4)
+                      ? mAppInfo->requestedThreadPriority
+                      : NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL;
+    debugDump.print("%s (%s) @ build: %.*s prio=%" PRId8, mAppInfo->name,
+                    mAppInfo->vendor, static_cast<int>(versionLen), version,
+                    prio);
   }
 }
 
@@ -277,10 +282,6 @@ bool PlatformNanoappBase::verifyNanoappInfo() {
                mAppInfo->name, mAppInfo->appId, mAppInfo->appVersion,
                mAppInfo->appVersionString, mAppInfo->isTcmNanoapp,
                mAppInfo->isSystemNanoapp);
-          if (mAppInfo->structMinorVersion >=
-              CHRE_NSL_NANOAPP_INFO_STRUCT_MINOR_VERSION_3) {
-            LOGI("Nanoapp permissions: 0x%" PRIx32, mAppInfo->appPermissions);
-          }
         }
       }
     }

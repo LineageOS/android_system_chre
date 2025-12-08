@@ -406,7 +406,7 @@ class HostMessageHubManager : public NonCopyable {
    */
   void clearHubsLocked();
 
-  HostCallback *mCb;
+  HostCallback *mCb = nullptr;
   ChreAllocator mMsgAllocator;
 
   // Endpoint storage and allocator.

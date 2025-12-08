@@ -58,6 +58,7 @@ filegroup {
     srcs: [
         "app.c",
         "clients.c",
+        "common/event_log.c",
         "platform/linux/memory.c",
         "platform/linux/notifier.c",
         "platform/pal_api.c",
@@ -125,6 +126,7 @@ filegroup {
         "clients/timesync.c",
         "clients/wifi.c",
         "clients/wwan.c",
+        "common/event_log.c",
         "common/gnss_convert.c",
         "common/wifi_convert.c",
         "common/wifi_utils.c",
@@ -184,6 +186,7 @@ filegroup {
         "test/app_test.cpp",
         "test/app_test_base.cpp",
         "test/app_timeout_test.cpp",
+        "test/event_log_test.cpp",
         "test/gnss_test.cpp",
         "test/transport_test.cpp",
     ],

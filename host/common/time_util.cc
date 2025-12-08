@@ -20,6 +20,8 @@
 #include <cinttypes>
 #include <cstdio>
 #include <ctime>
+#include <iomanip>
+#include <iostream>
 #include <string>
 
 namespace android::chre {
@@ -50,6 +52,29 @@ std::string realtimeNsToWallclockTime(
       std::chrono::nanoseconds{nowRealtime - realtime});
   auto hostTime = now - diff;
   return getWallclockTime(hostTime);
+}
+
+// Constants for time conversion
+const uint64_t NANOS_IN_SECOND = 1'000'000'000;
+const uint64_t NANOS_IN_MILLI = 1'000'000;
+const uint64_t NANOS_IN_MICRO = 1'000;
+
+std::string formatNanos(uint64_t nanos) {
+  std::stringstream ss;
+
+  // Calculate each component
+  uint64_t seconds = nanos / NANOS_IN_SECOND;
+  uint64_t remaining_nanos = nanos % NANOS_IN_SECOND;
+  uint64_t milliseconds = remaining_nanos / NANOS_IN_MILLI;
+  uint64_t microseconds = (remaining_nanos % NANOS_IN_MILLI) / NANOS_IN_MICRO;
+  uint64_t nanoseconds_part = remaining_nanos % NANOS_IN_MICRO;
+
+  // Stream the parts with proper formatting
+  ss << seconds << '.' << std::setw(3) << std::setfill('0') << milliseconds
+     << ' ' << std::setw(3) << std::setfill('0') << microseconds << ' '
+     << std::setw(3) << std::setfill('0') << nanoseconds_part;
+
+  return ss.str();
 }
 
 }  // namespace android::chre

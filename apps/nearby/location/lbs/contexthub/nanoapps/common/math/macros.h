@@ -22,7 +22,7 @@
 #define LOCATION_LBS_CONTEXTHUB_NANOAPPS_COMMON_MATH_MACROS_H_
 
 // Constants.
-#define NANO_PI (3.14159265359f)
+#define NANO_PI                     (3.14159265359f)
 #define INVALID_TEMPERATURE_CELSIUS (-274.0f)
 
 // Common math operations.
@@ -42,10 +42,10 @@
 #define MSEC_TO_NANOS(x) ((uint64_t)((x) * UINT64_C(1000000)))  // NOLINT
 #endif
 
-#define SEC_TO_NANOS(x) MSEC_TO_NANOS((x) * UINT64_C(1000))
-#define MIN_TO_NANOS(x) SEC_TO_NANOS((x) * UINT64_C(60))
-#define HRS_TO_NANOS(x) MIN_TO_NANOS((x) * UINT64_C(60))
-#define DAYS_TO_NANOS(x) HRS_TO_NANOS((x) * UINT64_C(24))
+#define SEC_TO_NANOS(x)  MSEC_TO_NANOS((x) * UINT64_C(1000))
+#define MIN_TO_NANOS(x)  SEC_TO_NANOS ((x) * UINT64_C(60))
+#define HRS_TO_NANOS(x)  MIN_TO_NANOS ((x) * UINT64_C(60))
+#define DAYS_TO_NANOS(x) HRS_TO_NANOS ((x) * UINT64_C(24))
 
 // Sample rate to period conversion.
 #ifdef __cplusplus
@@ -83,7 +83,7 @@ extern "C" {
 // [android]//device/google/contexthub/firmware/os/core/floatRt.c
 static inline float floatFromUint64(uint64_t v) {
   uint32_t hi = v >> 32;
-  uint32_t lo = (uint32_t)v;
+  uint32_t lo = (uint32_t) v;
 
   if (!hi) {  // This is very fast for cases where 'v' fits into a uint32_t.
     return (float)lo;

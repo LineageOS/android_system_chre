@@ -27,10 +27,10 @@ constexpr nearby_extension_TrackerReport kEmptyTrackerReport =
     nearby_extension_TrackerReport_init_zero;
 
 void TrackerFilter::Update(
-    const chreHostEndpointInfo &host_info,
-    const nearby_extension_ExtConfigRequest_TrackerFilterConfig &filter_config,
-    chre::DynamicVector<chreBleGenericFilter> *generic_filters,
-    nearby_extension_ExtConfigResponse *config_response) {
+    const chreHostEndpointInfo& host_info,
+    const nearby_extension_ExtConfigRequest_TrackerFilterConfig& filter_config,
+    chre::DynamicVector<chreBleGenericFilter>* generic_filters,
+    nearby_extension_ExtConfigResponse* config_response) {
   host_info_ = host_info;
   LOGD("Update tracker filters %u from %s", filter_config.hardware_filter_count,
        host_info_.packageName);
@@ -40,7 +40,7 @@ void TrackerFilter::Update(
   // generic_filters used in ble scanner's scan settings.
   chre::DynamicVector<chreBleGenericFilter> hardware_filters;
   for (int i = 0; i < filter_config.hardware_filter_count; i++) {
-    const nearby_extension_ChreBleGenericFilter &hw_filter =
+    const nearby_extension_ChreBleGenericFilter& hw_filter =
         filter_config.hardware_filter[i];
     chreBleGenericFilter generic_filter;
     generic_filter.type = hw_filter.type;
@@ -106,9 +106,9 @@ void TrackerFilter::ConfigureScanControlTimers() {
 }
 
 void TrackerFilter::MatchAndSave(
-    const chre::DynamicVector<chreBleAdvertisingReport> &ble_adv_reports,
-    TrackerStorage &tracker_storage) {
-  for (const auto &report : ble_adv_reports) {
+    const chre::DynamicVector<chreBleAdvertisingReport>& ble_adv_reports,
+    TrackerStorage& tracker_storage) {
+  for (const auto& report : ble_adv_reports) {
     if (HwFilter::CheckRssi(scan_filter_config_.rssi_threshold, report) &&
         HwFilter::Match(scan_filter_config_.hardware_filters, report)) {
       tracker_storage.Push(report, batch_config_);
@@ -116,12 +116,12 @@ void TrackerFilter::MatchAndSave(
   }
 }
 
-bool TrackerFilter::EncodeTrackerReport(TrackerReport &tracker_report,
+bool TrackerFilter::EncodeTrackerReport(TrackerReport& tracker_report,
                                         ByteArray data_buf,
-                                        size_t *encoded_size) {
+                                        size_t* encoded_size) {
   nearby_extension_TrackerReport filter_result = kEmptyTrackerReport;
   filter_result.has_report = true;
-  nearby_extension_ChreBleAdvertisingReport &report_proto =
+  nearby_extension_ChreBleAdvertisingReport& report_proto =
       filter_result.report;
   report_proto.has_timestamp = true;
   report_proto.timestamp =
@@ -151,8 +151,8 @@ bool TrackerFilter::EncodeTrackerReport(TrackerReport &tracker_report,
     report_proto.data[i] = tracker_report.data[i];
   }
   size_t idx = 0;
-  for (const auto &history : tracker_report.historian) {
-    nearby_extension_TrackerHistory &history_proto =
+  for (const auto& history : tracker_report.historian) {
+    nearby_extension_TrackerHistory& history_proto =
         filter_result.historian[idx];
     history_proto.has_found_count = true;
     history_proto.found_count = history.found_count;

@@ -120,9 +120,12 @@ void nanoappHandleEvent(uint32_t senderInstanceId, uint16_t eventType,
     case CHRE_EVENT_GNSS_DATA:
       LOGD("GNSS measurement received");
       break;
-    case CHRE_EVENT_WWAN_CELL_INFO_RESULT:
-      LOGD("Cell info received");
+    case CHRE_EVENT_WWAN_CELL_INFO_RESULT: {
+      const auto *event =
+          static_cast<const chreWwanCellInfoResult *>(eventData);
+      LOGD("Cell info received with %" PRIu8 " results", event->cellInfoCount);
       break;
+    }
     case CHRE_EVENT_SENSOR_SAMPLING_CHANGE: {
       const struct chreSensorSamplingStatusEvent *event =
           static_cast<const struct chreSensorSamplingStatusEvent *>(eventData);

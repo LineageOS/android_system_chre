@@ -296,8 +296,8 @@ class WifiRequestManager : public NonCopyable {
   struct PendingRequestBase {
     uint16_t nanoappInstanceId;  //!< ID of the Nanoapp issuing this request
     // TODO(b/415309376): Set dispatched=true for all pending request types
-    bool dispatched = false;     //!< true if the request was sent to the PAL
-    const void *cookie;          //!< User data supplied by the nanoapp
+    bool dispatched = false;  //!< true if the request was sent to the PAL
+    const void *cookie;       //!< User data supplied by the nanoapp
 
     PendingRequestBase() = default;
     PendingRequestBase(uint16_t nanoappInstanceId_, const void *cookie_)
@@ -389,6 +389,7 @@ class WifiRequestManager : public NonCopyable {
         uint8_t resultTotal;
         uint8_t eventIndex;
         uint8_t scanType;
+        int32_t scanAgeMs;
       } scanEvent;
 
       struct {
@@ -474,11 +475,11 @@ class WifiRequestManager : public NonCopyable {
   ArrayQueue<DebugLogEntry, 32> mDebugLogs;
 
   //! Manages the timer when a ranging request is dispatched to the PAL.
-  TimerHandle mRequestRangingTimeoutHandle;
+  TimerHandle mRequestRangingTimeoutHandle = CHRE_TIMER_INVALID;
 
   //! Manages the timer that starts when a configure scan monitor request is
   //! dispatched to the PAL.
-  TimerHandle mConfigureScanMonitorTimeoutHandle;
+  TimerHandle mConfigureScanMonitorTimeoutHandle = CHRE_TIMER_INVALID;
 
   //! Manages the timer that starts when a configure scan request is dispatched
   //! to the PAL.

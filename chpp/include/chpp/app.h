@@ -461,9 +461,9 @@ struct ChppOutgoingRequestState {
  * as the number of commands supported by the other side (corresponding service
  * for a client and corresponding client for a service).
  *
- * Contrary to ChppOutgoingRequestState those are not part of
- * CChppEndpointState. They must be stored to and retrieved from the context
- * passed to chppRegisterClient / chppRegisterService.
+ * Contrary to ChppOutgoingRequestState those are not part of ChppEndpointState.
+ * They must be stored to and retrieved from the context passed to
+ * chppRegisterClient / chppRegisterService.
  *
  * Note: while ChppIncomingRequestState and ChppOutgoingRequestState have the
  * same layout, we want the types to be distinct to be enforced at compile time.

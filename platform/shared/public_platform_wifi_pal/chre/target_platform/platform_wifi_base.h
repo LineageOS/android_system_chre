@@ -33,7 +33,7 @@ class PlatformWifiBase : public PlatformPal {
 
   //! The instance of the CHRE PAL API. This will be set to nullptr if the
   //! platform does not supply an implementation.
-  const chrePalWifiApi *mWifiApi;
+  const chrePalWifiApi *mWifiApi = nullptr;
 
   // Event handlers for the CHRE WiFi PAL. Refer to chre/pal/wifi.h for futher
   // information.

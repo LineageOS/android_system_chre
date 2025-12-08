@@ -29,24 +29,27 @@
 
 namespace chre {
 
-template <typename ObjectOrArrayType>
-UniquePtr<ObjectOrArrayType>::UniquePtr() : mObject(nullptr) {}
+template <typename ObjectOrArrayType, typename AllocatorProviderT>
+UniquePtr<ObjectOrArrayType, AllocatorProviderT>::UniquePtr()
+    : mObject(nullptr) {}
 
-template <typename ObjectOrArrayType>
-UniquePtr<ObjectOrArrayType>::UniquePtr(
-    typename UniquePtr<ObjectOrArrayType>::ObjectType *object)
+template <typename ObjectOrArrayType, typename AllocatorProviderT>
+UniquePtr<ObjectOrArrayType, AllocatorProviderT>::UniquePtr(
+    typename UniquePtr<ObjectOrArrayType, AllocatorProviderT>::ObjectType
+        *object)
     : mObject(object) {}
 
-template <typename ObjectOrArrayType>
-UniquePtr<ObjectOrArrayType>::UniquePtr(UniquePtr<ObjectOrArrayType> &&other) {
+template <typename ObjectOrArrayType, typename AllocatorProviderT>
+UniquePtr<ObjectOrArrayType, AllocatorProviderT>::UniquePtr(
+    UniquePtr<ObjectOrArrayType, AllocatorProviderT> &&other) {
   mObject = other.mObject;
   other.mObject = nullptr;
 }
 
-template <typename ObjectOrArrayType>
+template <typename ObjectOrArrayType, typename AllocatorProviderT>
 template <typename OtherObjectOrArrayType>
-UniquePtr<ObjectOrArrayType>::UniquePtr(
-    UniquePtr<OtherObjectOrArrayType> &&other) {
+UniquePtr<ObjectOrArrayType, AllocatorProviderT>::UniquePtr(
+    UniquePtr<OtherObjectOrArrayType, AllocatorProviderT> &&other) {
   static_assert(std::is_array_v<ObjectOrArrayType> ==
                     std::is_array_v<OtherObjectOrArrayType>,
                 "UniquePtr conversion not supported across array and non-array "
@@ -55,118 +58,156 @@ UniquePtr<ObjectOrArrayType>::UniquePtr(
   other.mObject = nullptr;
 }
 
-template <typename ObjectOrArrayType>
-UniquePtr<ObjectOrArrayType>::~UniquePtr() {
+template <typename ObjectOrArrayType, typename AllocatorProviderT>
+UniquePtr<ObjectOrArrayType, AllocatorProviderT>::~UniquePtr() {
   reset();
 }
 
-template <typename ObjectOrArrayType>
-bool UniquePtr<ObjectOrArrayType>::isNull() const {
+template <typename ObjectOrArrayType, typename AllocatorProviderT>
+template <typename... Args>
+void UniquePtr<ObjectOrArrayType, AllocatorProviderT>::emplace(Args &&...args) {
+  reset();
+  mObject = static_cast<ObjectOrArrayType *>(
+      AllocatorProviderT::template allocate<ObjectType>());
+  if (mObject != nullptr) {
+    new (mObject) ObjectType(std::forward<Args>(args)...);
+  }
+}
+
+template <typename ObjectOrArrayType, typename AllocatorProviderT>
+void UniquePtr<ObjectOrArrayType, AllocatorProviderT>::makeArray(size_t count) {
+  static_assert(util::internal::is_unbounded_array_v<ObjectOrArrayType>,
+                "Creating an UniquePtr for an array is only supported for "
+                "unbounded array types, e.g. int[]");
+
+  reset();
+  mObject = static_cast<ObjectType *>(
+      AllocatorProviderT::template allocateArray<ObjectType>(count));
+  if (mObject != nullptr) {
+    // Note that we check in the definition of UniquePtr that if the type is an
+    // array, it is trivially destructible.
+    new (mObject) ObjectType[count];
+  }
+}
+
+template <typename ObjectOrArrayType, typename AllocatorProviderT>
+void UniquePtr<ObjectOrArrayType, AllocatorProviderT>::makeZeroFill() {
+  static_assert(std::is_trivial<ObjectType>::value,
+                "UniquePtr::makeZeroFill is only supported for trivial types");
+  reset();
+  mObject = static_cast<ObjectType *>(
+      AllocatorProviderT::template allocate<ObjectType>());
+  if (mObject != nullptr) {
+    memset(mObject, 0, sizeof(ObjectType));
+  }
+}
+
+template <typename ObjectOrArrayType, typename AllocatorProviderT>
+bool UniquePtr<ObjectOrArrayType, AllocatorProviderT>::isNull() const {
   return (mObject == nullptr);
 }
 
-template <typename ObjectOrArrayType>
-typename UniquePtr<ObjectOrArrayType>::ObjectType *
-UniquePtr<ObjectOrArrayType>::get() const {
+template <typename ObjectOrArrayType, typename AllocatorProviderT>
+typename UniquePtr<ObjectOrArrayType, AllocatorProviderT>::ObjectType *
+UniquePtr<ObjectOrArrayType, AllocatorProviderT>::get() const {
   return mObject;
 }
 
-template <typename ObjectOrArrayType>
-typename UniquePtr<ObjectOrArrayType>::ObjectType *
-UniquePtr<ObjectOrArrayType>::release() {
+template <typename ObjectOrArrayType, typename AllocatorProviderT>
+typename UniquePtr<ObjectOrArrayType, AllocatorProviderT>::ObjectType *
+UniquePtr<ObjectOrArrayType, AllocatorProviderT>::release() {
   ObjectType *obj = mObject;
   mObject = nullptr;
   return obj;
 }
 
-template <typename ObjectOrArrayType>
-void UniquePtr<ObjectOrArrayType>::reset(ObjectType *object) {
+template <typename ObjectOrArrayType, typename AllocatorProviderT>
+void UniquePtr<ObjectOrArrayType, AllocatorProviderT>::reset(
+    ObjectType *object) {
   CHRE_ASSERT(object == nullptr || mObject != object);
 
   reset();
   mObject = object;
 }
 
-template <typename ObjectOrArrayType>
-void UniquePtr<ObjectOrArrayType>::reset() {
+template <typename ObjectOrArrayType, typename AllocatorProviderT>
+void UniquePtr<ObjectOrArrayType, AllocatorProviderT>::reset() {
   if (mObject != nullptr) {
     if constexpr (!std::is_trivially_destructible_v<ObjectType>) {
       mObject->~ObjectType();
     }
-    memoryFree(mObject);
+    AllocatorProviderT::deallocate(mObject);
     mObject = nullptr;
   }
 }
 
-template <typename ObjectOrArrayType>
-typename UniquePtr<ObjectOrArrayType>::ObjectType *
-UniquePtr<ObjectOrArrayType>::operator->() const {
+template <typename ObjectOrArrayType, typename AllocatorProviderT>
+typename UniquePtr<ObjectOrArrayType, AllocatorProviderT>::ObjectType *
+UniquePtr<ObjectOrArrayType, AllocatorProviderT>::operator->() const {
   static_assert(!std::is_array_v<ObjectOrArrayType>,
                 "UniquePtr<T>::operator-> is not supported for array types");
   return get();
 }
 
-template <typename ObjectOrArrayType>
-typename UniquePtr<ObjectOrArrayType>::ObjectType &
-UniquePtr<ObjectOrArrayType>::operator*() const {
+template <typename ObjectOrArrayType, typename AllocatorProviderT>
+typename UniquePtr<ObjectOrArrayType, AllocatorProviderT>::ObjectType &
+UniquePtr<ObjectOrArrayType, AllocatorProviderT>::operator*() const {
   static_assert(!std::is_array_v<ObjectOrArrayType>,
                 "UniquePtr<T>::operator* is not supported for array types");
   return *get();
 }
 
-template <typename ObjectOrArrayType>
-typename UniquePtr<ObjectOrArrayType>::ObjectType &
-UniquePtr<ObjectOrArrayType>::operator[](size_t index) const {
+template <typename ObjectOrArrayType, typename AllocatorProviderT>
+typename UniquePtr<ObjectOrArrayType, AllocatorProviderT>::ObjectType &
+UniquePtr<ObjectOrArrayType, AllocatorProviderT>::operator[](
+    size_t index) const {
   static_assert(std::is_array_v<ObjectOrArrayType>,
                 "UniquePtr<T>::operator[] is only allowed when T is an array");
   return get()[index];
 }
 
-template <typename ObjectOrArrayType>
-bool UniquePtr<ObjectOrArrayType>::operator==(
-    const UniquePtr<ObjectOrArrayType> &other) const {
+template <typename ObjectOrArrayType, typename AllocatorProviderT>
+bool UniquePtr<ObjectOrArrayType, AllocatorProviderT>::operator==(
+    const UniquePtr<ObjectOrArrayType, AllocatorProviderT> &other) const {
   return mObject == other.get();
 }
 
-template <typename ObjectOrArrayType>
-bool UniquePtr<ObjectOrArrayType>::operator!=(
-    const UniquePtr<ObjectOrArrayType> &other) const {
+template <typename ObjectOrArrayType, typename AllocatorProviderT>
+bool UniquePtr<ObjectOrArrayType, AllocatorProviderT>::operator!=(
+    const UniquePtr<ObjectOrArrayType, AllocatorProviderT> &other) const {
   return !(*this == other);
 }
 
-template <typename ObjectOrArrayType>
-UniquePtr<ObjectOrArrayType> &UniquePtr<ObjectOrArrayType>::operator=(
-    UniquePtr<ObjectOrArrayType> &&other) {
+template <typename ObjectOrArrayType, typename AllocatorProviderT>
+UniquePtr<ObjectOrArrayType, AllocatorProviderT> &
+UniquePtr<ObjectOrArrayType, AllocatorProviderT>::operator=(
+    UniquePtr<ObjectOrArrayType, AllocatorProviderT> &&other) {
   reset();
   mObject = other.mObject;
   other.mObject = nullptr;
   return *this;
 }
 
-template <typename ObjectType, typename... Args>
-inline UniquePtr<ObjectType> MakeUnique(Args &&... args) {
-  return UniquePtr<ObjectType>(
-      memoryAlloc<ObjectType>(std::forward<Args>(args)...));
+template <typename ObjectType, typename AllocatorProviderT, typename... Args>
+inline UniquePtr<ObjectType, AllocatorProviderT> MakeUnique(Args &&...args) {
+  UniquePtr<ObjectType, AllocatorProviderT> ptr;
+  ptr.emplace(std::forward<Args>(args)...);
+  return ptr;
 }
 
-template <typename ObjectArrayType>
-UniquePtr<ObjectArrayType> MakeUniqueArray(size_t count) {
-  return UniquePtr<ObjectArrayType>(memoryAllocArray<ObjectArrayType>(count));
+template <typename ObjectArrayType, typename AllocatorProviderT>
+UniquePtr<ObjectArrayType, AllocatorProviderT> MakeUniqueArray(size_t count) {
+  UniquePtr<ObjectArrayType, AllocatorProviderT> ptr;
+  ptr.makeArray(count);
+  return ptr;
 }
 
-template <typename ObjectType>
-inline UniquePtr<ObjectType> MakeUniqueZeroFill() {
-  // For simplicity, we call memset *after* memoryAlloc<ObjectType>() - this is
-  // only valid for types that have a trivial constructor. This utility function
-  // is really meant to be used with trivial types only - if there's a desire to
-  // zero things out in a non-trivial type, the right place for that is in its
-  // constructor.
+template <typename ObjectType, typename AllocatorProviderT>
+inline UniquePtr<ObjectType, AllocatorProviderT> MakeUniqueZeroFill() {
   static_assert(std::is_trivial<ObjectType>::value,
                 "MakeUniqueZeroFill is only supported for trivial types");
-  auto ptr = UniquePtr<ObjectType>(memoryAlloc<ObjectType>());
-  if (!ptr.isNull()) {
-    memset(ptr.get(), 0, sizeof(ObjectType));
-  }
+  UniquePtr<ObjectType, AllocatorProviderT> ptr;
+  ptr.makeZeroFill();
   return ptr;
 }
 

@@ -41,11 +41,16 @@ extern "C" {
 
 //! The minor version in the nanoapp info structure to determine which fields
 //! are available to support backwards compatibility.
-#define CHRE_NSL_NANOAPP_INFO_STRUCT_MINOR_VERSION UINT8_C(3)
+#define CHRE_NSL_NANOAPP_INFO_STRUCT_MINOR_VERSION UINT8_C(4)
 
 //! Explicit definition of nanoapp info structure minor version three (3),
 //! can be used to determine if a nanoapp supports app permissions declaration
 #define CHRE_NSL_NANOAPP_INFO_STRUCT_MINOR_VERSION_3 UINT8_C(3)
+
+//! Explicit definition of nanoapp info structure minor version four (4),
+//! can be used to determine if a nanoapp supports requested thread priority and
+//! if CHRE API version is larger than nanoapp required minimum API version.
+#define CHRE_NSL_NANOAPP_INFO_STRUCT_MINOR_VERSION_4 UINT8_C(4)
 
 //! The symbol name expected from the nanoapp's definition of its info struct
 #define CHRE_NSL_DSO_NANOAPP_INFO_SYMBOL_NAME "_chreNslDsoNanoappInfo"
@@ -132,6 +137,18 @@ struct chreNslNanoappInfo {
   //!
   //! @since minor version 3
   uint32_t appPermissions;
+
+  //! @see NANOAPP_MIN_CHRE_API_VERSION
+  //!
+  //! @since minor version 4
+  uint32_t minChreApiVersion;
+
+  //! The requested priority to run the nanoapp. Note that this is best-effort
+  //! and the system may choose the appropriate thread priority for the nanoapp.
+  //! The value should be one of NANOAPP_REQUESTED_THREAD_PRIORITY_*.
+  //!
+  //! @since minor version 4
+  int8_t requestedThreadPriority;
 };
 
 /**

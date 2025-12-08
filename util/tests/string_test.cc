@@ -116,7 +116,6 @@ TEST(String, NormalCopyGreaterThanSourceLength) {
 
 TEST(String, NormalCopyLessThanSourceLength) {
   const char *source = "hello world";
-  constexpr size_t sourceLength = 11;
   constexpr size_t destinationLength = 5;
   char destination[destinationLength];
   char fillValue = 123;

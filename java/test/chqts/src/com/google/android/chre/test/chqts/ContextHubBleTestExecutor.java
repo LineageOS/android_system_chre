@@ -16,10 +16,20 @@
 
 package com.google.android.chre.test.chqts;
 
+import static android.bluetooth.BluetoothDevice.TRANSPORT_LE;
+
 import static com.google.common.truth.Truth.assertThat;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
+
 import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothGatt;
+import android.bluetooth.BluetoothGattCallback;
+import android.bluetooth.BluetoothGattServer;
+import android.bluetooth.BluetoothGattServerCallback;
 import android.bluetooth.BluetoothManager;
+import android.bluetooth.BluetoothProfile;
 import android.bluetooth.le.AdvertiseData;
 import android.bluetooth.le.AdvertisingSet;
 import android.bluetooth.le.AdvertisingSetCallback;
@@ -31,9 +41,12 @@ import android.bluetooth.le.ScanFilter;
 import android.bluetooth.le.ScanRecord;
 import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
+import android.content.Context;
 import android.hardware.location.NanoAppBinary;
 import android.os.ParcelUuid;
 import android.util.Log;
+
+import androidx.test.core.app.ApplicationProvider;
 
 import com.google.android.utils.chre.ChreApiTestUtil;
 import com.google.common.collect.ImmutableList;
@@ -105,20 +118,35 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
     public static final int CHRE_EVENT_BLE_ADVERTISEMENT = 0x0350 + 1;
 
     /**
-     * CHRE BLE capabilities and filter capabilities.
-     */
-    public static final int CHRE_BLE_CAPABILITIES_SCAN = 1 << 0;
-    public static final int CHRE_BLE_FILTER_CAPABILITIES_SERVICE_DATA = 1 << 7;
-
-    /**
      * CHRE BLE test manufacturer ID.
      */
     public static final int CHRE_BLE_TEST_MANUFACTURER_ID = 0xEEEE;
 
+    /**
+     * For requesting RSSI read from CHRE
+     */
+    public static final int CHRE_MESSAGE_READ_RSSI = 0x16;
+
+    /**
+     * Call back timeout.
+     */
+    private static final int CALLBACK_TIMEOUT_SEC = 5;
+
+    /**
+     * RSSI value indicating no RSSI value available.
+     */
+    private static final int CHRE_BLE_RSSI_NONE = 127;
 
     private BluetoothAdapter mBluetoothAdapter = null;
     private BluetoothLeAdvertiser mBluetoothLeAdvertiser = null;
     private BluetoothLeScanner mBluetoothLeScanner = null;
+    private BluetoothManager mBluetoothManager;
+    private BluetoothGattServer mBluetoothGattServer;
+    private BluetoothDevice mServer;
+    private BluetoothGatt mBluetoothGatt;
+    private Context mContextGatt;
+    private CountDownLatch mConnectionBlocker = null;
+    private Integer mWaitForConnectionState = null;
 
     /**
      * The signal for advertising start.
@@ -156,8 +184,8 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
 
         @Override
         public void onScanResult(int callbackType, ScanResult result) {
-            if (result == null) {
-                Log.w(TAG, "Received null scan result.");
+            if (result == null || result.getDevice() == null) {
+                Log.w(TAG, "ScanResult or device was null");
                 return;
             }
             synchronized (mScanResults) {
@@ -202,10 +230,162 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
         BluetoothManager bluetoothManager = mContext.getSystemService(BluetoothManager.class);
         assertThat(bluetoothManager).isNotNull();
         mBluetoothAdapter = bluetoothManager.getAdapter();
+        mContextGatt = ApplicationProvider.getApplicationContext();
         if (mBluetoothAdapter != null) {
             mBluetoothLeAdvertiser = mBluetoothAdapter.getBluetoothLeAdvertiser();
             mBluetoothLeScanner = mBluetoothAdapter.getBluetoothLeScanner();
         }
+    }
+
+    /**
+     * Creates a new GATT server and registers a primary service with the give UUID.
+     */
+    public BluetoothGattServer createGattServer(String expectedMacAddress) {
+        if (mContextGatt == null) {
+            Log.e(TAG, "Context is null.");
+            return null;
+        }
+        mBluetoothManager =
+                    mContextGatt.getSystemService(BluetoothManager.class);
+        if (mBluetoothManager == null) {
+            Log.e(TAG, "BluetoothManager is null");
+            return null;
+        }
+
+        mBluetoothGattServer =  mBluetoothManager.openGattServer(
+                        mContextGatt, new BluetoothGattServerCallback() {});
+
+        return mBluetoothGattServer;
+    }
+
+    /**
+     * Retrieves the list of currently connected GATT client devices.
+     */
+    public List<BluetoothDevice> getConnectedDevices() {
+        return mBluetoothManager.getConnectedDevices(BluetoothProfile.GATT_SERVER);
+    }
+
+    /**
+     * Callback for Gatt client connection events.
+     */
+    private final BluetoothGattCallback mGattCallback =
+            new BluetoothGattCallback() {
+                @Override
+                public void onConnectionStateChange(BluetoothGatt device,
+                        int status, int newState) {
+
+                        if (newState == mWaitForConnectionState && mConnectionBlocker != null) {
+                            Log.v(TAG, "Connected");
+                            mConnectionBlocker.countDown();
+                        }
+                    }
+            };
+
+    /**
+     * Connects to a BLE server with a know MAC address, initates a GATT connection,
+     * and reads the remote RSSI value after connection is established.
+     */
+    public BluetoothDevice connect(String expectedMacAddress) {
+        var serverFoundBlocker = new CountDownLatch(1);
+        var scanner = mBluetoothAdapter.getBluetoothLeScanner();
+        var callback = new ScanCallback() {
+                    @Override
+                    public void onScanResult(int callbackType, ScanResult result) {
+                        var deviceAddress = result.getDevice().getAddress();
+                        if (deviceAddress != null
+                                && deviceAddress.equalsIgnoreCase(expectedMacAddress)) {
+                            mServer = result.getDevice();
+                            serverFoundBlocker.countDown();
+                        }
+                    }
+                };
+        scanner.startScan(null,
+             new ScanSettings.Builder()
+                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .setLegacy(false)
+                .build(), callback);
+        boolean timeout = false;
+        try {
+            timeout = !serverFoundBlocker.await(CALLBACK_TIMEOUT_SEC, SECONDS);
+        } catch (InterruptedException e) {
+            Log.e(TAG, "", e);
+            timeout = true;
+        }
+        scanner.stopScan(callback);
+        if (timeout) {
+            Log.e(TAG, "Did not discover server");
+            return null;
+        }
+        mConnectionBlocker = new CountDownLatch(1);
+        mWaitForConnectionState = BluetoothProfile.STATE_CONNECTED;
+        mBluetoothGatt = mServer.connectGatt(mContextGatt, false, mGattCallback, TRANSPORT_LE);
+        timeout = false;
+        try {
+            timeout = !mConnectionBlocker.await(CALLBACK_TIMEOUT_SEC, SECONDS);
+        } catch (InterruptedException e) {
+            Log.e(TAG, "", e);
+            timeout = true;
+        }
+        if (timeout) {
+            Log.e(TAG, "Did not connect to server");
+            return null;
+        }
+
+        return mServer;
+    }
+
+    /**
+     * Disconnects from the GATT server.
+     */
+    public boolean disconnect(String expectedMacAddress) {
+        if (mServer == null || !mServer.getAddress().equalsIgnoreCase(expectedMacAddress)) {
+            Log.e(TAG, "Connected server does not match expected MAC address: "
+                        + expectedMacAddress);
+            return false;
+        }
+
+        mConnectionBlocker = new CountDownLatch(1);
+        mWaitForConnectionState = BluetoothProfile.STATE_DISCONNECTED;
+        mBluetoothGatt.disconnect();
+
+        boolean timeout = false;
+        try {
+            timeout = !mConnectionBlocker.await(CALLBACK_TIMEOUT_SEC, SECONDS);
+        } catch (InterruptedException e) {
+            Log.e(TAG, "", e);
+            timeout = true;
+        }
+        if (timeout) {
+            Log.e(TAG, "Did not disconnect from server");
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Sends a read RSSI request to CHRE
+     */
+    public boolean sendReadRssiMessageToChre(int connectionHandle) throws Exception {
+        if (connectionHandle <= 0) {
+            Log.e(TAG, "Invalid connection handle");
+        }
+
+        ChreApiTest.ChreBleReadRssiRequest.Builder message =
+                ChreApiTest.ChreBleReadRssiRequest.newBuilder()
+                            .setConnectionHandle(connectionHandle);
+
+        ChreApiTestUtil util = new ChreApiTestUtil();
+        List<ChreApiTest.ChreBleReadRssiEvent> response =
+                util.callServerStreamingRpcMethodSync(getRpcClient(),
+                        "chre.rpc.ChreApiTestService.ChreBleReadRssiSync",
+                        message.build());
+        assertThat(response).isNotEmpty();
+        for (ChreApiTest.ChreBleReadRssiEvent status: response) {
+            assertThat(status.getStatus()).isTrue();
+            assertThat(status.getRssi()).isNotEqualTo(CHRE_BLE_RSSI_NONE);
+        }
+        return true;
     }
 
     /**
@@ -275,6 +455,36 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
         builder = builder.addScanFilters(manufacturerFilter);
 
         return builder.build();
+    }
+
+    /**
+     * Generates a Filter that only known Broadcaster Address
+     */
+    public static ChreApiTest.ChreBleScanFilter getBroadcasterAddressFilter(String macAddress) {
+        byte[] macBytes = parseMacStringToBytes(macAddress);
+
+        ChreApiTest.ChreBleBroadcasterAddressFilter broadcasterAddressFilter =
+                ChreApiTest.ChreBleBroadcasterAddressFilter.newBuilder()
+                        .setBroadcasterAddress(ByteString.copyFrom(macBytes))
+                        .build();
+
+        ChreApiTest.ChreBleScanFilter.Builder builder =
+                ChreApiTest.ChreBleScanFilter.newBuilder()
+                        .setRssiThreshold(RSSI_THRESHOLD)
+                        .addBroadcasterAddressFilters(broadcasterAddressFilter);
+        return builder.build();
+    }
+
+    /**
+     * Parses the Mac String to Bytes
+     */
+    public static byte[] parseMacStringToBytes(String mac) {
+        String[] parts = mac.split(":");
+        byte[] macBytes = new byte[parts.length];
+        for (int i = 0; i < parts.length; i++) {
+            macBytes[i] = (byte) Integer.parseInt(parts[i], 16);
+        }
+        return macBytes;
     }
 
     /**
@@ -357,6 +567,17 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
     }
 
     /**
+     * Generates a BLE scan filter that filters only for the known broadcaster MAC address
+     */
+    public List<ScanFilter> getBroadcastAddressFilterHost(String macAddress) {
+        ScanFilter scanFilter = new ScanFilter.Builder()
+                .setDeviceAddress(macAddress)
+                .build();
+
+        return ImmutableList.of(scanFilter);
+    }
+
+    /**
      * Starts a BLE scan and asserts it was started successfully in a synchronous manner.
      * This waits for the event to be received and returns the status in the event.
      *
@@ -367,7 +588,7 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
                 ChreApiTest.ChreBleStartScanAsyncInput.newBuilder()
                         .setMode(ChreApiTest.ChreBleScanMode.CHRE_BLE_SCAN_MODE_FOREGROUND)
                         .setReportDelayMs(REPORT_DELAY_MS)
-                        .setHasFilter(scanFilter != null);
+                        .setHasFilter(true);
         if (scanFilter != null) {
             inputBuilder.setFilter(scanFilter);
         }
@@ -402,7 +623,8 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
      * Returns true if the required BLE capabilities and filter capabilities exist, otherwise
      * returns false.
      */
-    public boolean doNecessaryBleCapabilitiesExist() throws Exception {
+    public boolean doNecessaryBleCapabilitiesExist(
+                int requiredCapabilities, int requiredFilterCapabilities)throws Exception {
         if (mBluetoothLeScanner == null) {
             return false;
         }
@@ -410,15 +632,23 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
         ChreApiTest.Capabilities capabilitiesResponse =
                 ChreApiTestUtil.callUnaryRpcMethodSync(getRpcClient(),
                         "chre.rpc.ChreApiTestService.ChreBleGetCapabilities");
+
         int capabilities = capabilitiesResponse.getCapabilities();
-        if ((capabilities & CHRE_BLE_CAPABILITIES_SCAN) != 0) {
+        Log.d(TAG, String.format("CHRE Capabilitites = 0x%08X, Required = 0x%08X",
+                                    capabilities, requiredCapabilities));
+        if ((capabilities & requiredCapabilities) != requiredCapabilities) {
+            return false;
+        }
+        if (requiredFilterCapabilities != 0) {
             ChreApiTest.Capabilities filterCapabilitiesResponse =
                     ChreApiTestUtil.callUnaryRpcMethodSync(getRpcClient(),
                             "chre.rpc.ChreApiTestService.ChreBleGetFilterCapabilities");
             int filterCapabilities = filterCapabilitiesResponse.getCapabilities();
-            return (filterCapabilities & CHRE_BLE_FILTER_CAPABILITIES_SERVICE_DATA) != 0;
+            Log.d(TAG, String.format("CHRE FilterCapabilitites = 0x%08X, Required = 0x%08X",
+                                        filterCapabilities, requiredFilterCapabilities));
+            return (filterCapabilities & requiredFilterCapabilities) == requiredFilterCapabilities;
         }
-        return false;
+        return true;
     }
 
     /**
@@ -508,6 +738,34 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
     }
 
     /**
+     * Starts broadcasting BLE advertising with no data
+     */
+    public void startBleAdvertisingWithNoData() throws InterruptedException {
+        if (mIsAdvertising.get()) {
+            return;
+        }
+
+        AdvertisingSetParameters parameters = new AdvertisingSetParameters.Builder()
+                .setLegacyMode(true)
+                .setConnectable(false)
+                .setInterval(AdvertisingSetParameters.INTERVAL_LOW)
+                .setTxPowerLevel(AdvertisingSetParameters.TX_POWER_MEDIUM)
+                .setOwnAddressType(AdvertisingSetParameters.ADDRESS_TYPE_PUBLIC)
+                .build();
+
+        AdvertiseData data = new AdvertiseData.Builder()
+                .setIncludeDeviceName(false)
+                .setIncludeTxPowerLevel(true)
+                .build();
+
+        mBluetoothLeAdvertiser.startAdvertisingSet(parameters, data,
+                 /* ownAddress= */ null, /* periodicParameters= */ null,
+                /* periodicData= */ null, mAdvertisingSetCallback);
+        mAdvertisingStartLatch.await();
+        assertThat(mIsAdvertising.get()).isTrue();
+    }
+
+    /**
      * Starts broadcasting the CHRE test manufacturer Data from the AP.
      */
     public void startBleAdvertisingManufacturer() throws InterruptedException {
@@ -556,5 +814,16 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
                 ((shortUuid & 0xFFFFL) << BIT_INDEX_OF_16_BIT_UUID)
                         | BASE_UUID.getMostSignificantBits(),
                         BASE_UUID.getLeastSignificantBits());
+    }
+
+    /**
+     * Gets the mac address for the device
+     */
+    public String getMacAddress() throws Exception {
+        if (mBluetoothAdapter == null) {
+            Log.e(TAG, "getMacAddress mBluetoothAdapter is equal to null");
+        }
+
+        return mBluetoothAdapter.getAddress();
     }
 }

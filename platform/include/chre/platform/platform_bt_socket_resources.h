@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022 The Android Open Source Project
+ * Copyright (C) 2025 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,16 +14,21 @@
  * limitations under the License.
  */
 
-#include "exynos_daemon.h"
+#pragma once
 
-int main() {
-  android::chre::ExynosDaemon daemon;
+#include "chre/target_platform/platform_bt_socket_resources_base.h"
 
-  if (!daemon.init()) {
-    LOGE("failed to init the daemon");
-  } else {
-    daemon.run();
-  }
+namespace chre {
 
-  return 0;
-}
+class PlatformBtSocketResources : public PlatformBtSocketResourcesBase {
+ public:
+  // Forward all arguments passed to the PlatformBtSocketResources constructor
+  // to the PlatformBtSocketResourcesBase constructor
+  template <typename... Args>
+  PlatformBtSocketResources(Args &&...args)
+      : PlatformBtSocketResourcesBase(std::forward<Args>(args)...) {}
+
+  uint32_t getLeCocMtu();
+};
+
+}  // namespace chre

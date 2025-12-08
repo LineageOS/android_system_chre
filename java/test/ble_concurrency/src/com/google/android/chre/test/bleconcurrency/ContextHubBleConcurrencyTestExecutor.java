@@ -26,6 +26,9 @@ import com.google.android.chre.test.chqts.ContextHubBleTestExecutor;
 public class ContextHubBleConcurrencyTestExecutor extends ContextHubBleTestExecutor {
     private static final String TAG = "ContextHubBleConcurrencyTestExecutor";
 
+    private static final int CHRE_BLE_CAPABILITIES_SCAN = 1 << 0;
+    private static final int CHRE_BLE_FILTER_CAPABILITIES_SERVICE_DATA = 1 << 7;
+
     public ContextHubBleConcurrencyTestExecutor(NanoAppBinary nanoapp) {
         super(nanoapp);
     }
@@ -34,7 +37,8 @@ public class ContextHubBleConcurrencyTestExecutor extends ContextHubBleTestExecu
      * Runs the test.
      */
     public void run() throws Exception {
-        if (doNecessaryBleCapabilitiesExist()) {
+        if (doNecessaryBleCapabilitiesExist(
+                CHRE_BLE_CAPABILITIES_SCAN, CHRE_BLE_FILTER_CAPABILITIES_SERVICE_DATA)) {
             testHostScanFirst();
             Thread.sleep(1000);
             testChreScanFirst();

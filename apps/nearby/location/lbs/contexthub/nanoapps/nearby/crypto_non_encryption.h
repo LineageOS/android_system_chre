@@ -28,11 +28,11 @@ class CryptoNonEncryption : public Crypto {
  public:
   // Echos input back in output. Returns the size of input. Returns 0 if
   // output_size is less than input_size.
-  bool decrypt(const ByteArray &input, const ByteArray &salt,
-               const ByteArray &key, ByteArray &output) const override;
+  bool decrypt(const ByteArray& input, const ByteArray& salt,
+               const ByteArray& key, ByteArray& output) const override;
 
-  bool verify(const ByteArray &input, const ByteArray &key,
-              const ByteArray &signature) const override;
+  bool verify(const ByteArray& input, const ByteArray& key,
+              const ByteArray& signature) const override;
 };
 
 }  // namespace nearby

@@ -155,8 +155,8 @@ inline void memoryFree(void *pointer) {
 }  // namespace chre
 
 #else
-#include "chre/platform/assert.h"
-#include "chre/platform/memory.h"
+#include "chre/platform/assert.h"  // IWYU pragma: export
+#include "chre/platform/memory.h"  // IWYU pragma: export
 #endif  // CHRE_IS_NANOAPP_BUILD
 
 #endif  // CHRE_UTIL_CONTAINER_SUPPORT_H_

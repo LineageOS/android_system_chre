@@ -343,26 +343,7 @@ int64_t chreGetEstimatedHostTimeOffset(void);
  * @since v1.1
  */
 static inline uint64_t chreGetEstimatedHostTime(void) {
-    int64_t offset = chreGetEstimatedHostTimeOffset();
-    uint64_t time = chreGetTime();
-
-    // Just casting time to int64_t and adding the (potentially negative) offset
-    // should be OK under most conditions, but this way avoids issues if
-    // time >= 2^63, which is technically allowed since we don't specify a start
-    // value for chreGetTime(), though one would assume 0 is roughly boot time.
-    if (offset >= 0) {
-        time += (uint64_t) offset;
-    } else {
-        // Assuming chreGetEstimatedHostTimeOffset() is implemented properly,
-        // this will never underflow, because offset = hostTime - chreTime,
-        // and both times are monotonically increasing (e.g. when determining
-        // the offset, if hostTime is 0 and chreTime is 100 we'll have
-        // offset = -100, but chreGetTime() will always return >= 100 after that
-        // point).
-        time -= (uint64_t) (offset * -1);
-    }
-
-    return time;
+    return chreGetTime() + (uint64_t) chreGetEstimatedHostTimeOffset();
 }
 
 /**

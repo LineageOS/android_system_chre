@@ -1112,7 +1112,9 @@ bool chppSendTimestampedRequestOrFail(
 
   chppTimestampOutgoingRequest(endpointState->appContext, outReqState, buf,
                                timeoutNs);
+  chppMutexLock(&endpointState->syncResponse.mutex);
   endpointState->syncResponse.ready = false;
+  chppMutexUnlock(&endpointState->syncResponse.mutex);
 
   bool success = chppEnqueueTxDatagramOrFail(
       endpointState->appContext->transportContext, buf, len);
@@ -1134,17 +1136,30 @@ bool chppWaitForResponseWithTimeout(
   CHPP_DEBUG_NOT_NULL(outReqState);
 
   bool result = true;
+  uint64_t startTimeNs = chppGetCurrentTimeNs();
+  uint64_t timeoutTimeNs = startTimeNs + timeoutNs;
 
   chppMutexLock(&syncResponse->mutex);
 
   while (result && !syncResponse->ready) {
+    uint64_t timeNowNs = chppGetCurrentTimeNs();
+    if (timeNowNs > timeoutTimeNs) {
+      // This shouldn't happen if the condition variable is working as intended.
+      // However, we add an error log and break the loop to avoid potentially
+      // blocking the client for longer than expected.
+      CHPP_LOGW(
+          "Waited longer than expected for sync response: ready=%d "
+          "delay=%" PRIu64 "ms",
+          syncResponse->ready, (timeNowNs - startTimeNs) / CHPP_NSEC_PER_MSEC);
+      break;
+    }
     result = chppConditionVariableTimedWait(&syncResponse->condVar,
                                             &syncResponse->mutex, timeoutNs);
   }
   if (!syncResponse->ready) {
     outReqState->requestState = CHPP_REQUEST_STATE_RESPONSE_TIMEOUT;
     CHPP_LOGE("Response timeout after %" PRIu64 " ms",
-              timeoutNs / CHPP_NSEC_PER_MSEC);
+              (chppGetCurrentTimeNs() - startTimeNs) / CHPP_NSEC_PER_MSEC);
     result = false;
   }
 
