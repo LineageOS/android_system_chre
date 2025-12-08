@@ -765,15 +765,23 @@ class ConsumerBase {
    * @param count The number of bytes to release.
    * @return pw::OkStatus() on success. See checkState() for error conditions.
    */
-  pw::Status release(size_t count);
+  pw::Status release(size_t count) {
+    PW_TRY(releaseNoNotify(count));
+    maybeNotifyOnRead();
+    return pw::OkStatus();
+  }
 
   /**
    * If available, pops data.size() bytes into the provided memory.
    *
-   * @param elements Span over the memory into which to pop data.
+   * @param data Span over the memory into which to pop data.
    * @return pw::OkStatus() on success. See checkState() for error conditions.
    */
-  pw::Status pop(pw::ByteSpan data);
+  pw::Status pop(pw::ByteSpan data) {
+    PW_TRY(popNoNotify(data));
+    maybeNotifyOnRead();
+    return pw::OkStatus();
+  }
 
   /**
    * Syncs the read pointer to the write pointer minus an offset.
@@ -836,6 +844,22 @@ class ConsumerBase {
                         std::optional<size_t> overwriteResetOffset);
 
   /**
+   * release() but without notifying the Producer.
+   *
+   * @param count The number of bytes to release.
+   * @return pw::OkStatus() on success. See checkState() for error conditions.
+   */
+  pw::Status releaseNoNotify(size_t count);
+
+  /**
+   * pop() but without notifying the Producer.
+   *
+   * @param data Span over the memory into which to pop data.
+   * @return pw::OkStatus() on success. See checkState() for error conditions.
+   */
+  pw::Status popNoNotify(pw::ByteSpan data);
+
+  /**
    * Checks whether the queue has enough data to read.
    *
    * On success, reduces mAvailable by count.
@@ -851,8 +875,13 @@ class ConsumerBase {
    * @param count The number of bytes to advance.
    * @param buf [optional] The buffer to copy data into. The size is greater
    * than or equal to count.
+   * @return The number of bytes actually advanced.
    */
-  void advanceReadIndex(size_t count, std::optional<pw::ByteSpan> buf);
+  size_t advanceReadIndex(size_t count, std::optional<pw::ByteSpan> buf,
+                          bool stopOnNextBlock = false);
+
+  /** Depending on whether the producer is blocked, notify it on read. */
+  void maybeNotifyOnRead();
 
   /**
    * Attempts to restore this instance to a valid state after being overwritten.
@@ -861,7 +890,7 @@ class ConsumerBase {
    * index. Otherwise, resyncs state to the producer, minus
    * mOverwriteResetOffset.
    *
-   * @return pw::OkStatus() on success.
+   * @return Returns pw::Status::Aborted() if the producer is gone.
    */
   pw::Status handleOverwrite();
 
@@ -872,6 +901,13 @@ class ConsumerBase {
    * for error conditions.
    */
   pw::Status updateAvailable();
+
+  /**
+   * Fast-forwards the read index during overwrite recovery.
+   *
+   * @param offset The number of recent bytes to attempt to preserve.
+   */
+  virtual pw::Status overwriteFastForward(size_t offset);
 
   /** Syncs to the producer. */
   pw::Status syncToProducer();

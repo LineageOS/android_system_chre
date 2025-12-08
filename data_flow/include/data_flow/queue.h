@@ -818,9 +818,6 @@ class VariableDataProducer : protected internal::ProducerBase {
   void enterNextBlock(internal::BlockHeader *&block, uint32_t *correction,
                       uint32_t &index, bool convertSkipToBase) override;
 
-  /** Advance the write index to align the next element header. */
-  void alignWriteIndex();
-
   // If set, size of the current reserved element in shared memory.
   internal::VariableDataHeader *mCurrentHdrPtr = nullptr;
 };
@@ -898,7 +895,11 @@ class VariableDataConsumer : protected internal::ConsumerBase {
    * @return pw::OkStatus() on success. Fails with pw::Status::Unavailable() if
    * there are no elements.
    */
-  pw::Status release();
+  pw::Status release() {
+    PW_TRY(releaseNoNotify());
+    maybeNotifyOnRead();
+    return pw::OkStatus();
+  }
 
   /**
    * If available, pops the next element into buffer.
@@ -915,31 +916,47 @@ class VariableDataConsumer : protected internal::ConsumerBase {
   pw::Status pop(pw::ByteSpan &buffer);
 
   /**
-   * Syncs the read pointer to the write pointer minus an offset.
+   * Syncs the read pointer to the write pointer minus an offset in bytes.
    *
-   * @param offset The number of recent elements to preserve. If greater than
-   * the number of available elements resync() will fail.
+   * Once reaching the offset, the read pointer seeks to the next element
+   * boundary.
+   *
+   * @param offset The number of recent bytes to preserve. If greater than
+   * the number of available bytes resync() will fail.
    * @return pw::OkStatus() on success. Fails with pw::Status::OutOfRange() if
    * offset is greater than the size of the queue.
    */
   pw::Status resync(size_t offset);
 
-  /**
-   * @return On success, the number of elements available for reading.
-   *
-   * May fail depending on the queue state (see {@link #checkState()}).
-   */
-  pw::Result<size_t> size();
-
-  /** @return true iff the queue is empty. */
+  // See {@link internal::ConsumerBase} for documentation.
   using Base::empty;
+  using Base::size;
 
  protected:
   VariableDataConsumer(const Region &region, internal::Queue &queue,
                        internal::ConsumerDesc &desc,
                        RemoteNotifyFn remoteNotifyFn, MemoryAccess *memAccess);
 
-  std::optional<uint32_t> mHeadSize = std::nullopt;
+  /**
+   * release() but without notifying the Producer.
+   *
+   * @return pw::OkStatus() on success. Fails with pw::Status::Unavailable() if
+   * there are no elements.
+   */
+  pw::Status releaseNoNotify();
+
+  /**
+   * Specialized overwrite fast-forwarding for variable-data queues.
+   *
+   * @param offset The number of recent bytes to attempt to preserve. If not an
+   * element boundary, the read index will be advanced to the nearest element
+   * past it.
+   * @return See {@link #internal::ConsumerBase::checkState()} for error
+   * conditions.
+   */
+  pw::Status overwriteFastForward(size_t offset) override;
+
+  std::optional<internal::VariableDataHeader> mCurrentHdr = std::nullopt;
 };
 
 /** Layout used to allocate queue metadata in shared memory. */

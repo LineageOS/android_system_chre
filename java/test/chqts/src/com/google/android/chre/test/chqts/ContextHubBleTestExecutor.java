@@ -137,6 +137,11 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
      */
     private static final int CHRE_BLE_RSSI_NONE = 127;
 
+    /**
+     * CHRE API version 1.12.0, where v1.9 API assertions are enforced.
+     */
+    private static final int CHRE_API_VERSION_1_12 = (1 << 24) | (12 << 16);
+
     private BluetoothAdapter mBluetoothAdapter = null;
     private BluetoothLeAdvertiser mBluetoothLeAdvertiser = null;
     private BluetoothLeScanner mBluetoothLeScanner = null;
@@ -638,9 +643,15 @@ public class ContextHubBleTestExecutor extends ContextHubChreApiTestExecutor {
      */
     public void chreBleStopScanSync() throws Exception {
         ChreApiTestUtil util = new ChreApiTestUtil();
-        List<ChreApiTest.GeneralSyncMessage> response =
-                util.callServerStreamingRpcMethodSync(getRpcClient(),
-                        "chre.rpc.ChreApiTestService.ChreBleStopScanSync");
+        List<ChreApiTest.GeneralSyncMessage> response;
+        int currentApiVersion = mContextHub.getStaticSwVersion();
+        if (currentApiVersion >= CHRE_API_VERSION_1_12) {
+            response = util.callServerStreamingRpcMethodSync(getRpcClient(),
+                    "chre.rpc.ChreApiTestService.ChreBleStopScanSyncV1_9");
+        } else {
+            response = util.callServerStreamingRpcMethodSync(getRpcClient(),
+                    "chre.rpc.ChreApiTestService.ChreBleStopScanSync");
+        }
         assertThat(response).isNotEmpty();
         for (ChreApiTest.GeneralSyncMessage status: response) {
             assertThat(status.getStatus()).isTrue();

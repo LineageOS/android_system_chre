@@ -39,7 +39,7 @@ extern "C" {
  * system/core/libsystem/include/system/thread_defs.h for reference). Note that
  * a higher value represents a lower priority in this definition.
  *
- * @defgroup NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL
+ * @defgroup NANOAPP_REQUESTED_THREAD_PRIORITY
  * @{
  */
 

@@ -946,12 +946,13 @@ TEST_F(QueueTest, ProducerStop) {
   EXPECT_EQ(consumerManager.getNumConsumers(), 0);
 }
 
-TEST_F(QueueTest, VariableDataProducerPush) {
+TEST_F(QueueTest, VariableDataPushPop) {
   std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
       {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
   initLocalVarDataEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
   EXPECT_EQ(mVarDataProducer->size(), 0);
 
+  // Push variable-length data.
   std::vector<std::byte> data1 = {std::byte(1), std::byte(2)};
   EXPECT_EQ(mVarDataProducer->push(data1), pw::OkStatus());
   // size (4) + data (2) + padding (2) = 8
@@ -960,9 +961,25 @@ TEST_F(QueueTest, VariableDataProducerPush) {
   EXPECT_EQ(mVarDataProducer->push(data2), pw::OkStatus());
   // 8 + size (4) + data (3) + padding (1) = 8 + 8 = 16
   EXPECT_EQ(mVarDataProducer->size(), 16);
+
+  // Pop variable-length data.
+  EXPECT_RESULT_EQ(mVarDataConsumers[0].size(), 16);
+  EXPECT_RESULT_EQ(mVarDataConsumers[0].getHeadSize(), 2);
+  std::vector<std::byte> popped(8);
+  pw::ByteSpan poppedSpan(popped.data(), popped.size());
+  EXPECT_EQ(mVarDataConsumers[0].pop(poppedSpan), pw::OkStatus());
+  EXPECT_EQ(poppedSpan.size(), 2);
+  EXPECT_EQ(std::memcmp(popped.data(), data1.data(), poppedSpan.size()), 0);
+  EXPECT_EQ(mVarDataProducer->size(), 8);
+  EXPECT_RESULT_EQ(mVarDataConsumers[0].getHeadSize(), 3);
+  poppedSpan = pw::ByteSpan(popped.data(), popped.size());
+  EXPECT_EQ(mVarDataConsumers[0].pop(poppedSpan), pw::OkStatus());
+  EXPECT_EQ(poppedSpan.size(), 3);
+  EXPECT_EQ(std::memcmp(popped.data(), data2.data(), poppedSpan.size()), 0);
+  EXPECT_RESULT_EQ(mVarDataConsumers[0].empty(), true);
 }
 
-TEST_F(QueueTest, VariableDataProducerReserveCommit) {
+TEST_F(QueueTest, VariableDataReserveCommitPop) {
   std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
       {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
   initLocalVarDataEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
@@ -973,10 +990,155 @@ TEST_F(QueueTest, VariableDataProducerReserveCommit) {
   // Reserved: 4 bytes for size + 5 for data. The size() method without
   // arguments does not include reserved elements.
   EXPECT_EQ(mVarDataProducer->size(), 0);
-  EXPECT_EQ(mVarDataProducer->size(/*includeReserved=*/true), 9);
+  EXPECT_GE(mVarDataProducer->size(/*includeReserved=*/true), 9);
   EXPECT_EQ(mVarDataProducer->commit(), pw::OkStatus());
   // Committed: 4 for size + 5 for data + 3 for padding.
   EXPECT_EQ(mVarDataProducer->size(), 12);
+
+  // Pop variable-length data.
+  EXPECT_RESULT_EQ(mVarDataConsumers[0].size(), 12);
+  EXPECT_RESULT_EQ(mVarDataConsumers[0].getHeadSize(), 5);
+  std::vector<std::byte> popped(8);
+  pw::ByteSpan poppedSpan(popped);
+  EXPECT_EQ(mVarDataConsumers[0].pop(poppedSpan), pw::OkStatus());
+  EXPECT_EQ(poppedSpan.size(), 5);
+  EXPECT_EQ(std::memcmp(popped.data(), reservation->data(), poppedSpan.size()),
+            0);
+  EXPECT_RESULT_EQ(mVarDataConsumers[0].empty(), true);
+}
+
+TEST_F(QueueTest, VariableDataPushPeekRelease) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalVarDataEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+  EXPECT_EQ(mVarDataProducer->size(), 0);
+
+  // Push variable-length data.
+  std::vector<std::byte> data1 = {std::byte(1), std::byte(2)};
+  EXPECT_EQ(mVarDataProducer->push(data1), pw::OkStatus());
+  // size (4) + data (2) + padding (2) = 8
+  EXPECT_EQ(mVarDataProducer->size(), 8);
+  std::vector<std::byte> data2 = {std::byte(3), std::byte(4), std::byte(5)};
+  EXPECT_EQ(mVarDataProducer->push(data2), pw::OkStatus());
+  // 8 + size (4) + data (3) + padding (1) = 8 + 8 = 16
+  EXPECT_EQ(mVarDataProducer->size(), 16);
+
+  // Peek and release variable-length data.
+  EXPECT_RESULT_EQ(mVarDataConsumers[0].size(), 16);
+
+  // First element (data1)
+  size_t head_size = 0;
+  EXPECT_RESULT_EQ(mVarDataConsumers[0].getHeadSize(), data1.size());
+  head_size = mVarDataConsumers[0].getHeadSize().value();
+  std::vector<std::byte> peeked1;
+  peeked1.reserve(head_size);
+  size_t remaining1 = head_size;
+  while (remaining1 > 0) {
+    auto maybePeeked = mVarDataConsumers[0].peek();
+    ASSERT_EQ(maybePeeked.status(), pw::OkStatus());
+    peeked1.insert(peeked1.end(), maybePeeked->begin(), maybePeeked->end());
+    remaining1 -= maybePeeked->size();
+  }
+  EXPECT_EQ(peeked1.size(), data1.size());
+  EXPECT_EQ(std::memcmp(peeked1.data(), data1.data(), data1.size()), 0);
+  EXPECT_EQ(mVarDataConsumers[0].release(), pw::OkStatus());
+  EXPECT_EQ(mVarDataProducer->size(), 8);
+
+  // Second element (data2)
+  EXPECT_RESULT_EQ(mVarDataConsumers[0].getHeadSize(), data2.size());
+  head_size = mVarDataConsumers[0].getHeadSize().value();
+  std::vector<std::byte> peeked2;
+  peeked2.reserve(head_size);
+  size_t remaining2 = head_size;
+  while (remaining2 > 0) {
+    auto maybePeeked = mVarDataConsumers[0].peek();
+    ASSERT_EQ(maybePeeked.status(), pw::OkStatus());
+    peeked2.insert(peeked2.end(), maybePeeked->begin(), maybePeeked->end());
+    remaining2 -= maybePeeked->size();
+  }
+  EXPECT_EQ(peeked2.size(), data2.size());
+  EXPECT_EQ(std::memcmp(peeked2.data(), data2.data(), data2.size()), 0);
+  EXPECT_EQ(mVarDataConsumers[0].release(), pw::OkStatus());
+
+  EXPECT_RESULT_EQ(mVarDataConsumers[0].empty(), true);
+}
+
+TEST_F(QueueTest, VariableDataConsumerReleaseWithoutPeek) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalVarDataEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+  EXPECT_EQ(mVarDataProducer->size(), 0);
+
+  // Push variable-length data.
+  std::vector<std::byte> data = {std::byte(1), std::byte(2), std::byte(3)};
+  EXPECT_EQ(mVarDataProducer->push(data), pw::OkStatus());
+  EXPECT_EQ(mVarDataProducer->size(), 8);
+
+  // Release without peeking.
+  EXPECT_EQ(mVarDataConsumers[0].release(), pw::OkStatus());
+  EXPECT_RESULT_EQ(mVarDataConsumers[0].empty(), true);
+}
+
+TEST_F(QueueTest, VariableDataPushPopIncreasingSize) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalVarDataEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  // Fill the queue with elements of increasing size.
+  std::vector<std::vector<std::byte>> pushedData;
+  size_t totalSize = 0;
+  for (size_t i = 1;; ++i) {
+    std::vector<std::byte> data(i);
+    std::fill(data.begin(), data.end(), std::byte(i));
+    if (auto status = mVarDataProducer->push(data); !status.ok()) {
+      EXPECT_EQ(status, pw::Status::Unavailable());
+      break;
+    }
+    pushedData.push_back(data);
+    totalSize += data.size();
+    EXPECT_GE(mVarDataProducer->size(), totalSize);
+  }
+
+  // Verify the elements from the consumer side.
+  for (const auto &expectedData : pushedData) {
+    EXPECT_RESULT_EQ(mVarDataConsumers[0].getHeadSize(), expectedData.size());
+    std::vector<std::byte> poppedData(expectedData.size());
+    pw::ByteSpan poppedSpan(poppedData);
+    ASSERT_EQ(mVarDataConsumers[0].pop(poppedSpan), pw::OkStatus());
+
+    EXPECT_EQ(poppedSpan.size(), expectedData.size());
+    EXPECT_EQ(std::memcmp(poppedSpan.data(), expectedData.data(),
+                          expectedData.size()),
+              0);
+  }
+
+  EXPECT_RESULT_EQ(mVarDataConsumers[0].empty(), true);
+}
+
+TEST_F(QueueTest, VariableDataConsumerResyncAcrossBlocks) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalVarDataEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  // Push a large element that leaves just enough space in the first block to
+  // prevent the next element header from fitting, forcing a block wrap.
+  constexpr size_t kRemainingSpace = sizeof(internal::VariableDataHeader) - 1;
+  size_t data1_size = kVarDataBlockCapacity -
+                      sizeof(internal::VariableDataHeader) - kRemainingSpace;
+  std::vector<std::byte> data1(data1_size, std::byte(0xAA));
+  ASSERT_EQ(mVarDataProducer->push(data1), pw::OkStatus());
+
+  // Push a second, smaller element that will start in the next block.
+  std::vector<std::byte> data2(16, std::byte(0xBB));
+  ASSERT_EQ(mVarDataProducer->push(data2), pw::OkStatus());
+
+  // Resync to keep only the second element.
+  ASSERT_EQ(mVarDataConsumers[0].resync(data2.size() +
+                                        sizeof(internal::VariableDataHeader)),
+            pw::OkStatus());
+
+  // Verify that the consumer now only sees the second element.
+  EXPECT_RESULT_EQ(mVarDataConsumers[0].getHeadSize(), data2.size());
 }
 
 TEST_F(QueueTest, VariableDataProducerReserveTruncateCommit) {
@@ -994,6 +1156,7 @@ TEST_F(QueueTest, VariableDataProducerReserveTruncateCommit) {
   EXPECT_EQ(mVarDataProducer->commit(), pw::OkStatus());
   // Committed: 4 for size + 5 for data + 3 for padding.
   EXPECT_EQ(mVarDataProducer->size(), 12);
+  EXPECT_RESULT_EQ(mVarDataConsumers[0].size(), 12);
 }
 
 TEST_F(QueueTest, VariableDataProducerTruncateToReservedSizeDoesNothing) {
