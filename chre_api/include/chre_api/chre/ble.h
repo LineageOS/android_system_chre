@@ -916,6 +916,7 @@ static inline uint8_t chreBleGetEventTypeAndDataStatus(uint8_t eventType,
  * struct and a cookie parameter. New code should use
  * chreBleStartScanAsyncV1_9() instead of this function. This function will be
  * removed in a future version.
+ * @since v1.6
  */
 bool chreBleStartScanAsync(enum chreBleScanMode mode, uint32_t reportDelayMs,
                            const struct chreBleScanFilter *filter);
@@ -985,6 +986,7 @@ bool chreBleStartScanAsyncV1_9(enum chreBleScanMode mode,
  * @deprecated as of v1.9 due to the addition of the cookie parameter. New code
  * should use chreBleStopScanAsyncV1_9() instead of this function. This function
  * will be removed in a future version.
+ * @since v1.6
  */
 bool chreBleStopScanAsync(void);
 

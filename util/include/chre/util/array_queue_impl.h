@@ -23,6 +23,7 @@
 
 #include "chre/util/array_queue.h"
 #include "chre/util/container_support.h"
+#include "chre/util/ring_buffer_util.h"
 
 namespace chre {
 namespace internal {
@@ -224,6 +225,21 @@ typename ArrayQueueCore<ElementType, StorageType>::const_iterator
 ArrayQueueCore<ElementType, StorageType>::cend() const {
   return const_iterator(StorageType::data() + StorageType::capacity(),
                         StorageType::data(), mTail, StorageType::capacity());
+}
+
+template <typename ElementType, typename StorageType>
+void ArrayQueueCore<ElementType, StorageType>::get_spans(
+    std::pair<const ElementType *, const ElementType *> &span1,
+    std::pair<const ElementType *, const ElementType *> &span2) const {
+  ring_util::getSpans(StorageType::data(), StorageType::capacity(), mHead,
+                      mSize, span1, span2);
+}
+
+template <typename ElementType, typename StorageType>
+void ArrayQueueCore<ElementType, StorageType>::copy_to(
+    ElementType *dest) const {
+  ring_util::copyFrom(StorageType::data(), StorageType::capacity(), mHead,
+                      mSize, dest);
 }
 
 template <typename ElementType, typename StorageType>

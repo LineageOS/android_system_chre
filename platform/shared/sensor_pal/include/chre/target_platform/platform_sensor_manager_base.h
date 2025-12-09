@@ -33,7 +33,7 @@ class PlatformSensorManagerBase {
 
   //! The instance of the CHRE PAL API. This will be set to nullptr if the
   //! platform does not supply an implementation.
-  const chrePalSensorApi *mSensorApi;
+  const chrePalSensorApi *mSensorApi = nullptr;
 
  private:
   //! Event handlers for the CHRE Sensor PAL. Refer to chre/pal/sensor.h for

@@ -16,14 +16,12 @@
 
 #include "chre/util/nanoapp/callbacks.h"
 
-#include "chre/util/container_support.h"
+#include "chre_api/chre.h"
 
 namespace chre {
 
 void heapFreeMessageCallback(void *message, size_t /* messageSize */) {
-  // container_support.h will use chreHeapFree when building for nanoapps
-  // and keeps as memoryFree if used within the framework itself.
-  memoryFree(message);
+  chreHeapFree(message);
 }
 
 }  // namespace chre

@@ -1,0 +1,209 @@
+[
+  {
+    "platform": "qsh",
+    "python_version": "3.11.11",
+    "common_env_variables": [
+      {
+        "name": "HEXAGON_TOOLS_PREFIX",
+        "type": "path",
+        "description": "The path to the Hexagon tools. For example, /path/to/HEXAGON_Tools/8.7.04"
+      },
+      {
+        "name": "HEXAGON_SDK_PREFIX",
+        "type": "path",
+        "description": "The path to the Hexagon SDK. For example, /path/to/Hexagon_SDK/6.0.0.2"
+      },
+      {
+        "name": "CHRE_TARGET_ELF_READER",
+        "type": "file",
+        "description": "The path to the elf reader provided by the toolchain",
+        "default": "$HEXAGON_TOOLS_PREFIX/Tools/bin/hexagon-readelf"
+      }
+    ],
+    "targets": [
+      {
+        "name": "nanoapp",
+        "build_target": "aosp_hexagonv66_qsh",
+        "install_location": "/vendor/etc/chre",
+        "env_variables": [
+          {
+            "name": "ANDROID_BUILD_TOP",
+            "type": "path",
+            "description": "The path to the root of the Android source tree."
+          },
+          {
+            "name": "NANOPB_PREFIX",
+            "type": "path",
+            "description": "The path to the nanopb installation."
+          },
+          {
+            "name": "QSH_BRANCH",
+            "type": "value",
+            "description": "The branch of the QSH repository to use.\nThe available branches can be found at https://partner-android.googlesource.com/platform/vendor/google_partners/qcom-chre"
+          },
+          {
+            "name": "QSH_PREFIX",
+            "type": "path",
+            "default": "/tmp/qsh-$QSH_BRANCH",
+            "description": "The path to the QSH repository checkout, which can be automatically created in the following step.",
+            "default_action": [
+              "action_clone_repo",
+              "https://partner-android.googlesource.com/platform/vendor/google_partners/qcom-chre",
+              "$QSH_BRANCH",
+              "/tmp/qsh-$QSH_BRANCH"
+            ]
+          },
+          {
+            "name": "SSC_PREFIX",
+            "type": "path",
+            "description": "The path to the SSC (Snapdragon Sensor Core) repository.\nThis path should point down to the adsp_proc folder"
+          },
+          {
+            "name": "EXTERNAL_SYMBOL_LISTS",
+            "type": "list[file]",
+            "description": "The files containing the external symbols that are allowed in the target binary, each symbol is on a line.",
+            "default": ""
+          },
+          {
+            "name": "EXTERNAL_SYMBOL_DECLARATIONS",
+            "type": "list[file]",
+            "description": "The header files declaring external functions (without using CHRE's macros).",
+            "default": ""
+          },
+          {
+            "name": "CHRE_TARGET_EXTENSION",
+            "type": "file",
+            "default": "$QSH_PREFIX/qsh/build/variant/aosp_hexagonv66_qsh.mk",
+            "description": "The path to the makefile extension for the target."
+          }
+        ]
+      },
+      {
+        "name": "shim",
+        "build_target": "aosp_hexagonv66_qsh_debug",
+        "install_location": "/vendor/lib/rfsa/adsp",
+        "env_variables": [
+          {
+            "name": "ANDROID_BUILD_TOP",
+            "type": "path",
+            "description": "The path to the root of the Android source tree."
+          },
+          {
+            "name": "NANOPB_PREFIX",
+            "type": "path",
+            "description": "The path to the nanopb installation."
+          },
+          {
+            "name": "QSH_BRANCH",
+            "type": "value",
+            "description": "The branch of the QSH repository to use.\nThe available branches can be found at https://partner-android.googlesource.com/platform/vendor/google_partners/qcom-chre"
+          },
+          {
+            "name": "SSC_PREFIX",
+            "type": "path",
+            "description": "The path to the SSC (Snapdragon Sensor Core) repository. This path should point down to the adsp_proc folder."
+          },
+          {
+            "name": "SLPI_PREFIX",
+            "type": "path",
+            "default": "$SSC_PREFIX",
+            "description": "The path to the SLPI (Snapdragon Low Power Island) repository. Defaults to SSC_PREFIX."
+          },
+          {
+            "name": "QSH_PREFIX",
+            "type": "path",
+            "default": "/tmp/qsh-$QSH_BRANCH",
+            "description": "The path to the QSH repository checkout, which can be automatically created in the following step.",
+            "default_action": [
+              "action_clone_repo",
+              "https://partner-android.googlesource.com/platform/vendor/google_partners/qcom-chre",
+              "$QSH_BRANCH",
+              "/tmp/qsh-$QSH_BRANCH"
+            ]
+          },
+          {
+            "name": "EXTERNAL_SYMBOL_LISTS",
+            "type": "list[file]",
+            "description": "The files containing the external symbols that are allowed in the target binary, each symbol is on a line.",
+            "default": ""
+          },
+          {
+            "name": "EXTERNAL_SYMBOL_DECLARATIONS",
+            "type": "list[file]",
+            "description": "The header files declaring external functions (without using CHRE's macros).",
+            "default": ""
+          },
+          {
+            "name": "CHRE_VARIANT_MK_INCLUDES",
+            "type": "file",
+            "default": "$QSH_PREFIX/qsh/variant/default/variant.mk",
+            "description": "The path to the variant makefile to include."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "platform": "tinysys",
+    "common_env_variables": [
+      {
+        "name": "ANDROID_BUILD_TOP",
+        "type": "path",
+        "description": "The path to the root of the Android source tree."
+      },
+      {
+        "name": "RISCV_TOOLCHAIN_PATH",
+        "type": "path",
+        "description": "The path to the RISC-V toolchain which should point down to a specific version, such as CodeLine_240"
+      },
+      {
+        "name": "CHRE_TARGET_ELF_READER",
+        "type": "file",
+        "description": "The path to the elf reader provided by the toolchain",
+        "default": "$RISCV_TOOLCHAIN_PATH/bin/llvm-readelf"
+      }
+    ],
+    "targets": [
+      {
+        "name": "nanoapp",
+        "build_target": "aosp_riscv55e300_tinysys",
+        "install_location": "/vendor/etc/chre",
+        "env_variables": [
+          {
+            "name": "NANOPB_PREFIX",
+            "type": "path",
+            "default": "$ANDROID_BUILD_TOP/external/nanopb-c",
+            "description": "The path to the nanopb installation. Defaults to the one in the Android tree."
+          },
+          {
+            "name": "EXPORTED_MACRO_FILES",
+            "type": "list[file]",
+            "description": "The list of files containing the exported symbols defined by CHRE's macros, separate them by space",
+            "default": "$ANDROID_BUILD_TOP/system/chre/platform/shared/nanoapp_loader.cc $ANDROID_BUILD_TOP/system/chre/platform/tinysys/include/chre/extensions/platform/symbol_list.h"
+          },
+          {
+            "name": "TEST_SIGN_KEY",
+            "type": "file",
+            "description": "The path to the key used for signing test nanoapps."
+          }
+        ]
+      },
+      {
+        "name": "libchre",
+        "build_target": "aosp_riscv55e300_tinysys",
+        "env_variables": [
+          {
+            "name": "RISCV_TINYSYS_PREFIX",
+            "type": "path",
+            "description": "The path to the RISC-V Tinysys repository, which leads to the folder named 'tinysys'."
+          },
+          {
+            "name": "CHRE_VARIANT_MK_INCLUDES",
+            "type": "file",
+            "description": "The path to the variant makefile to include."
+          }
+        ]
+      }
+    ]
+  }
+]

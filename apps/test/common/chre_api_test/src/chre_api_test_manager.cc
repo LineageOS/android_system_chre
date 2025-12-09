@@ -275,6 +275,29 @@ void ChreApiTestService::ChreBleStopScanSync(
   }
 }
 
+void ChreApiTestService::ChreBleReadRssiSync(
+    const chre_rpc_ChreBleReadRssiRequest &request,
+    ServerWriter<chre_rpc_ChreBleReadRssiEvent> &writer) {
+  if (mRssiWriter.has_value()) {
+    ChreApiTestManagerSingleton::get()->setPermissionForNextMessage(
+        CHRE_MESSAGE_PERMISSION_NONE);
+    writer.Finish();
+    LOGE("ChreBleReadRssiSync: a sync message already exits");
+    return;
+  }
+
+  mRssiWriter = std::move(writer);
+  CHRE_ASSERT(mSyncTimerHandle == CHRE_TIMER_INVALID);
+
+  chre_rpc_Status status;
+  if (!validateInputAndCallChreBleReadRssiAsync(request, status) ||
+      !status.status || !startSyncTimer()) {
+    sendFailureAndFinishCloseWriter(mRssiWriter);
+    mSyncTimerHandle = CHRE_TIMER_INVALID;
+    LOGD("ChreBleReadRssiSync: status false (error)");
+  }
+}
+
 // End ChreApiTestService RPC sync functions
 
 // Start ChreApiTestService event functions
@@ -348,6 +371,23 @@ void ChreApiTestService::handleBleAsyncResult(const chreAsyncResult *result) {
     LOGD("Active BLE sync function: status: %s",
          generalSyncMessage.status ? "true" : "false");
   }
+}
+
+void ChreApiTestService::handleBleRssiReadEvent(
+    const chreBleReadRssiEvent *event) {
+  if (event == nullptr || !mRssiWriter.has_value()) {
+    return;
+  }
+  chreTimerCancel(mSyncTimerHandle);
+  mSyncTimerHandle = CHRE_TIMER_INVALID;
+
+  chre_rpc_ChreBleReadRssiEvent rssiEvent;
+  rssiEvent.connectionHandle = event->connectionHandle;
+  rssiEvent.rssi = event->rssi;
+  rssiEvent.status = true;
+  sendFinishAndCloseWriter(mRssiWriter, rssiEvent);
+  LOGD("CHRE BLE Read RSSI result: connectionHandle= %" PRIu16 ", rssi=%d",
+       event->connectionHandle, event->rssi);
 }
 
 bool ChreApiTestService::handleChreAudioDataEvent(
@@ -650,10 +690,15 @@ void ChreApiTestService::handleGatheringEvent(uint16_t eventType,
 }
 
 void ChreApiTestService::handleTimerEvent(const void *cookie) {
-  if (mWriter.has_value() && cookie == &mSyncTimerHandle) {
-    sendFailureAndFinishCloseWriter(mWriter);
+  if (cookie == &mSyncTimerHandle) {
+    if (mWriter.has_value()) {
+      sendFailureAndFinishCloseWriter(mWriter);
+      LOGD("Active sync function: status: false (timeout)");
+    } else if (mRssiWriter.has_value()) {
+      sendFailureAndFinishCloseWriter(mRssiWriter);
+      LOGD("RSSI sync function: status = false (timeout)");
+    }
     mSyncTimerHandle = CHRE_TIMER_INVALID;
-    LOGD("Active sync function: status: false (timeout)");
   } else if (mEventWriter.has_value() && cookie == &mEventTimerHandle) {
     finishAndCloseWriter(mEventWriter);
     mEventTimerHandle = CHRE_TIMER_INVALID;
@@ -698,6 +743,10 @@ void ChreApiTestManager::handleEvent(uint32_t senderInstanceId,
     case CHRE_EVENT_BLE_ASYNC_RESULT:
       mChreApiTestService.handleBleAsyncResult(
           static_cast<const chreAsyncResult *>(eventData));
+      break;
+    case CHRE_EVENT_BLE_RSSI_READ:
+      mChreApiTestService.handleBleRssiReadEvent(
+          static_cast<const chreBleReadRssiEvent *>(eventData));
       break;
     case CHRE_EVENT_TIMER:
       mChreApiTestService.handleTimerEvent(eventData);

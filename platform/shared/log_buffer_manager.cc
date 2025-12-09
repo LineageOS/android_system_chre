@@ -19,6 +19,7 @@
 #include "chre/core/event_loop_manager.h"
 #include "chre/platform/assert.h"
 #include "chre/platform/shared/bt_snoop_log.h"
+#include "chre/platform/shared/dram_vote_client.h"
 #include "chre/platform/shared/fbs/host_messages_generated.h"
 #include "chre/util/lock_guard.h"
 
@@ -87,6 +88,7 @@ void LogBufferManager::startSendLogsToHostLoop() {
         logWasSent = true;
         mFlushLogsMutex.lock();
       }
+      postSecondaryBufferUse();
     }
     if (!logWasSent) {
       onLogsSentToHostLocked(false);
@@ -129,6 +131,7 @@ void LogBufferManager::bufferOverflowGuard(size_t logSize, LogType type) {
     if (!mLogFlushToHostPending) {
       preSecondaryBufferUse();
       mPrimaryLogBuffer.transferTo(mSecondaryLogBuffer);
+      postSecondaryBufferUse();
     }
   }
 }

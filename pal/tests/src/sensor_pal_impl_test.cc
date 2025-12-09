@@ -18,7 +18,6 @@
 
 #include "chre/pal/sensor.h"
 #include "chre/platform/condition_variable.h"
-#include "chre/platform/linux/task_util/task_manager.h"
 #include "chre/platform/mutex.h"
 #include "chre/platform/shared/pal_system_api.h"
 #include "chre/util/fixed_size_vector.h"
@@ -136,8 +135,6 @@ class PalSensorTest : public testing::Test {
  protected:
   void SetUp() override {
     gCallbacks = MakeUnique<Callbacks>();
-    chre::TaskManagerSingleton::deinit();
-    chre::TaskManagerSingleton::init();
     gApi = chrePalSensorGetApi(CHRE_PAL_SENSOR_API_CURRENT_VERSION);
     ASSERT_NE(gApi, nullptr);
     EXPECT_EQ(gApi->moduleVersion, CHRE_PAL_SENSOR_API_CURRENT_VERSION);
@@ -148,7 +145,6 @@ class PalSensorTest : public testing::Test {
     if (gApi != nullptr) {
       gApi->close();
     }
-    chre::TaskManagerSingleton::deinit();
     gCallbacks = nullptr;
   }
 

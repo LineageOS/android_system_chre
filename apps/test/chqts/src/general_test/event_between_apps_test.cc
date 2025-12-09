@@ -14,13 +14,11 @@
  * limitations under the License.
  */
 
+#include <chre/util/nanoapp/log.h>
 #include <general_test/event_between_apps_test.h>
 
 #include <general_test/nanoapp_info.h>
 
-#include <cstddef>
-
-#include <shared/abort.h>
 #include <shared/macros.h>
 #include <shared/nano_endian.h>
 #include <shared/nano_string.h>
@@ -28,17 +26,29 @@
 
 #include "chre_api/chre.h"
 
-using nanoapp_testing::MessageType;
+#ifndef LOG_TAG
+#define LOG_TAG "[event_between_apps_test]"
+#endif
 
+using nanoapp_testing::MessageType;
 using nanoapp_testing::sendSuccessToHost;
 
 namespace general_test {
 
+namespace {
 // Arbitrary, just to confirm our data is properly sent.
-const uint32_t EventBetweenApps0::kMagic = UINT32_C(0x51501984);
+constexpr uint32_t kMagic = UINT32_C(0x51501984);
 
-EventBetweenApps0::EventBetweenApps0()
-    : Test(CHRE_API_VERSION_1_0), mContinueCount(0) {}
+// Arbitrary as long as it's different from
+// CHRE_EVENT_MESSAGE_FROM_HOST (which this value assures us).
+constexpr uint16_t kEventType = CHRE_EVENT_FIRST_USER_VALUE;
+}  // namespace
+
+EventBetweenApps0::~EventBetweenApps0() {
+  if (mMagic != nullptr) {
+    chreHeapFree(mMagic);
+  }
+}
 
 void EventBetweenApps0::setUp(uint32_t messageSize,
                               const void * /* message */) {
@@ -46,6 +56,13 @@ void EventBetweenApps0::setUp(uint32_t messageSize,
     EXPECT_FAIL_RETURN("Initial message expects 0 additional bytes, got ",
                        &messageSize);
   }
+
+  mMagic = static_cast<uint32_t *>(chreHeapAlloc(sizeof(uint32_t)));
+  if (mMagic == nullptr) {
+    EXPECT_FAIL_RETURN("Failed to allocate mem for mMagic", &messageSize);
+  }
+  // Arbitrary, just to confirm our data is properly sent.
+  *mMagic = kMagic;
 
   NanoappInfo info;
   info.sendToHost();
@@ -66,10 +83,10 @@ void EventBetweenApps0::handleEvent(uint32_t senderInstanceId,
   app1InstanceId = nanoapp_testing::littleEndianToHost(app1InstanceId);
   // It's safe to strip the 'const' because we're using nullptr for our
   // free callback.
-  uint32_t *sendData = const_cast<uint32_t *>(&kMagic);
   // Send an event to app1.  Note since app1 is on the same system, there are
   // no endian concerns for our sendData.
-  chreSendEvent(kEventType, sendData, nullptr, app1InstanceId);
+  chreSendEvent(kEventType, mMagic, nullptr, app1InstanceId);
+  LOGI("App0 has sent the magic number");
 }
 
 EventBetweenApps1::EventBetweenApps1()
@@ -103,7 +120,7 @@ void EventBetweenApps1::handleEvent(uint32_t senderInstanceId,
     nanoapp_testing::memcpy(&mApp0InstanceId, message, sizeof(mApp0InstanceId));
     mApp0InstanceId = nanoapp_testing::littleEndianToHost(mApp0InstanceId);
 
-  } else if (eventType == EventBetweenApps0::kEventType) {
+  } else if (eventType == kEventType) {
     if (mReceivedInstanceId != CHRE_INSTANCE_ID) {
       EXPECT_FAIL_RETURN("Multiple messages from other nanoapp.");
     }
@@ -114,16 +131,16 @@ void EventBetweenApps1::handleEvent(uint32_t senderInstanceId,
     mReceivedInstanceId = senderInstanceId;
     uint32_t magic;
     nanoapp_testing::memcpy(&magic, eventData, sizeof(magic));
-    if (magic != EventBetweenApps0::kMagic) {
+    LOGI("App1 has received the magic number");
+    if (magic != kMagic) {
       EXPECT_FAIL_RETURN("Got incorrect magic data: ", &magic);
     }
-
   } else {
     unexpectedEvent(eventType);
   }
 
-  if ((mApp0InstanceId != CHRE_INSTANCE_ID) &&
-      (mReceivedInstanceId != CHRE_INSTANCE_ID)) {
+  if (mApp0InstanceId != CHRE_INSTANCE_ID &&
+      mReceivedInstanceId != CHRE_INSTANCE_ID) {
     if (mApp0InstanceId == mReceivedInstanceId) {
       sendSuccessToHost();
     } else {

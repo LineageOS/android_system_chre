@@ -36,9 +36,10 @@ namespace nearby {
 // filter (2+16 bytes) | repeated Data Element fields (various bytes), ending
 // with MIC 16 bytes The header contains: version (3 bits) | 5 bit reserved for
 // future use (RFU)
-bool PresenceDecoderV1::Decode(const ByteArray &encoded_data,
-                               const Crypto &crypto, const ByteArray &key,
-                               const ByteArray &metadata_encryption_key_tag) {
+bool PresenceDecoderV1::Decode(const ByteArray& encoded_data,
+                               const Crypto& crypto,
+                               const ByteArray& key,
+                               const ByteArray& metadata_encryption_key_tag) {
   LOGI("Start V1 Decoding");
 
   // 1 + 1 + 1 + 2 + 2 + 16
@@ -55,7 +56,7 @@ bool PresenceDecoderV1::Decode(const ByteArray &encoded_data,
   constexpr uint8_t kVersion = 1;
 
   chre::Optional<DataElementHeaderV1> de_header;
-  uint8_t *const data = encoded_data.data;
+  uint8_t* const data = encoded_data.data;
   const size_t data_size = encoded_data.length;
 
   if (data_size < kMinAdvertisementLength) {

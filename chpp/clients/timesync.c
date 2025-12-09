@@ -25,6 +25,7 @@
 #include "chpp/clients.h"
 #include "chpp/clients/discovery.h"
 #include "chpp/common/timesync.h"
+#include "chpp/common/event_log.h"
 #include "chpp/log.h"
 #include "chpp/memory.h"
 #include "chpp/time.h"
@@ -42,6 +43,7 @@ struct ChppTimesyncClientState {
   struct ChppEndpointState client;                // CHPP client state
   struct ChppOutgoingRequestState measureOffset;  // Request response state
   struct ChppTimesyncResult timesyncResult;  // Result of measureOffset
+  struct ChppEventLog eventLog;
   uint64_t lastMeasurementTimeNs;  // The last time a timesync was started
   bool isOffsetClipping;  // If the offset was clipped on previous check
 };
@@ -60,12 +62,17 @@ void chppTimesyncClientInit(struct ChppAppState *appState) {
   struct ChppTimesyncClientState *state = appState->timesyncClientContext;
 
   memset(state, 0, sizeof(struct ChppTimesyncClientState));
+
+  chppEventLogInit(&state->eventLog, CHPP_EVENT_LOG_TIMESYNC_CAPACITY);
+
   state->client.appContext = appState;
   state->timesyncResult.error = CHPP_APP_ERROR_NONE;
 
   chppClientInit(&state->client, CHPP_HANDLE_TIMESYNC);
   state->timesyncResult.error = CHPP_APP_ERROR_UNSPECIFIED;
   state->client.openState = CHPP_OPEN_STATE_OPENED;
+
+  chppLogEvent(&state->eventLog, CHPP_TIMESYNC_CLIENT_INIT);
 }
 
 void chppTimesyncClientDeinit(struct ChppAppState *appState) {
@@ -73,6 +80,7 @@ void chppTimesyncClientDeinit(struct ChppAppState *appState) {
   CHPP_DEBUG_NOT_NULL(appState);
   CHPP_NOT_NULL(appState->timesyncClientContext);
   chppClientDeinit(&appState->timesyncClientContext->client);
+  chppEventLogDeinit(&appState->timesyncClientContext->eventLog);
   CHPP_FREE_AND_NULLIFY(appState->timesyncClientContext);
 }
 
@@ -87,6 +95,8 @@ void chppTimesyncClientReset(struct ChppAppState *appState) {
   state->timesyncResult.rttNs = 0;
   state->timesyncResult.measurementTimeNs = 0;
   state->lastMeasurementTimeNs = 0;
+
+  chppLogEvent(&state->eventLog, CHPP_TIMESYNC_CLIENT_RESET);
 }
 
 bool chppDispatchTimesyncServiceResponse(struct ChppAppState *appState,
@@ -123,6 +133,8 @@ bool chppDispatchTimesyncServiceResponse(struct ChppAppState *appState,
       CHPP_LOGI("First timesync offset=%" PRId64 "ms at t=%" PRIu64,
                 offsetNs / (int64_t)CHPP_NSEC_PER_MSEC,
                 state->measureOffset.responseTimeNs / CHPP_NSEC_PER_MSEC);
+      chppLogEventInt64(&state->eventLog, CHPP_TIMESYNC_CLIENT_FIRST_OFFSET,
+                         offsetNs);
     }
 
     bool clippingStatusChanged = false;
@@ -133,6 +145,8 @@ bool chppDispatchTimesyncServiceResponse(struct ChppAppState *appState,
         CHPP_LOGI("Timesync offset newly required clipping");
         state->isOffsetClipping = true;
         clippingStatusChanged = true;
+        chppLogEvent(&state->eventLog,
+                     CHPP_TIMESYNC_CLIENT_START_OFFSET_CLIPPING);
       }
       CHPP_LOGW("Drift=%" PRId64 " clipped to %" PRId64 " at t=%" PRIu64,
                 offsetChangeNs / (int64_t)CHPP_NSEC_PER_MSEC,
@@ -143,6 +157,8 @@ bool chppDispatchTimesyncServiceResponse(struct ChppAppState *appState,
         CHPP_LOGI("Timesync offset no longer requires clipping");
         state->isOffsetClipping = false;
         clippingStatusChanged = true;
+        chppLogEvent(&state->eventLog,
+                     CHPP_TIMESYNC_CLIENT_END_OFFSET_CLIPPING);
       }
       state->timesyncResult.measurementTimeNs =
           state->measureOffset.responseTimeNs;
@@ -236,4 +252,28 @@ const struct ChppTimesyncResult *chppTimesyncGetResult(
   CHPP_DEBUG_NOT_NULL(appState);
   CHPP_DEBUG_NOT_NULL(appState->timesyncClientContext);
   return &appState->timesyncClientContext->timesyncResult;
+}
+
+const struct ChppEventLog *chppTimesyncGetEventLog(struct ChppAppState *appState) {
+  CHPP_DEBUG_NOT_NULL(appState);
+  CHPP_DEBUG_NOT_NULL(appState->timesyncClientContext);
+  return &appState->timesyncClientContext->eventLog;
+}
+
+
+const char* chppGetEventLogName(enum ChppTimesyncClientEventType eventType) {
+  switch (eventType) {
+    case CHPP_TIMESYNC_CLIENT_INIT:
+      return "CHPP_TIMESYNC_CLIENT_INIT";
+    case CHPP_TIMESYNC_CLIENT_RESET:
+      return "CHPP_TIMESYNC_CLIENT_RESET";
+    case CHPP_TIMESYNC_CLIENT_FIRST_OFFSET:
+      return "CHPP_TIMESYNC_CLIENT_FIRST_OFFSET";
+    case CHPP_TIMESYNC_CLIENT_START_OFFSET_CLIPPING:
+      return "CHPP_TIMESYNC_CLIENT_START_OFFSET_CLIPPING";
+    case CHPP_TIMESYNC_CLIENT_END_OFFSET_CLIPPING:
+      return "CHPP_TIMESYNC_CLIENT_END_OFFSET_CLIPPING";
+    default:
+      return "UNKNOWN";
+  }
 }

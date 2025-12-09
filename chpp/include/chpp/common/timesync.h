@@ -28,6 +28,8 @@ extern "C" {
  *  Public Definitions
  ***********************************************/
 
+#define CHPP_EVENT_LOG_TIMESYNC_CAPACITY 16
+
 /**
  * Data structure used by the Discovery Response.
  */

@@ -55,23 +55,6 @@ flag {
 }
 
 flag {
-  name: "efw_xport_in_context_hub"
-  namespace: "context_hub"
-  description: "Flag guarding the use of the new EFW transport for ContextHub <-> CHRE comms"
-  bug: "369883034"
-}
-
-flag {
-  name: "bug_fix_remove_exit_call_in_hal"
-  namespace: "context_hub"
-  description: "Flag enabling multiclient HAL to gracefully handle connection to CHRE in init/restart"
-  bug: "374773993"
-  metadata {
-    purpose: PURPOSE_BUGFIX
-  }
-}
-
-flag {
   name: "hal_handle_nanoapp_query_test_mode"
   namespace: "context_hub"
   description: "Flag guarding the fix for nanoapp query handling when enabling test mode"
@@ -86,6 +69,26 @@ flag {
   namespace: "context_hub"
   description: "Flag guarding the use of endpoint messaging for the GNSS HAL"
   bug: "407810084"
+  metadata {
+    purpose: PURPOSE_BUGFIX
+  }
+}
+
+flag {
+  name: "simplify_service_transaction_lock"
+  namespace: "context_hub"
+  description: "Flag guarding the simplification of the ContextHubService transaction lock"
+  bug: "433754168"
+  metadata {
+    purpose: PURPOSE_BUGFIX
+  }
+}
+
+flag {
+  name: "efw_xport_nonwake_rx_ring"
+  namespace: "context_hub"
+  description: "Flag guarding use of separate RX ring buffer for nonwaking messages"
+  bug: "432114430"
   metadata {
     purpose: PURPOSE_BUGFIX
   }

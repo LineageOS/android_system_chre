@@ -251,32 +251,31 @@ void BleRequest::logStateToBuffer(DebugDumpWrapper &debugDump,
         " mode=%" PRIu8 " reportDelayMs=%" PRIu32 " rssiThreshold=%" PRId8,
         static_cast<uint8_t>(mMode), mReportDelayMs, mRssiThreshold);
     if (isPlatformRequest) {
-      debugDump.print(" genericFilters=[");
+      debugDump.print("\n  genericFilters=[");
       for (const chreBleGenericFilter &filter : mGenericFilters) {
-        debugDump.print("(type=%" PRIx8, filter.type);
+        debugDump.print(
+            "\n   (type=%" PRIX8 " len=%" PRIu8, filter.type, filter.len);
         if (filter.len > 0) {
-          debugDump.print(" data=%s dataMask=%s len=%" PRIu8 "), ",
-                          &filter.data[0], &filter.dataMask[0], filter.len);
-        } else {
-          debugDump.print("), ");
+          debugDump.print(" data=");
+          debugDump.printHex(filter.data, filter.len);
+          debugDump.print(" dataMask=");
+          debugDump.printHex(filter.dataMask, filter.len);
         }
+        debugDump.print("),");
       }
-      debugDump.print("]\n");
-      debugDump.print(" broadcasterAddressFilters=[");
+      debugDump.print("]\n  broadcasterAddressFilters=[");
       for (const chreBleBroadcasterAddressFilter &filter :
            mBroadcasterFilters) {
         debugDump.print(
-            "(address=%02X:%02X:%02X:%02X:%02X:%02X), ",
+            "\n   (address=%02X:%02X:%02X:%02X:%02X:%02X),",
             filter.broadcasterAddress[5], filter.broadcasterAddress[4],
             filter.broadcasterAddress[3], filter.broadcasterAddress[2],
             filter.broadcasterAddress[1], filter.broadcasterAddress[0]);
       }
       debugDump.print("]\n");
     } else {
-      debugDump.print(" genericFilterCount=%" PRIu8
-                      " broadcasterFilterCount=%" PRIu8 "\n",
-                      static_cast<uint8_t>(mGenericFilters.size()),
-                      static_cast<uint8_t>(mBroadcasterFilters.size()));
+      debugDump.print(" genericFilterCount=%zu broadcasterFilterCount=%zu\n",
+                      mGenericFilters.size(), mBroadcasterFilters.size());
     }
   }
 }

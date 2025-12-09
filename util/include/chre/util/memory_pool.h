@@ -65,6 +65,8 @@ class MemoryPool : public NonCopyable {
    */
   MemoryPool();
 
+  ~MemoryPool();
+
   /**
    * Allocates space for an object, constructs it and returns the pointer to
    * that object.
@@ -74,7 +76,7 @@ class MemoryPool : public NonCopyable {
    *         fails.
    */
   template <typename... Args>
-  ElementType *allocate(Args &&... args);
+  ElementType *allocate(Args &&...args);
 
   /**
    * Releases the memory of a previously allocated element. The pointer provided
@@ -110,6 +112,15 @@ class MemoryPool : public NonCopyable {
    * @return the first matching element or nullptr if not found.
    */
   ElementType *find(MatchingFunction *matchingFunction, void *data);
+
+  /**
+   * Applies the matchingFunction to all active blocks in the memory pool.
+   *
+   * @param matchingFunction The function to match.
+   * @param data The data passed to matchingFunction.
+   * @return the number of matches found.
+   */
+  size_t forEach(MatchingFunction *matchingFunction, void *data);
 
   /**
    * @return the number of unused blocks in this memory pool.

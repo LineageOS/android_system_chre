@@ -103,6 +103,13 @@ WifiRequestManager::DebugLogEntry::forScanEvent(
   entry.scanEvent.resultTotal = scanEvent.resultTotal;
   entry.scanEvent.eventIndex = scanEvent.eventIndex;
   entry.scanEvent.scanType = scanEvent.scanType;
+  int64_t scanAgeMs = static_cast<int64_t>(entry.timestamp.toRawNanoseconds() -
+                                           scanEvent.referenceTime) /
+                      static_cast<int64_t>(kOneMillisecondInNanoseconds);
+  entry.scanEvent.scanAgeMs = (scanAgeMs > INT32_MAX) ? INT32_MAX
+                              : (scanAgeMs < INT32_MIN)
+                                  ? INT32_MIN
+                                  : static_cast<int32_t>(scanAgeMs);
   return entry;
 }
 
@@ -327,8 +334,7 @@ void WifiRequestManager::handleRangingRequestTimeout() {
     EventLoopManagerSingleton::get()->getSystemHealthMonitor().onFailure(
         HealthCheckId::WifiRequestRangingTimeout);
     mPendingRangingRequests.pop();
-    while (!mPendingRangingRequests.empty() && !dispatchQueuedRangingRequest())
-      ;
+    while (!mPendingRangingRequests.empty() && !dispatchQueuedRangingRequest());
   }
 }
 
@@ -758,26 +764,23 @@ void WifiRequestManager::dumpDebugLog(const DebugLogEntry &log,
                       " maxScanAge(ms)=%" PRIu16 " radioChainPref=%" PRIu8
                       " channelSet=%" PRIu8 " syncResult=%d\n",
                       log.scanRequest.nanoappInstanceId,
-                      log.scanRequest.scanType,
-                      log.scanRequest.maxScanAgeMs,
+                      log.scanRequest.scanType, log.scanRequest.maxScanAgeMs,
                       log.scanRequest.radioChainPref,
-                      log.scanRequest.channelSet,
-                      log.scanRequest.syncResult);
+                      log.scanRequest.channelSet, log.scanRequest.syncResult);
       break;
     case WifiScanLogType::SCAN_RESPONSE:
       debugDump.print("scanRsp: nappId=%" PRIu16 " pending=%" PRIu8
                       " errorCode=%" PRIu8 "\n",
                       log.scanResponse.nanoappInstanceId,
-                      log.scanResponse.pending,
-                      log.scanResponse.errorCode);
+                      log.scanResponse.pending, log.scanResponse.errorCode);
       break;
     case WifiScanLogType::SCAN_EVENT:
       debugDump.print("scanEvt: resultCount=%" PRIu8 " resultTotal=%" PRIu8
-                      " eventIndex=%" PRIu8 " scanType=%" PRIu8 "\n",
-                      log.scanEvent.resultCount,
-                      log.scanEvent.resultTotal,
-                      log.scanEvent.eventIndex,
-                      log.scanEvent.scanType);
+                      " eventIndex=%" PRIu8 " scanType=%" PRIu8
+                      " scanAge(ms)=%" PRId32 "\n",
+                      log.scanEvent.resultCount, log.scanEvent.resultTotal,
+                      log.scanEvent.eventIndex, log.scanEvent.scanType,
+                      log.scanEvent.scanAgeMs);
       break;
     case WifiScanLogType::SCAN_MONITOR_REQUEST:
       debugDump.print("scanMonReq: nappId=%" PRIu16 " enable=%" PRIu8
@@ -1132,8 +1135,10 @@ void WifiRequestManager::handleScanMonitorStateChangeSync(bool enabled,
           : mPendingScanMonitorRequests.front().nanoappInstanceId,
       enabled, errorCode));
   if (mPendingScanMonitorRequests.empty()) {
-    LOGE("Scan monitor change with no pending requests (enabled %d "
-         "errorCode %" PRIu8 ")", enabled, errorCode);
+    LOGE(
+        "Scan monitor change with no pending requests (enabled %d "
+        "errorCode %" PRIu8 ")",
+        enabled, errorCode);
     EventLoopManagerSingleton::get()->getSystemHealthMonitor().onFailure(
         HealthCheckId::UnexpectedWifiScanMonitorStateChange);
   }
@@ -1296,8 +1301,7 @@ bool WifiRequestManager::dispatchQueuedNanSubscribeRequest() {
 
 void WifiRequestManager::dispatchQueuedNanSubscribeRequestWithRetry() {
   while (!mPendingNanSubscribeRequests.empty() &&
-         !dispatchQueuedNanSubscribeRequest())
-    ;
+         !dispatchQueuedNanSubscribeRequest());
 }
 
 bool WifiRequestManager::dispatchQueuedScanRequests() {
@@ -1355,8 +1359,7 @@ void WifiRequestManager::handleRangingEventSync(
 
   // If we have any pending requests, try issuing them to the platform until the
   // first one succeeds.
-  while (!mPendingRangingRequests.empty() && !dispatchQueuedRangingRequest())
-    ;
+  while (!mPendingRangingRequests.empty() && !dispatchQueuedRangingRequest());
 }
 
 void WifiRequestManager::freeWifiRangingEventCallback(uint16_t /* eventType */,

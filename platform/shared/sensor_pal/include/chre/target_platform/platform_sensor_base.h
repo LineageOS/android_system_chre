@@ -36,10 +36,10 @@ class PlatformSensorBase {
   }
 
   //! The sensor information for this sensor.
-  const struct chreSensorInfo *mSensorInfo;
+  const struct chreSensorInfo *mSensorInfo = nullptr;
 
   //! The sensor handle for this sensor.
-  uint32_t mSensorHandle;
+  uint32_t mSensorHandle = 0;
 
   /**
    * Sets the sensor information of this sensor in the CHRE API format.

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "chre/core/init.h"
+#include "chre/target_platform/init.h"
 
 #ifdef CHRE_ENABLE_CHPP
 #include "chpp/platform/chpp_init.h"
@@ -26,14 +26,16 @@
 
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/static_nanoapps.h"
+#include "chre/platform/context.h"
 #include "chre/platform/shared/dram_vote_client.h"
-#include "chre/target_platform/init.h"
+#include "chre/platform/shared/init.h"
 
 #ifdef CHRE_USE_BUFFERED_LOGGING
 #include "chre/platform/shared/log_buffer_manager.h"
 #include "chre/target_platform/macros.h"
 #endif  // CHRE_USE_BUFFERED_LOGGING
 
+#include "FreeRTOS.h"
 #include "task.h"
 
 namespace chre {
@@ -69,11 +71,6 @@ uint8_t gSecondaryLogBufferData[CHRE_LOG_BUFFER_DATA_SIZE];
 uint8_t gPrimaryLogBufferData[CHRE_LOG_BUFFER_DATA_SIZE];
 #endif  // CHRE_USE_BUFFERED_LOGGING
 
-#ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
-CHRE_HIGH_POWER_BSS_ATTRIBUTE
-BleSocketManager gBleSocketManager;
-#endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
-
 // This function is intended to be the task action function for FreeRTOS.
 // It Initializes CHRE, runs the event loop, and only exits if it receives
 // a message to shutdown. Note that depending on the hardware platform this
@@ -82,24 +79,26 @@ BleSocketManager gBleSocketManager;
 void chreThreadEntry(void *context) {
   UNUSED_VAR(context);
 
-  chre::init();
+  chre::DramVoteClientSingleton::get()->incrementDramVoteCount();
+  chre::initCommon();
   chre::EventLoopManagerSingleton::get()->lateInit();
-#ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
-  forceDramAccess();
-  chre::EventLoopManagerSingleton::get()->setBleSocketManager(
-      gBleSocketManager);
-#endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
+  chre::DramVoteClientSingleton::get()->decrementDramVoteCount();
   chre::loadStaticNanoapps();
 
   chre::EventLoopManagerSingleton::get()->getEventLoop().run();
 
   // we only get here if the CHRE EventLoop exited
-  chre::deinit();
+  chre::DramVoteClientSingleton::get()->incrementDramVoteCount();
+  chre::deinitCommon();
+  chre::DramVoteClientSingleton::get()->decrementDramVoteCount();
 
   DramVoteClientSingleton::deinit();
 
   vTaskDelete(nullptr);
   gChreTaskHandle = nullptr;
+
+  // TODO(b/425748478): Determine if this should crash if the CHRE EventLoop
+  // thread exits
 }
 
 #ifdef CHRE_USE_BUFFERED_LOGGING
@@ -174,6 +173,10 @@ const char *getChreFlushTaskName() {
 
 BaseType_t getChreTaskPriority() {
   return freertos::kChreTaskPriority;
+}
+
+bool inEventLoopThread() {
+  return (xTaskGetCurrentTaskHandle() == freertos::gChreTaskHandle);
 }
 
 }  // namespace chre

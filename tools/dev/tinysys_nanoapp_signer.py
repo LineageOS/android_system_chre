@@ -21,6 +21,8 @@
 import argparse
 import ctypes
 import hashlib
+import os
+
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -29,19 +31,19 @@ from cryptography.hazmat.primitives.asymmetric import utils
 
 class HeaderInfo(ctypes.LittleEndianStructure):
   _fields_ = [
-      ("magic_number", ctypes.c_uint32),
-      ("header_version", ctypes.c_uint32),
-      ("rollback_info", ctypes.c_uint32),
-      ("binary_length", ctypes.c_uint32),
-      ("flags", ctypes.c_uint64 * 2),
-      ("binary_sha256", ctypes.c_uint8 * 32),
-      ("reserved_chip_id", ctypes.c_uint8 * 32),
-      ("reserved_auth_config", ctypes.c_uint8 * 256),
-      ("reserved_image_config", ctypes.c_uint8 * 256),
+    ("magic_number", ctypes.c_uint32),
+    ("header_version", ctypes.c_uint32),
+    ("rollback_info", ctypes.c_uint32),
+    ("binary_length", ctypes.c_uint32),
+    ("flags", ctypes.c_uint64 * 2),
+    ("binary_sha256", ctypes.c_uint8 * 32),
+    ("reserved_chip_id", ctypes.c_uint8 * 32),
+    ("reserved_auth_config", ctypes.c_uint8 * 256),
+    ("reserved_image_config", ctypes.c_uint8 * 256),
   ]
 
 
-def read_private_key(key_file, password):
+def _read_private_key(key_file, password):
   with open(key_file, "rb") as file:
     key_bytes = file.read()
     try:
@@ -57,25 +59,24 @@ def read_private_key(key_file, password):
 
 
 def main():
-
   parser = argparse.ArgumentParser(
-      description="Sign a binary to be authenticated on tinysys platforms"
+    description="Sign a binary to be authenticated on tinysys platforms"
   )
   parser.add_argument(
-      "private_key_file",
-      help="The private key (DER or PEM format) used to sign the binary",
+    "private_key_file",
+    help="The private key (DER or PEM format) used to sign the binary",
   )
   parser.add_argument(
-      "-p",
-      "--password",
-      type=str,
-      help="Optional password encrypting the private key",
+    "-p",
+    "--password",
+    type=str,
+    help="Optional password encrypting the private key",
   )
   parser.add_argument(
-      "nanoapp", help="The name of the nanoapp binary file to be signed"
+    "nanoapp", help="The name of the nanoapp binary file to be signed"
   )
   parser.add_argument(
-      "output_path", help="The path where the signed binary should be stored"
+    "output_path", help="The path where the signed binary should be stored"
   )
   args = parser.parse_args()
 
@@ -86,7 +87,7 @@ def main():
 
   # Load ECDSA private key.
   password = args.password.encode() if args.password else None
-  private_key = read_private_key(args.private_key_file, password)
+  private_key = _read_private_key(args.private_key_file, password)
 
   # Generate a zero-filled header.
   header = bytearray(0x1000)
@@ -100,13 +101,13 @@ def main():
   sha256_hasher = hashlib.sha256()
   sha256_hasher.update(binary_data)
   header_info = HeaderInfo(
-      magic_number=0x45524843,
-      header_version=1,
-      binary_length=len(binary_data),
-      binary_sha256=(ctypes.c_uint8 * 32)(*sha256_hasher.digest()),
+    magic_number=0x45524843,
+    header_version=1,
+    binary_length=len(binary_data),
+    binary_sha256=(ctypes.c_uint8 * 32)(*sha256_hasher.digest()),
   )
   header_info_bytes = bytes(header_info)
-  header[0x400 : 0x400 + len(header_info_bytes)] = header_info_bytes
+  header[0x400: 0x400 + len(header_info_bytes)] = header_info_bytes
 
   # Generate the signature.
   signature = private_key.sign(header[0x200:], ec.ECDSA(hashes.SHA256()))
@@ -116,9 +117,16 @@ def main():
   header[:32] = r_bytes
   header[32:64] = s_bytes
 
-  with open(f"{args.output_path}/{args.nanoapp}", "wb") as output:
+  with open(
+      f"{args.output_path}/{os.path.basename(args.nanoapp)}", "wb"
+  ) as output:
     output.write(header)
     output.write(binary_data)
+
+  print(
+    "\nSigned binary saved to",
+    f"{args.output_path}/{os.path.basename(args.nanoapp)}",
+  )
 
 
 if __name__ == "__main__":

@@ -34,8 +34,8 @@ constexpr int kAuthenticityKeyLength = 32;
 constexpr int kMetaDataEncryptionTagLength = 32;
 
 static bool addDataElementToResult(nearby_DataElement_ElementType de_type,
-                                   const ByteArray &de_value,
-                                   nearby_BleFilterResult *result) {
+                                   const ByteArray& de_value,
+                                   nearby_BleFilterResult* result) {
   size_t de_index = result->data_element_count;
   if (de_index >= ARRAY_SIZE(result->data_element)) {
     LOGE("Data Elements(%u) exceed the maximum count: %zu", de_type, de_index);
@@ -60,9 +60,9 @@ static bool addDataElementToResult(nearby_DataElement_ElementType de_type,
   return true;
 }
 
-bool MatchFastPairInitial(const nearby_BleFilter &filter,
-                          const PresenceServiceData &service_data,
-                          nearby_BleFilterResult *result) {
+bool MatchFastPairInitial(const nearby_BleFilter& filter,
+                          const PresenceServiceData& service_data,
+                          nearby_BleFilterResult* result) {
   if (!service_data.has_fp_model_id) {
     return false;
   }
@@ -101,11 +101,11 @@ bool MatchFastPairInitial(const nearby_BleFilter &filter,
   return false;
 }
 
-bool MatchPresenceV0(const nearby_BleFilter &filter,
-                     const BleScanRecord &scan_record,
-                     nearby_BleFilterResult *result) {
+bool MatchPresenceV0(const nearby_BleFilter& filter,
+                     const BleScanRecord& scan_record,
+                     nearby_BleFilterResult* result) {
   chre::Optional<PresenceServiceData> presence_service_data;
-  for (const auto &ble_service_data : scan_record.service_data) {
+  for (const auto& ble_service_data : scan_record.service_data) {
     if (ble_service_data.uuid == PresenceServiceData::kUuid) {
       presence_service_data = PresenceServiceData::Parse(
           ble_service_data.data, ble_service_data.length);
@@ -150,16 +150,16 @@ bool MatchPresenceV0(const nearby_BleFilter &filter,
 }
 
 static bool MatchExtendedDE(
-    const nearby_BleFilter &filter,
-    const chre::DynamicVector<DataElement> &extended_des,
-    nearby_BleFilterResult *result) {
+    const nearby_BleFilter& filter,
+    const chre::DynamicVector<DataElement>& extended_des,
+    nearby_BleFilterResult* result) {
   for (int i = 0; i < filter.data_element_count; i++) {
     // If filter is valid, at least one DE should match with this filter.
     // Otherwise, returns failure
     if (filter.data_element[i].has_key && filter.data_element[i].has_value &&
         filter.data_element[i].has_value_length) {
       bool is_matched = false;
-      for (const auto &ext_de : extended_des) {
+      for (const auto& ext_de : extended_des) {
         if (ext_de.key == filter.data_element[i].key &&
             ext_de.value.length == filter.data_element[i].value_length &&
             memcmp(ext_de.value.data, filter.data_element[i].value,
@@ -176,7 +176,7 @@ static bool MatchExtendedDE(
     }
   }
   // Passed all filters. Adds all DEs into results.
-  for (const auto &ext_de : extended_des) {
+  for (const auto& ext_de : extended_des) {
     if (!addDataElementToResult(ext_de.key, ext_de.value, result)) {
       return false;
     }
@@ -184,18 +184,18 @@ static bool MatchExtendedDE(
   return true;
 }
 
-bool MatchPresenceV1(const nearby_BleFilter &filter,
-                     const BleScanRecord &scan_record, const Crypto &crypto,
-                     nearby_BleFilterResult *result) {
+bool MatchPresenceV1(const nearby_BleFilter& filter,
+                     const BleScanRecord& scan_record, const Crypto& crypto,
+                     nearby_BleFilterResult* result) {
   LOGD_SENSITIVE_INFO("Filter Presence V1 with %" PRIu16 " certificates",
                       filter.certificate_count);
   PresenceDecoderV1 decoder;
-  for (const auto &ble_service_data : scan_record.service_data) {
+  for (const auto& ble_service_data : scan_record.service_data) {
     if (ble_service_data.uuid == PresenceServiceData::kUuid) {
       for (int cert_index = 0; cert_index < filter.certificate_count;
            cert_index++) {
         ByteArray authenticity_key(
-            const_cast<uint8_t *>(
+            const_cast<uint8_t*>(
                 filter.certificate[cert_index].authenticity_key),
             kAuthenticityKeyLength);
         LOGD_SENSITIVE_INFO("certificate metadata encryption key tag:");
@@ -205,11 +205,11 @@ bool MatchPresenceV1(const nearby_BleFilter &filter,
               filter.certificate[cert_index].metadata_encryption_key_tag[i]);
         }
         ByteArray metadata_encryption_key_tag(
-            const_cast<uint8_t *>(
+            const_cast<uint8_t*>(
                 filter.certificate[cert_index].metadata_encryption_key_tag),
             kMetaDataEncryptionTagLength);
         if (decoder.Decode(
-                ByteArray(const_cast<uint8_t *>(ble_service_data.data),
+                ByteArray(const_cast<uint8_t*>(ble_service_data.data),
                           ble_service_data.length),
                 crypto, authenticity_key, metadata_encryption_key_tag)) {
           result->has_public_credential = true;

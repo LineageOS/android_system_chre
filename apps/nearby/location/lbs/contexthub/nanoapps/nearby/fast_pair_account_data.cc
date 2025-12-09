@@ -49,13 +49,13 @@ struct Header {
 
 }  // namespace
 
-FastPairAccountData FastPairAccountData::Parse(const ByteArray &service_data) {
+FastPairAccountData FastPairAccountData::Parse(const ByteArray& service_data) {
   const FastPairAccountData invalid_data(false, 0, ByteArray(), ByteArray(),
                                          ByteArray(), ByteArray());
   if (service_data.length == 0) {
     return invalid_data;
   }
-  uint8_t *data = service_data.data;
+  uint8_t* data = service_data.data;
   // First byte is Version and flags(0bVVVVFFFF), which splits the byte the same
   // way as Header.
   const uint8_t version = Header::Parse(data[0]).length;

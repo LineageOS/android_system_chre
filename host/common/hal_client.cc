@@ -19,6 +19,7 @@
 #endif
 
 #include "chre_host/hal_client.h"
+#include "android_chre_flags.h"
 #include "chre_host/log.h"
 
 #include <android-base/properties.h>
@@ -31,12 +32,28 @@ namespace android::chre {
 using aidl::android::hardware::contexthub::IContextHub;
 using aidl::android::hardware::contexthub::IContextHubCallback;
 using base::GetBoolProperty;
+using base::ScopedLockAssertion;
 using ndk::ScopedAStatus;
 
 namespace {
 // Multiclient HAL needs getUuid() added since V3 to identify each client.
 constexpr int kMinHalInterfaceVersion = 3;
+
+constexpr std::chrono::milliseconds kWatchdogThreshold{4000};
+constexpr std::chrono::milliseconds kWatchdogSleepInterval{500};
+
+constexpr std::chrono::seconds kBgConnectionFutureTimeout{1};
 }  // namespace
+
+HalClient::HalClient(const std::shared_ptr<IContextHubCallback> &callback,
+                     int32_t contextHubId)
+    : mContextHubId(contextHubId) {
+  mCallback = ndk::SharedRefBase::make<HalClientCallback>(callback, this);
+  ABinderProcess_startThreadPool();
+  mDeathRecipient = ndk::ScopedAIBinder_DeathRecipient(
+      AIBinder_DeathRecipient_new(onHalDisconnected));
+  mCallback->getName(&mClientName);
+}
 
 std::unique_ptr<HalClient> HalClient::create(
     const std::shared_ptr<IContextHubCallback> &callback,
@@ -52,6 +69,67 @@ std::unique_ptr<HalClient> HalClient::create(
     return nullptr;
   }
   return std::unique_ptr<HalClient>(new HalClient(callback, contextHubId));
+}
+
+void HalClient::logFatalClientCallbackTimeout(const char *funcName,
+                                              const uint64_t tid) const {
+  // If this fatal error is triggered, there is an issue in the client code (not
+  // HalClient itself). Since these callbacks block the Context Hub HAL, they
+  // must return quickly, or they may block other clients from making progress.
+  LOG_ALWAYS_FATAL("%s's callback %s() has been running for over %" PRIi64
+                   "ms and triggered watchdog. See backtrace of tid %" PRIu64
+                   " for the root cause",
+                   mClientName.c_str(), funcName,
+                   static_cast<uint64_t>(kWatchdogThreshold.count()), tid);
+}
+
+void HalClient::watchdogTask(
+    const std::chrono::milliseconds timeThreshold,
+    const std::function<void(const char *funcName, uint64_t tid)> action) {
+  int64_t lastTimestamp = 0;
+  int64_t timeElapsedMs = 0;
+  bool shouldTriggerWatchdog = false;
+
+  while (true) {
+    {
+      std::unique_lock lock(mWatchdogMutex);
+      ScopedLockAssertion lockAssertion(mWatchdogMutex);
+      mWatchdogCv.wait(lock, [&] {
+        ScopedLockAssertion cvLockAssertion(mWatchdogMutex);
+        return mStopWatchdog || mCallbackTimestamp != 0;
+      });
+      if (mStopWatchdog) {
+        return;
+      }
+
+      timeElapsedMs = elapsedRealtime() - mCallbackTimestamp;
+      shouldTriggerWatchdog = mCallbackTimestamp == lastTimestamp &&
+                              timeElapsedMs >= timeThreshold.count();
+      if (shouldTriggerWatchdog) {
+        action(mCallbackFunctionName, mCallbackThreadId);
+      }
+      lastTimestamp = mCallbackTimestamp;
+    }
+
+    std::this_thread::sleep_for(kWatchdogSleepInterval);
+  }
+}
+
+bool HalClient::connect() {
+  const bool result = initConnection() == HalError::SUCCESS;
+  // Check if mWatchdogTask can already be joined to make sure the watchdog task
+  // is only created once.
+  if (result) {
+    std::lock_guard lock(mWatchdogCreationMutex);
+    if (!mWatchdogTask.joinable()) {
+      mWatchdogTask =
+          std::thread(&HalClient::watchdogTask, this, kWatchdogThreshold,
+                      [&](const char *funcName, const uint64_t tid) {
+                        logFatalClientCallbackTimeout(funcName, tid);
+                      });
+    }
+  }
+  return result;
 }
 
 HalError HalClient::initConnection() {
@@ -219,18 +297,31 @@ void HalClient::tryReconnectEndpoints(HalClient *halClient) {
 }
 
 HalClient::~HalClient() {
-  std::lock_guard lock(mBackgroundConnectionFuturesLock);
-  for (const auto &future : mBackgroundConnectionFutures) {
-    // Calling std::thread.join() has chance to hang if the background thread
-    // being joined is still waiting for connecting to the service. Therefore
-    // waiting for the thread to finish here instead and logging the timeout
-    // every second until system kills the process to report the abnormality.
-    while (future.wait_for(std::chrono::seconds(1)) !=
-           std::future_status::ready) {
-      LOGE(
-          "Failed to finish a background connection in time when HalClient is "
-          "being destructed. Waiting...");
+  {
+    std::lock_guard bgConnectionLock(mBackgroundConnectionFuturesLock);
+    for (const auto &future : mBackgroundConnectionFutures) {
+      // Calling std::thread.join() has chance to hang if the background thread
+      // being joined is still waiting for connecting to the service. Therefore,
+      // waiting for the thread to finish here instead and logging the timeout
+      // every second until system kills the process to report the abnormality.
+      while (future.wait_for(kBgConnectionFutureTimeout) !=
+             std::future_status::ready) {
+        LOGE(
+            "Failed to finish a background connection in time when HalClient "
+            "is "
+            "being destructed. Waiting...");
+      }
     }
+  }
+
+  std::lock_guard lock(mWatchdogCreationMutex);
+  if (mWatchdogTask.joinable()) {
+    {
+      std::lock_guard watchdogLock(mWatchdogMutex);
+      mStopWatchdog = true;
+    }
+    mWatchdogCv.notify_one();
+    mWatchdogTask.join();
   }
 }
 }  // namespace android::chre

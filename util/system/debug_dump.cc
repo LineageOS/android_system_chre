@@ -30,6 +30,12 @@ void DebugDumpWrapper::print(const char *formatStr, ...) {
   va_end(argList);
 }
 
+void DebugDumpWrapper::printHex(const uint8_t *data, size_t dataSize) {
+  for (size_t i = 0; i < dataSize; ++i) {
+    print("%02X", data[i]);
+  }
+}
+
 void DebugDumpWrapper::printVaList(const char *formatStr, va_list argList) {
   va_list argListCopy;
   va_copy(argListCopy, argList);

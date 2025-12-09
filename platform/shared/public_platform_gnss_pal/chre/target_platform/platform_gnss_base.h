@@ -33,7 +33,7 @@ class PlatformGnssBase : public PlatformPal {
 
   //! The instance of the CHRE PAL API. This will be set to nullptr if the
   //! platform does not supply an implementation.
-  const chrePalGnssApi *mGnssApi;
+  const chrePalGnssApi *mGnssApi = nullptr;
 
   //! Event handlers for the CHRE GNSS PAL. Refer to chre/pal/gnss.h for futher
   //! information.

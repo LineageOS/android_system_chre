@@ -129,6 +129,12 @@ class ChreApiTestService final
                            ServerWriter<chre_rpc_GeneralSyncMessage> &writer);
 
   /**
+   * Starts to read the RSSI
+   */
+  void ChreBleReadRssiSync(const chre_rpc_ChreBleReadRssiRequest &request,
+                           ServerWriter<chre_rpc_ChreBleReadRssiEvent> &writer);
+
+  /**
    * Gathers events that match the input filter before the timeout in ns or
    * the max event count.
    */
@@ -141,6 +147,13 @@ class ChreApiTestService final
    * @param result              the event result.
    */
   void handleBleAsyncResult(const chreAsyncResult *result);
+
+  /**
+   * Handles a BLE event from CHRE.
+   *
+   * @param event              the event result.
+   */
+  void handleBleRssiReadEvent(const chreBleReadRssiEvent *event);
 
   /**
    * Gathers the event if there is an existing event writer.
@@ -194,6 +207,10 @@ class ChreApiTestService final
 
   bool validateInputAndCallChreBleStopScanAsync(
       const google_protobuf_Empty &request, chre_rpc_Status &response);
+
+  bool validateInputAndCallChreBleReadRssiAsync(
+      const chre_rpc_ChreBleReadRssiRequest &request,
+      chre_rpc_Status &response);
 
   bool validateInputAndCallChreSensorFindDefault(
       const chre_rpc_ChreSensorFindDefaultInput &request,
@@ -289,12 +306,25 @@ class ChreApiTestService final
       10;  // declared in chre_api_test.options
 
   /**
-   * Variables to control synchronization for sync API calls.
+   * Used for sync API calls where a ChreAsyncResult is expected.
    * Only one sync API call may be made at a time.
    */
   Optional<ServerWriter<chre_rpc_GeneralSyncMessage>> mWriter;
+
+  /**
+   * Timer used for sync API calls.
+   */
   uint32_t mSyncTimerHandle = CHRE_TIMER_INVALID;
+
+  /**
+   * Request type associated with the current sync API call.
+   */
   uint8_t mRequestType;
+
+  /**
+   * Used for synchronous RSSI requests.
+   */
+  Optional<ServerWriter<chre_rpc_ChreBleReadRssiEvent>> mRssiWriter;
 
   /*
    * Variables to control synchronization for sync events calls.

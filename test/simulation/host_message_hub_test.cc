@@ -96,7 +96,6 @@ const EndpointInfo kEndpoints[] = {
     EndpointInfo(0x1, nullptr, 0, EndpointType::GENERIC, 0),
     EndpointInfo(0x2, nullptr, 0, EndpointType::GENERIC, 0)};
 const EndpointInfo kExtraEndpoint(0x3, nullptr, 0, EndpointType::GENERIC, 0);
-const EndpointId kEndpointIds[] = {0x1, 0x2};
 const char *kEmbeddedHubName = "embedded hub";
 const MessageHubInfo kEmbeddedHub{.id = CHRE_PLATFORM_ID + 1,
                                   .name = kEmbeddedHubName};

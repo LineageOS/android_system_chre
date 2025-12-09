@@ -180,7 +180,8 @@ class SegmentedQueue : public NonCopyable {
       typename std::conditional<std::is_pointer<ElementType>::value ||
                                     std::is_fundamental<ElementType>::value,
                                 bool(ElementType, void *, void *),
-                                bool(ElementType &, void *, void *)>::type;
+                                bool(const ElementType &, void *,
+                                     void *)>::type;
 
   using FreeFunction =
       typename std::conditional<std::is_pointer<ElementType>::value ||
@@ -222,7 +223,9 @@ class SegmentedQueue : public NonCopyable {
                                void *extraDataForFreeFunction = nullptr);
 
  private:
-  size_t maxBlockCount() const { return mRawStoragePtrs.capacity(); }
+  size_t maxBlockCount() const {
+    return mRawStoragePtrs.capacity();
+  }
 
   /**
    * Push a new block to the end of storage to add storage space.

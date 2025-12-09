@@ -43,6 +43,7 @@ pw_add_library(chre.util STATIC
     include/chre/util/priority_queue.h
     include/chre/util/priority_queue_impl.h
     include/chre/util/raw_storage.h
+    include/chre/util/ring_buffer_util.h
     include/chre/util/scope_timer.h
     include/chre/util/scope_timer_impl.h
     include/chre/util/segmented_queue.h

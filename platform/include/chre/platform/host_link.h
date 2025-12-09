@@ -89,6 +89,42 @@ class HostLink : public HostLinkBase, public NonCopyable {
    */
   bool sendMetricLog(uint32_t metricId, const uint8_t *encodedMetric,
                      size_t encodedMetricLen);
+
+  /**
+   * Sends a BT socket get capabilities response to the host.
+   *
+   * @param leCocNumberOfSupportedSockets Number of LE COC sockets supported
+   * @param leCocMtu Max LE COC Rx MTU
+   * @param rfcommNumberOfSupportedSockets Number of RFCOMM sockets supported
+   * @param rfcommMaxFrameSize Max RFCOMM frame size
+   *
+   * @return true if the message was successfully sent
+   */
+  bool sendBtSocketGetCapabilitiesResponse(
+      uint32_t leCocNumberOfSupportedSockets, uint32_t leCocMtu,
+      uint32_t rfcommNumberOfSupportedSockets, uint32_t rfcommMaxFrameSize);
+
+  /**
+   * Sends a BT socket open response message to the host.
+   *
+   * @param socketId BT socket identifier
+   * @param success Whether the socket open was successful
+   * @param reason Reason for the socket open failure (if applicable)
+   *
+   * @return true if the message was successfully sent
+   */
+  bool sendBtSocketOpenResponse(uint64_t socketId, bool success,
+                                const char *reason);
+
+  /**
+   * Sends a BT socket close message to the host.
+   *
+   * @param socketId BT socket identifier
+   * @param reason Reason for closing the socket
+   *
+   * @return true if the message was successfully sent
+   */
+  bool sendBtSocketClose(uint64_t socketId, const char *reason);
 };
 
 }  // namespace chre

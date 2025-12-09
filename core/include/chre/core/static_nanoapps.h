@@ -19,6 +19,7 @@
 
 #include "chre/core/nanoapp.h"
 #include "chre/util/unique_ptr.h"
+#include "pw_span/span.h"
 
 namespace chre {
 
@@ -35,8 +36,6 @@ extern const size_t kStaticNanoappCount;
  * Loads the static nanoapps as required for this variant. All nanoapps are
  * loaded into one event loop. Failure to load static nanoapps is considered a
  * FATAL_ERROR.
- *
- * @param eventLoop the event loops to load nanoapps into.
  */
 void loadStaticNanoapps();
 

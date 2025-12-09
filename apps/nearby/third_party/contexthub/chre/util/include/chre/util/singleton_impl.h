@@ -34,7 +34,7 @@ bool Singleton<ObjectType>::sIsInitialized = false;
 
 template <typename ObjectType>
 template <typename... Args>
-void Singleton<ObjectType>::init(Args &&...args) {
+void Singleton<ObjectType>::init(Args &&... args) {
   if (!sIsInitialized) {
     sIsInitialized = true;
     new (get()) ObjectType(std::forward<Args>(args)...);

@@ -214,6 +214,29 @@ class ArrayQueueCore : public StorageType {
   const_iterator end() const;
   const_iterator cend() const;
 
+  /**
+   * Creates a span or two spans over the current data in the queue.
+   *
+   * @param span1 Span starting at the front of the queue. The span is valid
+   * over the range [span1.first, span2.second).
+   * @param span2 Span starting at base of the underlying storage. It is only
+   * populated (i.e. span2.second is only set > than base) if the queue wraps
+   * around. The validity is the same as span1.
+   */
+  void get_spans(
+      std::pair<const ElementType *, const ElementType *> &span1,
+      std::pair<const ElementType *, const ElementType *> &span2) const;
+
+  /**
+   * Copies the contents of the queue into a contiguous uninitialized buffer.
+   *
+   * The caller MUST ensure that the destination buffer is at least size() *
+   * sizeof(ElementType).
+   *
+   * @param dest The output buffer.
+   */
+  void copy_to(ElementType *dest) const;
+
  private:
   /*
    * Initialize mTail to be (capacity-1). When an element is pushed in,

@@ -308,15 +308,16 @@ void LogMessageParser::addNanoappDetokenizer(uint64_t appId,
                                              uint16_t instanceId,
                                              uint64_t databaseOffset,
                                              size_t databaseSize) {
+  std::lock_guard<std::mutex> lock(mNanoappMutex);
   std::shared_ptr<const std::vector<uint8_t>> appBinary =
-      fetchNanoappBinary(appId);
+      fetchNanoappBinaryLocked(appId);
   if (!appBinary) {
     LOGE(
         "Binary not in cache, can't extract log token database for app ID "
         "0x%016" PRIx64,
         appId);
   } else {
-    removeNanoappDetokenizerAndBinary(appId);
+    removeNanoappDetokenizerAndBinaryLocked(appId);
     if (databaseSize != kInvalidTokenDatabaseSize) {
       if (checkTokenDatabaseOverflow(databaseOffset, databaseSize,
                                      appBinary->size())) {
@@ -334,17 +335,16 @@ void LogMessageParser::addNanoappDetokenizer(uint64_t appId,
         pw::Result<Detokenizer> nanoappDetokenizer =
             pw::tokenizer::Detokenizer::FromElfSection(tokenEntries);
 
-        registerDetokenizer(appId, instanceId, std::move(nanoappDetokenizer));
+        registerDetokenizerLocked(appId, instanceId,
+                                  std::move(nanoappDetokenizer));
       }
     }
   }
 }
 
-void LogMessageParser::registerDetokenizer(
+void LogMessageParser::registerDetokenizerLocked(
     uint64_t appId, uint16_t instanceId,
     pw::Result<Detokenizer> nanoappDetokenizer) {
-  std::lock_guard<std::mutex> lock(mNanoappMutex);
-
   if (nanoappDetokenizer.ok()) {
     NanoappDetokenizer detokenizer;
     detokenizer.appId = appId;
@@ -358,8 +358,7 @@ void LogMessageParser::registerDetokenizer(
 }
 
 std::shared_ptr<const std::vector<uint8_t>>
-LogMessageParser::fetchNanoappBinary(uint64_t appId) {
-  std::lock_guard<std::mutex> lock(mNanoappMutex);
+LogMessageParser::fetchNanoappBinaryLocked(uint64_t appId) {
   auto appBinaryIter = mNanoappAppIdToBinary.find(appId);
   if (appBinaryIter != mNanoappAppIdToBinary.end()) {
     return appBinaryIter->second;
@@ -367,11 +366,11 @@ LogMessageParser::fetchNanoappBinary(uint64_t appId) {
   return nullptr;
 }
 
-void LogMessageParser::removeNanoappDetokenizerAndBinary(uint64_t appId) {
-  std::lock_guard<std::mutex> lock(mNanoappMutex);
+void LogMessageParser::removeNanoappDetokenizerAndBinaryLocked(uint64_t appId) {
   for (const auto &item : mNanoappDetokenizers) {
     if (item.second.appId == appId) {
       mNanoappDetokenizers.erase(item.first);
+      break;
     }
   }
   mNanoappAppIdToBinary.erase(appId);
@@ -390,11 +389,13 @@ void LogMessageParser::onNanoappLoadStarted(
 }
 
 void LogMessageParser::onNanoappLoadFailed(uint64_t appId) {
-  removeNanoappDetokenizerAndBinary(appId);
+  std::lock_guard<std::mutex> lock(mNanoappMutex);
+  removeNanoappDetokenizerAndBinaryLocked(appId);
 }
 
 void LogMessageParser::onNanoappUnloaded(uint64_t appId) {
-  removeNanoappDetokenizerAndBinary(appId);
+  std::lock_guard<std::mutex> lock(mNanoappMutex);
+  removeNanoappDetokenizerAndBinaryLocked(appId);
 }
 
 bool LogMessageParser::checkTokenDatabaseOverflow(uint32_t databaseOffset,

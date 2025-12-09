@@ -207,6 +207,10 @@ void chrePalGnssApiClose() {
 
 bool chrePalGnssApiOpen(const struct chrePalSystemApi *systemApi,
                         const struct chrePalGnssCallbacks *callbacks) {
+  if (!TaskManagerSingleton::isInitialized()) {
+    TaskManagerSingleton::init();
+  }
+
   chrePalGnssApiClose();
 
   bool success = false;

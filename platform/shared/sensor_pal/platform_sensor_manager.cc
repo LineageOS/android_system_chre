@@ -18,6 +18,7 @@
 
 #include <cinttypes>
 
+#include "chre/core/event.h"
 #include "chre/core/event_loop_manager.h"
 #include "chre/platform/log.h"
 #include "chre/platform/shared/pal_system_api.h"
@@ -158,9 +159,10 @@ void PlatformSensorManagerBase::flushCompleteCallback(uint32_t sensorHandle,
 
 uint16_t PlatformSensorManager::getTargetGroupId(
     const Nanoapp & /*nanoapp*/) const {
-  // Target group IDs are not supported for PALs so always assume 1 since
-  // all sensors group masks are 0xFFFF.
-  return 1;
+  // Target group IDs are not supported for this implementation of platform
+  // sensors, so return kDefaultTargetGroupMask, indicating that there are no
+  // required bits for any given nanoapp.
+  return kDefaultTargetGroupMask;
 }
 
 void PlatformSensorManager::releaseSamplingStatusUpdate(

@@ -30,12 +30,17 @@
 #include <queue>
 #include <thread>
 
+#include <android-base/thread_annotations.h>
+
 using android::chre::StHalLpmaHandler;
 
 namespace aidl::android::hardware::contexthub {
 
 using namespace ::android::hardware::contexthub::common::implementation;
+
+using ::android::base::ScopedLockAssertion;
 using ::android::chre::HostProtocolHost;
+using ::android::chre::StHalLpmaHandler;
 
 /** A class handling message transmission between context hub HAL and CHRE. */
 // TODO(b/267188769): We should add comments explaining how IPI works.
@@ -71,22 +76,26 @@ class TinysysChreConnection : public ChreConnection {
 
   bool sendMessage(void *data, size_t length) override;
 
+  std::string dump() override;
+
   void waitChreBackOnline(std::chrono::milliseconds timeoutMs) {
     flatbuffers::FlatBufferBuilder builder(48);
     HostProtocolHost::encodePulseRequest(builder);
 
     std::unique_lock lock(mChrePulseMutex);
+    ScopedLockAssertion lockAssertion(mChrePulseMutex);
     // reset mIsChreRecovered before sending a PulseRequest message
     mIsChreBackOnline = false;
     sendMessage(builder.GetBufferPointer(), builder.GetSize());
-    mChrePulseCondition.wait_for(
-        lock, timeoutMs,
-        [&isChreBackOnline = mIsChreBackOnline] { return isChreBackOnline; });
+    mChrePulseCondition.wait_for(lock, timeoutMs, [&] {
+      ScopedLockAssertion cvLockAssertion(mChrePulseMutex);
+      return mIsChreBackOnline;
+    });
   }
 
   void notifyChreBackOnline() {
     {
-      std::unique_lock lock(mChrePulseMutex);
+      std::lock_guard lock(mChrePulseMutex);
       mIsChreBackOnline = true;
     }
     mChrePulseCondition.notify_all();
@@ -233,8 +242,8 @@ class TinysysChreConnection : public ChreConnection {
   // Mutex and CV are used to get PulseResponse from CHRE synchronously.
   std::mutex mChrePulseMutex;
   std::condition_variable mChrePulseCondition;
-  bool mIsChreBackOnline =
-      false;  // set to true after CHRE recovers from a restart
+  // set to true after CHRE recovers from a restart.
+  bool mIsChreBackOnline GUARDED_BY(mChrePulseMutex) = false;
 };
 }  // namespace aidl::android::hardware::contexthub
 

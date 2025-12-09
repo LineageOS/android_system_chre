@@ -57,6 +57,11 @@ class DebugDumpManager : public PlatformDebugDumpManager {
   Optional<uint32_t> mLastNanoappId;
 
   /**
+   * Append CHRE capabilities to the debug dump.
+   */
+  void appendCapabilities();
+
+  /**
    * Collect CHRE framework debug dumps.
    */
   void collectFrameworkDebugDumps();

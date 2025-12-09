@@ -22,4 +22,8 @@ void LogBufferManager::preSecondaryBufferUse() const {
   // Do nothing
 }
 
+void LogBufferManager::postSecondaryBufferUse() const {
+  // Do nothing
+}
+
 }  // namespace chre

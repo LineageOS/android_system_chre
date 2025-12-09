@@ -14,10 +14,11 @@
  * limitations under the License.
  */
 
-#include "chre/core/init.h"
+#include "chre/embos/init.h"
+
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/static_nanoapps.h"
-#include "chre/embos/init.h"
+#include "chre/platform/shared/init.h"
 
 #include "RTOS.h"
 
@@ -37,14 +38,14 @@ OS_STACKPTR uint32_t gChreTaskStack[kChreTaskStackDepth];
 OS_TASK gChreTcb;
 
 void chreThreadEntry() {
-  chre::init();
+  chre::initCommon();
   chre::EventLoopManagerSingleton::get()->lateInit();
   chre::loadStaticNanoapps();
 
   chre::EventLoopManagerSingleton::get()->getEventLoop().run();
 
   // we only get here if the CHRE EventLoop exited
-  chre::deinit();
+  chre::deinitCommon();
 }
 
 }  // anonymous namespace

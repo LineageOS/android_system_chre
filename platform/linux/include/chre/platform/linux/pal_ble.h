@@ -19,6 +19,15 @@
 
 #include <chrono>
 
+namespace chre {
+
+struct BtSocketCapabilities {
+  uint32_t leCocNumberOfSupportedSockets;
+  uint32_t leCocMtu;
+  uint32_t rfcommNumberOfSupportedSockets;
+  uint32_t rfcommMaxFrameSize;
+};
+
 /**
  * @return true if the BLE PAL is enabled.
  */
@@ -40,5 +49,25 @@ void delayBleScanStart(bool delay);
  * @return true if the scan was start successfully.
  */
 bool startBleScan();
+
+void resetSocketVariables();
+
+void incrementSocketClosureCount();
+
+uint32_t getSocketClosureCount();
+
+void setSocketOpenSuccess(bool success);
+
+bool getSocketOpenSuccess();
+
+void setSocketOpenFailureReason(const char *reason);
+
+const char *getSocketOpenFailureReason();
+
+void setSocketCapabilities(BtSocketCapabilities capabilities);
+
+BtSocketCapabilities getSocketCapabilities();
+
+}  // namespace chre
 
 #endif  // CHRE_PLATFORM_LINUX_PAL_BLE_H_

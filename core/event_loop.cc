@@ -183,11 +183,9 @@ void EventLoop::run() {
   LOGI("Exiting EventLoop");
 }
 
-bool EventLoop::startNanoapp(UniquePtr<Nanoapp> &nanoapp) {
+bool EventLoop::startNanoapp(UniquePtr<Nanoapp> &&nanoapp) {
   CHRE_ASSERT(!nanoapp.isNull());
   bool success = false;
-  auto *eventLoopManager = EventLoopManagerSingleton::get();
-  EventLoop &eventLoop = eventLoopManager->getEventLoop();
   uint16_t existingInstanceId;
 
   if (nanoapp.isNull()) {
@@ -198,8 +196,8 @@ bool EventLoop::startNanoapp(UniquePtr<Nanoapp> &nanoapp) {
          ", first supported ver 0x%" PRIx32 ")",
          nanoapp->getTargetApiVersion(),
          static_cast<uint32_t>(CHRE_FIRST_SUPPORTED_API_VERSION));
-  } else if (eventLoop.findNanoappInstanceIdByAppId(nanoapp->getAppId(),
-                                                    &existingInstanceId)) {
+  } else if (findNanoappInstanceIdByAppId(nanoapp->getAppId(),
+                                          &existingInstanceId)) {
     LOGE("App with ID 0x%016" PRIx64 " already exists as instance ID %" PRIu16,
          nanoapp->getAppId(), existingInstanceId);
   } else {
@@ -226,7 +224,8 @@ bool EventLoop::startNanoapp(UniquePtr<Nanoapp> &nanoapp) {
         notifyAppStatusChange(CHRE_EVENT_NANOAPP_STARTED, *newNanoapp);
 
 #ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
-        eventLoopManager->getChreMessageHubManager()
+        EventLoopManagerSingleton::get()
+            ->getChreMessageHubManager()
             .getMessageHub()
             .registerEndpoint(newNanoapp->getAppId());
 #endif  // CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
@@ -538,6 +537,14 @@ std::optional<EndpointInfo> EventLoop::getEndpointInfo(uint64_t appId) {
              : std::make_optional(getEndpointInfoFromNanoappLocked(*app));
 }
 
+void EventLoop::loadStaticNanoapps(
+    pw::span<const StaticNanoappInitFunction> initList) {
+  for (auto &initFunc : initList) {
+    UniquePtr<Nanoapp> nanoapp = initFunc();
+    startNanoapp(std::move(nanoapp));
+  }
+}
+
 bool EventLoop::allocateAndPostEvent(uint16_t eventType, void *eventData,
                                      chreEventCompleteFunction *freeCallback,
                                      bool isLowPriority,
@@ -554,6 +561,9 @@ bool EventLoop::allocateAndPostEvent(uint16_t eventType, void *eventData,
   }
   if (!success) {
     LOG_OOM();
+    if (event != nullptr) {
+      mEventPool.deallocate(event);
+    }
   }
 
   return success;
@@ -747,6 +757,14 @@ void EventLoop::unloadNanoappAtIndex(size_t index, bool nanoappStarted) {
                                            ->getBleRequestManager()
                                            .disableActiveScan(nanoapp.get());
   logDanglingResources("BLE scan", numDisabledBleScans);
+#endif  // CHRE_BLE_SUPPORT_ENABLED
+
+#ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
+  uint32_t numSocketsClosed =
+      EventLoopManagerSingleton::get()
+          ->getBleSocketManager()
+          .closeSocketsOnNanoappUnload(nanoapp.get()->getInstanceId());
+  logDanglingResources("BLE socket", numSocketsClosed);
 #endif  // CHRE_BLE_SUPPORT_ENABLED
 
 #ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED

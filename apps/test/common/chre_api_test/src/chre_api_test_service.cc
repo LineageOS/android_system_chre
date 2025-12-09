@@ -81,8 +81,11 @@ bool ChreApiTestService::validateInputAndCallChreBleStartScanAsync(
     return false;
   }
 
-  if (request.filter.scanFilters_count == 0) {
-    LOGE("ChreBleStartScanAsync: invalid filter.scanFilters_count");
+  if (request.filter.scanFilters_count == 0 &&
+      request.filter.broadcasterAddressFilters_count == 0) {
+    LOGE(
+        "ChreBleStartScanAsync: invalid filter.scanFilters_count and "
+        "broadcasterAddressFilter_count");
     return false;
   }
 
@@ -91,22 +94,35 @@ bool ChreApiTestService::validateInputAndCallChreBleStartScanAsync(
                               request.filter.scanFilters_count)) {
     return false;
   }
+  chreBleBroadcasterAddressFilter
+      broadcasterAddressFilters[request.filter.broadcasterAddressFilters_count];
+  for (size_t i = 0; i < request.filter.broadcasterAddressFilters_count; i++) {
+    memcpy(broadcasterAddressFilters[i].broadcasterAddress,
+           request.filter.broadcasterAddressFilters[i].broadcasterAddress.bytes,
+           CHRE_BLE_ADDRESS_LEN);
+  }
 
-  struct chreBleScanFilter filter;
+  struct chreBleScanFilterV1_9 filter;
   filter.rssiThreshold = request.filter.rssiThreshold;
-  filter.scanFilterCount = request.filter.scanFilters_count;
-  filter.scanFilters = genericFilters;
+  filter.genericFilterCount = request.filter.scanFilters_count;
+  filter.genericFilters = genericFilters;
+  filter.broadcasterAddressFilterCount =
+      request.filter.broadcasterAddressFilters_count;
+  filter.broadcasterAddressFilters = broadcasterAddressFilters;
 
   auto mode = static_cast<chreBleScanMode>(request.mode);
-  response.status = chreBleStartScanAsync(mode, request.reportDelayMs, &filter);
+  response.status =
+      chreBleStartScanAsyncV1_9(mode, request.reportDelayMs, &filter, nullptr);
 
-  LOGD("ChreBleStartScanAsync: mode: %s, reportDelayMs: %" PRIu32
-       ", scanFilterCount: %" PRIu16 ", status: %s",
+  LOGD("chreBleStartScanAsyncV1_9: mode: %s, reportDelayMs: %" PRIu32
+       ", scanFilterCount: %" PRIu16 ", broadcasterAddressFilterCount: %" PRIu16
+       ", status: %s",
        mode == CHRE_BLE_SCAN_MODE_BACKGROUND
            ? "background"
            : (mode == CHRE_BLE_SCAN_MODE_FOREGROUND ? "foreground"
                                                     : "aggressive"),
        request.reportDelayMs, request.filter.scanFilters_count,
+       request.filter.broadcasterAddressFilters_count,
        response.status ? "true" : "false");
   return true;
 }
@@ -168,6 +184,25 @@ bool ChreApiTestService::validateInputAndCallChreGetSensorInfo(
   }
 
   return true;
+}
+
+bool ChreApiTestService::validateInputAndCallChreBleReadRssiAsync(
+    const chre_rpc_ChreBleReadRssiRequest &request, chre_rpc_Status &response) {
+  if (request.connectionHandle == 0) {
+    LOGE("Invalid connection handle: 0");
+    response.status = false;
+    return false;
+  }
+
+  bool success =
+      chreBleReadRssiAsync(request.connectionHandle, &mSyncTimerHandle);
+  if (!success) {
+    LOGE("ChreBleReadRssiSync failed for handle %" PRIu32,
+         request.connectionHandle);
+  }
+
+  response.status = success;
+  return success;
 }
 
 bool ChreApiTestService::validateInputAndCallChreGetSensorSamplingStatus(

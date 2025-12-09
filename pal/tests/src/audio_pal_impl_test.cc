@@ -18,7 +18,6 @@
 
 #include "chre/pal/audio.h"
 #include "chre/platform/condition_variable.h"
-#include "chre/platform/linux/task_util/task_manager.h"
 #include "chre/platform/mutex.h"
 #include "chre/platform/shared/pal_system_api.h"
 #include "chre/util/lock_guard.h"
@@ -81,8 +80,6 @@ class PalAudioTest : public testing::Test {
  protected:
   void SetUp() override {
     gCallbacks = MakeUnique<Callbacks>();
-    chre::TaskManagerSingleton::deinit();
-    chre::TaskManagerSingleton::init();
     mApi = chrePalAudioGetApi(CHRE_PAL_AUDIO_API_CURRENT_VERSION);
     ASSERT_NE(mApi, nullptr);
     EXPECT_EQ(mApi->moduleVersion, CHRE_PAL_AUDIO_API_CURRENT_VERSION);
@@ -93,7 +90,6 @@ class PalAudioTest : public testing::Test {
     if (mApi != nullptr) {
       mApi->close();
     }
-    chre::TaskManagerSingleton::deinit();
     gCallbacks = nullptr;
   }
 

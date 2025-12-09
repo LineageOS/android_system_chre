@@ -49,14 +49,14 @@ void RpcWorldService::Add(
 void incrementResponse(const chre_rpc_NumberMessage &response,
                        pw::Status status) {
   if (status.ok()) {
-    LOGI("Increment response: %d", response.number);
+    LOGI("Increment response: %" PRIu32, response.number);
   } else {
     LOGE("Increment failed with status %d", static_cast<int>(status.code()));
   }
 }
 
 void timerResponse(const chre_rpc_TimerResponse &response) {
-  LOGI("Tick response: %d", response.tick_number);
+  LOGI("Tick response: %" PRIu32, response.tick_number);
 }
 
 void timerEnd(pw::Status status) {
@@ -65,7 +65,7 @@ void timerEnd(pw::Status status) {
 
 void addResponse(const chre_rpc_NumberMessage &response, pw::Status status) {
   if (status.ok()) {
-    LOGI("Add response: %d", response.number);
+    LOGI("Add response: %" PRIu32, response.number);
   } else {
     LOGE("Add failed with status %d", static_cast<int>(status.code()));
   }

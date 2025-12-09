@@ -33,12 +33,12 @@ class Crypto {
   // Decrypts input with salt and key. Places the decrypted result in output.
   // Returns true if decryption succeeds.
   // Caller needs to allocates the output memory and set the buffer size.
-  virtual bool decrypt(const ByteArray &input, const ByteArray &salt,
-                       const ByteArray &key, ByteArray &output) const = 0;
+  virtual bool decrypt(const ByteArray& input, const ByteArray& salt,
+                       const ByteArray& key, ByteArray& output) const = 0;
 
   // Verifies the computed signature is equal to the expected signature.
-  virtual bool verify(const ByteArray &input, const ByteArray &key,
-                      const ByteArray &signature) const = 0;
+  virtual bool verify(const ByteArray& input, const ByteArray& key,
+                      const ByteArray& signature) const = 0;
 
   virtual ~Crypto() = default;
 };

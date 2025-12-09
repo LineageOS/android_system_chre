@@ -9,8 +9,8 @@
 
 namespace nearby {
 
-bool HwFilter::Match(const chreBleGenericFilter &hardware_filter,
-                     const chreBleAdvertisingReport &report) {
+bool HwFilter::Match(const chreBleGenericFilter& hardware_filter,
+                     const chreBleAdvertisingReport& report) {
   // Scans through data and parses each advertisement structure.
   for (int i = 0; i < report.dataLength;) {
     // First byte has the advertisement data length including type and data.
@@ -48,8 +48,8 @@ bool HwFilter::Match(const chreBleGenericFilter &hardware_filter,
 }
 
 bool HwFilter::Match(
-    const chre::DynamicVector<chreBleGenericFilter> &hardware_filters,
-    const chreBleAdvertisingReport &report) {
+    const chre::DynamicVector<chreBleGenericFilter>& hardware_filters,
+    const chreBleAdvertisingReport& report) {
   for (const auto hardware_filter : hardware_filters) {
     if (Match(hardware_filter, report)) {
       return true;
@@ -59,7 +59,7 @@ bool HwFilter::Match(
 }
 
 bool HwFilter::CheckRssi(int8_t rssi_threshold,
-                         const chreBleAdvertisingReport &report) {
+                         const chreBleAdvertisingReport& report) {
   return (rssi_threshold == CHRE_BLE_RSSI_NONE ||
           (report.rssi != CHRE_BLE_RSSI_NONE && report.rssi >= rssi_threshold));
 }

@@ -26,6 +26,7 @@
 #include "chre/util/non_copyable.h"
 #include "chre/util/priority_queue.h"
 #include "chre/util/system/system_callback_type.h"
+#include "chre/util/thread_annotations.h"
 
 namespace chre {
 
@@ -159,7 +160,8 @@ class TimerPool : public NonCopyable {
   };
 
   //! The queue of outstanding timer requests.
-  PriorityQueue<TimerRequest, std::greater<TimerRequest>> mTimerRequests;
+  PriorityQueue<TimerRequest, std::greater<TimerRequest>> mTimerRequests
+      CHRE_GUARDED_BY(mMutex);
 
   //! The underlying system timer used to schedule delayed callbacks.
   SystemTimer mSystemTimer;
@@ -230,7 +232,8 @@ class TimerPool : public NonCopyable {
    * @return A pointer to a TimerRequest or nullptr if no match is found.
    */
   TimerRequest *getTimerRequestByTimerHandleLocked(TimerHandle timerHandle,
-                                                   size_t *index = nullptr);
+                                                   size_t *index = nullptr)
+      CHRE_REQUIRES(mMutex);
 
   /**
    * Obtains a unique timer handle to return to an app requesting a timer.
@@ -238,7 +241,7 @@ class TimerPool : public NonCopyable {
    *
    * @return The guaranteed unique timer handle.
    */
-  TimerHandle generateTimerHandleLocked();
+  TimerHandle generateTimerHandleLocked() CHRE_REQUIRES(mMutex);
 
   /**
    * Obtains a unique timer handle by searching through the list of timer
@@ -247,7 +250,7 @@ class TimerPool : public NonCopyable {
    *
    * @return A guaranteed unique timer handle.
    */
-  TimerHandle generateUniqueTimerHandleLocked();
+  TimerHandle generateUniqueTimerHandleLocked() CHRE_REQUIRES(mMutex);
 
   /**
    * Helper function to determine whether a new timer of the specified type
@@ -256,7 +259,7 @@ class TimerPool : public NonCopyable {
    * @param isNanoappTimer true if invoked for a nanoapp timer.
    * @return true if a new timer of the given type is allowed to be allocated.
    */
-  bool isNewTimerAllowedLocked(bool isNanoappTimer) const;
+  bool isNewTimerAllowedLocked(bool isNanoappTimer) const CHRE_REQUIRES(mMutex);
 
   /**
    * Inserts a TimerRequest into the list of active timer requests. The order of
@@ -267,13 +270,14 @@ class TimerPool : public NonCopyable {
    * @param timerRequest The timer request being inserted into the list.
    * @return true if insertion of timer succeeds.
    */
-  bool insertTimerRequestLocked(const TimerRequest &timerRequest);
+  bool insertTimerRequestLocked(const TimerRequest &timerRequest)
+      CHRE_REQUIRES(mMutex);
 
   /**
    * Pops the TimerRequest at the front of the list. mMutex must be acquired
    * prior to calling this function.
    */
-  void popTimerRequestLocked();
+  void popTimerRequestLocked() CHRE_REQUIRES(mMutex);
 
   /**
    * Removes the TimerRequest at the specified index of the list. mMutex must be
@@ -281,7 +285,7 @@ class TimerPool : public NonCopyable {
    *
    * @param index The index of the TimerRequest to remove.
    */
-  void removeTimerRequestLocked(size_t index);
+  void removeTimerRequestLocked(size_t index) CHRE_REQUIRES(mMutex);
 
   /**
    * Sets the underlying system timer to the next timer in the timer list if
@@ -297,7 +301,7 @@ class TimerPool : public NonCopyable {
    *
    * @return true if at least one timer had expired
    */
-  bool handleExpiredTimersAndScheduleNextLocked();
+  bool handleExpiredTimersAndScheduleNextLocked() CHRE_REQUIRES(mMutex);
 
   /**
    * Reschedules the expired timer if it is not a one-shot timer and removes
@@ -305,7 +309,8 @@ class TimerPool : public NonCopyable {
    *
    * @param request The timer request.
    */
-  void rescheduleAndRemoveExpiredTimersLocked(const TimerRequest &request);
+  void rescheduleAndRemoveExpiredTimersLocked(const TimerRequest &request)
+      CHRE_REQUIRES(mMutex);
 
   /**
    * Returns whether the nanoapp holds timers.

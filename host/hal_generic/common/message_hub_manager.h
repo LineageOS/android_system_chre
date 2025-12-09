@@ -324,11 +324,10 @@ class MessageHubManager {
   /**
    * Adds the given hub to the cache
    *
-   * Ignored if the hub already exists
-   *
    * @param hub The hub to add
+   * @return true iff the hub was newly cached
    */
-  void addEmbeddedHub(const HubInfo &hub) EXCLUDES(mLock);
+  bool addEmbeddedHub(const HubInfo &hub) EXCLUDES(mLock);
 
   /**
    * Removes the hub with given id from the cache
@@ -347,11 +346,10 @@ class MessageHubManager {
   /**
    * Adds an embedded endpoint to the cache
    *
-   * Ignored if the endpoint already exists
-   *
    * @param endpoint The endpoint to add
+   * @return true iff the endpoint was newly cached
    */
-  void addEmbeddedEndpoint(const EndpointInfo &endpoint);
+  bool addEmbeddedEndpoint(const EndpointInfo &endpoint);
 
   /**
    * Adds a service to an embedded endpoint in the cache
@@ -452,7 +450,7 @@ class MessageHubManager {
         mDeathRecipient(std::move(deathRecipient)) {}
 
   // Adds an embedded endpoint to the cache.
-  void addEmbeddedEndpointLocked(const EndpointInfo &endpoint) REQUIRES(mLock);
+  bool addEmbeddedEndpointLocked(const EndpointInfo &endpoint) REQUIRES(mLock);
 
   // Returns pw::OkStatus() if the given embedded endpoint (with service, if
   // given), is in the cache.

@@ -337,11 +337,12 @@ bool NanoappLoader::MemoryMapping::construct(const ProgramHeader *first,
                ph->p_memsz - ph->p_filesz);
       }
 
-      LOGV("vAddr: 0x%" PRIx64 ", pAddr: 0x%" PRIx64 ", memSize: 0x%" PRIx32
-           ", permission: 0x%" PRIx32,
+      LOGV("vAddr: 0x%" PRIx64 ", pAddr: 0x%" PRIx64 ", memSize: 0x%" PRIx64
+           ", permission: 0x%" PRIx64,
            static_cast<uint64_t>(ph->p_vaddr),
            static_cast<uint64_t>(mSegments.back().pAddr),
-           mSegments.back().memSize, mSegments.back().permission);
+           static_cast<uint64_t>(mSegments.back().memSize),
+           static_cast<uint64_t>(mSegments.back().permission));
     } else {
       LOGE("Non-loadable segment found between loadable segments");
       return false;

@@ -15,6 +15,11 @@
  */
 
 #include "tinysys_chre_connection.h"
+
+#include <android/binder_to_string.h>
+
+#include "chre_host/concurrent_fixed_capacity_queue.h"
+#include "chre_host/fbs_message_summary.h"
 #include "chre_host/file_stream.h"
 #include "chre_host/generated/host_messages_generated.h"
 #include "chre_host/host_protocol_host.h"
@@ -32,10 +37,12 @@
 
 namespace aidl::android::hardware::contexthub {
 
-using namespace ::android::chre;
-namespace fbs = ::chre::fbs;
-
 namespace {
+
+using ::android::internal::ToString;
+using namespace ::android::chre;
+
+namespace fbs = ::chre::fbs;
 
 // The ChreStateMessage defines the message written by kernel indicating the
 // current state of SCP. It must be consistent with the definition in the
@@ -68,6 +75,13 @@ unsigned getRequestCode(ChreState chreState) {
 }
 
 constexpr std::chrono::milliseconds kMessageHandlingTimeThreshold{1000};
+
+ConcurrentFixedCapacityQueue<FbsMessageSummary> messageSendingHistory(
+    /* capacity= */ 20);
+ConcurrentFixedCapacityQueue<FbsMessageSummary> longProcessingMessageHistory(
+    /* capacity= */ 10);
+ConcurrentFixedCapacityQueue<FbsMessageSummary> currentMessageSummary(
+    /* capacity= */ 1);
 }  // namespace
 
 bool TinysysChreConnection::init() {
@@ -165,12 +179,16 @@ void TinysysChreConnection::messageHandlerTask(
   while (true) {
     chreConnection->mSendingQueue.waitForMessage();
     MessageToChre &message = chreConnection->mSendingQueue.front();
+    FbsMessageSummary summary =
+        FbsMessageSummary::fromRawMessage(message.payload, message.payloadSize);
     auto size =
         TEMP_FAILURE_RETRY(write(chreFd, &message, message.getMessageSize()));
     if (size < 0) {
       LOGE("Failed to write to chre file descriptor. errno=%d\n", errno);
+      summary.setError(ToString(errno));
     }
     chreConnection->mSendingQueue.pop();
+    messageSendingHistory.push(summary);
   }
 }
 
@@ -182,12 +200,30 @@ bool TinysysChreConnection::sendMessage(void *data, size_t length) {
   return mSendingQueue.emplace(data, length);
 }
 
+std::string TinysysChreConnection::dump() {
+  std::ostringstream output;
+  output << "\n\nMessage sending history:" << messageSendingHistory.toString();
+
+  output << "\nThe CHRE message received currently being handled: "
+         << currentMessageSummary.toString();
+
+  output << "\nLong time processing received message history:"
+         << longProcessingMessageHistory.toString();
+
+  output << "\n\n";
+  return output.str();
+}
+
 void TinysysChreConnection::handleMessageFromChre(
     TinysysChreConnection *chreConnection, const unsigned char *messageBuffer,
     size_t messageLen) {
+  int64_t startTime = ::android::elapsedRealtime();
+  FbsMessageSummary messageSummary =
+      FbsMessageSummary::fromRawMessage(messageBuffer, messageLen);
+  currentMessageSummary.push(messageSummary);
+
   // TODO(b/267188769): Move the wake lock acquisition/release to RAII
   // pattern.
-  int64_t startTime = ::android::elapsedRealtime();
   bool isWakelockAcquired =
       acquire_wake_lock(PARTIAL_WAKE_LOCK, kWakeLock) == 0;
   if (!isWakelockAcquired) {
@@ -195,6 +231,7 @@ void TinysysChreConnection::handleMessageFromChre(
   } else {
     LOGV("Wakelock is acquired before handling a message.");
   }
+
   HalClientId hostClientId;
   fbs::ChreMessage messageType = fbs::ChreMessage::NONE;
   if (!HostProtocolHost::extractHostClientIdAndType(
@@ -238,11 +275,14 @@ void TinysysChreConnection::handleMessageFromChre(
       LOGV("The wake lock is released after handling a message.");
     }
   }
+
   int64_t durationMs = ::android::elapsedRealtime() - startTime;
   if (durationMs > kMessageHandlingTimeThreshold.count()) {
-    LOGW("It takes %" PRIu64 "ms to handle a message with ClientId=%" PRIu16
-         " Type=%" PRIu8,
-         durationMs, hostClientId, static_cast<uint8_t>(messageType));
+    messageSummary.setProcessingTime(durationMs);
+    LOGW("Message handling takes too long:%s",
+         messageSummary.toString().c_str());
+    longProcessingMessageHistory.push(messageSummary);
   }
+  currentMessageSummary.pop();
 }
 }  // namespace aidl::android::hardware::contexthub

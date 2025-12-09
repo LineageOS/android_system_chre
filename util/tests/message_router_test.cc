@@ -41,7 +41,6 @@ namespace {
 
 constexpr size_t kMaxMessageHubs = 3;
 constexpr size_t kMaxSessions = 10;
-constexpr size_t kMaxFreeCallbackRecords = kMaxSessions * 2;
 constexpr size_t kNumEndpoints = 3;
 
 const EndpointInfo kEndpointInfos[kNumEndpoints] = {

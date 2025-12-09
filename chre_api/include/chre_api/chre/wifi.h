@@ -47,6 +47,7 @@
 
 #include "common.h"
 #include <chre/common.h>
+#include <chre/wifi_types.h>
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -87,6 +88,11 @@ extern "C" {
 //! services via chreWifiNanRequestRangingAsync()
 //! @since v1.6
 #define CHRE_WIFI_CAPABILITIES_NAN_SUB           (UINT32_C(1) << 4)
+
+//! Specifies if the platform supports the venue info field (venueGroup and
+//! venueType) in the scan results (chreWifiScanResult).
+//! @since v1.12
+#define CHRE_WIFI_CAPABILITIES_VENUE_INFO        (UINT32_C(1) << 5)
 
 /** @} */
 
@@ -593,7 +599,10 @@ struct chreWifiScanResult {
     uint32_t primaryChannel;
 
     /**
-     * If the channel width is 20 MHz, this field is not relevant and set to 0.
+     * If the channel width is 20 MHz, this field is not relevant and must be
+     * ignored by the nanoapp. CHRE implementations are recommended to set it
+     * to 0.
+     *
      * If the channel width is 40, 80, or 160 MHz, then this denotes the channel
      * center frequency (in MHz). If the channel is 80+80 MHz, then this denotes
      * the center frequency of segment 0, which contains the primary channel.
@@ -639,7 +648,28 @@ struct chreWifiScanResult {
     int8_t rssiChain1;  //!< @see #rssiChain0
 
     //! Reserved; set to 0
-    uint8_t reserved[7];
+    //! Required to be placed here to maintain 2-byte alignment for the
+    //! venueInfo union which follows
+    uint8_t reserved0[1];
+
+    //! Provides information about the place where this AP is located,
+    //! for example if it is in a building or vehicle.
+    //! Note that venueType and venueGroup are defined in this order to match
+    //! the endianness of the venueInfo field, and fits the following format:
+    //! venueInfo = (venueGroup << 8) | venueType
+    //! @see #chreWifiVenueGroup
+    //! @see #chreWifiVenueInfo
+    //! @since v1.12
+    union {
+      struct {
+          uint8_t venueType;
+          uint8_t venueGroup;
+      };
+      uint16_t venueInfo;
+    };
+
+    //! Reserved; set to 0
+    uint8_t reserved[4];
 };
 
 /**

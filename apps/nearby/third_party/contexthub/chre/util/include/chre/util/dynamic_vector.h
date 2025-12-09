@@ -136,7 +136,7 @@ class DynamicVector : private DynamicVectorBase {
    * @return true if the element is constructed successfully.
    */
   template <typename... Args>
-  bool emplace_back(Args &&...args);
+  bool emplace_back(Args &&... args);
 
   /**
    * Obtains an element of the vector given an index. It is illegal to index

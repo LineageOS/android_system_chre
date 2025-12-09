@@ -64,6 +64,10 @@ message WifiScanResult {
   // The index of this result in relation to the entire set of results.
   // [0 - totalNumResults)
   optional uint32 resultIndex = 4;
+  // The venue info group of the access point.
+  optional uint32 venueGroup = 5;
+  // The venue info type of the access point.
+  optional uint32 venueType = 6;
 }
 
 /*

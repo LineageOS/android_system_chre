@@ -52,13 +52,74 @@ template <typename T>
 using TypedSystemEventCallbackFunction = void(SystemCallbackType type,
                                               UniquePtr<T> &&data);
 
+// These Manager classes are forward declared because not every platform will
+// support their implementation. If a platform does support their
+// implementation, it must enable the corresponding build flag and pass in a
+// non-null value to the EventLoopManager constructor.
+class BleSocketManager;
+class GnssManager;
+class WifiRequestManager;
+class WwanRequestManager;
+class ChreMessageHubManager;
+class HostMessageHubManager;
+
 /**
  * A class that keeps track of all event loops in the system. This class
- * represents the top-level object in CHRE. It will own all resources that are
- * shared by all event loops.
+ * represents the top-level object in CHRE, providing a centralized access point
+ * to the components that implement CHRE.
+ *
+ * NOTE: The platform implementation must perform initialization of this object
+ * and its dependencies in this order:
+ *
+ *  1. SystemTime::init()
+ *  2. Construct the *Manager objects accepted in the EventLoopManager
+ *     constructor.
+ *  3. EventLoopManagerSingleton::init()
+ *  4. Start the thread that will run the EventLoop
+ *
+ * After this point, it is safe for other threads to access CHRE, e.g. incoming
+ * requests from the host can be posted to the EventLoop. Then within the CHRE
+ * thread:
+ *
+ *  5. EventLoopManager::lateInit() (this typically involves blocking on
+ *     readiness of other subsystems as part of PAL initialization)
+ *  6. loadStaticNanoapps()
+ *  7. EventLoopManagerSingleton::get()->getEventLoop().run()
+ *
+ * Platforms may also perform additional platform-specific initialization steps
+ * at any point along the way as needed.
  */
 class EventLoopManager : public NonCopyable {
  public:
+  EventLoopManager(BleSocketManager *bleSocketManager, GnssManager *gnssManager,
+                   WifiRequestManager *wifiRequestManager,
+                   WwanRequestManager *wwanRequestManager,
+                   ChreMessageHubManager *chreMessageHubManager,
+                   HostMessageHubManager *hostMessageHubManager)
+      : mBleSocketManager(bleSocketManager),
+        mGnssManager(gnssManager),
+        mWifiRequestManager(wifiRequestManager),
+        mWwanRequestManager(wwanRequestManager),
+        mChreMessageHubManager(chreMessageHubManager),
+        mHostMessageHubManager(hostMessageHubManager) {
+#ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
+    CHRE_ASSERT(mBleSocketManager != nullptr);
+#endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
+#ifdef CHRE_GNSS_SUPPORT_ENABLED
+    CHRE_ASSERT(mGnssManager != nullptr);
+#endif  // CHRE_GNSS_SUPPORT_ENABLED
+#ifdef CHRE_WIFI_SUPPORT_ENABLED
+    CHRE_ASSERT(mWifiRequestManager != nullptr);
+#endif  // CHRE_WIFI_SUPPORT_ENABLED
+#ifdef CHRE_WWAN_SUPPORT_ENABLED
+    CHRE_ASSERT(mWwanRequestManager != nullptr);
+#endif  // CHRE_WWAN_SUPPORT_ENABLED
+#ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
+    CHRE_ASSERT(mChreMessageHubManager != nullptr);
+    CHRE_ASSERT(mHostMessageHubManager != nullptr);
+#endif  // CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
+  }
+
   /**
    * Validates that a CHRE API is invoked from a valid nanoapp context and
    * returns a pointer to the currently executing nanoapp. This should be
@@ -223,31 +284,16 @@ class EventLoopManager : public NonCopyable {
   BleRequestManager &getBleRequestManager() {
     return mBleRequestManager;
   }
-
-#ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
-  /**
-   * Sets the BLE socket manager. This method must be called once and should be
-   * called prior to executing any nanoapps.
-   */
-  void setBleSocketManager(BleSocketManager &bleSocketManager) {
-    CHRE_ASSERT(mBleSocketManager == nullptr);
-    mBleSocketManager = &bleSocketManager;
-  }
+#endif  // CHRE_BLE_SUPPORT_ENABLED
 
   /**
    * @return A reference to the BLE socket manager. This allows interacting
    *         with the BLE socket subsystem and manages requests from various
    *         nanoapps.
-   *
-   * NOTE: Must call setBleSocketManager before using this function.
    */
   BleSocketManager &getBleSocketManager() {
-    CHRE_ASSERT(mBleSocketManager != nullptr);
     return *mBleSocketManager;
   }
-#endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
-
-#endif  // CHRE_BLE_SUPPORT_ENABLED
 
   /**
    * @return The event loop managed by this event loop manager.
@@ -256,16 +302,14 @@ class EventLoopManager : public NonCopyable {
     return mEventLoop;
   }
 
-#ifdef CHRE_GNSS_SUPPORT_ENABLED
   /**
    * @return A reference to the GNSS request manager. This allows interacting
    *         with the platform GNSS subsystem and manages requests from various
    *         nanoapps.
    */
   GnssManager &getGnssManager() {
-    return mGnssManager;
+    return *mGnssManager;
   }
-#endif  // CHRE_GNSS_SUPPORT_ENABLED
 
   /**
    * @return A reference to the host communications manager that enables
@@ -290,27 +334,23 @@ class EventLoopManager : public NonCopyable {
   }
 #endif  // CHRE_SENSORS_SUPPORT_ENABLED
 
-#ifdef CHRE_WIFI_SUPPORT_ENABLED
   /**
    * @return Returns a reference to the wifi request manager. This allows
    *         interacting with the platform wifi subsystem and manages the
    *         requests from various nanoapps.
    */
   WifiRequestManager &getWifiRequestManager() {
-    return mWifiRequestManager;
+    return *mWifiRequestManager;
   }
-#endif  // CHRE_WIFI_SUPPORT_ENABLED
 
-#ifdef CHRE_WWAN_SUPPORT_ENABLED
   /**
    * @return A reference to the WWAN request manager. This allows interacting
    *         with the platform WWAN subsystem and manages requests from various
    *         nanoapps.
    */
   WwanRequestManager &getWwanRequestManager() {
-    return mWwanRequestManager;
+    return *mWwanRequestManager;
   }
-#endif  // CHRE_WWAN_SUPPORT_ENABLED
 
   /**
    * @return A reference to the memory manager. This allows central control of
@@ -348,15 +388,13 @@ class EventLoopManager : public NonCopyable {
     return mSystemHealthMonitor;
   }
 
-#ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
   ChreMessageHubManager &getChreMessageHubManager() {
-    return mChreMessageHubManager;
+    return *mChreMessageHubManager;
   }
 
   HostMessageHubManager &getHostMessageHubManager() {
-    return mHostMessageHubManager;
+    return *mHostMessageHubManager;
   }
-#endif  // CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
 
   /**
    * Performs second-stage initialization of things that are not necessarily
@@ -379,23 +417,18 @@ class EventLoopManager : public NonCopyable {
   //! The BLE request manager handles requests for all nanoapps and manages
   //! the state of the BLE subsystem that the runtime subscribes to.
   BleRequestManager mBleRequestManager;
+#endif  // CHRE_BLE_SUPPORT_ENABLED
 
-#ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
   //! The BLE socket manager tracks offloaded sockets and handles sending
   //! packets between nanoapps and offloaded sockets.
   BleSocketManager *mBleSocketManager = nullptr;
-#endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
-
-#endif  // CHRE_BLE_SUPPORT_ENABLED
 
   //! The event loop managed by this event loop manager.
   EventLoop mEventLoop;
 
-#ifdef CHRE_GNSS_SUPPORT_ENABLED
   //! The GnssManager that handles requests for all nanoapps. This manages the
   //! state of the GNSS subsystem that the runtime subscribes to.
-  GnssManager mGnssManager;
-#endif  // CHRE_GNSS_SUPPORT_ENABLED
+  GnssManager *mGnssManager = nullptr;
 
   //! Handles communications with the host processor.
   HostCommsManager mHostCommsManager;
@@ -410,17 +443,13 @@ class EventLoopManager : public NonCopyable {
   SensorRequestManager mSensorRequestManager;
 #endif  // CHRE_SENSORS_SUPPORT_ENABLED
 
-#ifdef CHRE_WIFI_SUPPORT_ENABLED
   //! The WifiRequestManager that handles requests for nanoapps. This manages
   //! the state of the wifi subsystem that the runtime subscribes to.
-  WifiRequestManager mWifiRequestManager;
-#endif  // CHRE_WIFI_SUPPORT_ENABLED
+  WifiRequestManager *mWifiRequestManager = nullptr;
 
-#ifdef CHRE_WWAN_SUPPORT_ENABLED
   //! The WwanRequestManager that handles requests for nanoapps. This manages
   //! the state of the WWAN subsystem that the runtime subscribes to.
-  WwanRequestManager mWwanRequestManager;
-#endif  // CHRE_WWAN_SUPPORT_ENABLED
+  WwanRequestManager *mWwanRequestManager = nullptr;
 
   //! The MemoryManager that handles malloc/free call from nanoapps and also
   //! controls upper limits on the heap allocation amount.
@@ -437,13 +466,11 @@ class EventLoopManager : public NonCopyable {
   //! The SettingManager that manages setting states.
   SettingManager mSettingManager;
 
-#ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
   //! The ChreMessageHubManager that manages the CHRE Message Hub.
-  ChreMessageHubManager mChreMessageHubManager;
+  ChreMessageHubManager *mChreMessageHubManager = nullptr;
 
   //! The HostMessageHubManager handling communication with host message hubs.
-  HostMessageHubManager mHostMessageHubManager;
-#endif  // CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
+  HostMessageHubManager *mHostMessageHubManager = nullptr;
 };
 
 //! Provide an alias to the EventLoopManager singleton.

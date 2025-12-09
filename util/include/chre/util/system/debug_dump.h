@@ -50,6 +50,12 @@ class DebugDumpWrapper {
   void print(const char *formatStr, ...);
 
   /**
+   * Adds an (uppercase) hex dump of the given array to the debug dump, with no
+   * prefix, suffix, or separator.
+   */
+  void printHex(const uint8_t *data, size_t dataSize);
+
+  /**
    * A version of print that takes arguments as a variable list.
    */
   void printVaList(const char *formatStr, va_list argList);

@@ -134,6 +134,9 @@ enum class PendingMessageType {
   PulseResponse,
   NanoappTokenDatabaseInfo,
   MessageDeliveryStatus,
+  BtSocketCapabilitiesResponse,
+  BtSocketOpenResponse,
+  BtSocketClose,
 };
 
 struct PendingMessage {
@@ -215,7 +218,12 @@ DRAM_REGION_FUNCTION bool generateMessageToHost(const HostMessage *message) {
 DRAM_REGION_FUNCTION int generateHubInfoResponse(uint16_t hostClientId) {
   constexpr size_t kInitialBufferSize = 192;
 
+#ifndef CHRE_TEST_SIGNED_NAPP_ENABLED
   constexpr char kHubName[] = "CHRE on Tinysys";
+#else
+  constexpr char kHubName[] =
+      "CHRE on Tinysys. INSECURE: test signed binary supported";
+#endif
   constexpr char kVendor[] = "Google";
   constexpr char kToolchain[] =
       "Clang " STRINGIFY(__clang_major__) "." STRINGIFY(
@@ -744,6 +752,71 @@ DRAM_REGION_FUNCTION bool HostLink::sendMessageDeliveryStatus(
                                 /* initialBufferSize= */ 64, msgBuilder, &args);
 }
 
+DRAM_REGION_FUNCTION bool HostLink::sendBtSocketGetCapabilitiesResponse(
+    uint32_t leCocNumberOfSupportedSockets, uint32_t leCocMtu,
+    uint32_t rfcommNumberOfSupportedSockets, uint32_t rfcommMaxFrameSize) {
+  struct BtSocketCapabilitiesResponseData {
+    uint32_t leCocNumberOfSupportedSockets;
+    uint32_t leCocMtu;
+    uint32_t rfcommNumberOfSupportedSockets;
+    uint32_t rfcommMaxFrameSize;
+  };
+
+  BtSocketCapabilitiesResponseData capabilitiesData{
+      leCocNumberOfSupportedSockets, leCocMtu, rfcommNumberOfSupportedSockets,
+      rfcommMaxFrameSize};
+
+  auto msgBuilder = [](ChreFlatBufferBuilder &builder, void *cookie) {
+    const auto data =
+        static_cast<const BtSocketCapabilitiesResponseData *>(cookie);
+    HostProtocolChre::encodeBtSocketGetCapabilitiesResponse(
+        builder, data->leCocNumberOfSupportedSockets, data->leCocMtu,
+        data->rfcommNumberOfSupportedSockets, data->rfcommMaxFrameSize);
+  };
+
+  return buildAndEnqueueMessage(
+      PendingMessageType::BtSocketCapabilitiesResponse, 52, msgBuilder,
+      &capabilitiesData);
+}
+
+DRAM_REGION_FUNCTION bool HostLink::sendBtSocketOpenResponse(
+    uint64_t socketId, bool success, const char *reason) {
+  struct BtSocketOpenResponseData {
+    uint64_t socketId;
+    bool success;
+    const char *reason;
+  };
+
+  BtSocketOpenResponseData btSocketOpenResponseData{socketId, success, reason};
+
+  auto msgBuilder = [](ChreFlatBufferBuilder &builder, void *cookie) {
+    const auto data = static_cast<const BtSocketOpenResponseData *>(cookie);
+    HostProtocolChre::encodeBtSocketOpenResponse(builder, data->socketId,
+                                                 data->success, data->reason);
+  };
+
+  return buildAndEnqueueMessage(PendingMessageType::BtSocketOpenResponse, 52,
+                                msgBuilder, &btSocketOpenResponseData);
+}
+
+DRAM_REGION_FUNCTION bool HostLink::sendBtSocketClose(uint64_t socketId,
+                                                      const char *reason) {
+  struct BtSocketCloseData {
+    uint64_t socketId;
+    const char *reason;
+  };
+
+  BtSocketCloseData btSocketCloseData{socketId, reason};
+  auto msgBuilder = [](ChreFlatBufferBuilder &builder, void *cookie) {
+    const auto data = static_cast<const BtSocketCloseData *>(cookie);
+    HostProtocolChre::encodeBtSocketClose(builder, data->socketId,
+                                          data->reason);
+  };
+
+  return buildAndEnqueueMessage(PendingMessageType::BtSocketClose, 52,
+                                msgBuilder, &btSocketCloseData);
+}
+
 DRAM_REGION_FUNCTION void HostMessageHandlers::handleNanoappMessage(
     uint64_t appId, uint32_t messageType, uint16_t hostEndpoint,
     const void *messageData, size_t messageDataLen, bool isReliable,
@@ -937,10 +1010,40 @@ DRAM_REGION_FUNCTION void HostMessageHandlers::handleNanConfigurationUpdate(
   LOGE("%s is unsupported", __func__);
 }
 
+DRAM_REGION_FUNCTION void
+HostMessageHandlers::handleBtSocketCapabilitiesRequest() {
+#ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
+  EventLoopManagerSingleton::get()
+      ->getBleSocketManager()
+      .handleSocketCapabilitiesRequestByHost();
+#else
+  getHostCommsManager().sendBtSocketGetCapabilitiesResponse(
+      /*leCocNumberOfSupportedSockets=*/0, /*leCocMtu=*/0,
+      /*rfcommNumberOfSupportedSockets=*/0, /*rfcommMaxFrameSize=*/0);
+#endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
+}
+
 DRAM_REGION_FUNCTION void HostMessageHandlers::handleBtSocketOpen(
-    uint64_t /* hubId */, const BleL2capCocSocketData & /* socketData */,
+    uint64_t /* hubId */, const BleL2capCocSocketData &socketData,
     const char * /* name */, uint32_t /* psm */) {
-  LOGE("BT Socket offload not supported");
+#ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
+  EventLoopManagerSingleton::get()
+      ->getBleSocketManager()
+      .handleSocketOpenedByHost(socketData);
+#else
+  getHostCommsManager().sendBtSocketOpenResponse(
+      socketData.socketId, /*success=*/false,
+      /*reason=*/"Socket offload not supported");
+#endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
+}
+
+DRAM_REGION_FUNCTION void HostMessageHandlers::handleBtSocketClosed(
+    uint64_t socketId) {
+#ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
+  EventLoopManagerSingleton::get()
+      ->getBleSocketManager()
+      .handleSocketClosedByHost(socketId);
+#endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
 }
 
 DRAM_REGION_FUNCTION void sendAudioRequest() {
@@ -959,10 +1062,6 @@ DRAM_REGION_FUNCTION void sendAudioRelease() {
   constexpr size_t kInitialSize = 32;
   buildAndEnqueueMessage(PendingMessageType::LowPowerMicAccessRelease,
                          kInitialSize, msgBuilder, /* cookie= */ nullptr);
-}
-
-void HostMessageHandlers::handleBtSocketCapabilitiesRequest() {
-  LOGE("BT Socket offload not supported");
 }
 
 }  // namespace chre
