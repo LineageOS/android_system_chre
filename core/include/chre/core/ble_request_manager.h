@@ -261,13 +261,13 @@ class BleRequestManager : public NonCopyable {
   BleRequest mActivePlatformRequest;
 
   // True if a platform request is in progress.
-  bool mPlatformRequestInProgress;
+  bool mPlatformRequestInProgress = false;
 
   // True if a state resync request is pending to be processed.
-  bool mResyncPending;
+  bool mResyncPending = false;
 
   // True if a setting change request is pending to be processed.
-  bool mSettingChangePending;
+  bool mSettingChangePending = false;
 
   //! A queue of flush requests made by nanoapps.
   static constexpr size_t kMaxFlushRequests = 16;

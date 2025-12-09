@@ -26,7 +26,7 @@ struct FastPairAccountData {
   // Note, the returned FastPairAccountData has the lifetime of service_data,
   // and the return will be invalid if service_data is altered/destructed after
   // parsing.
-  static FastPairAccountData Parse(const ByteArray &service_data);
+  static FastPairAccountData Parse(const ByteArray& service_data);
 
   FastPairAccountData(bool is_valid, uint8_t version, ByteArray filter,
                       ByteArray salt, ByteArray battery, ByteArray rrd)

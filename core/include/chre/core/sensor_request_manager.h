@@ -55,12 +55,15 @@ class SensorRequestManager : public NonCopyable {
 
   /**
    * Determines whether the runtime is aware of a given sensor type. The
-   * supplied sensorHandle is only populated if the sensor type is known.
+   * supplied sensorHandle is only populated if a sensor with the matching
+   * sensorType and sensorIndex is found, along with the sensor's target group
+   * mask that has meets the requirements of the provided targetGroupId.
    *
    * @param sensorType The type of the sensor.
    * @param sensorIndex The index of the sensor.
    * @param targetGroupId The target group ID that must be covered by the
-   *     matching sensor.
+   *     matching sensor (specifies the bits that must be set by the sensor's
+   *     target group mask).
    * @param sensorHandle A non-null pointer to a uint32_t to use as a sensor
    *                     handle for nanoapps.
    * @return true if the supplied sensor type is available for use.

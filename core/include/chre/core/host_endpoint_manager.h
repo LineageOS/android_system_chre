@@ -59,8 +59,8 @@ class HostEndpointManager : public NonCopyable {
   /**
    * Stores host endpoint information if it is connected.
    */
-  chre::DynamicVector<struct chreHostEndpointInfo> mHostEndpoints =
-      chre::DynamicVector<struct chreHostEndpointInfo>();
+  chre::DynamicVector<UniquePtr<struct chreHostEndpointInfo>> mHostEndpoints =
+      chre::DynamicVector<UniquePtr<struct chreHostEndpointInfo>>();
 
   /**
    * Returns the index of where the endpoint id is stored

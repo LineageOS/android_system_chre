@@ -153,7 +153,7 @@ void Nanoapp::processEvent(Event *event) {
       SystemTime::getMonotonicTime() - eventStartTime;
   uint64_t eventTimeMs = Milliseconds(eventProcessTime).getMilliseconds();
   if (Milliseconds(eventProcessTime) >= Milliseconds(100)) {
-    LOGE("Nanoapp 0x%" PRIx64 " took %" PRIu64
+    LOGW("Nanoapp 0x%" PRIx64 " took %" PRIu64
          " ms to process event type 0x%" PRIx16,
          getAppId(), eventTimeMs, event->eventType);
   }
@@ -188,13 +188,14 @@ void Nanoapp::logStateToBuffer(DebugDumpWrapper &debugDump) const {
   debugDump.print(" Id=%" PRIu16 " 0x%016" PRIx64 " ", getInstanceId(),
                   getAppId());
   PlatformNanoapp::logStateToBuffer(debugDump);
+  uint32_t perm = getAppPermissions();
   debugDump.print(" v%" PRIu32 ".%" PRIu32 ".%" PRIu32 " tgtAPI=%" PRIu32
-                  ".%" PRIu32 "\n",
+                  ".%" PRIu32 " perm=0x%08" PRIx32 "\n",
                   CHRE_EXTRACT_MAJOR_VERSION(getAppVersion()),
                   CHRE_EXTRACT_MINOR_VERSION(getAppVersion()),
                   CHRE_EXTRACT_PATCH_VERSION(getAppVersion()),
                   CHRE_EXTRACT_MAJOR_VERSION(getTargetApiVersion()),
-                  CHRE_EXTRACT_MINOR_VERSION(getTargetApiVersion()));
+                  CHRE_EXTRACT_MINOR_VERSION(getTargetApiVersion()), perm);
 }
 
 void Nanoapp::logMemAndComputeHeader(DebugDumpWrapper &debugDump) const {

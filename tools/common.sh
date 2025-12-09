@@ -77,8 +77,6 @@ connectedProduct() {
 }
 
 checkConnectedProduct() {
-  checkDeviceRev
-
   # Make sure connected device matches $TARGET_PRODUCT
   CONNECTED_PRODUCT="$(connectedProduct)"
   if [ "$TARGET_PRODUCT" != "$CONNECTED_PRODUCT" ]
@@ -86,20 +84,4 @@ checkConnectedProduct() {
     echo "ERROR: Connected device ($CONNECTED_PRODUCT) does not match TARGET_PRODUCT. Please lunch $CONNECTED_PRODUCT first"
     exit 1
   fi
-}
-
-checkDeviceRev() {
-  set +e
-  GETPROP_OUTPUT="$($ADB shell getprop ro.boot.hardware.revision 2>&1)"
-  GETPROP_RESULT=$?
-  if [ $GETPROP_RESULT -ne 0 ]
-  then
-    echo "Cannot check device status via adb, please check device connection"
-    exit 1
-  elif [[ "$GETPROP_OUTPUT" =~ ^([DP]VT|MP).* ]]
-  then
-    echo "Device must be EVT or earlier for CHRE development"
-    exit 1
-  fi
-  set -e
 }

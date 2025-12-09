@@ -26,12 +26,11 @@ namespace nearby {
 class Timer {
  public:
   // Constructs timer.
-  explicit Timer(bool is_one_shot) : is_one_shot_(is_one_shot) {}
+  explicit Timer(bool is_one_shot)
+      : is_one_shot_(is_one_shot) {}
 
   // Sets timer duration in milliseconds.
-  void SetDurationMs(uint32_t duration_ms) {
-    duration_ms_ = duration_ms;
-  }
+  void SetDurationMs(uint32_t duration_ms) { duration_ms_ = duration_ms; }
 
   // Starts timer.
   bool StartTimer();
@@ -40,15 +39,14 @@ class Timer {
   bool StopTimer();
 
   // Returns timer id.
-  const uint32_t *GetTimerId() {
-    return &timer_id_;
-  }
+  const uint32_t *GetTimerId() { return &timer_id_; }
 
  private:
   uint32_t timer_id_ = CHRE_TIMER_INVALID;
   uint32_t duration_ms_ = 0;
   bool is_one_shot_;
 };
+
 
 }  // namespace nearby
 

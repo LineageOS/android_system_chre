@@ -42,7 +42,7 @@ class ConstructorCount {
   ~ConstructorCount() {
     (*sConstructedCounter)--;
   }
-  int getValue() {
+  int getValue() const {
     return value;
   }
 
@@ -355,14 +355,15 @@ TEST(SegmentedQueue, RemoveMatchesEnoughItem) {
     EXPECT_TRUE(segmentedQueue.emplace_back(index, &constCounter));
   }
 
-  EXPECT_EQ(3, segmentedQueue.removeMatchedFromBack(
-                   [](ConstructorCount &element, void *data, void *extraData) {
-                     NestedDataPtr<int> targetValue(data);
-                     NestedDataPtr<int> targetValue2(extraData);
-                     return element.getValue() <= targetValue + targetValue2;
-                   },
-                   /* data= */ NestedDataPtr<int>(2),
-                   /* extraData= */ NestedDataPtr<int>(2), 3));
+  EXPECT_EQ(
+      3, segmentedQueue.removeMatchedFromBack(
+             [](const ConstructorCount &element, void *data, void *extraData) {
+               NestedDataPtr<int> targetValue(data);
+               NestedDataPtr<int> targetValue2(extraData);
+               return element.getValue() <= targetValue + targetValue2;
+             },
+             /* data= */ NestedDataPtr<int>(2),
+             /* extraData= */ NestedDataPtr<int>(2), 3));
 
   EXPECT_EQ(segmentedQueue[0].getValue(), 0);
   EXPECT_EQ(segmentedQueue[1].getValue(), 1);
@@ -590,7 +591,7 @@ TEST(SegmentedQueue, PseudoRandomStressTest) {
         ASSERT_EQ(
             removedIndex.size(),
             testSegmentedQueue.removeMatchedFromBack(
-                [](ConstructorCount &item, void * /* data */,
+                [](const ConstructorCount &item, void * /* data */,
                    void * /* extraData */) { return item.getValue() % 2 == 0; },
                 /* data= */ nullptr, /* extraData= */ nullptr,
                 targetRemoveElement));

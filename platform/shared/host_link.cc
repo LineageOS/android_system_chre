@@ -45,7 +45,7 @@ void HostMessageHandlers::finishLoadingNanoappCallback(
   bool success = false;
 
   if (cbData->nanoapp->isLoaded()) {
-    success = eventLoop.startNanoapp(cbData->nanoapp);
+    success = eventLoop.startNanoapp(std::move(cbData->nanoapp));
   } else {
     LOGE("Nanoapp is not loaded");
   }

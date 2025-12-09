@@ -146,6 +146,13 @@ class LogBufferManager : public LogBufferCallbackInterface {
   void preSecondaryBufferUse() const;
 
   /**
+   * Release secondary buffer as appropriate.
+   *
+   * Implemented by the platform.
+   */
+  void postSecondaryBufferUse() const;
+
+  /**
    * Same as onLogsSentToHost, but without locking. The calling code should have
    * the flush logs mutex locked before calling this method.
    *

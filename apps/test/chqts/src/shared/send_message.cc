@@ -161,8 +161,6 @@ void sendStringToHost(MessageType messageType, const char *message,
   if (value != nullptr) {
     myMessageLen += kUint32ToHexAsciiBufferMinLen;
   }
-  // Add null terminator
-  myMessageLen++;
 
   size_t fullMessageLen = myMessageLen;
   char *fullMessage =
@@ -174,8 +172,6 @@ void sendStringToHost(MessageType messageType, const char *message,
     uint32ToHexAscii(
         ptr, fullMessageLen - static_cast<size_t>(ptr - fullMessage), *value);
   }
-  // Add the terminator.
-  fullMessage[fullMessageLen - 1] = '\0';
 
   internalSendMessage(messageType, fullMessage, fullMessageLen, ChunkAlloc);
 }

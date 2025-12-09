@@ -45,15 +45,23 @@ void DramVoteClient::issueDramVote(bool /*enabled*/) {}
 void forceDramAccess() {}
 
 void nanoappBinaryFree(void *pointer) {
+#ifdef CFG_MULTI_HEAP_SUPPORT
+  elf_free_memory(pointer);
+#else  // CFG_MULTI_HEAP_SUPPORT
 #ifdef NANOAPP_ALWAYS_IN_DRAM
   aligned_dram_free(pointer);
 #else
   aligned_free(pointer);
 #endif
+#endif  // CFG_MULTI_HEAP_SUPPORT
 }
 
 void nanoappBinaryDramFree(void *pointer) {
+#ifdef CFG_MULTI_HEAP_SUPPORT
+  elf_free_memory(pointer);
+#else   // CFG_MULTI_HEAP_SUPPORT
   aligned_dram_free(pointer);
+#endif  // CFG_MULTI_HEAP_SUPPORT
 }
 
 void *memoryAllocDram(size_t size) {
@@ -73,16 +81,31 @@ void palSystemApiMemoryFree(void *pointer) {
 }
 
 void *nanoappBinaryAlloc(size_t size, size_t alignment) {
+#ifdef CFG_MULTI_HEAP_SUPPORT
+// elf_allocate_memory doesn't allow customized alignment but will always align
+// to 128 bytes.
+#ifdef NANOAPP_ALWAYS_IN_DRAM
+  return elf_allocate_memory(size, /* inDram= */ true);
+#endif
+  return elf_allocate_memory(size, /* inDram= */ false);
+#else  // CFG_MULTI_HEAP_SUPPORT
 #ifdef NANOAPP_ALWAYS_IN_DRAM
   return aligned_dram_malloc(size, alignment);
 #endif
   return aligned_malloc(size, alignment);
+#endif  // CFG_MULTI_HEAP_SUPPORT
 }
 
 void *nanoappBinaryDramAlloc(size_t size, size_t alignment) {
   // aligned_dram_malloc() requires the alignment being multiple of
   // CACHE_LINE_SIZE (128 bytes), we will align to page size (4k)
+#ifdef CFG_MULTI_HEAP_SUPPORT
+  // elf_allocate_memory doesn't allow customized alignment but will always
+  // align to 128 bytes.
+  return elf_allocate_memory(size, /* inDram= */ true);
+#else   // CFG_MULTI_HEAP_SUPPORT
   return aligned_dram_malloc(size, alignment);
+#endif  // CFG_MULTI_HEAP_SUPPORT
 }
 
 void *memoryAlloc(size_t size) {

@@ -78,7 +78,7 @@ constexpr uint32_t kWifiBandStartFreq_5_GHz = 5000;
 constexpr uint32_t kWifiBandFreqOfChannel_14 = 2484;
 
 //! The amount of time to allow between an operation timing out and the event
-//! being deliverd to the test.
+//! being delivered to the test.
 constexpr uint32_t kTimeoutWiggleRoomNs = 2 * chre::kOneSecondInNanoseconds;
 
 // Number of seconds waited before retrying when an on demand wifi scan fails.
@@ -168,53 +168,50 @@ void testRequestRangingAsync(const struct chreWifiScanResult *aps,
 }
 
 /**
- * Validates primaryChannel and sends fatal failure to host if failing.
- * 1. (primaryChannel - start frequecny) is a multiple of 5.
- * 2. primaryChannelNumber is multiple of 5 and between [1, maxChannelNumber].
+ * Validates center frequency and channel. Sends fatal failure to host
+ * when appropriate based on API version.
  *
- * @param primaryChannel primary channel of a WiFi scan result.
- * @param startFrequency start frequency of band 2.4/5 GHz.
- * @param maxChannelNumber max channel number of band 2.4/5 GHz.
+ * @param centerFrequency center frequency of a WiFi scan result.
+ * @param band band 2.4/5 GHz.
+ * @param apiVersion CHRE API version.
  */
-void validatePrimaryChannel(uint32_t primaryChannel, uint32_t startFrequency,
-                            uint8_t maxChannelNumber) {
-  if ((primaryChannel - startFrequency) % 5 != 0) {
-    LOGE("primaryChannel - %" PRIu32
+void validateFreqAndChannel(uint32_t centerFrequency, uint8_t band,
+                            uint32_t apiVersion) {
+  uint32_t startFrequency = 0;
+  uint8_t maxChannelNumber = 0;
+  if (band == CHRE_WIFI_BAND_2_4_GHZ) {
+    // channel 14 (centerFrequency = 2484) is not applicable for this test.
+    if (centerFrequency == kWifiBandFreqOfChannel_14) {
+      return;
+    }
+    startFrequency = kWifiBandStartFreq_2_4_GHz;
+    maxChannelNumber = 13;
+  } else if (band == CHRE_WIFI_BAND_5_GHZ) {
+    startFrequency = kWifiBandStartFreq_5_GHz;
+    maxChannelNumber = 200;
+  } else {
+    LOGE("Invalid band for wifi scan result. Band: %" PRIu8, band);
+  }
+
+  if ((centerFrequency - startFrequency) % 5 != 0) {
+    LOGE("centerFrequency - %" PRIu32
          " must be a multiple of 5,"
-         "got primaryChannel: %" PRIu32,
-         startFrequency, primaryChannel);
+         "got centerFrequency: %" PRIu32,
+         startFrequency, centerFrequency);
+    if (apiVersion >= CHRE_API_VERSION_1_12) {
+      EXPECT_FAIL_RETURN("Invalid center frequency for wifi scan result.");
+    }
   }
 
-  uint32_t primaryChannelNumber = (primaryChannel - startFrequency) / 5;
-  if (primaryChannelNumber < 1 || primaryChannelNumber > maxChannelNumber) {
-    LOGE("primaryChannelNumber must be between 1 and %" PRIu8
+  uint32_t channelNumber = (centerFrequency - startFrequency) / 5;
+  if (channelNumber < 1 || channelNumber > maxChannelNumber) {
+    LOGE("channelNumber must be between 1 and %" PRIu8
          ","
-         "got primaryChannel: %" PRIu32,
-         maxChannelNumber, primaryChannel);
-  }
-}
-
-/**
- * Validates primaryChannel for band 2.4/5 GHz.
- *
- * primaryChannelNumber of band 2.4 GHz is between 1 and 13,
- * plus a special case for channel 14 (primaryChannel == 2484);
- * primaryChannelNumber of band 5 GHz is between 1 and 200,
- * ref: IEEE Std 802.11-2016, 19.3.15.2.
- * Also, (primaryChannel - start frequecny) is a multiple of 5,
- * except channel 14 of 2.4 GHz.
- *
- * @param result WiFi scan result.
- */
-void validatePrimaryChannel(const chreWifiScanResult &result) {
-  // channel 14 (primaryChannel = 2484) is not applicable for this test.
-  if (result.band == CHRE_WIFI_BAND_2_4_GHZ &&
-      result.primaryChannel != kWifiBandFreqOfChannel_14) {
-    validatePrimaryChannel(result.primaryChannel, kWifiBandStartFreq_2_4_GHz,
-                           13);
-  } else if (result.band == CHRE_WIFI_BAND_5_GHZ) {
-    validatePrimaryChannel(result.primaryChannel, kWifiBandStartFreq_5_GHz,
-                           200);
+         "got channelNumber: %" PRIu32,
+         maxChannelNumber, channelNumber);
+    if (apiVersion >= CHRE_API_VERSION_1_12) {
+      EXPECT_FAIL_RETURN("Invalid primary channel for wifi scan result.");
+    }
   }
 }
 
@@ -222,14 +219,36 @@ void validatePrimaryChannel(const chreWifiScanResult &result) {
  * Validates centerFreqPrimary and centerFreqSecondary
  * TODO(b/396133301): add test when channelWidth is 20, 40, 80, or 160 MHz
  */
-void validateCenterFreq(const chreWifiScanResult &result) {
-  if (result.channelWidth != CHRE_WIFI_CHANNEL_WIDTH_80_PLUS_80_MHZ &&
-      result.centerFreqSecondary != 0) {
-    // TODO(b/396133301): Format the centerFreqSecondary into the message
-    // after redesigning of EXPECT_FAIL_RETURN()
-    EXPECT_FAIL_RETURN(
+void validateCenterFreq(const chreWifiScanResult &result, uint32_t apiVersion) {
+  if (result.channelWidth == CHRE_WIFI_CHANNEL_WIDTH_20_MHZ) {
+    if (result.centerFreqPrimary != 0 &&
+        result.centerFreqPrimary != result.primaryChannel &&
+        apiVersion >= CHRE_API_VERSION_1_12) {
+      EXPECT_FAIL_RETURN(
+          "centerFreqPrimary must be set to 0 or match primaryChannel if "
+          "channelWidth is 20MHZ");
+    }
+  } else {
+    validateFreqAndChannel(result.centerFreqPrimary, result.band, apiVersion);
+  }
+
+  if (result.channelWidth == CHRE_WIFI_CHANNEL_WIDTH_80_PLUS_80_MHZ) {
+    validateFreqAndChannel(result.centerFreqSecondary, result.band, apiVersion);
+  } else {
+    EXPECT_EQ_OR_RETURN(
+        result.centerFreqSecondary, 0,
         "centerFreqSecondary must be 0 if channelWidth is not 80+80MHZ");
   }
+}
+
+void validateVenueInfo(const chreWifiScanResult &result) {
+  // Flag an error if venueGroup or venueType is a reserved value
+  // For a given venueGroup, flag an error if the venueType is a reserved value.
+  uint8_t firstReservedValueTable[13] = {1, 16, 10, 4, 2, 6, 6, 5, 1, 1, 8, 7, 6};
+  EXPECT_LT_OR_RETURN(result.venueGroup, 13, "venueGroup is a reserved value");
+  EXPECT_LT_OR_RETURN(result.venueType,
+                      firstReservedValueTable[result.venueGroup],
+                      "venueType is a reserved value for the given venueGroup");
 }
 
 /**
@@ -240,6 +259,9 @@ void validateRssi(int8_t rssi) {
   // right next to a high-power AP (e.g. transmitting at 20 dBm),
   // in which case RSSI will be < 20 dBm. Place a high threshold to check
   // against values likely to be erroneous (36 dBm/4W).
+  if (rssi >= 36) {
+    LOGE("Received unexpected RSSI value: %" PRId8, rssi);
+  }
   EXPECT_LT_OR_RETURN(rssi, 36, "RSSI is greater than 36");
 }
 
@@ -616,8 +638,12 @@ void BasicWifiTest::validateWifiScanResult(uint8_t count,
 
     validateRssi(results[i].rssi);
 
-    validatePrimaryChannel(results[i]);
-    validateCenterFreq(results[i]);
+    validateFreqAndChannel(results[i].primaryChannel, results[i].band,
+                           mApiVersion);
+    validateCenterFreq(results[i], mApiVersion);
+    if (mWifiCapabilities & CHRE_WIFI_CAPABILITIES_VENUE_INFO) {
+      validateVenueInfo(results[i]);
+    }
   }
 }
 

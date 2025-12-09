@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include <inttypes.h>
+#include <cinttypes>
 #include <cstdint>
 
 #include "chre/platform/log.h"
@@ -50,7 +50,17 @@ const uint8_t kGooglePublicKey[kEcdsaP256PublicKeySize] = {
     0x35, 0x64, 0x54, 0xcc, 0xbc, 0x8b, 0xe0, 0x6c, 0x77, 0xbe, 0xbb,
     0x1b, 0xdd, 0x18, 0x6d, 0x77, 0xfe, 0xb7, 0x0,  0xd5};
 
-const uint8_t *const kTrustedPublicKeys[] = {kGooglePublicKey};
+#ifdef CHRE_TEST_SIGNED_NAPP_ENABLED
+const uint8_t kGoogleTestPublicKey[kEcdsaP256PublicKeySize] = {
+    0xe8, 0x3e, 0xec, 0xe8, 0xd8, 0xfd, 0x04, 0xae, 0x51, 0x64, 0xb7,
+    0xf1, 0x9d, 0xc6, 0x4d, 0xcd, 0x0f, 0xa5, 0xb1, 0x13, 0x43, 0xb2,
+    0xa9, 0x91, 0xc2, 0x81, 0x88, 0xdb, 0xf0, 0xdc, 0x6a, 0x03, 0x46,
+    0x50, 0xab, 0xce, 0xc1, 0x6a, 0xf4, 0xc4, 0xfe, 0xad, 0x4c, 0xbb,
+    0xeb, 0x7f, 0x99, 0xfa, 0x0c, 0x04, 0x36, 0x83, 0x84, 0xdb, 0x07,
+    0x3c, 0x31, 0xb4, 0xbb, 0xc5, 0x77, 0x0e, 0x99, 0x56};
+#endif
+
+const uint8_t *const kTrustedProductionPublicKeys[] = {kGooglePublicKey};
 
 /**
  * A data structure encapsulating metadata necessary for nanoapp binary
@@ -204,39 +214,37 @@ uint32_t getPublicKeyLength(const uint64_t *flag) {
 /** Checks if the hash prvided in the header is derived from the image. */
 bool hasCorrectHash(const void *head, size_t realImageSize,
                     const uint8_t *hashProvided) {
-  auto image = static_cast<const uint8_t *>(head) + kHeaderSize;
+  const auto image = static_cast<const uint8_t *>(head) + kHeaderSize;
   uint8_t hashCalculated[kSha256HashSize] = {};
   mbedtls_sha256(image, realImageSize, hashCalculated, /* is224= */ 0);
   return memcmp(hashCalculated, hashProvided, kSha256HashSize) == 0;
 }
 
 /** Checks if the public key in the header matches the production public key. */
-bool isValidProductionPublicKey(const uint8_t *publicKey,
-                                size_t publicKeyLength) {
+bool isValidTrustedPublicKey(const uint8_t *publicKey, size_t publicKeyLength) {
   if (publicKeyLength != kEcdsaP256PublicKeySize) {
     LOGE("Public key length %zu is unexpected.", publicKeyLength);
     return false;
   }
-  for (size_t i = 0; i < ARRAY_SIZE(kTrustedPublicKeys); i++) {
-    if (memcmp(kTrustedPublicKeys[i], publicKey, kEcdsaP256PublicKeySize) ==
-        0) {
+  for (const uint8_t *trustedKey : kTrustedProductionPublicKeys) {
+    if (memcmp(trustedKey, publicKey, kEcdsaP256PublicKeySize) == 0) {
       return true;
     }
   }
+#ifdef CHRE_TEST_SIGNED_NAPP_ENABLED
+  if (memcmp(kGoogleTestPublicKey, publicKey, kEcdsaP256PublicKeySize) == 0) {
+    LOGW(
+        "Test public key is matched. Please make sure this is a dev device, or "
+        "the device is exposed to security risks");
+    return true;
+  }
+#endif
   return false;
 }
 }  // anonymous namespace
 
 bool authenticateBinary(const void *binary, size_t appBinaryLen,
                         void **realBinaryStart) {
-#ifndef CHRE_NAPP_AUTHENTICATION_ENABLED
-  UNUSED_VAR(binary);
-  UNUSED_VAR(realBinaryStart);
-  LOGW(
-      "Nanoapp authentication is disabled, which exposes the device to "
-      "security risks!");
-  return true;
-#endif
   if (appBinaryLen <= kHeaderSize) {
     LOGE("Binary size %zu is too short.", appBinaryLen);
     return false;
@@ -256,7 +264,7 @@ bool authenticateBinary(const void *binary, size_t appBinaryLen,
   } else if (expectedAppBinaryLength != appBinaryLen) {
     LOGE("Invalid binary length %zu. Expected %" PRIu32, appBinaryLen,
          expectedAppBinaryLength);
-  } else if (!isValidProductionPublicKey(
+  } else if (!isValidTrustedPublicKey(
                  publicKey, getPublicKeyLength(header->headerInfo.flags))) {
     LOGE("Invalid public key attached on the image.");
   } else if (!hasCorrectHash(binary, header->headerInfo.binaryLength,

@@ -90,6 +90,10 @@ void chrePalWwanApiClose() {
 
 bool chrePalWwanApiOpen(const struct chrePalSystemApi *systemApi,
                         const struct chrePalWwanCallbacks *callbacks) {
+  if (!TaskManagerSingleton::isInitialized()) {
+    TaskManagerSingleton::init();
+  }
+
   chrePalWwanApiClose();
 
   bool success = false;

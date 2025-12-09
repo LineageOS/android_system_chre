@@ -34,6 +34,7 @@
 
 #include <array>
 #include <chrono>
+#include <cstdint>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -293,6 +294,9 @@ class MultiClientContextHubBase
   // TODO(b/333567700): Remove when cleaning up the
   // bug_fix_hal_reliable_message_record flag
   std::unordered_map<int32_t, HostEndpointId> mReliableMessageMap;
+
+  // Time offset between CHRE and Host, only valid during debug dump process.
+  std::optional<int64_t> mEstimatedHostTimeOffset = std::nullopt;
 };
 }  // namespace android::hardware::contexthub::common::implementation
 #endif  // ANDROID_HARDWARE_CONTEXTHUB_COMMON_MULTICLIENTS_HAL_BASE_H_

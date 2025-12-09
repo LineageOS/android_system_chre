@@ -217,6 +217,8 @@ void AppManager::UpdateBleScanState() {
     ble_scanner_.Restart();
   } else {
     ble_scanner_.Stop();
+    // Clear the advertise report cache when the scan is stopped.
+    adv_reports_cache_.Clear();
   }
 }
 
@@ -518,6 +520,7 @@ bool AppManager::HandleExtFilterConfig(
   chre::DynamicVector<chreBleGenericFilter> generic_filters;
 
   filter_extension_.Update(host_info, config, &generic_filters,
+                           &screen_on_filter_extension_results_,
                            config_response);
   if (config_response->result != CHREX_NEARBY_RESULT_OK) {
     return false;
@@ -625,11 +628,11 @@ const char *AppManager::GetExtConfigNameFromTag(pb_size_t config_tag) {
 void AppManager::HandleHostAwakeEvent() {
   // Send tracker reports to host when receive host awake event.
   uint64_t current_time = chreGetTime();
-  uint64_t flush_threshold_nanosec =
-      tracker_filter_.GetBatchConfig().opportunistic_flush_threshold_time_ms *
-      chre::kOneMillisecondInNanoseconds;
-  if (current_time - last_tracker_report_flush_time_nanosec_ >=
-      flush_threshold_nanosec) {
+  uint64_t flush_threshold_nanosec = tracker_filter_.GetBatchConfig()
+      .opportunistic_flush_threshold_time_ms
+      * chre::kOneMillisecondInNanoseconds;
+  if (current_time - last_tracker_report_flush_time_nanosec_
+      >= flush_threshold_nanosec) {
     LOGD("Flush tracker reports by host awake event.");
     SendTrackerReportsToHost(tracker_storage_.GetBatchReports());
     tracker_storage_.Clear();

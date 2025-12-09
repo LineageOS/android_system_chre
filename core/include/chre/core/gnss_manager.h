@@ -487,7 +487,7 @@ class GnssManager : public NonCopyable {
   DynamicVector<uint16_t> mPassiveLocationListenerNanoapps;
 
   //! true if the passive location listener is enabled at the platform.
-  bool mPlatformPassiveLocationListenerEnabled;
+  bool mPlatformPassiveLocationListenerEnabled = false;
 
   /**
    * @param nanoappInstanceId The instance ID of the nanoapp to check.

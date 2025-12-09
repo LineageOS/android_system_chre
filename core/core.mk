@@ -18,7 +18,6 @@ COMMON_SRCS += $(CHRE_PREFIX)/core/event_ref_queue.cc
 COMMON_SRCS += $(CHRE_PREFIX)/core/host_comms_manager.cc
 COMMON_SRCS += $(CHRE_PREFIX)/core/host_endpoint_manager.cc
 COMMON_SRCS += $(CHRE_PREFIX)/core/host_message_hub_manager.cc
-COMMON_SRCS += $(CHRE_PREFIX)/core/init.cc
 COMMON_SRCS += $(CHRE_PREFIX)/core/nanoapp.cc
 COMMON_SRCS += $(CHRE_PREFIX)/core/settings.cc
 COMMON_SRCS += $(CHRE_PREFIX)/core/static_nanoapps.cc
@@ -35,6 +34,9 @@ ifeq ($(CHRE_BLE_SUPPORT_ENABLED), true)
 COMMON_SRCS += $(CHRE_PREFIX)/core/ble_request.cc
 COMMON_SRCS += $(CHRE_PREFIX)/core/ble_request_manager.cc
 COMMON_SRCS += $(CHRE_PREFIX)/core/ble_request_multiplexer.cc
+ifeq ($(CHRE_BLE_SOCKET_SUPPORT_ENABLED), true)
+COMMON_SRCS += $(CHRE_PREFIX)/core/ble_socket_manager.cc
+endif
 endif
 
 # Optional GNSS support.

@@ -21,6 +21,7 @@
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/settings.h"
 #include "chre/platform/system_time.h"
+#include "chre_api/chre.h"
 
 namespace chre {
 
@@ -72,8 +73,10 @@ void DebugDumpManager::appendNanoappLog(const Nanoapp &nanoapp,
 
 void DebugDumpManager::collectFrameworkDebugDumps() {
   auto *eventLoopManager = EventLoopManagerSingleton::get();
-  mDebugDump.print("CHRE debug dump started @ ts=%" PRIu64 "\n",
-                   SystemTime::getMonotonicTime().toRawNanoseconds());
+  mDebugDump.print("CHRE debug dump started @ ts=%" PRIu64
+                   ", estimatedHostTimeOffset=%" PRId64 "\n",
+                   SystemTime::getMonotonicTime().toRawNanoseconds(),
+                   SystemTime::getEstimatedHostTimeOffset());
   eventLoopManager->getMemoryManager().logStateToBuffer(mDebugDump);
   eventLoopManager->getEventLoop().logStateToBuffer(mDebugDump);
 #ifdef CHRE_SENSORS_SUPPORT_ENABLED
@@ -96,6 +99,23 @@ void DebugDumpManager::collectFrameworkDebugDumps() {
 #endif  // CHRE_BLE_SUPPORT_ENABLED
   eventLoopManager->getSettingManager().logStateToBuffer(mDebugDump);
   logStateToBuffer(mDebugDump);
+
+  appendCapabilities();
+}
+
+void DebugDumpManager::appendCapabilities() {
+  mDebugDump.print("\nCHRE Capabilities: \n");
+  mDebugDump.print("\tVersion: v%" PRIu32 ".%" PRIu32 ".%" PRIu32 "\n",
+                   CHRE_EXTRACT_MAJOR_VERSION(chreGetVersion()),
+                   CHRE_EXTRACT_MINOR_VERSION(chreGetVersion()),
+                   CHRE_EXTRACT_PATCH_VERSION(chreGetVersion()));
+  mDebugDump.print("\tCHRE: 0x%" PRIx32 "\n", chreGetCapabilities());
+  mDebugDump.print("\tBLE: 0x%" PRIx32 "\n", chreBleGetCapabilities());
+  mDebugDump.print("\tBLE Filter: 0x%" PRIx32 "\n",
+                   chreBleGetFilterCapabilities());
+  mDebugDump.print("\tWIFI: 0x%" PRIx32 "\n", chreWifiGetCapabilities());
+  mDebugDump.print("\tGNSS: 0x%" PRIx32 "\n", chreGnssGetCapabilities());
+  mDebugDump.print("\tWWAN: 0x%" PRIx32 "\n", chreWwanGetCapabilities());
 }
 
 void DebugDumpManager::sendFrameworkDebugDumps() {

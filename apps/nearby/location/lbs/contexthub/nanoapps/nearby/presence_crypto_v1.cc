@@ -22,9 +22,9 @@
 #include "third_party/contexthub/chre/util/include/chre/util/nanoapp/log.h"
 #define LOG_TAG "[NEARBY][PRESENCE_CRYPTO_V1]"
 namespace nearby {
-bool PresenceCryptoV1Impl::decrypt(const ByteArray &input,
-                                   const ByteArray &salt, const ByteArray &key,
-                                   ByteArray &output) const {
+bool PresenceCryptoV1Impl::decrypt(const ByteArray& input,
+                                   const ByteArray& salt, const ByteArray& key,
+                                   ByteArray& output) const {
   if (key.length != kAuthenticityKeySize) {
     LOGE("Invalid authenticity key size");
     return false;
@@ -54,8 +54,8 @@ bool PresenceCryptoV1Impl::decrypt(const ByteArray &input,
   aesCtr(&ctx, input.data, output.data, output.length);
   return true;
 }
-bool PresenceCryptoV1Impl::verify(const ByteArray &input, const ByteArray &key,
-                                  const ByteArray &signature) const {
+bool PresenceCryptoV1Impl::verify(const ByteArray& input, const ByteArray& key,
+                                  const ByteArray& signature) const {
   if (input.data == nullptr || key.data == nullptr ||
       signature.data == nullptr) {
     LOGE("Null pointer was found in input parameter");

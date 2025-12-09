@@ -38,6 +38,49 @@ namespace {
 
 class SensorTest : public TestBase {};
 
+// Validates that the default accelerometer sensor can be found.
+TEST_F(SensorTest, FindDefaultSensor) {
+  CREATE_CHRE_TEST_EVENT(FIND, 0);
+
+  struct Configuration {
+    uint8_t sensorType;
+  };
+
+  class App : public TestNanoapp {
+   public:
+    void handleEvent(uint32_t, uint16_t eventType,
+                     const void *eventData) override {
+      switch (eventType) {
+        case CHRE_EVENT_TEST_EVENT: {
+          auto event = static_cast<const TestEvent *>(eventData);
+          switch (event->type) {
+            case FIND: {
+              auto config = static_cast<const Configuration *>(event->data);
+              uint32_t handle;
+              const bool success =
+                  chreSensorFindDefault(config->sensorType, &handle);
+              if (!success) {
+                LOGE("Failed to find sensor type %" PRIu8, config->sensorType);
+              }
+              TestEventQueueSingleton::get()->pushEvent(FIND, success);
+              break;
+            }
+          }
+        }
+      }
+    }
+  };
+
+  uint64_t appId = loadNanoapp(MakeUnique<App>());
+
+  Configuration config{.sensorType =
+                           CHRE_SENSOR_TYPE_UNCALIBRATED_ACCELEROMETER};
+  sendEventToNanoapp(appId, FIND, config);
+  bool success;
+  waitForEvent(FIND, &success);
+  EXPECT_TRUE(success);
+}
+
 TEST_F(SensorTest, SensorCanSubscribeAndUnsubscribeToDataEvents) {
   CREATE_CHRE_TEST_EVENT(CONFIGURE, 0);
 

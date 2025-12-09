@@ -68,7 +68,8 @@ void TrackerStorage::Refresh(const TrackerBatchConfig &config) {
 }
 
 void TrackerStorage::UpdateTrackerReport(
-    TrackerReport &tracker_report, const TrackerBatchConfig &config,
+    TrackerReport &tracker_report,
+    const TrackerBatchConfig &config,
     const chreBleAdvertisingReport &report) {
   LOGD_SENSITIVE_INFO(
       "Received tracker report, tracker address: %02X:%02X:%02X:%02X:%02X:%02X",

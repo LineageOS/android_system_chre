@@ -43,21 +43,20 @@ void hmacInit(struct HmacContext *ctx, const void *inKey, const size_t keyLen) {
   sha2InitHmacKeyUpdate(ctx);
 }
 
-void hmacUpdate(struct HmacContext *ctx, const void *inData,
-                const size_t dataLen) {
+void hmacUpdate(struct HmacContext *ctx,
+                const void *inData, const size_t dataLen) {
   // update the input data to the sha2 context
   sha2processBytes(&ctx->sha2ctx, inData, dataLen);
 
-  if (!ctx->is_hmac_updated) {
-    ctx->is_hmac_updated = true;
+  if(!ctx->is_hmac_updated) {
+      ctx->is_hmac_updated = true;
   }
 }
 
-void hmacUpdateHashInit(struct HmacContext *ctx, const void *inData,
-                        const size_t dataLen) {
-  // initialize sha2 context and update hmac keys to the sha2 context if it was
-  // updated
-  if (ctx->is_hmac_updated) {
+void hmacUpdateHashInit(struct HmacContext *ctx,
+                        const void *inData, const size_t dataLen) {
+  // initialize sha2 context and update hmac keys to the sha2 context if it was updated
+  if(ctx->is_hmac_updated) {
     sha2InitHmacKeyUpdate(ctx);
   }
   hmacUpdate(ctx, inData, dataLen);
@@ -74,8 +73,9 @@ void hmacFinish(struct HmacContext *ctx, void *outHash, const size_t hashLen) {
   sha2finish(&ctx->sha2ctx, outHash, (uint32_t)hashLen);
 }
 
-void hmacSha256(const void *inKey, const size_t keyLen, const void *inData,
-                const size_t dataLen, void *outHash, const size_t hashLen) {
+void hmacSha256(const void *inKey, const size_t keyLen,
+                const void *inData, const size_t dataLen,
+                void *outHash, const size_t hashLen) {
   struct HmacContext ctx;
   hmacInit(&ctx, inKey, keyLen);
   hmacUpdate(&ctx, inData, dataLen);

@@ -152,7 +152,7 @@ bool SensorRequestManager::getSensorHandle(uint8_t sensorType,
   for (uint32_t i = 0; i < mSensors.size(); i++) {
     if ((mSensors[i].getSensorType() == sensorType) &&
         (mSensors[i].getSensorIndex() == sensorIndex) &&
-        (BITMASK_HAS_VALUE(mSensors[i].getTargetGroupMask(), targetGroupId))) {
+        ((mSensors[i].getTargetGroupMask() & targetGroupId) == targetGroupId)) {
       sensorHandleIsValid = true;
       *sensorHandle = i;
       break;

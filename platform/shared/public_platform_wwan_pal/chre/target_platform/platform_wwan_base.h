@@ -33,7 +33,7 @@ class PlatformWwanBase : public PlatformPal {
 
   //! The instance of the CHRE PAL API. This will be set to nullptr if the
   //! platform does not supply an implementation.
-  const chrePalWwanApi *mWwanApi;
+  const chrePalWwanApi *mWwanApi = nullptr;
 
   //! Event handlers for the CHRE WWAN PAL. Refer to chre/pal/wwan.h for futher
   //! information.

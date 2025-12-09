@@ -421,16 +421,17 @@ void MessageHubManager::clearEmbeddedState() {
   }
 }
 
-void MessageHubManager::addEmbeddedHub(const HubInfo &hub) {
+bool MessageHubManager::addEmbeddedHub(const HubInfo &hub) {
   std::lock_guard lock(mLock);
   if (!mIdToEmbeddedHubReady) {
     LOGW("Skipping embedded hub registration before initEmbeddedState()");
-    return;
+    return false;
   }
   if (mIdToEmbeddedHub.count(hub.hubId)) {
-    return;
+    return false;
   }
   mIdToEmbeddedHub[hub.hubId].info = hub;
+  return true;
 }
 
 void MessageHubManager::removeEmbeddedHub(int64_t id) {
@@ -476,13 +477,13 @@ std::vector<HubInfo> MessageHubManager::getEmbeddedHubs() const {
   return hubs;
 }
 
-void MessageHubManager::addEmbeddedEndpoint(const EndpointInfo &endpoint) {
+bool MessageHubManager::addEmbeddedEndpoint(const EndpointInfo &endpoint) {
   std::lock_guard lock(mLock);
   if (!mIdToEmbeddedHubReady) {
     LOGW("Skipping embedded endpoint registration before initEmbeddedState()");
-    return;
+    return false;
   }
-  addEmbeddedEndpointLocked(endpoint);
+  return addEmbeddedEndpointLocked(endpoint);
 }
 
 void MessageHubManager::addEmbeddedEndpointService(const EndpointId &endpoint,
@@ -605,15 +606,24 @@ void MessageHubManager::onClientDeath(void *cookie) {
   }
 }
 
-void MessageHubManager::addEmbeddedEndpointLocked(
+bool MessageHubManager::addEmbeddedEndpointLocked(
     const EndpointInfo &endpoint) {
-  auto it = mIdToEmbeddedHub.find(endpoint.id.hubId);
-  if (it == mIdToEmbeddedHub.end()) {
-    LOGW("Could not find hub %" PRId64 " for endpoint %" PRId64,
-         endpoint.id.hubId, endpoint.id.id);
-    return;
+  auto &hubEntry = mIdToEmbeddedHub[endpoint.id.hubId];
+  // TODO(b/425440067): Remove this hack once the race conditions in
+  // hub/endpoint registration are addressed.
+  if (hubEntry.info.hubId != endpoint.id.hubId) {
+    LOGW("Creating placeholder hub for new embedded endpoint.");
+    hubEntry.info.hubId = endpoint.id.hubId;
   }
-  it->second.idToEndpoint.insert({endpoint.id.id, {endpoint, false}});
+  return hubEntry.idToEndpoint.insert({endpoint.id.id, {endpoint, false}})
+      .second;
+  // auto it = mIdToEmbeddedHub.find(endpoint.id.hubId);
+  // if (it == mIdToEmbeddedHub.end()) {
+  //   LOGW("Could not find hub %" PRId64 " for endpoint %" PRId64,
+  //        endpoint.id.hubId, endpoint.id.id);
+  //   return;
+  // }
+  // it->second.idToEndpoint.insert({endpoint.id.id, {endpoint, false}});
 }
 
 pw::Status MessageHubManager::embeddedEndpointExistsLocked(

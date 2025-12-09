@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "chre/core/init.h"
+#include "chre/platform/shared/init.h"
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/static_nanoapps.h"
 #include "chre/platform/android/host_link.h"
@@ -44,7 +44,7 @@ void onMessageReceivedFromClient(uint16_t clientId, void *data, size_t length) {
 
 int main(int argc, char **argv) {
   // Initilize CHRE.
-  chre::init();
+  chre::initCommon();
   chre::loadStaticNanoapps();
 
   // Initialize the socket server.
@@ -59,6 +59,6 @@ int main(int argc, char **argv) {
 
   EventLoopManagerSingleton::get()->getEventLoop().run();
 
-  chre::deinit();
+  chre::deinitCommon();
   return 0;
 }

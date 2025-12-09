@@ -55,6 +55,10 @@ void chrePalAudioApiClose(void) {
 
 bool chrePalAudioApiOpen(const struct chrePalSystemApi *systemApi,
                          const struct chrePalAudioCallbacks *callbacks) {
+  if (!TaskManagerSingleton::isInitialized()) {
+    TaskManagerSingleton::init();
+  }
+
   chrePalAudioApiClose();
 
   bool success = false;

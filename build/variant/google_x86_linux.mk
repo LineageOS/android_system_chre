@@ -21,6 +21,7 @@ TARGET_VARIANT_SRCS += $(SIM_SRCS)
 # be nice to enable this globally in the tools_config.mk but some vendor header
 # files do not compile cleanly with it.
 TARGET_CFLAGS += -Wconversion
+TARGET_CFLAGS += -Wthread-safety
 
 # Add the target CFLAGS after the -Wconversion warning to allow targets to
 # disable it.

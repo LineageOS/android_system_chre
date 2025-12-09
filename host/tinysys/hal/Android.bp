@@ -48,6 +48,7 @@ cc_binary {
         "libpower",
     ],
     static_libs: [
+        "chre_host_util",
         "pw_base64",
         "pw_detokenizer",
         "pw_polyfill",

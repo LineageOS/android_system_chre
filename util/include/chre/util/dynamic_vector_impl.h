@@ -30,22 +30,21 @@
 
 namespace chre {
 
-template <typename ElementType>
-DynamicVector<ElementType>::DynamicVector() {}
-
-template <typename ElementType>
-DynamicVector<ElementType>::DynamicVector(DynamicVector<ElementType> &&other)
+template <typename ElementType, typename AllocatorProviderT>
+DynamicVector<ElementType, AllocatorProviderT>::DynamicVector(
+    DynamicVector<ElementType, AllocatorProviderT> &&other)
     : DynamicVectorBase(std::move(other)) {}
 
-template <typename ElementType>
-DynamicVector<ElementType>::~DynamicVector() {
+template <typename ElementType, typename AllocatorProviderT>
+DynamicVector<ElementType, AllocatorProviderT>::~DynamicVector() {
   clear();
-  memoryFree(data());
+  AllocatorProviderT::deallocate(data());
 }
 
-template <typename ElementType>
-DynamicVector<ElementType> &DynamicVector<ElementType>::operator=(
-    DynamicVector<ElementType> &&other) {
+template <typename ElementType, typename AllocatorProviderT>
+DynamicVector<ElementType, AllocatorProviderT> &
+DynamicVector<ElementType, AllocatorProviderT>::operator=(
+    DynamicVector<ElementType, AllocatorProviderT> &&other) {
   if (this != &other) {
     this->~DynamicVector();
     mData = other.mData;
@@ -60,64 +59,53 @@ DynamicVector<ElementType> &DynamicVector<ElementType>::operator=(
   return *this;
 }
 
-template <typename ElementType>
-void DynamicVector<ElementType>::clear() {
+template <typename ElementType, typename AllocatorProviderT>
+void DynamicVector<ElementType, AllocatorProviderT>::clear() {
   destroy(data(), mSize);
   mSize = 0;
 }
 
-template <typename ElementType>
-ElementType *DynamicVector<ElementType>::data() {
+template <typename ElementType, typename AllocatorProviderT>
+ElementType *DynamicVector<ElementType, AllocatorProviderT>::data() {
   return static_cast<ElementType *>(mData);
 }
 
-template <typename ElementType>
-const ElementType *DynamicVector<ElementType>::data() const {
+template <typename ElementType, typename AllocatorProviderT>
+const ElementType *DynamicVector<ElementType, AllocatorProviderT>::data()
+    const {
   return static_cast<const ElementType *>(mData);
 }
 
-template <typename ElementType>
-typename DynamicVector<ElementType>::size_type
-DynamicVector<ElementType>::size() const {
+template <typename ElementType, typename AllocatorProviderT>
+typename DynamicVector<ElementType, AllocatorProviderT>::size_type
+DynamicVector<ElementType, AllocatorProviderT>::size() const {
   return mSize;
 }
 
-template <typename ElementType>
-typename DynamicVector<ElementType>::size_type
-DynamicVector<ElementType>::capacity() const {
+template <typename ElementType, typename AllocatorProviderT>
+typename DynamicVector<ElementType, AllocatorProviderT>::size_type
+DynamicVector<ElementType, AllocatorProviderT>::capacity() const {
   return mCapacity;
 }
 
-template <typename ElementType>
-bool DynamicVector<ElementType>::empty() const {
+template <typename ElementType, typename AllocatorProviderT>
+bool DynamicVector<ElementType, AllocatorProviderT>::empty() const {
   return (mSize == 0);
 }
 
-template <typename ElementType>
-void DynamicVector<ElementType>::pop_back() {
+template <typename ElementType, typename AllocatorProviderT>
+void DynamicVector<ElementType, AllocatorProviderT>::pop_back() {
   CHRE_ASSERT(!empty());
   erase(mSize - 1);
 }
 
-template <typename ElementType>
-bool DynamicVector<ElementType>::push_back(const ElementType &element) {
-  return doPushBack(element, typename std::is_trivial<ElementType>::type());
-}
-
-template <typename ElementType>
-bool DynamicVector<ElementType>::doPushBack(const ElementType &element,
-                                            std::true_type) {
-  if constexpr (alignof(ElementType) > alignof(std::max_align_t)) {
-    // This type requires aligned allocation, so use the non-trivial doPushBack.
-    return doPushBack(element, std::false_type());
+template <typename ElementType, typename AllocatorProviderT>
+bool DynamicVector<ElementType, AllocatorProviderT>::push_back(
+    const ElementType &element) {
+  if constexpr (canUseDynamicVectorBase()) {
+    return DynamicVectorBase::doPushBack(static_cast<const void *>(&element),
+                                         sizeof(ElementType));
   }
-  return DynamicVectorBase::doPushBack(static_cast<const void *>(&element),
-                                       sizeof(ElementType));
-}
-
-template <typename ElementType>
-bool DynamicVector<ElementType>::doPushBack(const ElementType &element,
-                                            std::false_type) {
   bool spaceAvailable = prepareForPush();
   if (spaceAvailable) {
     new (&data()[mSize++]) ElementType(element);
@@ -126,8 +114,9 @@ bool DynamicVector<ElementType>::doPushBack(const ElementType &element,
   return spaceAvailable;
 }
 
-template <typename ElementType>
-bool DynamicVector<ElementType>::push_back(ElementType &&element) {
+template <typename ElementType, typename AllocatorProviderT>
+bool DynamicVector<ElementType, AllocatorProviderT>::push_back(
+    ElementType &&element) {
   bool spaceAvailable = prepareForPush();
   if (spaceAvailable) {
     new (&data()[mSize++]) ElementType(std::move(element));
@@ -136,9 +125,10 @@ bool DynamicVector<ElementType>::push_back(ElementType &&element) {
   return spaceAvailable;
 }
 
-template <typename ElementType>
+template <typename ElementType, typename AllocatorProviderT>
 template <typename... Args>
-bool DynamicVector<ElementType>::emplace_back(Args &&...args) {
+bool DynamicVector<ElementType, AllocatorProviderT>::emplace_back(
+    Args &&...args) {
   bool spaceAvailable = prepareForPush();
   if (spaceAvailable) {
     new (&data()[mSize++]) ElementType(std::forward<Args>(args)...);
@@ -147,22 +137,23 @@ bool DynamicVector<ElementType>::emplace_back(Args &&...args) {
   return spaceAvailable;
 }
 
-template <typename ElementType>
-ElementType &DynamicVector<ElementType>::operator[](size_type index) {
+template <typename ElementType, typename AllocatorProviderT>
+ElementType &DynamicVector<ElementType, AllocatorProviderT>::operator[](
+    size_type index) {
   CHRE_ASSERT(index < mSize);
   return data()[index];
 }
 
-template <typename ElementType>
-const ElementType &DynamicVector<ElementType>::operator[](
+template <typename ElementType, typename AllocatorProviderT>
+const ElementType &DynamicVector<ElementType, AllocatorProviderT>::operator[](
     size_type index) const {
   CHRE_ASSERT(index < mSize);
   return data()[index];
 }
 
-template <typename ElementType>
-bool DynamicVector<ElementType>::operator==(
-    const DynamicVector<ElementType> &other) const {
+template <typename ElementType, typename AllocatorProviderT>
+bool DynamicVector<ElementType, AllocatorProviderT>::operator==(
+    const DynamicVector<ElementType, AllocatorProviderT> &other) const {
   bool vectorsAreEqual = (mSize == other.mSize);
   if (vectorsAreEqual) {
     for (size_type i = 0; i < mSize; i++) {
@@ -176,39 +167,23 @@ bool DynamicVector<ElementType>::operator==(
   return vectorsAreEqual;
 }
 
-template <typename ElementType>
-bool DynamicVector<ElementType>::reserve(size_type newCapacity) {
-  return doReserve(newCapacity, typename std::is_trivial<ElementType>::type());
-}
-
-template <typename ElementType>
-bool DynamicVector<ElementType>::doReserve(size_type newCapacity,
-                                           std::true_type) {
-  if constexpr (alignof(ElementType) > alignof(std::max_align_t)) {
-    // This type requires aligned allocation, so use the non-trivial reserve.
-    return doReserve(newCapacity, std::false_type());
+template <typename ElementType, typename AllocatorProviderT>
+bool DynamicVector<ElementType, AllocatorProviderT>::reserve(
+    size_type newCapacity) {
+  if constexpr (canUseDynamicVectorBase()) {
+    return DynamicVectorBase::doReserve(newCapacity, sizeof(ElementType));
   }
-  return DynamicVectorBase::doReserve(newCapacity, sizeof(ElementType));
-}
 
-template <typename ElementType>
-bool DynamicVector<ElementType>::doReserve(size_type newCapacity,
-                                           std::false_type) {
   bool success = (newCapacity <= mCapacity);
   if (!success) {
-    ElementType *newData;
-    if constexpr (alignof(ElementType) > alignof(std::max_align_t)) {
-      newData = memoryAlignedAllocArray<ElementType>(newCapacity);
-    } else {
-      newData = static_cast<ElementType *>(
-          memoryAlloc(newCapacity * sizeof(ElementType)));
-    }
+    ElementType *newData = static_cast<ElementType *>(
+        AllocatorProviderT::template allocateArray<ElementType>(newCapacity));
 
     if (newData != nullptr) {
       if (data() != nullptr) {
         uninitializedMoveOrCopy(data(), mSize, newData);
         destroy(data(), mSize);
-        memoryFree(data());
+        AllocatorProviderT::deallocate(data());
       }
       mData = newData;
       mCapacity = newCapacity;
@@ -219,8 +194,8 @@ bool DynamicVector<ElementType>::doReserve(size_type newCapacity,
   return success;
 }
 
-template <typename ElementType>
-bool DynamicVector<ElementType>::resize(size_type newSize) {
+template <typename ElementType, typename AllocatorProviderT>
+bool DynamicVector<ElementType, AllocatorProviderT>::resize(size_type newSize) {
   // Remove elements from the back to minimize move operations.
   while (mSize > newSize) {
     pop_back();
@@ -236,9 +211,9 @@ bool DynamicVector<ElementType>::resize(size_type newSize) {
   return success;
 }
 
-template <typename ElementType>
-bool DynamicVector<ElementType>::insert(size_type index,
-                                        const ElementType &element) {
+template <typename ElementType, typename AllocatorProviderT>
+bool DynamicVector<ElementType, AllocatorProviderT>::insert(
+    size_type index, const ElementType &element) {
   bool inserted = prepareInsert(index);
   if (inserted) {
     new (&data()[index]) ElementType(element);
@@ -246,9 +221,9 @@ bool DynamicVector<ElementType>::insert(size_type index,
   return inserted;
 }
 
-template <typename ElementType>
-bool DynamicVector<ElementType>::insert(size_type index,
-                                        ElementType &&element) {
+template <typename ElementType, typename AllocatorProviderT>
+bool DynamicVector<ElementType, AllocatorProviderT>::insert(
+    size_type index, ElementType &&element) {
   bool inserted = prepareInsert(index);
   if (inserted) {
     new (&data()[index]) ElementType(std::move(element));
@@ -256,13 +231,15 @@ bool DynamicVector<ElementType>::insert(size_type index,
   return inserted;
 }
 
-template <typename ElementType>
-bool DynamicVector<ElementType>::prepareInsert(size_type index) {
+template <typename ElementType, typename AllocatorProviderT>
+bool DynamicVector<ElementType, AllocatorProviderT>::prepareInsert(
+    size_type index) {
   // Insertions are not allowed to create a sparse array.
   CHRE_ASSERT(index <= mSize);
 
-  // TODO: this can be optimized in the case where we need to grow the vector to
-  // do the shift when transferring the values from the old array to the new.
+  // TODO: this can be optimized in the case where we need to grow the vector
+  // to do the shift when transferring the values from the old array to the
+  // new.
   bool readyForInsert = (index <= mSize && prepareForPush());
   if (readyForInsert) {
     // If we aren't simply appending the new object, create an opening where
@@ -284,19 +261,14 @@ bool DynamicVector<ElementType>::prepareInsert(size_type index) {
   return readyForInsert;
 }
 
-template <typename ElementType>
-void DynamicVector<ElementType>::erase(size_type index) {
+template <typename ElementType, typename AllocatorProviderT>
+void DynamicVector<ElementType, AllocatorProviderT>::erase(size_type index) {
   CHRE_ASSERT(index < mSize);
-  doErase(index, typename std::is_trivial<ElementType>::type());
-}
+  if constexpr (canUseDynamicVectorBase()) {
+    DynamicVectorBase::doErase(index, sizeof(ElementType));
+    return;
+  }
 
-template <typename ElementType>
-void DynamicVector<ElementType>::doErase(size_type index, std::true_type) {
-  DynamicVectorBase::doErase(index, sizeof(ElementType));
-}
-
-template <typename ElementType>
-void DynamicVector<ElementType>::doErase(size_type index, std::false_type) {
   mSize--;
   for (size_type i = index; i < mSize; i++) {
     moveOrCopyAssign(data()[i], data()[i + 1]);
@@ -305,8 +277,9 @@ void DynamicVector<ElementType>::doErase(size_type index, std::false_type) {
   data()[mSize].~ElementType();
 }
 
-template <typename ElementType>
-typename DynamicVector<ElementType>::size_type DynamicVector<ElementType>::find(
+template <typename ElementType, typename AllocatorProviderT>
+typename DynamicVector<ElementType, AllocatorProviderT>::size_type
+DynamicVector<ElementType, AllocatorProviderT>::find(
     const ElementType &element) const {
   // TODO: Consider adding iterator support and making this a free function.
   size_type i;
@@ -319,8 +292,9 @@ typename DynamicVector<ElementType>::size_type DynamicVector<ElementType>::find(
   return i;
 }
 
-template <typename ElementType>
-void DynamicVector<ElementType>::swap(size_type index0, size_type index1) {
+template <typename ElementType, typename AllocatorProviderT>
+void DynamicVector<ElementType, AllocatorProviderT>::swap(size_type index0,
+                                                          size_type index1) {
   CHRE_ASSERT(index0 < mSize && index1 < mSize);
   if (index0 != index1) {
     typename std::aligned_storage<sizeof(ElementType),
@@ -332,83 +306,73 @@ void DynamicVector<ElementType>::swap(size_type index0, size_type index1) {
   }
 }
 
-template <typename ElementType>
-ElementType &DynamicVector<ElementType>::front() {
+template <typename ElementType, typename AllocatorProviderT>
+ElementType &DynamicVector<ElementType, AllocatorProviderT>::front() {
   CHRE_ASSERT(mSize > 0);
   return data()[0];
 }
 
-template <typename ElementType>
-const ElementType &DynamicVector<ElementType>::front() const {
+template <typename ElementType, typename AllocatorProviderT>
+const ElementType &DynamicVector<ElementType, AllocatorProviderT>::front()
+    const {
   CHRE_ASSERT(mSize > 0);
   return data()[0];
 }
 
-template <typename ElementType>
-ElementType &DynamicVector<ElementType>::back() {
+template <typename ElementType, typename AllocatorProviderT>
+ElementType &DynamicVector<ElementType, AllocatorProviderT>::back() {
   CHRE_ASSERT(mSize > 0);
   return data()[mSize - 1];
 }
 
-template <typename ElementType>
-const ElementType &DynamicVector<ElementType>::back() const {
+template <typename ElementType, typename AllocatorProviderT>
+const ElementType &DynamicVector<ElementType, AllocatorProviderT>::back()
+    const {
   CHRE_ASSERT(mSize > 0);
   return data()[mSize - 1];
 }
 
-template <typename ElementType>
-bool DynamicVector<ElementType>::prepareForPush() {
-  return doPrepareForPush(typename std::is_trivial<ElementType>::type());
-}
-
-template <typename ElementType>
-bool DynamicVector<ElementType>::doPrepareForPush(std::true_type) {
-  if constexpr (alignof(ElementType) > alignof(std::max_align_t)) {
-    // This type requires aligned allocation, so use the non-trivial
-    // doPrepareForPush.
-    return doPrepareForPush(std::false_type());
+template <typename ElementType, typename AllocatorProviderT>
+bool DynamicVector<ElementType, AllocatorProviderT>::prepareForPush() {
+  if constexpr (canUseDynamicVectorBase()) {
+    return DynamicVectorBase::doPrepareForPush(sizeof(ElementType));
   }
-  return DynamicVectorBase::doPrepareForPush(sizeof(ElementType));
-}
-
-template <typename ElementType>
-bool DynamicVector<ElementType>::doPrepareForPush(std::false_type) {
   return reserve(getNextGrowthCapacity());
 }
 
-template <typename ElementType>
-typename DynamicVector<ElementType>::iterator
-DynamicVector<ElementType>::begin() {
+template <typename ElementType, typename AllocatorProviderT>
+typename DynamicVector<ElementType, AllocatorProviderT>::iterator
+DynamicVector<ElementType, AllocatorProviderT>::begin() {
   return data();
 }
 
-template <typename ElementType>
-typename DynamicVector<ElementType>::iterator
-DynamicVector<ElementType>::end() {
+template <typename ElementType, typename AllocatorProviderT>
+typename DynamicVector<ElementType, AllocatorProviderT>::iterator
+DynamicVector<ElementType, AllocatorProviderT>::end() {
   return (data() + mSize);
 }
 
-template <typename ElementType>
-typename DynamicVector<ElementType>::const_iterator
-DynamicVector<ElementType>::begin() const {
+template <typename ElementType, typename AllocatorProviderT>
+typename DynamicVector<ElementType, AllocatorProviderT>::const_iterator
+DynamicVector<ElementType, AllocatorProviderT>::begin() const {
   return cbegin();
 }
 
-template <typename ElementType>
-typename DynamicVector<ElementType>::const_iterator
-DynamicVector<ElementType>::end() const {
+template <typename ElementType, typename AllocatorProviderT>
+typename DynamicVector<ElementType, AllocatorProviderT>::const_iterator
+DynamicVector<ElementType, AllocatorProviderT>::end() const {
   return cend();
 }
 
-template <typename ElementType>
-typename DynamicVector<ElementType>::const_iterator
-DynamicVector<ElementType>::cbegin() const {
+template <typename ElementType, typename AllocatorProviderT>
+typename DynamicVector<ElementType, AllocatorProviderT>::const_iterator
+DynamicVector<ElementType, AllocatorProviderT>::cbegin() const {
   return data();
 }
 
-template <typename ElementType>
-typename DynamicVector<ElementType>::const_iterator
-DynamicVector<ElementType>::cend() const {
+template <typename ElementType, typename AllocatorProviderT>
+typename DynamicVector<ElementType, AllocatorProviderT>::const_iterator
+DynamicVector<ElementType, AllocatorProviderT>::cend() const {
   return (data() + mSize);
 }
 

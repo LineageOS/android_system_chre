@@ -297,8 +297,12 @@ const std::vector<CommandInfo<HalClientCommandFunction>> kHalClientCommands{
         .numOfArgs = 0,
         .argsFormat = "",
         .usage = "Quit the connection mode.",
-        .func = [](HalClient * /*halClient*/,
-                   const std::vector<std::string> & /*cmdLine*/) { exit(0); },
+        .func =
+            [](HalClient *halClient,
+               const std::vector<std::string> & /*cmdLine*/) {
+              halClient->~HalClient();
+              exit(0);
+            },
     },
 
     {
@@ -387,8 +391,8 @@ class CommandHelper {
     auto cmdInfoItor =
         std::ranges::find_if(supportedCommands.begin(), supportedCommands.end(),
                              [&](const CommandInfo<FuncType> &cmdInfo) {
-                               return cmdInfo.cmd == cmdLine[0] &&
-                                      cmdInfo.numOfArgs == cmdLine.size() - 1;
+                               return cmdInfo.numOfArgs == cmdLine.size() - 1 &&
+                                      cmdInfo.cmd == cmdLine[0];
                              });
     return cmdInfoItor != supportedCommands.end() ? cmdInfoItor->func : nullptr;
   }

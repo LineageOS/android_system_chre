@@ -42,8 +42,26 @@ MemoryPool<ElementType, kSize>::MemoryPool() {
 }
 
 template <typename ElementType, size_t kSize>
+MemoryPool<ElementType, kSize>::~MemoryPool() {
+  if constexpr (!std::is_trivially_destructible<ElementType>::value) {
+    for (size_t i = 0; i < kNumActiveTrackerBlocks; ++i) {
+      for (size_t j = 0; j < kBitSizeOfUInt32; ++j) {
+        size_t blockIndex = (i * kBitSizeOfUInt32) + j;
+        if (blockIndex < kSize) {
+          bool isElementActive = (mActiveTrackerBlocks[i] >> j) % 2 > 0;
+          ElementType *element = &blocks()[blockIndex].mElement;
+          if (isElementActive) {
+            element->~ElementType();
+          }
+        }
+      }
+    }
+  }
+}
+
+template <typename ElementType, size_t kSize>
 template <typename... Args>
-ElementType *MemoryPool<ElementType, kSize>::allocate(Args &&... args) {
+ElementType *MemoryPool<ElementType, kSize>::allocate(Args &&...args) {
   if (mFreeBlockCount == 0) {
     return nullptr;
   }
@@ -95,6 +113,29 @@ ElementType *MemoryPool<ElementType, kSize>::find(
     }
   }
   return nullptr;
+}
+
+template <typename ElementType, size_t kSize>
+size_t MemoryPool<ElementType, kSize>::forEach(
+    MatchingFunction *matchingFunction, void *data) {
+  if (matchingFunction == nullptr) {
+    return 0;
+  }
+
+  size_t totalMatches = 0;
+  for (size_t i = 0; i < kNumActiveTrackerBlocks; ++i) {
+    for (size_t j = 0; j < kBitSizeOfUInt32; ++j) {
+      size_t blockIndex = (i * kBitSizeOfUInt32) + j;
+      if (blockIndex < kSize) {
+        bool isElementActive = (mActiveTrackerBlocks[i] >> j) % 2 > 0;
+        ElementType *element = &blocks()[blockIndex].mElement;
+        if (isElementActive && matchingFunction(element, data)) {
+          totalMatches++;
+        }
+      }
+    }
+  }
+  return totalMatches;
 }
 
 template <typename ElementType, size_t kSize>

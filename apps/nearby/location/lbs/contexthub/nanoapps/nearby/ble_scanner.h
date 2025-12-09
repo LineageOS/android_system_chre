@@ -32,11 +32,11 @@ struct GenericFilters {
 
   explicit GenericFilters(uint16_t end_point) : end_point(end_point) {}
 
-  friend bool operator==(const GenericFilters &c1, const GenericFilters &c2) {
+  friend bool operator==(const GenericFilters& c1, const GenericFilters& c2) {
     return c1.end_point == c2.end_point;
   }
 
-  friend bool operator!=(const GenericFilters &c1, const GenericFilters &c2) {
+  friend bool operator!=(const GenericFilters& c1, const GenericFilters& c2) {
     return c1.end_point != c2.end_point;
   }
 };
@@ -67,34 +67,26 @@ class BleScanner {
   bool Flush();
 
   // Returns whether BLE batch scan is flushing.
-  bool IsFlushing() {
-    return is_batch_flushing_;
-  }
+  bool IsFlushing() { return is_batch_flushing_; }
 
   // Returns whether BLE scan is running.
-  bool isScanning() {
-    return is_started_;
-  }
+  bool isScanning() { return is_started_; }
 
   // Returns true if BLE scan is available in the device.
-  bool isAvailable() {
-    return is_ble_scan_supported_;
-  }
+  bool isAvailable() { return is_ble_scan_supported_; }
 
   // Returns whether BLE batch scan is supported.
-  bool IsBatchSupported() {
-    return is_batch_supported_;
-  }
+  bool IsBatchSupported() { return is_batch_supported_; }
 
   // Updates extended generic filters. Caller needs to call Restart() for the
   // updated filters to be effective. Returns true for successful update.
   bool UpdateFilters(
       uint16_t host_end_point,
-      chre::DynamicVector<chreBleGenericFilter> *generic_filters);
+      chre::DynamicVector<chreBleGenericFilter>* generic_filters);
 
   // Updates the tracker filters.
   void UpdateTrackerFilters(
-      chre::DynamicVector<chreBleGenericFilter> &filters) {
+      chre::DynamicVector<chreBleGenericFilter>& filters) {
     tracker_filters_ = std::move(filters);
   }
 
@@ -102,34 +94,27 @@ class BleScanner {
   void UpdateBatchDelay(uint32_t delay_ms);
 
   // Handles an event from CHRE.
-  void HandleEvent(uint16_t event_type, const void *event_data);
+  void HandleEvent(uint16_t event_type, const void* event_data);
 
   // Starts BLE scan. If scan already started, replacing the previous scan.
   void Restart();
 
   // Sets default generic filters.
-  void SetDefaultFilters() {
-    is_default_generic_filter_enabled_ = true;
-  }
+  void SetDefaultFilters() { is_default_generic_filter_enabled_ = true; }
 
   // Clears default generic filters.
-  void ClearDefaultFilters() {
-    is_default_generic_filter_enabled_ = false;
-  }
+  void ClearDefaultFilters() { is_default_generic_filter_enabled_ = false; }
 
   // Sets tracker filters.
-  void SetTrackerFilters() {
-    is_tracker_filter_enabled_ = true;
-  }
+  void SetTrackerFilters() { is_tracker_filter_enabled_ = true; }
 
   // Clears tracker filters.
-  void ClearTrackerFilters() {
-    is_tracker_filter_enabled_ = false;
-  }
+  void ClearTrackerFilters() { is_tracker_filter_enabled_ = false; }
 
   // Returns whether the filter list contains the given filter.
-  bool ContainsFilter(const chre::DynamicVector<chreBleGenericFilter> &filters,
-                      const chreBleGenericFilter &src);
+  bool ContainsFilter(
+    const chre::DynamicVector<chreBleGenericFilter> &filters,
+    const chreBleGenericFilter &src);
 
   // Starts BLE scan keep alive timer.
   void StartKeepAliveTimer();

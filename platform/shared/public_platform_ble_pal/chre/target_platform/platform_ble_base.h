@@ -33,7 +33,7 @@ class PlatformBleBase : public PlatformPal {
 
   //! The instance of the CHRE PAL API. This will be set to nullptr if the
   //! platform does not supply an implementation.
-  const chrePalBleApi *mBleApi;
+  const chrePalBleApi *mBleApi = nullptr;
 
   static void requestStateResync();
   static void scanStatusChangeCallback(bool enabled, uint8_t errorCode);

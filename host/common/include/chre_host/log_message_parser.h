@@ -96,8 +96,8 @@ class LogMessageParser : public INanoappLoadListener {
    * @param removeBinary Remove the nanoapp binary associated with the app ID if
    * true.
    */
-  void removeNanoappDetokenizerAndBinary(uint64_t appId)
-      EXCLUDES(mNanoappMutex);
+  void removeNanoappDetokenizerAndBinaryLocked(uint64_t appId)
+      REQUIRES(mNanoappMutex);
 
   /**
    * Reset all nanoapp log detokenizers.
@@ -316,16 +316,16 @@ class LogMessageParser : public INanoappLoadListener {
   /**
    * Helper function that returns the nanoapp binary from its appId.
    */
-  std::shared_ptr<const std::vector<uint8_t>> fetchNanoappBinary(uint64_t appId)
-      EXCLUDES(mNanoappMutex);
+  std::shared_ptr<const std::vector<uint8_t>> fetchNanoappBinaryLocked(
+      uint64_t appId) REQUIRES(mNanoappMutex);
 
   /**
    * Helper function that registers a nanoapp detokenizer with its appID and
    * instanceID.
    */
-  void registerDetokenizer(uint64_t appId, uint16_t instanceId,
-                           pw::Result<Detokenizer> nanoappDetokenizer)
-      EXCLUDES(mNanoappMutex);
+  void registerDetokenizerLocked(uint64_t appId, uint16_t instanceId,
+                                 pw::Result<Detokenizer> nanoappDetokenizer)
+      REQUIRES(mNanoappMutex);
 };
 
 }  // namespace chre

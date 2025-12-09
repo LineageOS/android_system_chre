@@ -100,11 +100,9 @@ void end() {
  * methods can be called.
  */
 void registerNanoapp(UniquePtr<TestNanoapp> app) {
-  if (nanoapps.count(app->id()) != 0) {
-    LOGE("A nanoapp with the same id is already registered");
-  } else {
-    nanoapps[app->id()] = std::move(app);
-  }
+  ASSERT_EQ(nanoapps.count(app->id()), 0)
+      << "A nanoapp with the same id is already registered";
+  nanoapps[app->id()] = std::move(app);
 }
 
 /**
@@ -169,6 +167,7 @@ UniquePtr<Nanoapp> createStaticNanoapp(
   appInfo->entryPoints.end = endFunc;
   appInfo->appVersionString = "<undefined>";
   appInfo->appPermissions = appPerms;
+  appInfo->minChreApiVersion = CHRE_API_VERSION;
   EXPECT_FALSE(nanoapp.isNull());
   nanoapp->loadStatic(appInfo);
 
@@ -258,7 +257,8 @@ void unloadNanoapp(uint64_t appId) {
 
 void testFinishLoadingNanoappCallback(SystemCallbackType /* type */,
                                       UniquePtr<Nanoapp> &&nanoapp) {
-  EventLoopManagerSingleton::get()->getEventLoop().startNanoapp(nanoapp);
+  EventLoopManagerSingleton::get()->getEventLoop().startNanoapp(
+      std::move(nanoapp));
   TestEventQueueSingleton::get()->pushEvent(
       CHRE_EVENT_SIMULATION_TEST_NANOAPP_LOADED);
 }
@@ -268,7 +268,7 @@ void testFinishUnloadingNanoappCallback(uint16_t /* type */, void *data,
   EventLoop &eventLoop = EventLoopManagerSingleton::get()->getEventLoop();
   uint16_t instanceId = 0;
   uint64_t *appId = static_cast<uint64_t *>(data);
-  eventLoop.findNanoappInstanceIdByAppId(*appId, &instanceId);
+  ASSERT_TRUE(eventLoop.findNanoappInstanceIdByAppId(*appId, &instanceId));
   eventLoop.unloadNanoapp(instanceId, true);
   memoryFree(data);
   TestEventQueueSingleton::get()->pushEvent(

@@ -268,7 +268,7 @@ void Manager::verifyScanResults(chre_test_common_TestResult *testResultOut) {
       LOGW("AP %s with bssid %s is not seen in CHRE", scanResult.getSsid(),
            bssidStr);
       // Since CHRE is more constrained in memory, it is expected that if we
-      // receive over a cretin amount of AP, we will drop some of them.
+      // receive over a certain amount of AP, we will drop some of them.
       if (mApScanResults.size() <= mExpectedMaxChreResultCanHandle) {
         *testResultOut = test_shared::makeTestResultProtoMessage(
             /*success=*/false,

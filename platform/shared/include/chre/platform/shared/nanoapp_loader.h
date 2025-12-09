@@ -18,7 +18,6 @@
 #define CHRE_PLATFORM_SHARED_NANOAPP_LOADER_H_
 
 #include <cinttypes>
-#include <cstdlib>
 
 #include "chre/platform/shared/loader_util.h"
 #include "chre/platform/shared/memory.h"

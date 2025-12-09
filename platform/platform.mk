@@ -108,6 +108,7 @@ SLPI_SRCS += platform/shared/chre_api_wwan.cc
 SLPI_SRCS += platform/shared/host_link.cc
 SLPI_SRCS += platform/shared/host_protocol_chre.cc
 SLPI_SRCS += platform/shared/host_protocol_common.cc
+SLPI_SRCS += platform/shared/init.cc
 SLPI_SRCS += platform/shared/memory_manager.cc
 SLPI_SRCS += platform/shared/nanoapp_abort.cc
 SLPI_SRCS += platform/shared/nanoapp_load_manager.cc
@@ -196,6 +197,8 @@ endif
 
 # Simulator-specific Compiler Flags ############################################
 
+SIM_CFLAGS += $(FLATBUFFERS_CFLAGS)
+SIM_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/fbs/include
 SIM_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/include
 SIM_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/nanoapp_memory_guard_no_op/include
 SIM_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/public_platform_ble_pal
@@ -233,6 +236,9 @@ SIM_SRCS += platform/shared/chre_api_user_settings.cc
 SIM_SRCS += platform/shared/chre_api_version.cc
 SIM_SRCS += platform/shared/chre_api_wifi.cc
 SIM_SRCS += platform/shared/chre_api_wwan.cc
+SIM_SRCS += platform/shared/host_protocol_chre.cc
+SIM_SRCS += platform/shared/host_protocol_common.cc
+SIM_SRCS += platform/shared/init.cc
 SIM_SRCS += platform/shared/memory_manager.cc
 SIM_SRCS += platform/shared/nanoapp_abort.cc
 SIM_SRCS += platform/shared/nanoapp/nanoapp_dso_util.cc
@@ -373,6 +379,7 @@ GOOGLETEST_COMMON_SRCS += platform/linux/tests/task_test.cc
 GOOGLETEST_COMMON_SRCS += platform/linux/tests/task_manager_test.cc
 GOOGLETEST_COMMON_SRCS += platform/tests/log_buffer_test.cc
 GOOGLETEST_COMMON_SRCS += platform/tests/trace_test.cc
+GOOGLETEST_COMMON_SRCS += platform/shared/init.cc
 GOOGLETEST_COMMON_SRCS += platform/shared/log_buffer.cc
 GOOGLETEST_COMMON_SRCS += platform/shared/nanoapp_abort.cc
 ifeq ($(CHRE_WIFI_NAN_SUPPORT_ENABLED), true)
@@ -412,6 +419,7 @@ EMBOS_SRCS += $(CHRE_PREFIX)/platform/shared/host_protocol_chre.cc
 EMBOS_SRCS += $(CHRE_PREFIX)/platform/shared/host_protocol_common.cc
 EMBOS_SRCS += $(CHRE_PREFIX)/platform/shared/dlfcn.cc
 EMBOS_SRCS += $(CHRE_PREFIX)/platform/shared/dram_vote_client.cc
+EMBOS_SRCS += $(CHRE_PREFIX)/platform/shared/init.cc
 EMBOS_SRCS += $(CHRE_PREFIX)/platform/shared/memory_manager.cc
 EMBOS_SRCS += $(CHRE_PREFIX)/platform/shared/pal_system_api.cc
 EMBOS_SRCS += $(CHRE_PREFIX)/platform/shared/pal_sensor_stub.cc
@@ -429,6 +437,7 @@ EXYNOS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/fbs/include
 EXYNOS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/nanoapp_memory_guard_no_op/include
 
 EXYNOS_SRCS += $(CHRE_PREFIX)/platform/exynos/chre_api_re.cc
+EXYNOS_SRCS += $(CHRE_PREFIX)/platform/shared/init.cc
 EXYNOS_SRCS += $(CHRE_PREFIX)/platform/shared/host_link.cc
 EXYNOS_SRCS += $(CHRE_PREFIX)/platform/exynos/host_link.cc
 EXYNOS_SRCS += $(CHRE_PREFIX)/platform/exynos/memory.cc
@@ -470,6 +479,7 @@ TINYSYS_SRCS += $(CHRE_PREFIX)/platform/tinysys/host_cpu_update.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/tinysys/host_link.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/tinysys/log_buffer_manager.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/tinysys/memory.cc
+TINYSYS_SRCS += $(CHRE_PREFIX)/platform/tinysys/mpu.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/tinysys/nanoapp_memory_guard.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/tinysys/platform_cache_management.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/tinysys/platform_pal.cc
@@ -479,7 +489,6 @@ TINYSYS_SRCS += $(CHRE_PREFIX)/platform/tinysys/system_timer.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/tinysys/power_control_manager.cc
 
 # Freertos sources
-TINYSYS_SRCS += $(CHRE_PREFIX)/platform/freertos/context.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/freertos/init.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/freertos/platform_nanoapp.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/freertos/memory_manager.cc
@@ -504,6 +513,7 @@ TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/dlfcn.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/host_link.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/host_protocol_chre.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/host_protocol_common.cc
+TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/init.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/log_buffer.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/log_buffer_manager.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/log_common.cc

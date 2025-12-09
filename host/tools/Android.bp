@@ -31,14 +31,17 @@ cc_binary {
     ],
     shared_libs: [
         "android.hardware.contexthub-V4-ndk",
+        "libaconfig_storage_read_api_cc",
         "libbase",
         "libbinder_ndk",
         "libjsoncpp",
         "liblog",
         "libutils",
+        "server_configurable_flags",
     ],
     static_libs: [
         "chre_client",
+        "chre_flags_c_lib",
         "chre_host_common",
         "chre_host_util",
     ],

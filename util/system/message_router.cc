@@ -187,18 +187,18 @@ bool MessageRouter::forEachEndpoint(
   }
 
   struct Context {
-    decltype(function) function;
+    decltype(function) func;
     const MessageHubInfo &messageHubInfo;
   };
   for (const MessageHubRecord &messageHubRecord : *messageHubRecords) {
     Context context = {
-        .function = function,
+        .func = function,
         .messageHubInfo = messageHubRecord.info,
     };
 
     messageHubRecord.callback->forEachEndpoint(
         [&context](const EndpointInfo &endpointInfo) {
-          context.function(context.messageHubInfo, endpointInfo);
+          context.func(context.messageHubInfo, endpointInfo);
           return false;
         });
   }
@@ -281,11 +281,11 @@ bool MessageRouter::forEachService(
   }
 
   struct Context {
-    decltype(function) &function;
+    decltype(function) &func;
     const MessageHubInfo *messageHubInfo;
   };
   Context context = {
-      .function = function,
+      .func = function,
       .messageHubInfo = nullptr,
   };
   for (const MessageHubRecord &messageHubRecord : *messageHubRecords) {
@@ -293,8 +293,8 @@ bool MessageRouter::forEachService(
     messageHubRecord.callback->forEachService(
         [&context](const EndpointInfo &endpointInfo,
                    const ServiceInfo &serviceInfo) {
-          return context.function(*context.messageHubInfo, endpointInfo,
-                                  serviceInfo);
+          return context.func(*context.messageHubInfo, endpointInfo,
+                              serviceInfo);
         });
   }
   return true;

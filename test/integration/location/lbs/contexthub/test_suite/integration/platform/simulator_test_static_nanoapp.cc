@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 The Android Open Source Project
+ * Copyright (C) 2025 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,28 +14,14 @@
  * limitations under the License.
  */
 
-#include "chre/core/init.h"
+#include "chre/core/nanoapp.h"
+#include "chre/core/static_nanoapps.h"
 
-#include "chre/core/event_loop_manager.h"
-#include "chre/platform/system_time.h"
-#include "chre/platform/version.h"
-#include "chre/util/singleton.h"
-
-static const char *kChreVersionString = chre::getChreVersionString();
-
+#ifdef SIMULATION_LOAD_STATIC
 namespace chre {
 
-void init() {
-  LOGI("CHRE init, version: %s", kChreVersionString);
+StaticNanoappInitFunction const kStaticNanoappList[] = {};
 
-  SystemTime::init();
-  EventLoopManagerSingleton::init();
-}
-
-void deinit() {
-  EventLoopManagerSingleton::deinit();
-
-  LOGD("CHRE deinit");
-}
-
+const size_t kStaticNanoappCount = ARRAY_SIZE(kStaticNanoappList);
 }  // namespace chre
+#endif  // SIMULATION_LOAD_STATIC

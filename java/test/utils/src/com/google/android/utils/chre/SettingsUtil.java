@@ -22,6 +22,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.location.LocationManager;
 import android.os.UserHandle;
+import android.provider.Settings;
 
 import androidx.test.InstrumentationRegistry;
 
@@ -167,9 +168,8 @@ public class SettingsUtil {
      * @return true if bluetooth is enabled, false otherwise
      */
     public boolean isBluetoothEnabled() {
-        String out = ChreTestUtil.executeShellCommand(
-                mInstrumentation, "settings get global bluetooth_on");
-        return ChreTestUtil.convertToIntegerOrFail(out) == 1;
+        return Settings.Global.getInt(mContext.getContentResolver(),
+                Settings.Global.BLUETOOTH_ON, 0) == 1;
     }
 
     /**
@@ -211,8 +211,7 @@ public class SettingsUtil {
      * @return true if the airplane mode is currently enabled.
      */
     public boolean isAirplaneModeOn() {
-        String out = ChreTestUtil.executeShellCommand(
-                mInstrumentation, "settings get global airplane_mode_on");
-        return ChreTestUtil.convertToIntegerOrFail(out) > 0;
+        return Settings.Global.getInt(mContext.getContentResolver(),
+                Settings.Global.AIRPLANE_MODE_ON, 0) != 0;
     }
 }

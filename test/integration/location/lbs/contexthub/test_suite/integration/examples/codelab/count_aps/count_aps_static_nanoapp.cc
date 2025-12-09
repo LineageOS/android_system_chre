@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 The Android Open Source Project
+ * Copyright (C) 2025 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,19 +14,18 @@
  * limitations under the License.
  */
 
-#include "chre/platform/context.h"
-#include "chre/target_platform/init.h"
-
-#include "FreeRTOS.h"
-#include "task.h"
+#include "chre/core/nanoapp.h"
+#include "chre/core/static_nanoapps.h"
+#include "chre/util/unique_ptr.h"
 
 namespace chre {
 
-bool inEventLoopThread() {
-  TaskHandle_t evtLoopTaskHandle = xTaskGetHandle(freertos::getChreTaskName());
-  TaskHandle_t currentTaskHandle = xTaskGetCurrentTaskHandle();
+UniquePtr<Nanoapp> initializeStaticNanoappCountAps();
 
-  return (evtLoopTaskHandle == currentTaskHandle);
-}
-
+#ifdef CHRE_INTEGRATION_TEST_STATIC_NANOAPP_LIST
+const StaticNanoappInitFunction kStaticNanoappList[] = {
+    initializeStaticNanoappCountAps,
+};
+const size_t kStaticNanoappCount = ARRAY_SIZE(kStaticNanoappList);
+#endif
 }  // namespace chre

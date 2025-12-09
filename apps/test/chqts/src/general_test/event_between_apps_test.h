@@ -14,12 +14,10 @@
  * limitations under the License.
  */
 
-#ifndef _GTS_NANOAPPS_GENERAL_TEST_EVENT_BETWEEN_APPS_TEST_H_
-#define _GTS_NANOAPPS_GENERAL_TEST_EVENT_BETWEEN_APPS_TEST_H_
+#ifndef GTS_NANOAPPS_GENERAL_TEST_EVENT_BETWEEN_APPS_TEST_H_
+#define GTS_NANOAPPS_GENERAL_TEST_EVENT_BETWEEN_APPS_TEST_H_
 
 #include <general_test/test.h>
-#include <shared/macros.h>
-#include <shared/send_message.h>
 
 namespace general_test {
 
@@ -37,14 +35,10 @@ namespace general_test {
  */
 class EventBetweenApps0 : public Test {
  public:
-  EventBetweenApps0();
-
-  // Arbitrary as long as it's different from
-  // CHRE_EVENT_MESSAGE_FROM_HOST (which this value assures us).
-  static constexpr uint16_t kEventType = CHRE_EVENT_FIRST_USER_VALUE;
-
-  // NOTE: This is not constexpr, so we have storage for it.
-  static const uint32_t kMagic;
+  EventBetweenApps0()
+      : Test(/* minSupportedVersion= */ CHRE_API_VERSION_1_0),
+        mContinueCount(0) {}
+  ~EventBetweenApps0() override;
 
  protected:
   void handleEvent(uint32_t senderInstanceId, uint16_t eventType,
@@ -52,6 +46,7 @@ class EventBetweenApps0 : public Test {
   void setUp(uint32_t messageSize, const void *message) override;
 
  private:
+  uint32_t *mMagic = nullptr;
   int mContinueCount;
 };
 
@@ -85,4 +80,4 @@ class EventBetweenApps1 : public Test {
 
 }  // namespace general_test
 
-#endif  // _GTS_NANOAPPS_GENERAL_TEST_EVENT_BETWEEN_APPS_TEST_H_
+#endif  // GTS_NANOAPPS_GENERAL_TEST_EVENT_BETWEEN_APPS_TEST_H_

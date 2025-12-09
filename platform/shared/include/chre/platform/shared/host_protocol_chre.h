@@ -111,6 +111,8 @@ class HostMessageHandlers {
 
   static void handleBtSocketCapabilitiesRequest();
 
+  static void handleBtSocketClosed(uint64_t socketId);
+
  private:
   static void sendFragmentResponse(uint16_t hostClientId,
                                    uint32_t transactionId, uint32_t fragmentId,
@@ -341,13 +343,11 @@ class HostProtocolChre : public HostProtocolCommon {
    * Encodes a BT socket open response.
    *
    * @param builder An instance of the CHRE Flatbuffer builder.
-   * @param hostClientId Host client identifier.
    * @param success Whether the socket open request was successful.
    * @param reason Failure reason if success is false.
    * @param socketId BT socket identifier.
    */
   static void encodeBtSocketOpenResponse(ChreFlatBufferBuilder &builder,
-                                         uint16_t hostClientId,
                                          uint64_t socketId, bool success,
                                          const char *reason);
 
@@ -355,12 +355,10 @@ class HostProtocolChre : public HostProtocolCommon {
    * Encodes a BT socket close request.
    *
    * @param builder An instance of the CHRE Flatbuffer builder.
-   * @param hostClientId Host client identifier.
    * @param reason Reason socket is being closed.
    * @param socketId BT socket identifier.
    */
-  static void encodeBtSocketClose(ChreFlatBufferBuilder &builder,
-                                  uint16_t hostClientId, uint64_t socketId,
+  static void encodeBtSocketClose(ChreFlatBufferBuilder &builder,uint64_t socketId,
                                   const char *reason);
 
   /**

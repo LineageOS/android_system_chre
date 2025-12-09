@@ -376,8 +376,9 @@ void ContextHubV4Impl::onRegisterMessageHub(
     const ::chre::fbs::RegisterMessageHubT &msg) {
   HubInfo hub;
   HostProtocolHostV4::decodeRegisterMessageHub(msg, hub);
-  LOGI("Embedded message hub 0x%" PRIx64 " registered", hub.hubId);
-  mManager.addEmbeddedHub(hub);
+  if (mManager.addEmbeddedHub(hub)) {
+    LOGI("Embedded message hub 0x%" PRIx64 " registered", hub.hubId);
+  }
 }
 
 void ContextHubV4Impl::onUnregisterMessageHub(
@@ -392,9 +393,10 @@ void ContextHubV4Impl::onRegisterEndpoint(
     const ::chre::fbs::RegisterEndpointT &msg) {
   EndpointInfo endpoint;
   HostProtocolHostV4::decodeRegisterEndpoint(msg, endpoint);
-  LOGI("Adding embedded endpoint (0x%" PRIx64 ", 0x%" PRIx64 ")",
-       endpoint.id.hubId, endpoint.id.id);
-  mManager.addEmbeddedEndpoint(endpoint);
+  if (mManager.addEmbeddedEndpoint(endpoint)) {
+    LOGI("Added embedded endpoint (0x%" PRIx64 ", 0x%" PRIx64 ")",
+         endpoint.id.hubId, endpoint.id.id);
+  }
 }
 
 void ContextHubV4Impl::onAddServiceToEndpoint(

@@ -15,7 +15,9 @@
  */
 
 #include "chre/platform/shared/nanoapp_memory_guard.h"
+#include "chre/platform/log.h"
 #include "chre/platform/platform_nanoapp.h"
+#include "chre/platform/shared/mpu.h"
 
 namespace chre {
 NanoappMemoryGuardBase::NanoappMemoryGuardBase(const PlatformNanoapp &nanoapp) {
@@ -44,13 +46,20 @@ void NanoappMemoryGuardBase::grantMemoryPermissions() const {
   if (mLoadableSegments == nullptr || mNumSegments == 0) {
     return;
   }
-  // TODO(b/394483221) - grant permissions based on mLoadableSegments.
+
+  if (int rc = setNanoappMemoryPermissions(mLoadableSegments, mNumSegments);
+      rc != 0) {
+    LOGE("Failed to set memory permission. Error code: %d", rc);
+  }
 }
 
 void NanoappMemoryGuardBase::revokeMemoryPermissions() const {
   if (mLoadableSegments == nullptr || mNumSegments == 0) {
     return;
   }
-  // TODO(b/394483221) - revoke permissions.
+  if (int rc = resetNanoappMemoryPermissions(mLoadableSegments, mNumSegments);
+      rc != 0) {
+    LOGE("Failed to reset memory permission. Error code: %d", rc);
+  }
 }
 }  // namespace chre

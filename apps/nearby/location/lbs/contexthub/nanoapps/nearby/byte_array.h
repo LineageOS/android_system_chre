@@ -30,7 +30,7 @@ struct ByteArray {
   ByteArray() = default;
   ByteArray(uint8_t data[], size_t length) : data(data), length(length) {}
 
-  uint8_t *data = nullptr;
+  uint8_t* data = nullptr;
   size_t length = 0;
 };
 

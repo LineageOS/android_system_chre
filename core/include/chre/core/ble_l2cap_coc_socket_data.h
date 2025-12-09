@@ -51,10 +51,6 @@ struct BleL2capCocSocketData {
   //! ACL connection handle for the socket.
   uint16_t connectionHandle;
 
-  //! The originating or destination client ID on the host side, used to direct
-  //! responses only to the client that sent the request.
-  uint16_t hostClientId;
-
   L2capCocConfig rxConfig;
 
   L2capCocConfig txConfig;

@@ -76,9 +76,9 @@ struct PresenceDecoderV1 {
   PresenceDecoderV1() = default;
   // Decodes encoded_data which is a byte array encoded by following the
   // Presence V1 specification. Returns true when decoding succeeds.
-  bool Decode(const ByteArray &encoded_data, const Crypto &crypto,
-              const ByteArray &key,
-              const ByteArray &metadata_encryption_key_tag);
+  bool Decode(const ByteArray& encoded_data, const Crypto& crypto,
+              const ByteArray& key,
+              const ByteArray& metadata_encryption_key_tag);
   // Helper function to decode Presence data elements from data.
   // Returns true if decoding succeeds.
   bool DecodeDataElements(uint8_t data[], size_t data_size);

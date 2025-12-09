@@ -10,7 +10,6 @@ pw_add_library(chre.core STATIC
     include/chre/core/sensor_request_multiplexer.h
     include/chre/core/audio_util.h
     include/chre/core/gnss_manager.h
-    include/chre/core/init.h
     include/chre/core/timer_pool.h
     include/chre/core/sensor_type.h
     include/chre/core/wwan_request_manager.h
@@ -76,7 +75,6 @@ pw_add_library(chre.core STATIC
     gnss_manager.cc
     host_comms_manager.cc
     host_endpoint_manager.cc
-    init.cc
     nanoapp.cc
     sensor.cc
     sensor_request.cc

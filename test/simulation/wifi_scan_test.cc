@@ -243,6 +243,72 @@ TEST_F(WifiScanRequestQueueTestBase, WifiScanRequestDuringResultTest) {
   unloadNanoapp(appOneId);
 }
 
+TEST_F(WifiScanRequestQueueTestBase, WifiScanEventBeforeResponseTest) {
+  // Test that the system correctly handles the case where a scan monitor event
+  // comes between a scan request and the corresponding response.
+
+  // 1. Make nanoapp request scan monitor
+  // 2. Request scan when scan monitor setup is complete
+  // 3. Deliver a scan monitor event
+  // 4. Deliver the scan request result
+
+  class WifiScanTestEventBeforeResponseNanoapp : public TestNanoapp {
+   public:
+    explicit WifiScanTestEventBeforeResponseNanoapp(uint64_t id)
+        : TestNanoapp(TestNanoappInfo{
+              .id = id, .perms = NanoappPermissions::CHRE_PERMS_WIFI}) {}
+
+    void handleEvent(uint32_t, uint16_t eventType,
+                     const void *eventData) override {
+      switch (eventType) {
+        case CHRE_EVENT_WIFI_ASYNC_RESULT: {
+          auto *event = static_cast<const chreAsyncResult *>(eventData);
+          SCOPED_TRACE(::testing::Message()
+                       << "Async result requestType=" << event->requestType);
+          EXPECT_TRUE(event->success);
+          if (event->requestType ==
+              CHRE_WIFI_REQUEST_TYPE_CONFIGURE_SCAN_MONITOR) {
+            EXPECT_TRUE(chrePalWifiTriggerScanMonitorEvent());
+            EXPECT_TRUE(chreWifiRequestScanAsyncDefault(/*cookie=*/nullptr));
+          } else {
+            EXPECT_EQ(event->requestType, CHRE_WIFI_REQUEST_TYPE_REQUEST_SCAN);
+          }
+          break;
+        }
+
+        case CHRE_EVENT_WIFI_SCAN_RESULT: {
+          TestEventQueueSingleton::get()->pushEvent(
+              CHRE_EVENT_WIFI_SCAN_RESULT);
+          triggerWait(CHRE_EVENT_WIFI_SCAN_RESULT);
+          break;
+        }
+
+        case CHRE_EVENT_TEST_EVENT: {
+          auto event = static_cast<const TestEvent *>(eventData);
+          switch (event->type) {
+            case SCAN_REQUEST:
+              EXPECT_TRUE(chreWifiConfigureScanMonitorAsync(true, /*cookie=*/nullptr));
+              break;
+          }
+        }
+      }
+    }
+  };
+
+  uint64_t appOneId = loadNanoapp(
+      MakeUnique<WifiScanTestEventBeforeResponseNanoapp>(kAppOneId));
+
+  // Get the nanoapp flow started
+  sendEventToNanoapp(appOneId, SCAN_REQUEST);
+
+  // We should get 2 scan results, one for the scan monitor and one for the
+  // scan request.
+  waitForEvent(CHRE_EVENT_WIFI_SCAN_RESULT);
+  waitForEvent(CHRE_EVENT_WIFI_SCAN_RESULT);
+
+  unloadNanoapp(appOneId);
+}
+
 TEST_F(WifiScanRequestQueueTestBase, WifiQueuedScanSettingChangeTest) {
   CREATE_CHRE_TEST_EVENT(CONCURRENT_NANOAPP_RECEIVED_EXPECTED_ASYNC_EVENT_COUNT,
                          1);

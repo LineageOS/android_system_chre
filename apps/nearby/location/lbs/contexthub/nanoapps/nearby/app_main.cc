@@ -37,9 +37,7 @@ bool nanoappStart(void) {
   return ::nearby::AppManagerSingleton::get()->IsInitialized();
 }
 
-void nanoappEnd(void) {
-  ::nearby::AppManagerSingleton::deinit();
-}
+void nanoappEnd(void) { ::nearby::AppManagerSingleton::deinit(); }
 
 void nanoappHandleEvent(uint32_t sender_instance_id, uint16_t event_type,
                         const void *event_data) {

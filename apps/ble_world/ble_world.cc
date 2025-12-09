@@ -138,7 +138,7 @@ bool enableBleScans() {
 }
 
 bool disableBleScans() {
-  return chreBleStopScanAsync();
+  return chreBleStopScanAsyncV1_9(/* cookie= */ nullptr);
 }
 
 bool nanoappStart() {
