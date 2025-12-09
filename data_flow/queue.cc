@@ -612,11 +612,13 @@ void ProducerBase::updateWriteIndex(BlockHeader *tailBlock, uint32_t writeIndex,
 void ProducerBase::updateAvailable(uint32_t increment) {
   auto tail = mDesc->writeIndex.load() + mReserved;
   mAvailable = capacity() - mReserved;  // Reset available counts.
-  // Consumers that have been overwritten, are not yet initialized, or would
-  // otherwise need to sync back to the producer position should not block
-  // writes to the queue. Add them to the exclude mask.
-  // NOTE: This effectively means all ProducerFlags states except kBlocking.
-  auto excludeMask = ~(static_cast<uint16_t>(ProducerFlags::kBlocking));
+  // Consumers that have been overwritten or would otherwise need to sync back
+  // to the producer position should not block writes to the queue, as well as
+  // consumers that are no longer in a valid state. Add them to the exclude
+  // mask. This effectively means all ProducerFlags states except kBlocking and
+  // kPendingInit.
+  auto excludeMask = ~(static_cast<uint16_t>(ProducerFlags::kBlocking) |
+                       static_cast<uint16_t>(ProducerFlags::kPendingInit));
   forAllConsumers(
       excludeMask,
       [this](internal::ConsumerNode &node, uint32_t producerFlags,
@@ -693,6 +695,11 @@ pw::Result<uint32_t> ProducerBase::addConsumer(pw::ConstByteSpan id,
   desc->producerFlags.store(
       static_cast<uint32_t>(internal::ProducerFlags::kPendingInit) |
       internal::kFlagCountInc);
+  // Sync the consumer to the producer.
+  desc->indexCorrection = mDesc->indexCorrection;
+  desc->readIndex.store(mDesc->writeIndex.load());
+  desc->initHeadBlockOffset = mDesc->tailBlockOffset;
+  desc->initBlockListEpoch = mQueue->blockListEpoch.load();
   // Link the node to the list of consumers.
   mQueue->consumerList.push_back(*node);
   // Return the offset of the descriptor in the region it was allocated from.
@@ -845,16 +852,30 @@ pw::Status ConsumerBase::initialize(
   }
   auto consumerFlags = mDesc->consumerFlags.load();
   mCurrentFlags = mDesc->producerFlags.load();
-  if (getAndCheckProducerFlags(mCurrentFlags, consumerFlags) !=
-      ProducerFlags::kPendingInit) {
-    PW_LOG_ERROR("ConsumerBase::initialize: descriptor state not kPendingInit");
-    return pw::Status::FailedPrecondition();
+  auto flagValue = getAndCheckProducerFlags(mCurrentFlags, consumerFlags);
+  if (!(flagValue == ProducerFlags::kPendingInit ||
+        flagValue == ProducerFlags::kOverwrite ||
+        flagValue == ProducerFlags::kBlocking)) {
+    PW_LOG_ERROR("ConsumerBase::initialize: descriptor state not one of "
+                 "{kPendingInit, kOverwrite, kBlocking}");
+    return flagValue == ProducerFlags::kFinished ||
+                   flagValue == ProducerFlags::kDisconnected
+               ? pw::Status::Aborted()
+               : pw::Status::FailedPrecondition();
   }
   mDesc->idOrNotifyFn = idOrNotifyFn;
-  PW_TRY(syncToProducer());
+  // mBlockListEpoch must be set before capacity() is called when setting a
+  // default mOverwriteResetOffset. This is subsequently used if the consumer
+  // has already been overwritten.
+  mBlockListEpoch = mDesc->initBlockListEpoch;
   mOverwriteResetOffset = overwriteResetOffset.value_or(capacity() / 2);
+  mHeadBlock = fromOffset<BlockHeader>(mRegion, mDesc->initHeadBlockOffset,
+                                       kBlockLayout);
+  if (flagValue == ProducerFlags::kOverwrite) {
+    PW_TRY(handleOverwrite());
+  }
   clearFlags();
-  return pw::OkStatus();
+  return checkState();
 }
 
 ConsumerBase::~ConsumerBase() {
@@ -891,9 +912,9 @@ pw::Status ConsumerBase::checkState() {
       PW_LOG_ERROR("ConsumerBase::checkState: producer gone or disconnected");
       return pw::Status::Aborted();
     case ProducerFlags::kOverwrite: {
+      PW_LOG_INFO("ConsumerBase::checkState: read position overwritten");
       PW_TRY(handleOverwrite());
       clearFlags();
-      PW_LOG_INFO("ConsumerBase::checkState: read position overwritten");
       return pw::Status::DataLoss();
     }
     case ProducerFlags::kBlocking:

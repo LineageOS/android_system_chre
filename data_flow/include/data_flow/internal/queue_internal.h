@@ -140,6 +140,14 @@ struct ConsumerDesc {
   IdOrNotifyFn idOrNotifyFn;
   // { 0-15: ConsumerFlags | 16-31: latest value of producerFlags counter }
   std::atomic<uint32_t> consumerFlags;
+  // The current tail block offset when the producer is adding the consumer. If
+  // the consumer is not overwritten by the time it initialized, it will use
+  // this as its head block.
+  uint32_t initHeadBlockOffset;
+  // The initial block count and list epoch when the producer adds the consumer.
+  // The consumer uses this to attempt to recover data if the producer
+  // overwrites it before it initializes.
+  uint32_t initBlockListEpoch;
   // Set by the producer. Indicates whether this consumer may be overwritten.
   // This field is intended to inform a consumer of the policy. The consumer
   // cannot modify this field to affect producer behavior.
@@ -147,7 +155,7 @@ struct ConsumerDesc {
   // Padding bytes. Reserved for future use.
   uint8_t padding[11];
 } __attribute__((packed));
-static_assert(sizeof(ConsumerDesc) == 48);
+static_assert(sizeof(ConsumerDesc) == 56);
 
 /** Queue metadata in shared memory. */
 struct alignas(8) Queue {
