@@ -679,6 +679,9 @@ class ProducerBase {
    */
   pw::Status checkPolicy(ConsumerPolicy policy);
 
+  /** Returns pw::Status::FailedPrecondition() if the producer is not active. */
+  pw::Status checkActive() const;
+
   // Members fixed on construction.
   AllocatorRegion mRegion;
   RemoteNotifyFn mRemoteNotifyFn;
@@ -766,6 +769,7 @@ class ConsumerBase {
    * @return pw::OkStatus() on success. See checkState() for error conditions.
    */
   pw::Status release(size_t count) {
+    PW_TRY(checkState());
     PW_TRY(releaseNoNotify(count));
     maybeNotifyOnRead();
     return pw::OkStatus();
@@ -778,6 +782,7 @@ class ConsumerBase {
    * @return pw::OkStatus() on success. See checkState() for error conditions.
    */
   pw::Status pop(pw::ByteSpan data) {
+    PW_TRY(checkState());
     PW_TRY(popNoNotify(data));
     maybeNotifyOnRead();
     return pw::OkStatus();
@@ -786,9 +791,11 @@ class ConsumerBase {
   /**
    * Syncs the read pointer to the write pointer minus an offset.
    *
+   * Spans for existing peeked data are invalidated.
+   *
    * @param offset The number of recent bytes to preserve. If greater than the
    * current size of the queue, resync() will fail.
-   * @return pw::OkStatus() on success.
+   * @return pw::OkStatus() on success. See checkState() for error conditions.
    */
   pw::Status resync(size_t offset);
 

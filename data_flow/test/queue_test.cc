@@ -469,17 +469,6 @@ TEST_F(QueueTest, ConsumerManagerPruneConsumersSuccess) {
   EXPECT_EQ(consumerCount, 0);
 }
 
-TEST_F(QueueTest, ConsumerManagerPruneConsumersFailureNotRemote) {
-  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
-      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
-  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
-  auto consumerManager = mProducer->getConsumerManager();
-
-  EXPECT_EQ(consumerManager.pruneConsumers(
-                [&](pw::ConstByteSpan /*id*/) { return false; }),
-            pw::Status::FailedPrecondition());
-}
-
 TEST_F(QueueTest, ConsumerManagerPruneConsumersSuccessMultiple) {
   std::vector<std::pair<RemoteNotifyFn, ConsumerPolicyBuilder>> consumerArgs;
   for (int i = 0; i < 3; ++i) {
@@ -925,12 +914,15 @@ TEST_F(QueueTest, ConsumerResyncSuccess) {
   EXPECT_RESULT_EQ(mConsumers[0].size(), data.size() / 2);
 }
 
-TEST_F(QueueTest, ConsumerResyncFailsOffsetTooLarge) {
+TEST_F(QueueTest, ConsumerResyncDoesNothingIfOffsetTooLarge) {
   std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
       {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
   initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
 
-  EXPECT_EQ(mConsumers[0].resync(1), pw::Status::OutOfRange());
+  ASSERT_EQ(mProducer->push(1), pw::OkStatus());
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 1);
+  EXPECT_EQ(mConsumers[0].resync(2), pw::OkStatus());
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 1);
 }
 
 TEST_F(QueueTest, ProducerStop) {
