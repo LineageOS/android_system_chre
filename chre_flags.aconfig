@@ -90,6 +90,7 @@ flag {
   namespace: "context_hub"
   description: "Enables ContextHub APIs for fast multiple-consumer queues"
   bug: "452127514"
+  is_exported: true
 }
 
 flag {
