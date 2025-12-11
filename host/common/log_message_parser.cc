@@ -274,7 +274,6 @@ void LogMessageParser::logV2(const uint8_t *logBuffer, size_t logBufferSize,
     logMessageSize = std::nullopt;
 
     switch (extractLogType(message)) {
-      // TODO(b/336467722): Rename the log types in fbs.
       case LogType::STRING:
         logMessageSize =
             parseAndEmitStringLogMessageAndGetSize(message, maxLogMessageLen);

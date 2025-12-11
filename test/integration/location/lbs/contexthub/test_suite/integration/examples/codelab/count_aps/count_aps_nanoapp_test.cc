@@ -74,8 +74,11 @@ void ScenarioThree::AddPassiveWifiScanAtTime(uint64_t t_ns, int nb_of_aps) {
 }
 
 INTEGRATION_TEST(NanoappTest, ScenarioThree, ScenarioTwoTest) {
+  // Returns the messages received by the test framework (which is from the
+  // nanoapps), indexed by time.
   auto msgs = GetHostMessages();
 
+  // Ensure that we received at least one message.
   ASSERT_GT(msgs.size(), 0);
 
   // simply verify that the message first arrives when we send 6 APs.
