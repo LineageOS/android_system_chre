@@ -10,9 +10,9 @@ pw_add_library(chre.platform.linux.context STATIC
 
 pw_add_library(chre.platform.linux.fatal_error STATIC
   HEADERS
-    include/chre/target_platform/fatal_error.h
+    public_fatal_error/chre/target_platform/fatal_error.h
   PUBLIC_INCLUDES
-    include
+    public_fatal_error
   SOURCES
     fatal_error.cc
   PRIVATE_DEPS
@@ -21,9 +21,9 @@ pw_add_library(chre.platform.linux.fatal_error STATIC
 
 pw_add_library(chre.platform.linux.host_link STATIC
   HEADERS
-    include/chre/target_platform/host_link_base.h
+    public_host_link/chre/target_platform/host_link_base.h
   PUBLIC_INCLUDES
-    include
+    public_host_link
   SOURCES
     host_link.cc
   PRIVATE_DEPS
@@ -92,9 +92,9 @@ pw_add_library(chre.platform.linux.platform_log STATIC
 
 pw_add_library(chre.platform.linux.platform_nanoapp STATIC
   HEADERS
-    include/chre/target_platform/platform_nanoapp_base.h
+    public_platform_nanoapp/chre/target_platform/platform_nanoapp_base.h
   PUBLIC_INCLUDES
-    include
+    public_platform_nanoapp
   PUBLIC_DEPS
     chre.platform.shared.nanoapp_support_lib_dso
   SOURCES
@@ -108,9 +108,9 @@ pw_add_library(chre.platform.linux.platform_nanoapp STATIC
 
 pw_add_library(chre.platform.linux.power_control_manager STATIC
   HEADERS
-    include/chre/target_platform/power_control_manager_base.h
+    public_power_control_manager/chre/target_platform/power_control_manager_base.h
   PUBLIC_INCLUDES
-    include
+    public_power_control_manager
   SOURCES
     power_control_manager.cc
   PRIVATE_DEPS
@@ -175,9 +175,9 @@ pw_add_library(chre.platform.linux.system_time STATIC
 
 pw_add_library(chre.platform.linux.system_timer STATIC
   HEADERS
-    include/chre/target_platform/system_timer_base.h
+    public_system_timer/chre/target_platform/system_timer_base.h
   PUBLIC_INCLUDES
-    include
+    public_system_timer
   SOURCES
     system_timer.cc
   PRIVATE_DEPS
