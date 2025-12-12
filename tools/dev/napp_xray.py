@@ -26,7 +26,6 @@ import ctypes
 import os
 from pathlib import Path
 import re
-import shutil
 import struct
 import subprocess
 import sys
@@ -140,29 +139,28 @@ def get_padded_mem_size(file_path: Path) -> int | None:
     return None
 
 
-def _get_elf_class(file_path: Path) -> int | None:
-  """Returns 32 or 64 based on ELF class, or None on error."""
+def _get_elf_class_and_arch(file_path: Path) -> tuple[str, str] | None:
+  """Returns a tuple containing (class, arch) types for an ELF file."""
   reader = os.environ.get("CHRE_TARGET_ELF_READER", "readelf")
   cmd = [reader, "-h", str(file_path)]
-  try:
-    result = subprocess.run(
-        cmd,
-        stdout=subprocess.PIPE,
-        text=True,
-        check=False,
-        stderr=subprocess.DEVNULL,
-    )
-    if result.returncode != 0:
-      return None
-    for line in result.stdout.splitlines():
-      if "Class:" in line:
-        if "ELF64" in line:
-          return 64
-        if "ELF32" in line:
-          return 32
-  except Exception:
+  file_class, file_arch = None, None
+  result = subprocess.run(
+      cmd,
+      stdout=subprocess.PIPE,
+      text=True,
+      check=False,
+      stderr=subprocess.DEVNULL,
+  )
+  if result.returncode != 0:
     return None
-  return None
+  for line in result.stdout.splitlines():
+    if "Class:" in line:
+      file_class = line.split(":")[1].strip()
+      continue
+    if "Machine:" in line:
+      file_arch = line.split(":")[1].strip()
+      continue
+  return file_class, file_arch
 
 
 def _get_symbol(file_path: Path, symbol_name: str) -> dict | None:
@@ -227,24 +225,44 @@ def _get_sections(file_path: Path) -> dict | None:
   return sections
 
 
-def _read_string_at_vaddr(f, vaddr: int, sections: dict) -> str:
-  """Reads a null-terminated string from a file at a given virtual address."""
+def _get_file_offset_of_vaddr(vaddr: int, sections: dict) -> int | None:
+  """Finds the offset of the file for a given virtual address."""
   if vaddr == 0:
-    return ""
+    return 0
 
-  target_section_info = None
   for sec in sections.values():
     if sec["addr"] <= vaddr < sec["addr"] + sec["size"]:
-      target_section_info = sec
-      break
-
-  if target_section_info is None:
-    return f"<unresolved vaddr 0x{vaddr:x}>"
-
-  file_offset = target_section_info["offset"] + (
-      vaddr - target_section_info["addr"]
+      return sec["offset"] + (vaddr - sec["addr"])
+  print(
+      f"Warning: Could not find section for vaddr 0x{vaddr:x}", file=sys.stderr
   )
-  f.seek(file_offset)
+  return None
+
+
+def _read_uint32_at_vaddr(f, vaddr: int, sections: dict) -> int | None:
+  """Reads a little-endian unsigned 32-bit integer from a file at a given virtual address."""
+  offset = _get_file_offset_of_vaddr(vaddr, sections)
+  f.seek(offset)
+  try:
+    data = f.read(4)
+    if len(data) < 4:
+      print(
+          f"Warning: Could not read 4 bytes at offset {offset}", file=sys.stderr
+      )
+      return None
+  except IOError as e:
+    print(
+        f"Warning: IOError reading 4 bytes at offset {offset}: {e}",
+        file=sys.stderr,
+    )
+    return None
+  return struct.unpack("<I", data)[0]
+
+
+def _read_string_at_vaddr(f, vaddr: int, sections: dict) -> str:
+  """Reads a null-terminated string from a file at a given virtual address."""
+  offset = _get_file_offset_of_vaddr(vaddr, sections)
+  f.seek(offset)
 
   byte_list = []
   while True:
@@ -252,7 +270,94 @@ def _read_string_at_vaddr(f, vaddr: int, sections: dict) -> str:
     if not byte or byte == b"\0":
       break
     byte_list.append(byte)
+
   return b"".join(byte_list).decode("utf-8", "ignore")
+
+
+def _get_relocations(file_path: Path) -> list | None:
+  """Gets all dynamic relocations from an ELF file."""
+  reader = os.environ.get("CHRE_TARGET_ELF_READER", "readelf")
+  cmd = [reader, "-rW", str(file_path)]
+  try:
+    result = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        text=True,
+        check=False,
+        stderr=subprocess.DEVNULL,
+    )
+    if result.returncode != 0:
+      return None
+
+    relocations = []
+    # Regex to capture Offset, Info, Type, and Addend (if present)
+    # Example .rel.dyn line:
+    # 00000000  00000000 R_ARM_NONE        00000000
+    # Example .rela.dyn line:
+    # 00000000  00000000 R_RISCV_NONE      00000000
+    reloc_re = re.compile(r"^([0-9a-f]+)\s+([0-9a-f]+)\s+(\S+)\s+([0-9a-f]+)?")
+    in_reloc_section = False
+    for line in result.stdout.splitlines():
+      if (
+          "Relocation section '.rela.dyn'" in line
+          or "Relocation section '.rel.dyn'" in line
+      ):
+        in_reloc_section = True
+        continue
+      if not in_reloc_section or not line.strip():
+        continue
+      if line.startswith("Offset") or line.startswith(
+          "There are no relocations"
+      ):
+        continue
+
+      match = reloc_re.match(line)
+      if match:
+        groups = match.groups()
+        offset = int(groups[0], 16)
+        # info = int(groups[1], 16)
+        reloc_type = groups[2]
+        addend = int(groups[3], 16) if groups[3] else 0
+        relocations.append({
+            "offset": offset,
+            "type": reloc_type,
+            "addend": addend,
+        })
+  except Exception as e:
+    print(f"Error parsing relocations: {e}", file=sys.stderr)
+    return None
+  return relocations
+
+
+def _apply_relocation(
+    f,
+    vaddr: int,
+    symbol_vaddr: int,
+    field_offset: int,
+    relocations: list,
+    machine: str,
+    sections: dict,
+) -> int:
+  """Applies dynamic relocation to a virtual address."""
+  if not relocations:
+    return vaddr
+
+  target_vaddr = symbol_vaddr + field_offset
+
+  for reloc in relocations:
+    if reloc["offset"] == target_vaddr:
+      if machine == "ARM" and reloc["type"] == "R_ARM_RELATIVE":
+        # For ARM, the value at the offset is the absolute address.
+        relocated_vaddr = _read_uint32_at_vaddr(f, reloc["offset"], sections)
+        return relocated_vaddr if relocated_vaddr is not None else vaddr
+      elif machine == "RISC-V" and reloc["type"] == "R_RISCV_RELATIVE":
+        # For RISC-V, the addend is the absolute address.
+        return reloc["addend"]
+      else:
+        # Ignore the other relocation types for now.
+        pass
+
+  return vaddr
 
 
 def get_chre_nanoapp_info(file_path: Path) -> dict | None:
@@ -270,12 +375,14 @@ def get_chre_nanoapp_info(file_path: Path) -> dict | None:
   if not symbol_section_info:
     return None
 
-  elf_class = _get_elf_class(file_path)
-  if elf_class != 32:
+  elf_class, machine = _get_elf_class_and_arch(file_path)
+  if elf_class != "ELF32":
     return None
+  relocations = _get_relocations(file_path)
 
+  symbol_vaddr = symbol["value"]
   symbol_offset = symbol_section_info["offset"] + (
-      symbol["value"] - symbol_section_info["addr"]
+      symbol_vaddr - symbol_section_info["addr"]
   )
 
   try:
@@ -298,18 +405,46 @@ def get_chre_nanoapp_info(file_path: Path) -> dict | None:
           len(nanoapp_info_struct_data),
       )
 
+      vendor_vaddr = _apply_relocation(
+          f,
+          info_struct.vendor,
+          symbol_vaddr,
+          ChreNslNanoappInfo.vendor.offset,
+          relocations,
+          machine,
+          sections,
+      )
+      name_vaddr = _apply_relocation(
+          f,
+          info_struct.name,
+          symbol_vaddr,
+          ChreNslNanoappInfo.name.offset,
+          relocations,
+          machine,
+          sections,
+      )
+      app_version_string_vaddr = _apply_relocation(
+          f,
+          info_struct.appVersionString,
+          symbol_vaddr,
+          ChreNslNanoappInfo.appVersionString.offset,
+          relocations,
+          machine,
+          sections,
+      )
+
       info = {
           "magic": info_struct.magic,
           "structMinorVersion": info_struct.structMinorVersion,
           "isSystemNanoapp": bool(info_struct.flags.isSystemNanoapp),
           "isTcmNanoapp": bool(info_struct.flags.isTcmNanoapp),
           "targetApiVersion": info_struct.targetApiVersion,
-          "vendor": _read_string_at_vaddr(f, info_struct.vendor, sections),
-          "name": _read_string_at_vaddr(f, info_struct.name, sections),
+          "vendor": _read_string_at_vaddr(f, vendor_vaddr, sections),
+          "name": _read_string_at_vaddr(f, name_vaddr, sections),
           "appId": info_struct.appId,
           "appVersion": info_struct.appVersion,
           "appVersionString": _read_string_at_vaddr(
-              f, info_struct.appVersionString, sections
+              f, app_version_string_vaddr, sections
           ),
           "appPermissions": 0,
           "minChreApiVersion": 0,
