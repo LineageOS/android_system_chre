@@ -26,6 +26,7 @@
         "name": "nanoapp",
         "build_target": "aosp_hexagonv66_qsh",
         "install_location": "/vendor/etc/chre",
+        "quick_flash_command": "adb shell 'echo 1 > /sys/kernel/boot_adsp/ssr'",
         "env_variables": [
           {
             "name": "ANDROID_BUILD_TOP",
