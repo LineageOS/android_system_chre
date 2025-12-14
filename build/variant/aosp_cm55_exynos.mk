@@ -45,6 +45,12 @@ ifneq ($(filter $(TARGET_NAME)% all, $(MAKECMDGOALS)),)
 
   TARGET_PLATFORM_ID = 0x476F6F676C002000
 
+  ifeq ($(IS_ARCHIVE_ONLY_BUILD),)
+    GCC_RTLIB=$(CORTEXM_TOOLS_PREFIX)/lib/gcc/arm-none-eabi/12.3.1/thumb/v8-m.main+fp/hard/
+    TARGET_SO_LATE_LIBS += -L$(GCC_RTLIB)
+    TARGET_SO_LATE_LIBS += -lgcc
+  endif
+
   include $(CHRE_PREFIX)/build/arch/cortexm.mk
   include $(CHRE_PREFIX)/build/build_template.mk
 endif
