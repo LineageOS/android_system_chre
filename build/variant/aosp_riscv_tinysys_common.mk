@@ -7,6 +7,7 @@ include $(CHRE_PREFIX)/build/clean_build_template_args.mk
 
 TARGET_NAME = $(RISCV_TARGET_NAME)
 TARGET_PLATFORM_ID = $(RISCV_TARGET_PLATFORM_ID)
+TOOLCHAIN_VER := $(shell basename $(RISCV_TOOLCHAIN_PATH) | sed 's/CodeLine_//')
 
 ifneq ($(filter $(TARGET_NAME)% all, $(MAKECMDGOALS)),)
   TARGET_CFLAGS = $(TINYSYS_CFLAGS)
@@ -87,9 +88,14 @@ ifneq ($(filter $(TARGET_NAME)% all, $(MAKECMDGOALS)),)
     TARGET_CFLAGS += -fpic
 
     # Enable compiler-rt dependencies
-    LLVM_RTLIB=$(RISCV_TOOLCHAIN_PATH)/lib/clang/12.0.0/libpic/riscv32/$(RISCV_TOOLCHAIN_TYPE)
+    ifeq ($(shell [ $(TOOLCHAIN_VER) -ge 310 ] && echo yes),yes)
+      LLVM_RTLIB=$(RISCV_TOOLCHAIN_PATH)/lib/clang/17/lib/riscv32/$(RISCV_TOOLCHAIN_TYPE)
+      TARGET_SO_LDFLAGS += -lclang_rt.builtins
+    else
+      LLVM_RTLIB=$(RISCV_TOOLCHAIN_PATH)/lib/clang/12.0.0/libpic/riscv32/$(RISCV_TOOLCHAIN_TYPE)
+      TARGET_SO_LDFLAGS += -lclang_rt.builtins-riscv32
+    endif
     TARGET_SO_LDFLAGS += -L$(LLVM_RTLIB)
-    TARGET_SO_LDFLAGS += -lclang_rt.builtins-riscv32
   endif
 
   # Other makefiles ##############################################################

@@ -251,7 +251,7 @@ DRAM_REGION_FUNCTION int generateHubInfoResponse(uint16_t hostClientId) {
 }
 
 DRAM_REGION_FUNCTION bool dequeueMessage(PendingMessage pendingMsg) {
-  LOGV("%s: message type %d", __func__, pendingMsg.type);
+  LOGV("%s: message type %d", __func__, static_cast<int>(pendingMsg.type));
   bool result = false;
   switch (pendingMsg.type) {
     case PendingMessageType::NanoappMessageToHost:
@@ -297,7 +297,8 @@ DRAM_REGION_FUNCTION bool enqueueMessage(const PendingMessage message) {
 DRAM_REGION_FUNCTION bool buildAndEnqueueMessage(
     PendingMessageType msgType, size_t initialBufferSize,
     MessageBuilderFunction *buildMsgFunc, void *cookie) {
-  LOGV("%s: message type %d, size %zu", __func__, msgType, initialBufferSize);
+  LOGV("%s: message type %d, size %zu", __func__, static_cast<int>(msgType),
+       initialBufferSize);
   bool pushed = false;
 
   auto builder = MakeUnique<ChreFlatBufferBuilder>(initialBufferSize);
