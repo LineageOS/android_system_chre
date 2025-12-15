@@ -253,6 +253,7 @@ class UntypedConsumer : protected internal::ConsumerBase {
   using ConsumerBase::checkState;
   using ConsumerBase::disable;
   using ConsumerBase::empty;
+  using ConsumerBase::isOverwritable;
 
   /** @return the size of each element in bytes. */
   size_t getElementSize() const {

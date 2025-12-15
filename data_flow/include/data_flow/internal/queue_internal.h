@@ -816,6 +816,9 @@ class ConsumerBase {
     return res == 0;
   }
 
+  /** @return true iff the producer can overwrite this consumer. */
+  pw::Result<bool> isOverwritable();
+
  protected:
   /**
    * Checks arguments before initializing.

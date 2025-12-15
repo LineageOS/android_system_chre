@@ -546,6 +546,7 @@ TEST_F(QueueTest, PushPopNonoverwritableConsumer) {
   std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
       {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
   initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+  EXPECT_RESULT_EQ(mConsumers[0].isOverwritable(), false);
 
   EXPECT_EQ(mProducer->size(), 0);
   EXPECT_RESULT_EQ(mConsumers[0].size(), 0);
@@ -561,6 +562,7 @@ TEST_F(QueueTest, PushPopOverwritableConsumer) {
   std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
       {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setOverwritable()}};
   initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+  EXPECT_RESULT_EQ(mConsumers[0].isOverwritable(), true);
 
   EXPECT_EQ(mProducer->size(), 0);
   EXPECT_RESULT_EQ(mConsumers[0].size(), 0);
