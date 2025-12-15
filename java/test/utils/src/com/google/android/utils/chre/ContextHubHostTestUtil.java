@@ -39,6 +39,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -178,6 +179,9 @@ public class ContextHubHostTestUtil {
      * @return true if the device is in the allowlist, false otherwise
      */
     public static boolean deviceInAllowlist() {
+        if (isChdts()) {
+            return true;
+        }
         DynamicConfigDeviceSide deviceDynamicConfig = getDynamicConfig();
         List<String> configValues = deviceDynamicConfig.getValues("chre_device_whitelist");
         Assert.assertTrue("Could not find device allowlist from dynamic config",
@@ -203,6 +207,9 @@ public class ContextHubHostTestUtil {
      * @return true if the device is in the denylist, false otherwise
      */
     public static boolean deviceInDenylist() {
+        if (isChdts()) {
+            return false;
+        }
         DynamicConfigDeviceSide deviceDynamicConfig = getDynamicConfig();
         List<String> configValues = deviceDynamicConfig.getValues("chre_device_blacklist");
         Assert.assertTrue("Could not find device denylist from dynamic config",
@@ -225,6 +232,10 @@ public class ContextHubHostTestUtil {
      * @return true if the device is in the aoc v2 device list.
      */
     private static boolean deviceInAocV2List() {
+        if (isChdts()) {
+            return false;
+        }
+
         DynamicConfigDeviceSide deviceDynamicConfig = getDynamicConfig();
         List<String> configValues = deviceDynamicConfig.getValues("chre_aoc_v2_list");
         Assert.assertTrue("Could not find aoc v2 device list from dynamic config",
@@ -253,11 +264,23 @@ public class ContextHubHostTestUtil {
      * @return the path to the nanoapps
      */
     private static String getNanoAppBinaryPathFromPlatformId(long platformId) {
-        DynamicConfigDeviceSide deviceDynamicConfig = getDynamicConfig();
-        List<String> configValues =
-                deviceDynamicConfig.getValues("chre_platform_id_nanoapp_dir_pairs");
-        Assert.assertTrue("Could not find nanoapp asset list from dynamic config",
-                configValues != null);
+        List<String> configValues;
+        if (isChdts()) {
+            configValues = Arrays.asList(
+                "476f6f676c000008,CHRE_on_AOCGoogle",
+                "476f6f676c00000a,CHRE_on_SLPIGoogle",
+                "476f6f676c000010,CHRE_on_M33Google",
+                "476f6f676c001000,CHRE_on_QSHGoogle",
+                "476f6f676c003000,CHRE_on_TinysysGoogle",
+                "476f6f676c003001,CHRE_on_TinysysGoogle_riscv55e300"
+            );
+        } else {
+            DynamicConfigDeviceSide deviceDynamicConfig = getDynamicConfig();
+            configValues =
+                    deviceDynamicConfig.getValues("chre_platform_id_nanoapp_dir_pairs");
+            Assert.assertTrue("Could not find nanoapp asset list from dynamic config",
+                    configValues != null);
+        }
 
         String platformIdHexString = Long.toHexString(platformId);
         String path = null;
@@ -290,6 +313,10 @@ public class ContextHubHostTestUtil {
      * @return the path to the nanoapps
      */
     private static String getNanoAppBinaryPathFromHubName(String contextHubName) {
+        if (isChdts()) {
+            return null;
+        }
+
         DynamicConfigDeviceSide deviceDynamicConfig = getDynamicConfig();
         List<String> configValues =
                 deviceDynamicConfig.getValues("chre_hubname_nanoapp_dir_pairs");
@@ -363,5 +390,13 @@ public class ContextHubHostTestUtil {
                 manager).isNotNull();
         // Use a denylist on platforms that should not run CHQTS.
 
+    }
+
+    /**
+     * @return Returns true if the test is CHDTS.
+     */
+    private static boolean isChdts() {
+        Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        return "com.android.chre.chdts.app".equals(context.getPackageName());
     }
 }

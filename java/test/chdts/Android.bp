@@ -38,7 +38,7 @@ tradefed_binary_host {
     ],
     required: [
         "compatibility-host-util",
-        // "ChdtsTestApp",
+        "ChdtsTestApp",
     ],
 }
 
