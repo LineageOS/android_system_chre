@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<configuration description="Runs the Context Hub Development Test Suite">
+    <option name="test-suite-tag" value="chdts" />
+    <include name="everything" />
+</configuration>
