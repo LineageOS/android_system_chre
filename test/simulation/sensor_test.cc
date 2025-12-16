@@ -209,5 +209,111 @@ TEST_F(SensorTest, SensorUnsubscribeToDataEventsOnUnload) {
   EXPECT_FALSE(chrePalSensorIsSensor0Enabled());
 }
 
+TEST_F(MultiThreadTestBase, MultiThreadedSensorTest) {
+  CREATE_CHRE_TEST_EVENT(CONFIGURE, 0);
+
+  struct Configuration {
+    uint32_t sensorHandle;
+    uint64_t interval;
+    enum chreSensorConfigureMode mode;
+  };
+
+  class App : public TestNanoapp {
+   public:
+    App() = default;
+    explicit App(TestNanoappInfo info) : TestNanoapp(info) {}
+
+    bool start() {
+      LOGI("Start: my id = 0x%" PRIx64, chreGetAppId());
+      return true;
+    }
+
+    void handleEvent(uint32_t, uint16_t eventType,
+                     const void *eventData) override {
+      switch (eventType) {
+        case CHRE_EVENT_SENSOR_UNCALIBRATED_ACCELEROMETER_DATA: {
+          break;
+        }
+        case CHRE_EVENT_SENSOR_SAMPLING_CHANGE: {
+          auto *event =
+              static_cast<const struct chreSensorSamplingStatusEvent *>(
+                  eventData);
+          LOGI("Got sampling intvl=%" PRIu64 ", my instance=%" PRIu16,
+               event->status.interval, chreGetInstanceId());
+          if (event->status.interval == mMyInterval) {
+            TestEventQueueSingleton::get()->pushEvent(
+                CHRE_EVENT_SENSOR_SAMPLING_CHANGE, *event);
+          }
+          break;
+        }
+
+        case CHRE_EVENT_TEST_EVENT: {
+          auto event = static_cast<const TestEvent *>(eventData);
+          switch (event->type) {
+            case CONFIGURE: {
+              auto config = static_cast<const Configuration *>(event->data);
+              const bool success = chreSensorConfigure(
+                  config->sensorHandle, config->mode, config->interval, 0);
+              if (success) {
+                mMyInterval = config->interval;
+              }
+              TestEventQueueSingleton::get()->pushEvent(CONFIGURE, success);
+              break;
+            }
+          }
+        }
+      }
+    }
+
+   private:
+    uint64_t mMyInterval = 0;
+  };
+
+  uint64_t appId = loadNanoapp(MakeUnique<App>());
+  TestNanoappInfo info;
+  info.id = 0xfdceba987654321;
+  info.requestedThreadPriority = NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND;
+  uint64_t appId2 = loadNanoapp(MakeUnique<App>(info));
+
+  EXPECT_FALSE(chrePalSensorIsSensor0Enabled());
+
+  bool success;
+  Configuration config{.sensorHandle = 0,
+                       .interval = 500 * chre::kOneMillisecondInNanoseconds,
+                       .mode = CHRE_SENSOR_CONFIGURE_MODE_CONTINUOUS};
+  sendEventToNanoapp(appId, CONFIGURE, config);
+  waitForEvent(CONFIGURE, &success);
+  EXPECT_TRUE(success);
+  struct chreSensorSamplingStatusEvent event;
+  waitForEvent(CHRE_EVENT_SENSOR_SAMPLING_CHANGE, &event);
+  EXPECT_EQ(event.sensorHandle, config.sensorHandle);
+  EXPECT_EQ(event.status.interval, config.interval);
+  EXPECT_TRUE(event.status.enabled);
+  EXPECT_TRUE(chrePalSensorIsSensor0Enabled());
+
+  Configuration config2{.sensorHandle = 0,
+                        .interval = 100 * chre::kOneMillisecondInNanoseconds,
+                        .mode = CHRE_SENSOR_CONFIGURE_MODE_CONTINUOUS};
+  sendEventToNanoapp(appId2, CONFIGURE, config2);
+  waitForEvent(CONFIGURE, &success);
+  EXPECT_TRUE(success);
+  waitForEvent(CHRE_EVENT_SENSOR_SAMPLING_CHANGE, &event);
+  EXPECT_EQ(event.sensorHandle, config2.sensorHandle);
+  EXPECT_EQ(event.status.interval, config2.interval);
+  EXPECT_TRUE(event.status.enabled);
+  EXPECT_TRUE(chrePalSensorIsSensor0Enabled());
+
+  config = {.sensorHandle = 0,
+            .interval = 50,
+            .mode = CHRE_SENSOR_CONFIGURE_MODE_DONE};
+  sendEventToNanoapp(appId, CONFIGURE, config);
+  waitForEvent(CONFIGURE, &success);
+  EXPECT_TRUE(success);
+  sendEventToNanoapp(appId2, CONFIGURE, config);
+  waitForEvent(CONFIGURE, &success);
+  EXPECT_TRUE(success);
+  EXPECT_FALSE(chrePalSensorIsSensor0Enabled());
+}
+
 }  // namespace
 }  // namespace chre

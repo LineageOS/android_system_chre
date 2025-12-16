@@ -153,6 +153,26 @@ class EventLoopManager : public NonCopyable {
   static bool inEventLoopForNanoapp(uint64_t appId);
 
   /**
+   * Returns a pointer to the EventLoop that manages the nanoapp with the given
+   * app ID.
+   *
+   * @param appId The app ID of the nanoapp to search for.
+   * @return A pointer to the EventLoop that manages the nanoapp, or nullptr if
+   *         no such nanoapp is found.
+   */
+  EventLoop *getEventLoopByAppId(uint64_t appId);
+
+  /**
+   * Returns a pointer to the EventLoop that manages the nanoapp with the given
+   * instance ID.
+   *
+   * @param nanoappInstanceId The instance ID of the nanoapp to search for.
+   * @return A pointer to the EventLoop that manages the nanoapp, or nullptr if
+   *         no such nanoapp is found.
+   */
+  EventLoop *getEventLoopByInstanceId(uint16_t instanceId);
+
+  /**
    * Posts an event to a nanoapp that is currently running (or all nanoapps if
    * the target instance ID is kBroadcastInstanceId). A senderInstanceId cannot
    * be provided to this method because it must only be used to post events
