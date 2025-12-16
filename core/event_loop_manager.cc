@@ -67,27 +67,23 @@ void EventLoopManager::postEventOrDie(uint16_t eventType, void *eventData,
                                       chreEventCompleteFunction *freeCallback,
                                       uint16_t targetInstanceId,
                                       uint16_t targetGroupMask) {
-  if (mEventLoop.isRunning()) {
-    Event *event = mEventPool.allocate(
-        eventType, eventData, freeCallback, /* isLowPriority= */ false,
-        kSystemInstanceId, targetInstanceId, targetGroupMask);
-    if (!mEventLoop.postEvent(event)) {
-      FATAL_ERROR("Failed to post critical system event 0x%" PRIx16, eventType);
-    }
-  } else if (freeCallback != nullptr) {
-    freeCallback(eventType, eventData);
-  }
+  postEvent(eventType, eventData, freeCallback, /* isLowPriority = */ false,
+            kSystemInstanceId, targetInstanceId, targetGroupMask);
 }
 
 bool EventLoopManager::postSystemEvent(uint16_t eventType, void *eventData,
                                        SystemEventCallbackFunction *callback,
-                                       void *extraData) {
-  if (!mEventLoop.isRunning()) return false;
+                                       void *extraData, EventLoop *eventLoop) {
+  if (eventLoop == nullptr) {
+    eventLoop = &getEventLoop();
+  }
+  if (!eventLoop->isRunning()) {
+    return false;
+  }
   Event *event = mEventPool.allocate(eventType, eventData, callback, extraData);
-  if (!mEventLoop.postEvent(event)) {
-    FATAL_ERROR("Failed to post critical system event 0x%" PRIx16
-                ": out of memory",
-                eventType);
+  if (!eventLoop->postEvent(event)) {
+    FATAL_ERROR("Failed to post critical system event 0x%" PRIx16,
+                event->eventType);
   }
   return true;
 }
@@ -96,23 +92,53 @@ bool EventLoopManager::postLowPriorityEventOrFree(
     uint16_t eventType, void *eventData,
     chreEventCompleteFunction *freeCallback, uint16_t senderInstanceId,
     uint16_t targetInstanceId, uint16_t targetGroupMask) {
-  bool eventPosted = false;
+  return postEvent(eventType, eventData, freeCallback,
+                   /* isLowPriority = */ true, senderInstanceId,
+                   targetInstanceId, targetGroupMask);
+}
 
-  if (mEventLoop.isRunning()) {
-    Event *event = mEventPool.allocate(
-        eventType, eventData, freeCallback, /* isLowPriority= */ true,
-        senderInstanceId, targetInstanceId, targetGroupMask);
-    eventPosted = mEventLoop.postEvent(event, /* isLowPriority= */ true);
-    if (!eventPosted && event != nullptr) {
-      mEventPool.deallocate(event);
+bool EventLoopManager::postEvent(uint16_t eventType, void *eventData,
+                                 chreEventCompleteFunction *freeCallback,
+                                 bool isLowPriority, uint16_t senderInstanceId,
+                                 uint16_t targetInstanceId,
+                                 uint16_t targetGroupMask) {
+  bool eventPosted = false;
+  bool isBroadcast = targetInstanceId == kBroadcastInstanceId;
+  uint8_t initialRefCount =
+      isBroadcast ? static_cast<uint8_t>(mEventLoops.size()) : 1;
+  Event *event = mEventPool.allocate(
+      eventType, eventData, freeCallback, isLowPriority, senderInstanceId,
+      targetInstanceId, targetGroupMask, initialRefCount);
+  for (auto &loop : mEventLoops) {
+    // TODO(b/435246073): This lookup can be a hot path. Consider optimizing
+    // this by encoding the event loop ID within the instance ID to avoid
+    // iterating through all event loops.
+    if (isBroadcast ||
+        loop.findNanoappByInstanceId(targetInstanceId) != nullptr) {
+      if (!loop.isRunning()) continue;
+      bool success = loop.postEvent(event, isLowPriority);
+      if (!success && !isLowPriority) {
+        FATAL_ERROR("Failed to post critical system event 0x%" PRIx16,
+                    event->eventType);
+      }
+      if (!success && event != nullptr) {
+        event->decrementRefCount();
+      }
+      eventPosted |= success;
     }
   }
 
-  if (!eventPosted && freeCallback != nullptr) {
-    freeCallback(eventType, eventData);
+  if (!eventPosted) {
+    if (freeCallback != nullptr) {
+      freeCallback(eventType, eventData);
+    }
+    if (event != nullptr) {
+      mEventPool.deallocate(event);
+    }
+    return false;
   }
 
-  return eventPosted;
+  return true;
 }
 
 void EventLoopManager::lateInit() {

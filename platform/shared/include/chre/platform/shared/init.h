@@ -20,6 +20,10 @@
 #include "pw_bluetooth_proxy/proxy_host.h"
 #endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
 
+#include "chre/core/event_loop.h"
+#include "chre/util/dynamic_vector.h"
+#include "pw_span/span.h"
+
 namespace chre {
 
 /**
@@ -32,6 +36,14 @@ namespace chre {
  *  3. EventLoopManagerSingleton::init()
  */
 void initCommon();
+
+/**
+ * The same version of initComon but one where the list of event loops is
+ * provided by the caller.
+ *
+ * @param eventLoops the list of event loops to use.
+ */
+void initCommon(pw::span<EventLoop> eventLoops);
 
 /**
  * Performs deinitialization of CHRE common functionality. This will deinit the
