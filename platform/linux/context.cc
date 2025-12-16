@@ -34,10 +34,11 @@ bool inEventLoopThread() {
 }
 
 EventLoop *getCurrentEventLoop() {
-  static_assert(CHRE_MULTI_THREADING_ENABLED == 0,
-                "CHRE multi-threading is not implemented on this platform");
-  return inEventLoopThread() ? &EventLoopManagerSingleton::get()->getEventLoop()
-                             : gEventLoop;
+#if CHRE_MULTI_THREADING_ENABLED
+  return gEventLoop;
+#else
+  return &EventLoopManagerSingleton::get()->getEventLoop();
+#endif  // CHRE_MULTI_THREADING_ENABLED
 }
 
 void registerThreadContext(EventLoop *eventLoop) {
