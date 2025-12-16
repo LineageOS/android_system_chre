@@ -73,6 +73,11 @@ uint32_t PlatformNanoapp::getAppPermissions() const {
              : static_cast<uint32_t>(chre::NanoappPermissions::CHRE_PERMS_NONE);
 }
 
+int8_t PlatformNanoapp::getRequestedThreadPriority() const {
+  return (mAppInfo != nullptr) ? mAppInfo->requestedThreadPriority
+                               : NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL;
+}
+
 bool PlatformNanoapp::isSystemNanoapp() const {
   return (mAppInfo != nullptr && mAppInfo->isSystemNanoapp);
 }

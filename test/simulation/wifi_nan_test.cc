@@ -47,7 +47,7 @@
 namespace chre {
 namespace {
 
-class WifiNanTest : public TestBase {};
+class WifiNanTest : public SingleThreadTestBase {};
 
 /**
  * Common settings for test nanoapps.

@@ -102,9 +102,9 @@ const MessageHubInfo kEmbeddedHub{.id = CHRE_PLATFORM_ID + 1,
 const char *kHostHubName = "host hub";
 const MessageHubInfo kHostHub{.id = kEmbeddedHub.id + 1, .name = kHostHubName};
 
-class HostMessageHubTest : public TestBase {
+class HostMessageHubTest : public SingleThreadTestBase {
  public:
-  HostMessageHubTest() : TestBase() {
+  HostMessageHubTest() : SingleThreadTestBase() {
     for (const auto &endpoint : kEndpoints) {
       std::vector<ServiceInfo> services;
       if (endpoint.id > 0x1) services.push_back(kService);
@@ -113,7 +113,7 @@ class HostMessageHubTest : public TestBase {
   }
 
   void SetUp() override {
-    TestBase::SetUp();
+    SingleThreadTestBase::SetUp();
 
     mEmbeddedHubCb = pw::MakeRefCounted<NiceMock<MockMessageHubCallback>>();
     ASSERT_NE(mEmbeddedHubCb.get(), nullptr);
@@ -193,7 +193,7 @@ class HostMessageHubTest : public TestBase {
     getManager().reset();
     mEmbeddedHubIntf.unregister();
 
-    TestBase::TearDown();
+    SingleThreadTestBase::TearDown();
   }
 
   DynamicVector<ServiceInfo> getHostEndpointServices() {

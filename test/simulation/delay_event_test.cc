@@ -32,7 +32,7 @@ using ::chre::platform_linux::SystemTimeOverride;
 namespace chre {
 namespace {
 
-class DelayEventTest : public TestBase {};
+class DelayEventTest : public SingleThreadTestBase {};
 
 CREATE_CHRE_TEST_EVENT(DELAY_EVENT, 0);
 

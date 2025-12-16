@@ -163,7 +163,8 @@ UniquePtr<Nanoapp> createStaticNanoapp(
     const char *name, uint64_t appId, uint32_t appVersion, uint32_t appPerms,
     decltype(nanoappStart) *startFunc,
     decltype(nanoappHandleEvent) *handleEventFunc,
-    decltype(nanoappEnd) *endFunc);
+    decltype(nanoappEnd) *endFunc,
+    int8_t requestedThreadPriority = NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
 
 /**
  * @return the statically loaded nanoapp based on the arguments, additionally
@@ -175,7 +176,8 @@ UniquePtr<Nanoapp> createStaticNanoapp(
     uint8_t infoStructVersion, const char *name, uint64_t appId,
     uint32_t appVersion, uint32_t appPerms, decltype(nanoappStart) *startFunc,
     decltype(nanoappHandleEvent) *handleEventFunc,
-    decltype(nanoappEnd) *endFunc);
+    decltype(nanoappEnd) *endFunc,
+    int8_t requestedThreadPriority = NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
 
 /**
  * Deletes memory allocated by createStaticNanoapp.

@@ -58,8 +58,9 @@ class TestBase : public testing::Test {
     CHRE_TEST_DEBUG("Destroying %p", this);
   }
 
-  void SetUp() override;
   void TearDown() override;
+
+  void SetUpBase(pw::span<EventLoop> eventLoops);
 
   /**
    * This method can be overridden in a derived class if desired.
@@ -135,6 +136,38 @@ class TestBase : public testing::Test {
   MockBtOffload mMockBtOffload;
   std::optional<pw::bluetooth::proxy::ProxyHost> mProxyHost;
 };
+
+/*
+ * A base class for all CHRE simulated tests that only requires a single thread.
+ */
+class SingleThreadTestBase : public TestBase {
+ protected:
+  void SetUp() override;
+  void TearDown() override;
+
+  std::optional<EventLoop> mEventLoop;
+  std::thread mChreThread;
+};
+
+/*
+ * A base class for all CHRE simulated tests that require multiple threads.
+ */
+template <size_t kNumEventLoops = 2>
+class MultiThreadTestBaseT : public TestBase {
+ protected:
+  void SetUp() override;
+  void TearDown() override;
+
+  std::optional<std::array<EventLoop, kNumEventLoops>> mEventLoops;
+  std::array<std::thread, kNumEventLoops> mChreThreads;
+
+  EventLoop *getEventLoop(size_t index) {
+    return &(*mEventLoops)[index];
+  }
+};
+
+// Defaults to multi-threading with size 2.
+using MultiThreadTestBase = MultiThreadTestBaseT<>;
 
 }  // namespace chre
 

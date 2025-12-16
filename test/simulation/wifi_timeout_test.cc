@@ -39,7 +39,7 @@ namespace {
 // WifiCanDispatchSecondScanRequestInQueueAfterFirstTimeout). If not,
 // waitForEvent will timeout before actual timeout happens in CHRE, making us
 // unable to observe how system handles timeout.
-class WifiTimeoutTest : public TestBase {
+class WifiTimeoutTest : public SingleThreadTestBase {
  protected:
   uint64_t getTimeoutNs() const override {
     return 3 * CHRE_TEST_WIFI_SCAN_RESULT_TIMEOUT_NS;
@@ -238,8 +238,8 @@ TEST_F(WifiTimeoutTest, WifiCanDispatchQueuedRequestAfterOneTimeout) {
 
   waitForEvent(REQUEST_TIMED_OUT);
 
-  // Make sure that we can still request scan for both nanoapps after a timed out
-  // request.
+  // Make sure that we can still request scan for both nanoapps after a timed
+  // out request.
   constexpr uint32_t successCookie = 0x0101;
   chrePalWifiEnableResponse(PalWifiAsyncRequestTypes::SCAN,
                             true /* enableResponse */);
@@ -336,8 +336,8 @@ TEST_F(WifiTimeoutTest, WifiScanMonitorTimeoutTest) {
 
   waitForEvent(REQUEST_TIMED_OUT);
 
-  // Make sure that we can still request to change scan monitor after a timed out
-  // request.
+  // Make sure that we can still request to change scan monitor after a timed
+  // out request.
   MonitoringRequest enableRequest{.enable = true, .cookie = 0x1010};
   chrePalWifiEnableResponse(PalWifiAsyncRequestTypes::SCAN_MONITORING, true);
   sendEventToNanoapp(appId, SCAN_MONITOR_REQUEST, enableRequest);

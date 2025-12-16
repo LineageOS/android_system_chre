@@ -33,7 +33,7 @@
 namespace chre {
 namespace {
 
-class WifiTest : public TestBase {};
+class WifiTest : public SingleThreadTestBase {};
 
 TEST_F(WifiTest, WifiCanSubscribeAndUnsubscribeToScanMonitoring) {
   CREATE_CHRE_TEST_EVENT(MONITORING_REQUEST, 0);

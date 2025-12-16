@@ -35,7 +35,7 @@
 namespace chre {
 namespace {
 
-class GnssTest : public TestBase {};
+class GnssTest : public SingleThreadTestBase {};
 
 /**
  * Wait for the predicate to become true with a timeout.
