@@ -600,6 +600,14 @@ class EventLoopManager : public NonCopyable {
         (1 << kEventLoopIndexBits) - 1;
   };
 
+  /**
+   * @return The global API mutex used to synchronizes resources for CHRE API
+   * calls from multiple threads, or no-op if multi-threading is not enabled.
+   */
+  MultiThreadingApiMutex *getGlobalApiMutex() {
+    return &mGlobalApiMutex;
+  }
+
  private:
   /**
    * Posts an event to a specific event loop.
@@ -697,6 +705,10 @@ class EventLoopManager : public NonCopyable {
 
   //! The HostMessageHubManager handling communication with host message hubs.
   HostMessageHubManager *mHostMessageHubManager = nullptr;
+
+  //! A global mutex used to synchronize concurrent CHRE API calls across
+  //! potentially multiple threads, or no-op if multi-threading is not enabled.
+  MultiThreadingApiMutex mGlobalApiMutex;
 };
 
 //! Provide an alias to the EventLoopManager singleton.
@@ -711,6 +723,19 @@ inline SensorRequestManager &getSensorRequestManager() {
   return EventLoopManagerSingleton::get()->getSensorRequestManager();
 }
 #endif  // CHRE_SENSORS_SUPPORT_ENABLED
+
+/**
+ * A convenience class to acquire and release the global API mutex.
+ * This is useful for synchronizing access to CHRE resources when multiple
+ * threads might be calling CHRE APIs.
+ * The lock is acquired upon construction and released upon destruction.
+ */
+class GlobalApiLockGuard : public LockGuard<MultiThreadingApiMutex> {
+ public:
+  GlobalApiLockGuard()
+      : LockGuard<MultiThreadingApiMutex>(
+            *EventLoopManagerSingleton::get()->getGlobalApiMutex()) {}
+};
 
 }  // namespace chre
 

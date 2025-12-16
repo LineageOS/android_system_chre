@@ -19,6 +19,8 @@
 #include "chre/core/sensor_request_manager.h"
 
 #include "chre/core/event_loop_manager.h"
+#include "chre/core/multi_threading_api_mutex.h"
+#include "chre/platform/context.h"
 #include "chre/util/macros.h"
 #include "chre/util/nested_data_ptr.h"
 #include "chre/util/system/debug_dump.h"
@@ -86,6 +88,12 @@ void sensorDataEventFree(uint16_t eventType, void *eventData) {
       .releaseSensorDataEvent(eventType, eventData);
 }
 
+void sensorOneShotDataEventFree(uint16_t eventType, void *eventData) {
+  EventLoopManagerSingleton::get()
+      ->getSensorRequestManager()
+      .releaseOneShotSensorDataEvent(eventType, eventData);
+}
+
 /**
  * Posts a CHRE_EVENT_SENSOR_SAMPLING_CHANGE event to the specified Nanoapp.
  *
@@ -140,6 +148,17 @@ void SensorRequestManager::init() {
   mPlatformSensorManager.init();
 
   mSensors = mPlatformSensorManager.getSensors();
+
+  // Reserve space for mPendingOneShotSensorEvents to reduce fragmentation.
+  size_t oneShotSensorCount = 0;
+  for (const auto &sensor : mSensors) {
+    if (sensor.isOneShot()) {
+      oneShotSensorCount++;
+    }
+  }
+  if (oneShotSensorCount > 0) {
+    mPendingOneShotSensorEvents.reserve(oneShotSensorCount);
+  }
 }
 
 bool SensorRequestManager::getSensorHandle(uint8_t sensorType,
@@ -186,6 +205,7 @@ bool SensorRequestManager::setSensorRequest(
       size_t requestIndex;
       uint8_t sensorType = sensor.getSensorType();
       uint16_t eventType = getSampleEventTypeForSensorType(sensorType);
+
       bool nanoappHasRequest =
           sensor.getRequestMultiplexer().findRequest(nanoapp->getInstanceId(),
                                                      &requestIndex) != nullptr;
@@ -302,18 +322,6 @@ bool SensorRequestManager::removeAllRequests(uint32_t sensorHandle) {
     LOG_INVALID_HANDLE(sensorHandle);
   } else {
     Sensor &sensor = mSensors[sensorHandle];
-    uint8_t sensorType = sensor.getSensorType();
-    uint16_t eventType = getSampleEventTypeForSensorType(sensorType);
-    for (const SensorRequest &request : sensor.getRequests()) {
-      Nanoapp *nanoapp = EventLoopManagerSingleton::get()
-                             ->getEventLoop()
-                             .findNanoappByInstanceId(request.getInstanceId());
-      if (nanoapp != nullptr) {
-        nanoapp->unregisterForBroadcastEvent(eventType,
-                                             sensor.getTargetGroupMask());
-      }
-    }
-
     cancelFlushRequests(sensorHandle);
     success = removeAllRequests(sensor);
   }
@@ -364,6 +372,7 @@ bool SensorRequestManager::configureBiasEvents(Nanoapp *nanoapp,
   } else if (mSensors[sensorHandle].getBiasEventType(&eventType)) {
     Sensor &sensor = mSensors[sensorHandle];
     size_t requestIndex;
+
     bool nanoappHasRequest =
         sensor.getRequestMultiplexer().findRequest(nanoapp->getInstanceId(),
                                                    &requestIndex) != nullptr;
@@ -438,16 +447,30 @@ bool SensorRequestManager::flushAsync(Nanoapp *nanoapp, uint32_t sensorHandle,
   return success;
 }
 
-void SensorRequestManager::releaseSensorDataEvent(uint16_t eventType,
+void SensorRequestManager::releaseSensorDataEvent(uint16_t /* eventType */,
                                                   void *eventData) {
-  // Remove all requests if it's a one-shot sensor and only after data has been
-  // delivered to all clients.
   mPlatformSensorManager.releaseSensorDataEvent(eventData);
-  uint8_t sensorType = getSensorTypeForSampleEventType(eventType);
-  uint32_t sensorHandle;
-  if (getDefaultSensorHandle(sensorType, &sensorHandle) &&
-      mSensors[sensorHandle].isOneShot()) {
-    removeAllRequests(sensorHandle);
+}
+
+void SensorRequestManager::releaseOneShotSensorDataEvent(uint16_t eventType,
+                                                         void *eventData) {
+  // Release the one-shot sensor data event when it has been delivered to
+  // all clients.
+  for (size_t i = 0; i < mPendingOneShotSensorEvents.size(); i++) {
+    auto &eventRef = mPendingOneShotSensorEvents[i];
+    if (eventRef.eventData == eventData) {
+      EventLoop *eventLoop = getCurrentEventLoop();
+      CHRE_ASSERT(eventLoop != nullptr);
+      const Event *event = eventLoop->getCurrentFreeingEvent();
+      CHRE_ASSERT(event != nullptr);
+      eventLoop->unregisterEventForNanoapp(event->targetInstanceId, eventType,
+                                           event->targetAppGroupMask);
+      if (eventRef.refCount-- == 1) {
+        mPlatformSensorManager.releaseSensorDataEvent(eventData);
+        mPendingOneShotSensorEvents.erase(i);
+        break;
+      }
+    }
   }
 }
 
@@ -498,6 +521,21 @@ void SensorRequestManager::handleSensorDataEvent(uint32_t sensorHandle,
       EventLoopManagerSingleton::get()->postLowPriorityEventOrFree(
           eventType, event, sensorDataEventFree, kSystemInstanceId,
           kBroadcastInstanceId, sensor.getTargetGroupMask());
+    } else if (sensor.isOneShot()) {
+      LockGuard<MultiThreadingApiMutex> lock(
+          *EventLoopManagerSingleton::get()->getGlobalApiMutex());
+      const DynamicVector<SensorRequest> &requests =
+          EventLoopManagerSingleton::get()
+              ->getSensorRequestManager()
+              .getRequests(sensorHandle);
+      mPendingOneShotSensorEvents.emplace_back(
+          event, static_cast<uint32_t>(requests.size()));
+      for (const auto &req : requests) {
+        EventLoopManagerSingleton::get()->postEventOrDie(
+            eventType, event, sensorOneShotDataEventFree, req.getInstanceId(),
+            sensor.getTargetGroupMask());
+      }
+      removeAllRequests(sensorHandle);
     } else {
       EventLoopManagerSingleton::get()->postEventOrDie(
           eventType, event, sensorDataEventFree, kBroadcastInstanceId,
