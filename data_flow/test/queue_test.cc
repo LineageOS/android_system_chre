@@ -469,17 +469,6 @@ TEST_F(QueueTest, ConsumerManagerPruneConsumersSuccess) {
   EXPECT_EQ(consumerCount, 0);
 }
 
-TEST_F(QueueTest, ConsumerManagerPruneConsumersFailureNotRemote) {
-  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
-      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
-  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
-  auto consumerManager = mProducer->getConsumerManager();
-
-  EXPECT_EQ(consumerManager.pruneConsumers(
-                [&](pw::ConstByteSpan /*id*/) { return false; }),
-            pw::Status::FailedPrecondition());
-}
-
 TEST_F(QueueTest, ConsumerManagerPruneConsumersSuccessMultiple) {
   std::vector<std::pair<RemoteNotifyFn, ConsumerPolicyBuilder>> consumerArgs;
   for (int i = 0; i < 3; ++i) {
@@ -625,6 +614,68 @@ TEST_F(QueueTest, PushBlockedOverwritableConsumer) {
   EXPECT_EQ(mConsumers[0].size().status(), pw::Status::DataLoss());
   // Check that the consumer catches up to the queue capacity / 2.
   EXPECT_RESULT_EQ(mConsumers[0].size(), mProducer->capacity() / 2);
+  EXPECT_EQ(mProducer->size(), mProducer->capacity() / 2);
+}
+
+TEST_F(QueueTest, PushBlockedNonOverwritableConsumerDelayedInit) {
+  initLocalProducer(kEmptyLocalNotifyArgs);
+
+  std::array<std::byte, 16> id = {std::byte(1)};
+  auto descOffsetResult = mProducer->getConsumerManager().addConsumer(
+      id, ConsumerPolicyBuilder().setNonOverwritable());
+  ASSERT_EQ(descOffsetResult.status(), pw::OkStatus());
+
+  // Fill the queue to the point of blocking the producer. Pushing a single
+  // element after should fail.
+  std::vector<int> data(mProducer->capacity());
+  for (int i = 0; i < data.size(); ++i) {
+    data[i] = i;
+  }
+  auto res = mProducer->push(data);
+  EXPECT_EQ(res.status(), pw::OkStatus());
+  EXPECT_EQ(res.value(), data.size());
+  EXPECT_EQ(mProducer->size(), mProducer->capacity());
+  EXPECT_EQ(mProducer->push(1), pw::Status::Unavailable());
+
+  // Initialize the consumer which should then be able to read all of the data.
+  auto consumer = Consumer<int>::createLocal({.base = base(), .size = size()},
+                                             queueOffset(), *descOffsetResult,
+                                             kEmptyLocalNotifyArgs);
+  ASSERT_EQ(consumer.status(), pw::OkStatus());
+  EXPECT_RESULT_EQ(consumer->size(), mProducer->capacity());
+  std::vector<int> output(data.size());
+  EXPECT_EQ(consumer->pop(output), pw::OkStatus());
+  EXPECT_EQ(output, data);
+  EXPECT_EQ(mProducer->size(), 0);
+}
+
+TEST_F(QueueTest, PushBlockedOverwritableConsumerDelayedInit) {
+  initLocalProducer(kEmptyLocalNotifyArgs);
+
+  std::array<std::byte, 16> id = {std::byte(1)};
+  auto descOffsetResult = mProducer->getConsumerManager().addConsumer(
+      id, ConsumerPolicyBuilder().setOverwritable());
+  ASSERT_EQ(descOffsetResult.status(), pw::OkStatus());
+
+  // Fill the queue to the point of overwriting the consumer. Pushing a single
+  // element should succeed, overwriting the consumer. Since the consumer is
+  // overwritten, it is ignored for calculation of the queue size.
+  std::vector<int> data(mProducer->capacity());
+  auto res = mProducer->push(data);
+  EXPECT_EQ(res.status(), pw::OkStatus());
+  EXPECT_EQ(res.value(), data.size());
+  EXPECT_EQ(mProducer->size(), mProducer->capacity());
+  EXPECT_EQ(mProducer->push(1), pw::OkStatus());
+  EXPECT_EQ(mProducer->size(), 0);
+
+  auto consumer = Consumer<int>::createLocal({.base = base(), .size = size()},
+                                             queueOffset(), *descOffsetResult,
+                                             kEmptyLocalNotifyArgs);
+  // The DataLoss is handled on initialization, so createLocal() returns OK.
+  ASSERT_EQ(consumer.status(), pw::OkStatus());
+
+  // Check that the consumer catches up to the queue capacity / 2.
+  EXPECT_RESULT_EQ(consumer->size(), mProducer->capacity() / 2);
   EXPECT_EQ(mProducer->size(), mProducer->capacity() / 2);
 }
 
@@ -925,12 +976,15 @@ TEST_F(QueueTest, ConsumerResyncSuccess) {
   EXPECT_RESULT_EQ(mConsumers[0].size(), data.size() / 2);
 }
 
-TEST_F(QueueTest, ConsumerResyncFailsOffsetTooLarge) {
+TEST_F(QueueTest, ConsumerResyncDoesNothingIfOffsetTooLarge) {
   std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
       {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
   initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
 
-  EXPECT_EQ(mConsumers[0].resync(1), pw::Status::OutOfRange());
+  ASSERT_EQ(mProducer->push(1), pw::OkStatus());
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 1);
+  EXPECT_EQ(mConsumers[0].resync(2), pw::OkStatus());
+  EXPECT_RESULT_EQ(mConsumers[0].size(), 1);
 }
 
 TEST_F(QueueTest, ProducerStop) {

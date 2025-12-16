@@ -14,7 +14,11 @@
  * limitations under the License.
  */
 
+#define PW_LOG_MODULE_NAME "DATA_FLOW.Queue"
+
 #include "data_flow/queue.h"
+
+#include <inttypes.h>
 
 #include <algorithm>
 #include <cstddef>
@@ -29,6 +33,7 @@
 #include "pw_assert/assert.h"
 #include "pw_bytes/span.h"
 #include "pw_function/function.h"
+#include "pw_log/log.h"
 #include "pw_result/result.h"
 #include "pw_span/span.h"
 #include "pw_status/status.h"
@@ -109,6 +114,7 @@ pw::Result<BlockHeader *> allocateBlockRing(const AllocatorRegion &region,
                                             uint32_t blockCapacity,
                                             size_t count, bool variableData) {
   if (count == 0) {
+    PW_LOG_ERROR("allocateBlockRing: requested 0 blocks.");
     return pw::Status::InvalidArgument();
   }
   BlockHeader *head = nullptr, *prev = nullptr;
@@ -124,6 +130,7 @@ pw::Result<BlockHeader *> allocateBlockRing(const AllocatorRegion &region,
       prev = block;
     } else {
       deallocateBlockRing(region, layout, head);
+      PW_LOG_ERROR("allocateBlockRing: Failed to allocate.");
       return pw::Status::ResourceExhausted();
     }
   }
@@ -344,6 +351,7 @@ pw::Status ProducerBase::initialize(const AllocatorRegion &region,
                                     IdOrNotifyFn idOrNotifyFn) {
   if (region.size > UINT32_MAX || !region.allocator ||
       maxBlockCount < minBlockCount) {
+    PW_LOG_ERROR("ProducerBase::initialize: Invalid arguments");
     return pw::Status::InvalidArgument();
   }
   bool variableData = queue->config.mode != DataConfigMode::kFixedSize;
@@ -427,6 +435,7 @@ pw::Status ProducerBase::setMinBlockCountTarget(size_t /*count*/) {
 }
 
 pw::Result<pw::ByteSpan> ProducerBase::reserve(size_t count) {
+  PW_TRY(checkActive());
   PW_TRY_ASSIGN(uint32_t size, checkAvailable(count, /*allOrNothing=*/true));
   // Return a span over the next available contiguous region.
   auto *begin = blockData(mCurrBlock, kDataOffset) + mCurrBlockIndex;
@@ -440,10 +449,14 @@ pw::Result<pw::ByteSpan> ProducerBase::reserve(size_t count) {
 }
 
 pw::Status ProducerBase::truncate(size_t size) {
+  PW_TRY(checkActive());
   // Check and update the size of the reservation.
   if (mReserved == 0) {
+    PW_LOG_ERROR("ProducerBase::truncate: No reservation to truncate");
     return pw::Status::FailedPrecondition();
   } else if (size > mReserved) {
+    PW_LOG_ERROR("ProducerBase::truncate: Size %zu exceeds reservation %zu",
+                 size, mReserved);
     return pw::Status::OutOfRange();
   } else if (size == mReserved) {
     return pw::OkStatus();
@@ -462,10 +475,10 @@ pw::Status ProducerBase::truncate(size_t size) {
 }
 
 pw::Status ProducerBase::commit(size_t count) {
-  if (mState != State::kActive) {
-    return pw::Status::FailedPrecondition();
-  }
+  PW_TRY(checkActive());
   if (count > mReserved) {
+    PW_LOG_ERROR("ProducerBase::commit: Count %zu exceeds reservation %zu",
+                 count, mReserved);
     return pw::Status::OutOfRange();
   }
   mReserved -= count;
@@ -476,10 +489,9 @@ pw::Status ProducerBase::commit(size_t count) {
 
 pw::Result<size_t> ProducerBase::push(pw::ConstByteSpan data,
                                       bool allOrNothing) {
-  if (mState != State::kActive) {
-    return pw::Status::FailedPrecondition();
-  }
+  PW_TRY(checkActive());
   if (mReserved > 0) {  // push() is not allowed while a reservation is active.
+    PW_LOG_ERROR("ProducerBase::push: Active reservation");
     return pw::Status::FailedPrecondition();
   }
   PW_TRY_ASSIGN(auto count, checkAvailable(data.size(), allOrNothing));
@@ -502,11 +514,10 @@ size_t ProducerBase::size(bool includeReserved) {
 
 pw::Result<size_t> ProducerBase::checkAvailable(size_t count,
                                                 bool allOrNothing) {
-  if (mState != State::kActive) {
-    return pw::Status::FailedPrecondition();
-  }
   // TODO(b/448384247): This should check against the maximum capacity.
   if (count > capacity()) {
+    PW_LOG_ERROR("ProducerBase::checkAvailable: Count %zu exceeds capacity %zu",
+                 count, capacity());
     return pw::Status::OutOfRange();
   }
   if (count > mAvailable) {
@@ -601,11 +612,13 @@ void ProducerBase::updateWriteIndex(BlockHeader *tailBlock, uint32_t writeIndex,
 void ProducerBase::updateAvailable(uint32_t increment) {
   auto tail = mDesc->writeIndex.load() + mReserved;
   mAvailable = capacity() - mReserved;  // Reset available counts.
-  // Consumers that have been overwritten, are not yet initialized, or would
-  // otherwise need to sync back to the producer position should not block
-  // writes to the queue. Add them to the exclude mask.
-  // NOTE: This effectively means all ProducerFlags states except kBlocking.
-  auto excludeMask = ~(static_cast<uint16_t>(ProducerFlags::kBlocking));
+  // Consumers that have been overwritten or would otherwise need to sync back
+  // to the producer position should not block writes to the queue, as well as
+  // consumers that are no longer in a valid state. Add them to the exclude
+  // mask. This effectively means all ProducerFlags states except kBlocking and
+  // kPendingInit.
+  auto excludeMask = ~(static_cast<uint16_t>(ProducerFlags::kBlocking) |
+                       static_cast<uint16_t>(ProducerFlags::kPendingInit));
   forAllConsumers(
       excludeMask,
       [this](internal::ConsumerNode &node, uint32_t producerFlags,
@@ -654,12 +667,11 @@ void ProducerBase::notifyConsumer(ConsumerDesc &desc) {
 pw::Result<uint32_t> ProducerBase::addConsumer(pw::ConstByteSpan id,
                                                const AllocatorRegion &region,
                                                ConsumerPolicy policy) {
-  if (mState != State::kActive) {
-    return pw::Status::FailedPrecondition();
-  }
+  PW_TRY(checkActive());
   // Attempt to allocate a ConsumerDesc in the given region.
   auto *desc = region.allocator->New<internal::ConsumerDesc>();
   if (!desc) {
+    PW_LOG_ERROR("ProducerBase::addConsumer: Failed to allocate ConsumerDesc");
     return pw::Status::ResourceExhausted();
   }
   // Attempt to allocate a ConsumerNode to track the descriptor from the queue's
@@ -668,6 +680,7 @@ pw::Result<uint32_t> ProducerBase::addConsumer(pw::ConstByteSpan id,
       mRegion.allocator->New<internal::ConsumerNode>(id, region, desc, policy);
   if (!node) {
     region.allocator->Deallocate(desc);
+    PW_LOG_ERROR("ProducerBase::addConsumer: Failed to allocate ConsumerNode");
     return pw::Status::ResourceExhausted();
   }
   PW_TRY(checkPolicy(policy));
@@ -682,6 +695,11 @@ pw::Result<uint32_t> ProducerBase::addConsumer(pw::ConstByteSpan id,
   desc->producerFlags.store(
       static_cast<uint32_t>(internal::ProducerFlags::kPendingInit) |
       internal::kFlagCountInc);
+  // Sync the consumer to the producer.
+  desc->indexCorrection = mDesc->indexCorrection;
+  desc->readIndex.store(mDesc->writeIndex.load());
+  desc->initHeadBlockOffset = mDesc->tailBlockOffset;
+  desc->initBlockListEpoch = mQueue->blockListEpoch.load();
   // Link the node to the list of consumers.
   mQueue->consumerList.push_back(*node);
   // Return the offset of the descriptor in the region it was allocated from.
@@ -701,12 +719,14 @@ pw::Status ProducerBase::updateConsumerPolicy(pw::ConstByteSpan id,
     }
     ++node;
   }
+  PW_LOG_ERROR("ProducerBase::updateConsumerPolicy: Consumer not found");
   return pw::Status::NotFound();
 }
 
 pw::Status ProducerBase::pruneConsumers(
     const pw::Function<bool(pw::ConstByteSpan id)> &match) {
-  if (mState == State::kMovedFrom || !mRemoteNotifyFn) {
+  if (mState == State::kMovedFrom) {
+    PW_LOG_ERROR("ProducerBase::pruneConsumers: Moved-from instance");
     return pw::Status::FailedPrecondition();
   }
   for (auto node = mQueue->consumerList.begin();
@@ -725,6 +745,7 @@ pw::Status ProducerBase::pruneConsumers(
 
 size_t ProducerBase::getNumConsumers() {
   if (mState == State::kMovedFrom) {
+    PW_LOG_ERROR("ProducerBase::getNumConsumers: Moved-from instance");
     return 0;
   }
   size_t count = 0;
@@ -776,8 +797,19 @@ pw::Status ProducerBase::checkPolicy(ConsumerPolicy policy) {
       threshold *= mQueue->config.fixedSize.elementSize;
     }
     if (threshold > capacity()) {
+      PW_LOG_ERROR("ProducerBase::checkPolicy: watermark of %" PRIu64
+                   " bytes exceeds capacity of %zu bytes",
+                   threshold, capacity());
       return pw::Status::InvalidArgument();
     }
+  }
+  return pw::OkStatus();
+}
+
+pw::Status ProducerBase::checkActive() const {
+  if (mState != State::kActive) {
+    PW_LOG_ERROR("ProducerBase: API call on inactive producer");
+    return pw::Status::FailedPrecondition();
   }
   return pw::OkStatus();
 }
@@ -789,6 +821,7 @@ pw::Result<std::pair<Queue *, ConsumerDesc *>> ConsumerBase::checkArgs(
   auto *desc = descRegion ? fromOffset<ConsumerDesc>(*descRegion, descOffset)
                           : fromOffset<ConsumerDesc>(region, descOffset);
   if (!queue || !desc) {
+    PW_LOG_ERROR("ConsumerBase::checkArgs: Invalid queue or desc offset");
     return pw::Status::InvalidArgument();
   }
   return std::make_pair(queue, desc);
@@ -812,19 +845,37 @@ ConsumerBase::ConsumerBase(const Region &region, Queue &queue,
 pw::Status ConsumerBase::initialize(
     IdOrNotifyFn idOrNotifyFn, std::optional<size_t> overwriteResetOffset) {
   if (!mRemoteNotifyFn != mQueue->localNotify) {
+    PW_LOG_ERROR(
+        "ConsumerBase::initialize: Got local notify function for remote queue "
+        "or vice versa");
     return pw::Status::FailedPrecondition();
   }
   auto consumerFlags = mDesc->consumerFlags.load();
   mCurrentFlags = mDesc->producerFlags.load();
-  if (getAndCheckProducerFlags(mCurrentFlags, consumerFlags) !=
-      ProducerFlags::kPendingInit) {
-    return pw::Status::FailedPrecondition();
+  auto flagValue = getAndCheckProducerFlags(mCurrentFlags, consumerFlags);
+  if (!(flagValue == ProducerFlags::kPendingInit ||
+        flagValue == ProducerFlags::kOverwrite ||
+        flagValue == ProducerFlags::kBlocking)) {
+    PW_LOG_ERROR("ConsumerBase::initialize: descriptor state not one of "
+                 "{kPendingInit, kOverwrite, kBlocking}");
+    return flagValue == ProducerFlags::kFinished ||
+                   flagValue == ProducerFlags::kDisconnected
+               ? pw::Status::Aborted()
+               : pw::Status::FailedPrecondition();
   }
   mDesc->idOrNotifyFn = idOrNotifyFn;
-  PW_TRY(syncToProducer());
+  // mBlockListEpoch must be set before capacity() is called when setting a
+  // default mOverwriteResetOffset. This is subsequently used if the consumer
+  // has already been overwritten.
+  mBlockListEpoch = mDesc->initBlockListEpoch;
   mOverwriteResetOffset = overwriteResetOffset.value_or(capacity() / 2);
+  mHeadBlock = fromOffset<BlockHeader>(mRegion, mDesc->initHeadBlockOffset,
+                                       kBlockLayout);
+  if (flagValue == ProducerFlags::kOverwrite) {
+    PW_TRY(handleOverwrite());
+  }
   clearFlags();
-  return pw::OkStatus();
+  return checkState();
 }
 
 ConsumerBase::~ConsumerBase() {
@@ -840,7 +891,8 @@ void ConsumerBase::disable() {
 
 pw::Status ConsumerBase::checkState() {
   if (!mActive) {
-    return pw::Status::NotFound();
+    PW_LOG_ERROR("ConsumerBase::checkState: instance is disabled");
+    return pw::Status::FailedPrecondition();
   }
   mCurrentFlags = mDesc->producerFlags.load();
   auto consumerFlags = mDesc->consumerFlags.load();
@@ -857,8 +909,10 @@ pw::Status ConsumerBase::checkState() {
       [[fallthrough]];
     case ProducerFlags::kDisconnected:
       mActive = false;
+      PW_LOG_ERROR("ConsumerBase::checkState: producer gone or disconnected");
       return pw::Status::Aborted();
     case ProducerFlags::kOverwrite: {
+      PW_LOG_INFO("ConsumerBase::checkState: read position overwritten");
       PW_TRY(handleOverwrite());
       clearFlags();
       return pw::Status::DataLoss();
@@ -873,12 +927,15 @@ pw::Status ConsumerBase::checkState() {
       mBlockListEpoch = mQueue->blockListEpoch.load();
       return pw::OkStatus();
     default:  // Unexpected flag value. Clear it.
+      PW_LOG_WARN("ConsumerBase::checkState: unexpected flag value %" PRIu16,
+                  flagValue);
       clearFlags();
       return pw::OkStatus();
   }
 }
 
 pw::Result<pw::ConstByteSpan> ConsumerBase::peek(size_t count) {
+  PW_TRY(checkState());
   PW_TRY(checkAvailable(count));
   if (!mPeeked) {
     mCurrBlock = mHeadBlock;
@@ -900,7 +957,6 @@ pw::Result<pw::ConstByteSpan> ConsumerBase::peek(size_t count) {
 }
 
 pw::Status ConsumerBase::releaseNoNotify(size_t count) {
-  PW_TRY(checkState());
   // It is valid to peek more than the available count. If so, clear mPeeked
   // and update mAvailable.
   if (count > mPeeked) {
@@ -922,6 +978,7 @@ pw::Status ConsumerBase::releaseNoNotify(size_t count) {
 
 pw::Status ConsumerBase::popNoNotify(pw::ByteSpan data) {
   if (mPeeked) {  // pop() is not allowed when there is un-release()d data.
+    PW_LOG_ERROR("ConsumerBase::pop: Can't pop with unreleased data");
     return pw::Status::FailedPrecondition();
   }
   PW_TRY(checkAvailable(data.size()));
@@ -932,13 +989,17 @@ pw::Status ConsumerBase::popNoNotify(pw::ByteSpan data) {
 pw::Status ConsumerBase::resync(size_t offset) {
   PW_TRY(checkState());
   PW_TRY(updateAvailable());
-  if (offset > mAvailable) {
-    return pw::Status::OutOfRange();
-  }
-  advanceReadIndex(mAvailable - offset, /*buf=*/std::nullopt);
-  maybeNotifyOnRead();
-  mAvailable -= offset;
   mPeeked = 0;  // Reset the current block/index to the new head.
+  if (offset > mAvailable) {
+    PW_LOG_WARN(
+        "ConsumerBase::resync: offset %zu exceeds available data %zu. Leaving "
+        "read index unmodified",
+        offset, mAvailable);
+  } else if (offset < mAvailable) {
+    advanceReadIndex(mAvailable - offset, /*buf=*/std::nullopt);
+    maybeNotifyOnRead();
+    mAvailable -= offset;
+  }
   return pw::OkStatus();
 }
 
@@ -954,6 +1015,9 @@ pw::Status ConsumerBase::checkAvailable(size_t count) {
     // If the epoch has changed, check against the updated capacity.
     mBlockListEpoch = mQueue->blockListEpoch.load();
     if (count > capacity()) {
+      PW_LOG_ERROR(
+          "ConsumerBase::checkAvailable: count %zu exceeds capacity %zu", count,
+          capacity());
       return pw::Status::OutOfRange();
     }
   }
@@ -1065,6 +1129,7 @@ pw::Result<ProducerDesc *> ConsumerBase::getProducerDesc() {
       fromOffset<ProducerDesc>(mRegion, mQueue->producerOffset.load());
   if (!producerDesc) {
     disableAndNotify();
+    PW_LOG_ERROR("ConsumerBase::getProducerDesc: Producer gone");
     return pw::Status::Aborted();
   }
   return producerDesc;
@@ -1168,13 +1233,21 @@ pw::Result<VariableDataProducer> VariableDataProducer::createLocal(
     size_t minBlockCount, DataNotifier &dataNotifier,
     LocalNotifyArgs notifyArgs, MemoryAccess *memAccess) {
   if (!notifyArgs.fn || !queue) {
+    PW_LOG_ERROR(
+        "VariableDataProducer::createLocal: Invalid notifyArgs or queue");
     return pw::Status::InvalidArgument();
   }
   auto queuePtr = static_cast<internal::QueuePrivate *>(queue);
-  if (queuePtr->config.mode == DataConfigMode::kFixedSize ||
-      !queuePtr->localNotify) {
+  if (queuePtr->config.mode == DataConfigMode::kFixedSize) {
+    PW_LOG_ERROR("VariableDataProducer::createLocal: Fixed size queue");
+    return pw::Status::FailedPrecondition();
+  } else if (!queuePtr->localNotify) {
+    PW_LOG_ERROR("VariableDataProducer::createLocal: Queue is not local");
     return pw::Status::FailedPrecondition();
   } else if (queuePtr->config.mode == DataConfigMode::kVariableSizeAligned) {
+    PW_LOG_ERROR(
+        "VariableDataProducer::createLocal: Aligned variable-size data not "
+        "supported");
     return pw::Status::Unimplemented();
   }
   auto blockLayout = internal::variableDataBlockLayout(queuePtr->blockCapacity);
@@ -1190,13 +1263,21 @@ pw::Result<VariableDataProducer> VariableDataProducer::createRemote(
     size_t minBlockCount, DataNotifier &dataNotifier,
     RemoteNotifyArgs notifyArgs, MemoryAccess *memAccess) {
   if (!notifyArgs.fn || !queue) {
+    PW_LOG_ERROR(
+        "VariableDataProducer::createRemote: Invalid notifyArgs or queue");
     return pw::Status::InvalidArgument();
   }
   auto queuePtr = static_cast<internal::QueuePrivate *>(queue);
-  if (queuePtr->config.mode == DataConfigMode::kFixedSize ||
-      queuePtr->localNotify) {
+  if (queuePtr->config.mode == DataConfigMode::kFixedSize) {
+    PW_LOG_ERROR("VariableDataProducer::createRemote: Fixed size queue");
+    return pw::Status::FailedPrecondition();
+  } else if (queuePtr->localNotify) {
+    PW_LOG_ERROR("VariableDataProducer::createRemote: Queue is local");
     return pw::Status::FailedPrecondition();
   } else if (queuePtr->config.mode == DataConfigMode::kVariableSizeAligned) {
+    PW_LOG_ERROR(
+        "VariableDataProducer::createRemote: Aligned variable-size data not "
+        "supported");
     return pw::Status::Unimplemented();
   }
   auto blockLayout = internal::variableDataBlockLayout(queuePtr->blockCapacity);
@@ -1247,6 +1328,7 @@ pw::Status VariableDataProducer::truncate(size_t size) {
 
 pw::Status VariableDataProducer::commit() {
   if (!mCurrentHdrPtr) {
+    PW_LOG_ERROR("VariableDataProducer::commit: No active reservation");
     return pw::Status::FailedPrecondition();
   }
   mCurrentHdrPtr = nullptr;
@@ -1263,6 +1345,8 @@ pw::Status VariableDataProducer::commit() {
 
 pw::Status VariableDataProducer::push(pw::ConstByteSpan element) {
   if (mReserved) {
+    PW_LOG_ERROR(
+        "VariableDataProducer::push: Can't push with active reservation");
     return pw::Status::FailedPrecondition();
   }
   // Calculate the total size of the element and header, rounding up to align
@@ -1307,14 +1391,19 @@ pw::Result<VariableDataConsumer> VariableDataConsumer::createLocal(
     LocalNotifyArgs notifyArgs, MemoryAccess *memAccess,
     std::optional<size_t> overwriteResetOffset) {
   if (!notifyArgs.fn) {
+    PW_LOG_ERROR("Received null notify function");
     return pw::Status::InvalidArgument();
   }
   PW_TRY_ASSIGN(auto queueAndDesc, checkArgs(region, /*descRegion=*/nullptr,
                                              queueOffset, descOffset));
   if (queueAndDesc.first->config.mode == DataConfigMode::kFixedSize) {
+    PW_LOG_ERROR("VariableDataConsumer::createLocal: Fixed size queue");
     return pw::Status::FailedPrecondition();
   } else if (queueAndDesc.first->config.mode ==
              DataConfigMode::kVariableSizeAligned) {
+    PW_LOG_ERROR(
+        "VariableDataConsumer::createLocal: Aligned variable-size data not "
+        "supported");
     return pw::Status::Unimplemented();
   }
   VariableDataConsumer consumer(region, *queueAndDesc.first,
@@ -1330,15 +1419,20 @@ pw::Result<VariableDataConsumer> VariableDataConsumer::createRemote(
     uint32_t descOffset, RemoteNotifyArgs notifyArgs, MemoryAccess *memAccess,
     std::optional<size_t> overwriteResetOffset) {
   if (!notifyArgs.fn) {
+    PW_LOG_ERROR("Received null notify function");
     return pw::Status::InvalidArgument();
   }
   auto *descRegionPtr = descRegion ? &*descRegion : nullptr;
   PW_TRY_ASSIGN(auto queueAndDesc,
                 checkArgs(region, descRegionPtr, queueOffset, descOffset));
   if (queueAndDesc.first->config.mode == DataConfigMode::kFixedSize) {
+    PW_LOG_ERROR("VariableDataConsumer::createRemote: Fixed size queue");
     return pw::Status::FailedPrecondition();
   } else if (queueAndDesc.first->config.mode ==
              DataConfigMode::kVariableSizeAligned) {
+    PW_LOG_ERROR(
+        "VariableDataConsumer::createRemote: Aligned variable-size data not "
+        "supported");
     return pw::Status::Unimplemented();
   }
   VariableDataConsumer consumer(region, *queueAndDesc.first,
@@ -1409,14 +1503,18 @@ pw::Status VariableDataConsumer::resync(size_t offset) {
   mCurrentHdr.reset();
   PW_TRY(checkState());
   PW_TRY(updateAvailable());
+  mCurrentHdr.reset();
   if (offset > mAvailable) {
-    return pw::Status::OutOfRange();
+    PW_LOG_WARN(
+        "VariableDataConsumer::resync: offset %zu exceeds available data %zu. "
+        "Leaving read index unmodified",
+        offset, mAvailable);
   }
   // Fast-forward through elements until the offset is reached.
   while (mAvailable > offset) {
     PW_TRY(releaseNoNotify());
+    maybeNotifyOnRead();
   }
-  maybeNotifyOnRead();
   return pw::OkStatus();
 }
 
@@ -1453,6 +1551,9 @@ pw::Status initQueue(void *queue, size_t capacity, size_t elementSize,
   queueRef.producerOffset = internal::kOffsetInvalid;
   if (elementSize) {
     if (capacity % elementSize != 0) {
+      PW_LOG_ERROR(
+          "initQueue: capacity %zu is not a multiple of element size %zu",
+          capacity, elementSize);
       return pw::Status::InvalidArgument();
     }
     queueRef.blockCapacity = capacity;
@@ -1475,6 +1576,7 @@ pw::Result<void *> createVariableDataQueue(pw::Allocator &allocator,
                      /*elementAlignment=*/0, local));
     return queue;
   }
+  PW_LOG_ERROR("createVariableDataQueue: Failed to allocate metadata");
   return pw::Status::ResourceExhausted();
 }
 
@@ -1486,6 +1588,7 @@ pw::Result<void *> createQueueUntyped(pw::Allocator &allocator,
                      elementAlignment, local));
     return queue;
   }
+  PW_LOG_ERROR("createQueueUntyped: Failed to allocate metadata");
   return pw::Status::ResourceExhausted();
 }
 
@@ -1494,12 +1597,18 @@ pw::Result<UntypedProducer> UntypedProducer::createLocal(
     size_t minBlockCount, DataNotifier &dataNotifier,
     LocalNotifyArgs notifyArgs, MemoryAccess *memAccess) {
   if (notifyArgs.fn == nullptr || !queue) {
+    PW_LOG_ERROR(
+        "UntypedProducer::createLocal: Received null notify function or "
+        "metadata");
     return pw::Status::InvalidArgument();
   }
   auto queuePtr = static_cast<internal::QueuePrivate *>(queue);
   if (queuePtr->config.mode != DataConfigMode::kFixedSize ||
       queuePtr->blockCapacity % queuePtr->config.fixedSize.elementSize != 0 ||
       !queuePtr->localNotify) {
+    PW_LOG_ERROR(
+        "UntypedProducer::createLocal: Unexpected queue config. Must be fixed "
+        "size, capacity a multiple of element size, and local.");
     return pw::Status::FailedPrecondition();
   }
   auto blockLayout = internal::getBlockLayout(*queuePtr);
@@ -1514,12 +1623,18 @@ pw::Result<UntypedProducer> UntypedProducer::createRemote(
     size_t minBlockCount, DataNotifier &dataNotifier,
     RemoteNotifyArgs notifyArgs, MemoryAccess *memAccess) {
   if (notifyArgs.fn == nullptr || !queue) {
+    PW_LOG_ERROR(
+        "UntypedProducer::createRemote: Received null notify function or "
+        "metadata");
     return pw::Status::InvalidArgument();
   }
   auto queuePtr = static_cast<internal::QueuePrivate *>(queue);
   if (queuePtr->config.mode != DataConfigMode::kFixedSize ||
       queuePtr->blockCapacity % queuePtr->config.fixedSize.elementSize != 0 ||
       queuePtr->localNotify) {
+    PW_LOG_ERROR(
+        "UntypedProducer::createRemote: Unexpected queue config. Must be "
+        "fixed size, capacity a multiple of element size, and remote.");
     return pw::Status::FailedPrecondition();
   }
   auto blockLayout = internal::getBlockLayout(*queuePtr);
@@ -1548,11 +1663,15 @@ pw::Result<UntypedConsumer> UntypedConsumer::createLocal(
     LocalNotifyArgs notifyArgs, MemoryAccess *memAccess,
     std::optional<size_t> overwriteResetOffset) {
   if (!notifyArgs.fn) {
+    PW_LOG_ERROR("UntypedConsumer::createLocal: Received null notify function");
     return pw::Status::InvalidArgument();
   }
   PW_TRY_ASSIGN(auto queueAndDesc, checkArgs(region, /*descRegion=*/nullptr,
                                              queueOffset, descOffset));
   if (queueAndDesc.first->config.mode != DataConfigMode::kFixedSize) {
+    PW_LOG_ERROR(
+        "UntypedConsumer::createLocal: Unexpected queue config. Must be fixed "
+        "size.");
     return pw::Status::FailedPrecondition();
   }
   UntypedConsumer consumer(region, *queueAndDesc.first, *queueAndDesc.second,
@@ -1567,12 +1686,17 @@ pw::Result<UntypedConsumer> UntypedConsumer::createRemote(
     uint32_t descOffset, RemoteNotifyArgs notifyArgs, MemoryAccess *memAccess,
     std::optional<size_t> overwriteResetOffset) {
   if (!notifyArgs.fn) {
+    PW_LOG_ERROR(
+        "UntypedConsumer::createRemote: Received null notify function");
     return pw::Status::InvalidArgument();
   }
   auto *descRegionPtr = descRegion ? &*descRegion : nullptr;
   PW_TRY_ASSIGN(auto queueAndDesc,
                 checkArgs(region, descRegionPtr, queueOffset, descOffset));
   if (queueAndDesc.first->config.mode != DataConfigMode::kFixedSize) {
+    PW_LOG_ERROR(
+        "UntypedConsumer::createRemote: Unexpected queue config. Must be fixed "
+        "size.");
     return pw::Status::FailedPrecondition();
   }
   UntypedConsumer consumer(region, *queueAndDesc.first, *queueAndDesc.second,

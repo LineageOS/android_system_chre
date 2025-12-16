@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#define LOG_TAG "DATA_FLOW.NotificationManager"
+
 #include "data_flow/host/notification_manager.h"
 
 #include <errno.h>

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<configuration description="Config for ChdtsHostTestCases">
+    <option name="test-suite-tag" value="chdts" />
+    <option name="config-descriptor:metadata" key="component" value="location" />
+    <option name="config-descriptor:metadata" key="parameter" value="all_foldable_states" />
+
+    <target_preparer class="com.android.tradefed.targetprep.RootTargetPreparer" >
+    </target_preparer>
+
+    <target_preparer class="com.android.tradefed.targetprep.PushFilePreparer" >
+        <option name="push-file" key="ChdtsTestApp.apk" value="/system/priv-app/ChdtsTestApp.apk" />
+        <option name="push-file" key="chre-priv-permissions.xml" value="/etc/permissions/chre-priv-permissions.xml" />
+        <option name="abort-on-push-failure" value="true" />
+        <option name="cleanup" value="true" />
+        <option name="remount-system" value="true" />
+    </target_preparer>
+    <target_preparer class="com.android.tradefed.targetprep.RebootTargetPreparer" >
+    </target_preparer>
+
+    <target_preparer class="com.android.tradefed.targetprep.RootTargetPreparer" >
+    </target_preparer>
+
+    <!-- Runtime permissions must be granted manually -->
+    <target_preparer class="com.android.tradefed.targetprep.RunCommandTargetPreparer">
+        <option name="run-command" value="pm grant com.android.chre.chdts.app android.permission.ACCESS_FINE_LOCATION" />
+        <option name="run-command" value="pm grant com.android.chre.chdts.app android.permission.ACTIVITY_RECOGNITION" />
+        <option name="run-command" value="pm grant com.android.chre.chdts.app android.permission.BLUETOOTH_CONNECT" />
+        <option name="run-command" value="pm grant com.android.chre.chdts.app android.permission.BLUETOOTH_SCAN" />
+        <option name="run-command" value="pm grant com.android.chre.chdts.app android.permission.RECORD_AUDIO" />
+    </target_preparer>
+
+    <test class="com.android.tradefed.testtype.HostTest" >
+        <option name="jar" value="chdts-tradefed-tests.jar" />
+    </test>
+</configuration>

@@ -140,6 +140,14 @@ struct ConsumerDesc {
   IdOrNotifyFn idOrNotifyFn;
   // { 0-15: ConsumerFlags | 16-31: latest value of producerFlags counter }
   std::atomic<uint32_t> consumerFlags;
+  // The current tail block offset when the producer is adding the consumer. If
+  // the consumer is not overwritten by the time it initialized, it will use
+  // this as its head block.
+  uint32_t initHeadBlockOffset;
+  // The initial block count and list epoch when the producer adds the consumer.
+  // The consumer uses this to attempt to recover data if the producer
+  // overwrites it before it initializes.
+  uint32_t initBlockListEpoch;
   // Set by the producer. Indicates whether this consumer may be overwritten.
   // This field is intended to inform a consumer of the policy. The consumer
   // cannot modify this field to affect producer behavior.
@@ -147,7 +155,7 @@ struct ConsumerDesc {
   // Padding bytes. Reserved for future use.
   uint8_t padding[11];
 } __attribute__((packed));
-static_assert(sizeof(ConsumerDesc) == 48);
+static_assert(sizeof(ConsumerDesc) == 56);
 
 /** Queue metadata in shared memory. */
 struct alignas(8) Queue {
@@ -679,6 +687,9 @@ class ProducerBase {
    */
   pw::Status checkPolicy(ConsumerPolicy policy);
 
+  /** Returns pw::Status::FailedPrecondition() if the producer is not active. */
+  pw::Status checkActive() const;
+
   // Members fixed on construction.
   AllocatorRegion mRegion;
   RemoteNotifyFn mRemoteNotifyFn;
@@ -766,6 +777,7 @@ class ConsumerBase {
    * @return pw::OkStatus() on success. See checkState() for error conditions.
    */
   pw::Status release(size_t count) {
+    PW_TRY(checkState());
     PW_TRY(releaseNoNotify(count));
     maybeNotifyOnRead();
     return pw::OkStatus();
@@ -778,6 +790,7 @@ class ConsumerBase {
    * @return pw::OkStatus() on success. See checkState() for error conditions.
    */
   pw::Status pop(pw::ByteSpan data) {
+    PW_TRY(checkState());
     PW_TRY(popNoNotify(data));
     maybeNotifyOnRead();
     return pw::OkStatus();
@@ -786,9 +799,11 @@ class ConsumerBase {
   /**
    * Syncs the read pointer to the write pointer minus an offset.
    *
+   * Spans for existing peeked data are invalidated.
+   *
    * @param offset The number of recent bytes to preserve. If greater than the
    * current size of the queue, resync() will fail.
-   * @return pw::OkStatus() on success.
+   * @return pw::OkStatus() on success. See checkState() for error conditions.
    */
   pw::Status resync(size_t offset);
 

@@ -14,8 +14,12 @@
  * limitations under the License.
  */
 
+#define LOG_TAG "DATA_FLOW.RegionManager"
+
 #include "data_flow/host/region_manager.h"
 
+#include <errno.h>
+#include <inttypes.h>
 #include <sys/mman.h>
 
 #include <cerrno>
@@ -23,7 +27,7 @@
 #include <cstdint>
 
 #include <aidl/android/hardware/contexthub/IContextHub.h>
-#include <log/log.h>
+#include <utils/Log.h>
 
 #include "data_flow/queue_defs.h"
 #include "pw_result/result.h"
@@ -41,6 +45,7 @@ pw::Result<RegionManager::RegionToMap> convertSharedDataRegion(
     const SharedDataRegion &region) {
   auto fd = region.sharedMemory.dup();
   if (fd.get() < 0) {
+    ALOGE("Failed to dup SharedDataRegion fd with %d", errno);
     return pw::Status::Internal();
   }
   return RegionManager::RegionToMap{
@@ -56,6 +61,8 @@ pw::Result<uintptr_t> mapSharedDataRegion(RegionManager::RegionToMap &&region,
   // Move the region into this scope so that any fds are closed.
   auto tmp = std::move(region);
   if (tmp.size < 0 || tmp.fd.get() < 0) {
+    ALOGE("Invalid shared data region to map: size %zu, fd %d", tmp.size,
+          tmp.fd.get());
     return pw::Status::InvalidArgument();
   }
   int prot = readOnly ? PROT_READ : PROT_READ | PROT_WRITE;
@@ -64,6 +71,7 @@ pw::Result<uintptr_t> mapSharedDataRegion(RegionManager::RegionToMap &&region,
   if (addr != MAP_FAILED) {
     return reinterpret_cast<uintptr_t>(addr);
   }
+  ALOGE("Failed to map shared data region with %d", errno);
   switch (errno) {
     case EACCES:
       [[fallthrough]];
@@ -92,6 +100,8 @@ pw::Result<AllocatorRegion> RegionManager::mapHostProducerRegion(
     RegionToMap &&region) {
   std::lock_guard lock(mLock);
   if (mIdToHostAllocatorRegion.contains(region.id)) {
+    ALOGE("Attempted to map duplicate host producer region (%" PRId32 ")",
+          region.id);
     return pw::Status::AlreadyExists();
   }
   PW_TRY_ASSIGN(auto *mappedRegion,
@@ -104,8 +114,12 @@ pw::Result<AllocatorRegion> RegionManager::getHostProducerRegion(int id) {
   std::lock_guard lock(mLock);
   auto it = mIdToHostAllocatorRegion.find(id);
   if (it == mIdToHostAllocatorRegion.end()) {
+    ALOGE("Attempted to get unknown host producer region (%" PRId32 ")", id);
     return pw::Status::NotFound();
   } else if (it->second->consumers.has_value()) {
+    ALOGE("Attempted to get consumer descriptor region (%" PRId32
+          ") as though it was a host producer region",
+          id);
     return pw::Status::InvalidArgument();
   }
   return *it->second;
@@ -115,8 +129,10 @@ pw::Status RegionManager::unmapHostProducerRegion(int id) {
   std::lock_guard lock(mLock);
   auto it = mIdToHostAllocatorRegion.find(id);
   if (it == mIdToHostAllocatorRegion.end()) {
+    ALOGE("Attempted to unmap unknown host producer region (%" PRId32 ")", id);
     return pw::Status::NotFound();
   } else if (!it->second->dataFlows.empty()) {
+    ALOGE("Attempted to unmap active host producer region (%" PRId32 ")", id);
     return pw::Status::FailedPrecondition();
   }
   auto *base = reinterpret_cast<void *>(it->second->base);
@@ -131,9 +147,15 @@ pw::Status RegionManager::linkHostProducerDataFlowToRegion(int region,
   std::lock_guard lock(mLock);
   auto it = mIdToHostAllocatorRegion.find(region);
   if (it == mIdToHostAllocatorRegion.end()) {
+    ALOGE("Attempted to link data flow (%" PRId32
+          ") to unknown region (%" PRId32 ")",
+          dataFlow, region);
     return pw::Status::NotFound();
   } else if (mHostProducerDataFlowToRegions.contains(dataFlow) ||
              !it->second->dataFlows.insert(dataFlow).second) {
+    ALOGE("Attempted to link duplicate data flow (%" PRId32
+          ") to region (%" PRId32 ")",
+          dataFlow, region);
     return pw::Status::AlreadyExists();
   }
   mHostProducerDataFlowToRegions[dataFlow].insert(it->second.get());
@@ -144,6 +166,7 @@ pw::Result<size_t> RegionManager::unlinkHostProducerDataFlow(int id) {
   std::lock_guard lock(mLock);
   auto regionsIt = mHostProducerDataFlowToRegions.find(id);
   if (regionsIt == mHostProducerDataFlowToRegions.end()) {
+    ALOGE("Attempted to unlink unknown data flow (%" PRId32 ")", id);
     return pw::Status::NotFound();
   }
   size_t primaryRegionReferences = 0;
@@ -151,7 +174,9 @@ pw::Result<size_t> RegionManager::unlinkHostProducerDataFlow(int id) {
   for (auto *region : regionsIt->second) {
     auto it = mIdToHostAllocatorRegion.find(region->id);
     if (it == mIdToHostAllocatorRegion.end()) {
-      LOG_FATAL("Could not look up expected HostAllocatorRegion");
+      LOG_ALWAYS_FATAL("Could not look up expected region (%" PRId32
+                       ") associated with data flow (%" PRId32 ")",
+                       region->id, id);
       continue;
     }
     region->dataFlows.erase(id);
@@ -193,6 +218,9 @@ pw::Result<AllocatorRegion> RegionManager::mapOffloadConsumerRegion(
   std::lock_guard lock(mLock);
   auto regionsIt = mHostProducerDataFlowToRegions.find(dataFlow);
   if (regionsIt == mHostProducerDataFlowToRegions.end()) {
+    ALOGE("Attempted to map region (%" PRId32 ") for consumer (%" PRIx64
+          ", %" PRIx64 ") for unknown data flow (%" PRId32 ")",
+          region.id, consumer.hubId, consumer.id, dataFlow);
     return pw::Status::FailedPrecondition();
   }
   HostAllocatorRegion *mappedRegion;
@@ -269,6 +297,8 @@ pw::Status RegionManager::unlinkHostConsumerDataFlow(
   std::lock_guard lock(mLock);
   auto regionsIt = mOffloadProducerDataFlowToRegions.find(dataFlow);
   if (regionsIt == mOffloadProducerDataFlowToRegions.end()) {
+    ALOGE("Attempted to unlink unknown data flow (%" PRIx64 ", %" PRIx32 ")",
+          dataFlow.hubId, dataFlow.id);
     return pw::Status::NotFound();
   }
   // Remove all references to this data flow.
