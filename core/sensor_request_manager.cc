@@ -579,8 +579,8 @@ void SensorRequestManager::logCurrentSensorStateToBuffer(
   debugDump.print("\nSensors:\n");
   for (uint8_t i = 0; i < mSensors.size(); i++) {
     for (const auto &request : mSensors[i].getRequests()) {
-      debugDump.print(" %s: instanceId=%" PRIu16 " mode=%s intervalNs=%" PRIu64
-                      " latencyNs=%" PRIu64 "\n",
+      debugDump.print(" %s: instanceId=0x%" PRIx16
+                      " mode=%s intervalNs=%" PRIu64 " latencyNs=%" PRIu64 "\n",
                       mSensors[i].getSensorTypeName(), request.getInstanceId(),
                       getSensorModeName(request.getMode()),
                       request.getInterval().toRawNanoseconds(),
@@ -599,7 +599,7 @@ void SensorRequestManager::logSensorRequestLogsToBuffer(
        i--) {
     const auto &log = mSensorRequestLogs[static_cast<size_t>(i)];
     const Sensor &sensor = mSensors[log.sensorHandle];
-    debugDump.print("  ts=%" PRIu64 " instanceId=%" PRIu16
+    debugDump.print("  ts=%" PRIu64 " instanceId=0x%" PRIx16
                     " type=%s idx=%" PRIu8 " mask=%" PRIx16 " mode=%s",
                     log.timestamp.toRawNanoseconds(), log.instanceId,
                     sensor.getSensorTypeName(), sensor.getSensorIndex(),
@@ -873,7 +873,7 @@ uint8_t SensorRequestManager::makeFlushRequest(FlushRequest &request) {
     Nanoseconds now = SystemTime::getMonotonicTime();
     Nanoseconds deadline = request.deadlineTimestamp;
     if (now >= deadline) {
-      LOGE("Flush sensor %s failed for nanoapp ID %" PRIu16
+      LOGE("Flush sensor %s failed for nanoapp ID 0x%" PRIx16
            ": deadline exceeded",
            sensor.getSensorName(), request.nanoappInstanceId);
       errorCode = CHRE_ERROR_TIMEOUT;

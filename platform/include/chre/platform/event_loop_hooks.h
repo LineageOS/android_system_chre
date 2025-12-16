@@ -17,6 +17,8 @@
 #ifndef CHRE_PLATFORM_EVENT_LOOP_HOOKS_H_
 #define CHRE_PLATFORM_EVENT_LOOP_HOOKS_H_
 
+#include "chre/platform/fatal_error.h"
+
 /**
  * @file
  * Include a platform-specific event-loop configuration header if it exists.
@@ -67,10 +69,11 @@
  * @note FATAL_ERROR is called after this macro is executed
  */
 #ifndef CHRE_HANDLE_EVENT_QUEUE_FULL_DURING_SYSTEM_POST
-#define CHRE_HANDLE_EVENT_QUEUE_FULL_DURING_SYSTEM_POST(  \
-    eventLoop, eventType, eventData, callback, extraData) \
-  do {                                                    \
-  } while (0)
+#define CHRE_HANDLE_EVENT_QUEUE_FULL_DURING_SYSTEM_POST(        \
+    eventLoop, eventType, eventData, callback, extraData)       \
+  FATAL_ERROR("Failed to post critical system event 0x%" PRIx16 \
+              " due to event queue full",                       \
+              eventType)
 #endif  // !CHRE_HANDLE_EVENT_QUEUE_FULL_DURING_SYSTEM_POST
 
 /**

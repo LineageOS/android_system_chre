@@ -74,9 +74,19 @@ class Nanoapp : public PlatformNanoapp {
   bool start();
 
   /**
+   * @param instanceId The instance ID of the nanoapp.
+   */
+  void setInstanceId(uint16_t instanceId) {
+    CHRE_ASSERT(mInstanceId == kInvalidInstanceId);
+    CHRE_ASSERT(instanceId != kInvalidInstanceId);
+    mInstanceId = instanceId;
+  }
+
+  /**
    * @return The unique identifier for this Nanoapp instance
    */
   uint16_t getInstanceId() const {
+    CHRE_ASSERT(mInstanceId != kInvalidInstanceId);
     return mInstanceId;
   }
 

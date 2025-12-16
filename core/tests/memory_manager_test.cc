@@ -21,11 +21,13 @@
 #include "chre/platform/memory.h"
 #include "chre/platform/memory_manager.h"
 
-using chre::kInvalidInstanceId;
 using chre::MemoryManager;
 using chre::Nanoapp;
 
 namespace {
+//! Instance ID to be used to assign to the nanoapp for this test
+constexpr uint16_t kNanoappInstanceId = 0xbeef;
+
 struct node {
   node *next;
 };
@@ -38,7 +40,7 @@ TEST(MemoryManager, DefaultTotalMemoryAllocatedIsZero) {
 
 TEST(MemoryManager, BasicAllocationFree) {
   MemoryManager manager;
-  Nanoapp app(kInvalidInstanceId);
+  Nanoapp app(kNanoappInstanceId);
   void *ptr = manager.nanoappAlloc(&app, 1u);
   EXPECT_NE(ptr, nullptr);
   EXPECT_EQ(manager.getTotalAllocatedBytes(), 1u);
@@ -50,7 +52,7 @@ TEST(MemoryManager, BasicAllocationFree) {
 
 TEST(MemoryManager, NullPointerFree) {
   MemoryManager manager;
-  Nanoapp app(kInvalidInstanceId);
+  Nanoapp app(kNanoappInstanceId);
   manager.nanoappFree(&app, nullptr);
   EXPECT_EQ(manager.getTotalAllocatedBytes(), 0u);
   EXPECT_EQ(manager.getAllocationCount(), 0u);
@@ -58,7 +60,7 @@ TEST(MemoryManager, NullPointerFree) {
 
 TEST(MemoryManager, ZeroAllocationFails) {
   MemoryManager manager;
-  Nanoapp app(kInvalidInstanceId);
+  Nanoapp app(kNanoappInstanceId);
   void *ptr = manager.nanoappAlloc(&app, 0u);
   EXPECT_EQ(ptr, nullptr);
   EXPECT_EQ(manager.getTotalAllocatedBytes(), 0u);
@@ -67,7 +69,7 @@ TEST(MemoryManager, ZeroAllocationFails) {
 
 TEST(MemoryManager, HugeAllocationFails) {
   MemoryManager manager;
-  Nanoapp app(kInvalidInstanceId);
+  Nanoapp app(kNanoappInstanceId);
   void *ptr = manager.nanoappAlloc(&app, manager.getMaxAllocationBytes() + 1);
   EXPECT_EQ(ptr, nullptr);
   EXPECT_EQ(manager.getTotalAllocatedBytes(), 0u);
@@ -75,7 +77,7 @@ TEST(MemoryManager, HugeAllocationFails) {
 
 TEST(MemoryManager, ManyAllocationsTest) {
   MemoryManager manager;
-  Nanoapp app(kInvalidInstanceId);
+  Nanoapp app(kNanoappInstanceId);
   size_t maxCount = manager.getMaxAllocationCount();
   node *head = static_cast<node *>(manager.nanoappAlloc(&app, sizeof(node)));
   node *curr = nullptr, *prev = head;
@@ -101,7 +103,7 @@ TEST(MemoryManager, ManyAllocationsTest) {
 
 TEST(MemoryManager, NegativeAllocationFails) {
   MemoryManager manager;
-  Nanoapp app(kInvalidInstanceId);
+  Nanoapp app(kNanoappInstanceId);
   void *ptr = manager.nanoappAlloc(&app, -1u);
   EXPECT_EQ(ptr, nullptr);
   EXPECT_EQ(manager.getTotalAllocatedBytes(), 0u);

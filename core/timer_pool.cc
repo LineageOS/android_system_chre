@@ -121,10 +121,11 @@ bool TimerPool::cancelTimer(uint16_t instanceId, TimerHandle timerHandle) {
       getTimerRequestByTimerHandleLocked(timerHandle, &index);
 
   if (timerRequest == nullptr) {
-    LOGW("nappId=%" PRIu16 " tried to cancel expired/invalid timer %" PRIu32,
+    LOGW("nappId=0x%" PRIx16 " tried to cancel expired/invalid timer %" PRIu32,
          instanceId, timerHandle);
   } else if (timerRequest->instanceId != instanceId) {
-    LOGW("nappId=%" PRIu16 " tried to cancel timer %" PRIu32 " it doesn't own",
+    LOGW("nappId=0x%" PRIx16 " tried to cancel timer %" PRIu32
+         " it doesn't own",
          instanceId, timerHandle);
   } else {
     removeTimerRequestLocked(index);

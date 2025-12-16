@@ -200,9 +200,14 @@ bool EventLoop::startNanoapp(UniquePtr<Nanoapp> &&nanoapp) {
          static_cast<uint32_t>(CHRE_FIRST_SUPPORTED_API_VERSION));
   } else if (findNanoappInstanceIdByAppId(nanoapp->getAppId(),
                                           &existingInstanceId)) {
-    LOGE("App with ID 0x%016" PRIx64 " already exists as instance ID %" PRIu16,
+    LOGE("App with ID 0x%016" PRIx64
+         " already exists as instance ID 0x%" PRIx16,
          nanoapp->getAppId(), existingInstanceId);
   } else {
+    nanoapp->setInstanceId(
+        EventLoopManagerSingleton::get()->getNextInstanceId());
+    LOGD("Instance ID 0x%" PRIx16 " assigned to app ID 0x%" PRIx64,
+         nanoapp->getInstanceId(), nanoapp->getAppId());
     Nanoapp *newNanoapp = nanoapp.get();
     {
       LockGuard<Mutex> lock(mNanoappsLock);
@@ -217,7 +222,7 @@ bool EventLoop::startNanoapp(UniquePtr<Nanoapp> &&nanoapp) {
       success = newNanoapp->start();
       mCurrentApp = nullptr;
       if (!success) {
-        LOGE("Nanoapp %" PRIu16 " failed to start",
+        LOGE("Nanoapp 0x%" PRIx16 " failed to start",
              newNanoapp->getInstanceId());
         unloadNanoapp(newNanoapp->getInstanceId(),
                       /*allowSystemNanoappUnload=*/true,
@@ -278,7 +283,7 @@ bool EventLoop::unloadNanoapp(uint16_t instanceId,
         unloadNanoappAtIndex(i, nanoappStarted);
         mStoppingNanoapp = nullptr;
 
-        LOGD("Unloaded nanoapp with instanceId %" PRIu16, instanceId);
+        LOGD("Unloaded nanoapp with instanceId 0x%" PRIx16, instanceId);
         unloaded = true;
       }
       break;
@@ -542,6 +547,24 @@ void EventLoop::loadStaticNanoapps(
   }
 }
 
+uint16_t EventLoop::getNextNanoappInstanceId() {
+  constexpr uint16_t kMaxInstanceId =
+      EventLoopManager::NanoappInstanceId::kMaxPureInstanceId;
+
+  // Get the next available instance ID and mask off the upper 12 bit.
+  uint16_t instanceId =
+      static_cast<uint16_t>(mNextInstanceId++ & kMaxInstanceId);
+
+  // 4096 instance IDs should be enough for normal use cases. If we need to
+  // support wraparound for stress testing load/unload, then we can set a flag
+  // when wraparound occurs and use EventLoop::findNanoappByInstanceId to ensure
+  // we avoid conflicts
+  if (instanceId == kMaxInstanceId || instanceId == kSystemInstanceId) {
+    FATAL_ERROR("Exhausted instance IDs!");
+  }
+  return instanceId;
+}
+
 void EventLoop::deliverNextEvent(const UniquePtr<Nanoapp> &app, Event *event) {
   constexpr Seconds kLatencyThreshold = Seconds(1);
   constexpr Seconds kThrottleInterval(1);
@@ -602,7 +625,8 @@ bool EventLoop::distributeEventCommon(Event *event) {
   // after queues are flushed while it's unloading)
   if (!eventDelivered && event->targetInstanceId != kBroadcastInstanceId &&
       event->targetInstanceId != kSystemInstanceId) {
-    LOGW("Dropping event 0x%" PRIx16 " from instanceId %" PRIu16 "->%" PRIu16,
+    LOGW("Dropping event 0x%" PRIx16 " from instanceId 0x%" PRIx16
+         "->0x%" PRIx16,
          event->eventType, event->senderInstanceId, event->targetInstanceId);
   }
   return eventDelivered;
@@ -629,7 +653,7 @@ void EventLoop::freeEvent(Event *event) {
         mCurrentApp->invokeEventFreeCallback(
             event->freeCallback, event->eventType, event->eventData);
       } else {
-        LOGE("No app found (senderIId=%" PRIu16 ", targetIId=%" PRIu16
+        LOGE("No app found (senderIId=0x%" PRIx16 ", targetIId=0x%" PRIx16
              ", type=0x%" PRIx16 ") for free event callback",
              event->senderInstanceId, event->targetInstanceId,
              event->eventType);
