@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <numeric>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -1464,6 +1465,76 @@ TEST_F(QueueTest, CreateRemoteConsumerForVariableSizeQueue) {
   EXPECT_EQ(createHostVarDataConsumer(std::move(consumerArgs), policyBuilder)
                 .status(),
             pw::OkStatus());
+}
+
+TEST_F(QueueTest, OverwriteFastForwardCalculation) {
+  // 1. Setup overwritable consumer
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  size_t capacity = mProducer->capacity();
+  // Capacity should be 96
+  ASSERT_EQ(capacity, kBlockCapacity * kBaseMinBlockCount);
+
+  // 2. Overwrite the buffer by more than capacity.
+  // Step 2a: Fill the queue to capacity (0 to 95).
+  // We cannot push (capacity + 10) in one single call because push() rejects
+  // chunks larger than the total capacity.
+  // So we split it into two pushes.
+  std::vector<int> fillData(capacity);
+  for (size_t i = 0; i < capacity; ++i) {
+    fillData[i] = i;
+  }
+  EXPECT_RESULT_EQ(mProducer->push(fillData), capacity);
+
+  // Step 2b: Push the overflow data (96 to 105). Total 106 items written.
+  // Current Consumer Lag becomes: 106
+  std::vector<int> overflowData(10);
+  for (size_t i = 0; i < 10; ++i) {
+    overflowData[i] = capacity + i;
+  }
+  EXPECT_RESULT_EQ(mProducer->push(overflowData), 10);
+
+  // 3. Trigger handleOverwrite() via the first access.
+  // The consumer detects it is overwritten.
+  // Logic:
+  //   Reset Offset mAvailable = Capacity / 2 = 48.
+  // This first call returns DataLoss.
+  EXPECT_EQ(mConsumers[0].peek(1).status(), pw::Status::DataLoss());
+
+  // 4. Verify Boundary Conditions and Data Integrity
+
+  // 4a. Verify upper bound: Try to peek 49 items.
+  // Total 48 items available: 49 > 48  -> Returns Unavailable.
+  auto resultTooMany = mConsumers[0].peek(capacity / 2 + 1);
+  EXPECT_EQ(resultTooMany.status(), pw::Status::Unavailable());
+
+  // 4b. Verify valid access and Data Integrity via pop()
+  // Since the data might wrap around ring buffer blocks, peek() might not
+  // return all 48 elements in one contiguous span.
+  // We use pop() to copy them into a linear vector for verification.
+
+  // Verify size is correct first
+  EXPECT_RESULT_EQ(mConsumers[0].size(), capacity / 2);
+
+  std::vector<int> poppedData(capacity / 2);
+  // pop() handles copying across block boundaries automatically
+  pw::Status popStatus = mConsumers[0].pop(pw::span(poppedData));
+  ASSERT_EQ(popStatus, pw::OkStatus());
+
+  // 4c. Verify the data content fully.
+  // Calculate the start value based on logic:
+  // Total Written = capacity (96) + 10 = 106
+  // Kept Amount   = capacity / 2 = 48
+  // Start Value   = 106 - 48 = 58
+  int startValue = (capacity + 10) - (capacity / 2);
+
+  // Construct the expected vector
+  std::vector<int> expectedData(capacity / 2);
+  std::iota(expectedData.begin(), expectedData.end(), startValue);
+
+  EXPECT_EQ(poppedData, expectedData);
 }
 
 }  // namespace
