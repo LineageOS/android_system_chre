@@ -20,8 +20,8 @@
 #include <functional>
 
 #include "absl/synchronization/mutex.h"
+#include "chre/util/time.h"
 #include "location/lbs/contexthub/test_suite/integration/platform/simulator.h"
-#include "third_party/contexthub/chre/util/include/chre/util/time.h"
 
 namespace chre {
 
@@ -53,6 +53,7 @@ bool SystemTimer::set(SystemTimerCallback *callback, void *data,
       .delivery_time_ns =
           static_cast<uint64_t>(sim->current_time_ + delay.toRawNanoseconds()),
       .type = lbs::contexthub::testing::kTimer,
+      .sensor_index = 0,
   });
 
   return true;

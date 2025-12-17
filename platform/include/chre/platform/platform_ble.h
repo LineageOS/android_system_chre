@@ -19,6 +19,7 @@
 
 #include "chre/target_platform/platform_ble_base.h"
 #include "chre/util/time.h"
+#include "chre_api/chre/ble.h"
 
 namespace chre {
 

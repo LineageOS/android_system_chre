@@ -69,6 +69,7 @@ bool configureSensor(uint32_t sensorInfoIndex,
       .passive_enabled = false,
       .oneshot = false,
       .interval = static_cast<uint32_t>(intervalNs),
+      .next_expected_delivery = 0,
       .latency = latencyNs,
       .with_flush_id = 0,
   };
@@ -135,7 +136,7 @@ bool flushSensor(uint32_t sensorInfoIndex, uint32_t* flushRequestId) {
     }
   } else {
     auto so_far_time = to_return->header.baseTimestamp;
-    int i = 0;
+    size_t i = 0;
     for (; i < to_return->sample_data.size(); i++) {
       std::visit(
           [&so_far_time](auto const& e) { so_far_time += e.timestampDelta; },
@@ -200,6 +201,7 @@ bool configureBiasEventsSensor(uint32_t sensorInfoIndex, bool enable,
       .passive_enabled = true,
       .oneshot = false,
       .interval = static_cast<uint32_t>(0),
+      .next_expected_delivery = 0,
       .latency = 0,
       .with_flush_id = 0,
   };

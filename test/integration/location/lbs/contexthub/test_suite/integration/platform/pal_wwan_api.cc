@@ -59,9 +59,12 @@ bool requestCellInfoWwan() {
 
   sim->data_to_control_[kWwanCellInfo] = LatestControlParams{
       .enabled = true,
+      .passive_enabled = false,
       .oneshot = true,
       .interval = 0,
       .next_expected_delivery = next_time,
+      .latency = 0,
+      .with_flush_id = 0,
   };
 
   sim->RequestNewDataLocked(kWwanCellInfo, DataRequestParams{});

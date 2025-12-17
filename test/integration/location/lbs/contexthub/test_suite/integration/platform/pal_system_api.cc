@@ -22,9 +22,9 @@
 #include <cstdlib>
 
 #include "chre/pal/system.h"
+#include "chre/target_platform/log.h"
 #include "chre_api/chre.h"
 #include "location/lbs/contexthub/test_suite/integration/platform/simulator.h"
-#include "platform/linux/include/chre/target_platform/log.h"
 
 #define PAL_LOG_FORMAT_STR "PAL: %s"
 
@@ -65,6 +65,7 @@ const chrePalSystemApi gChrePalSystemApi = {
     palSystemApiLog,            /* log */
     malloc,                     /* memoryAlloc */
     free,                       /* memoryFree */
+    nullptr,                    /* forceDramAccess */
 };
 
 }  // namespace chre

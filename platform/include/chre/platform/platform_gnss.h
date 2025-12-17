@@ -19,6 +19,7 @@
 
 #include "chre/target_platform/platform_gnss_base.h"
 #include "chre/util/time.h"
+#include "chre_api/chre/gnss.h"
 
 namespace chre {
 

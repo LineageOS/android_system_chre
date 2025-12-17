@@ -78,10 +78,12 @@ bool startScanBle(chreBleScanMode mode, uint32_t reportDelayMs,
 
   sim->data_to_control_[kBle] = LatestControlParams{
       .enabled = true,
+      .passive_enabled = false,
       .oneshot = false,
       .interval = scanModeToInterval(mode),
       .next_expected_delivery = next_time,
       .latency = reportDelayMs,
+      .with_flush_id = 0,
   };
 
   sim->ble_callbacks_->scanStatusChangeCallback(true, CHRE_ERROR_NONE);
@@ -103,9 +105,12 @@ bool stopScanBle() {
 
   sim->data_to_control_[kBle] = LatestControlParams{
       .enabled = false,
+      .passive_enabled = false,
       .oneshot = false,
       .interval = 0,
       .next_expected_delivery = next_time,
+      .latency = 0,
+      .with_flush_id = 0,
   };
 
   sim->ble_callbacks_->scanStatusChangeCallback(false, CHRE_ERROR_NONE);
@@ -155,6 +160,7 @@ chrePalBleGetApi(uint32_t requestedApiVersion) {
       .releaseAdvertisingEvent =
           lbs::contexthub::testing::releaseAdvertisingEventBle,
       .readRssi = lbs::contexthub::testing::readRssi,
+      .flush = nullptr,
   };
 
   if (!CHRE_PAL_VERSIONS_ARE_COMPATIBLE(kApi.moduleVersion,
