@@ -677,6 +677,9 @@ class Consumer : protected internal::ConsumerBase {
   /** @return true iff the queue is empty. */
   using Base::empty;
 
+  /** @return true iff the producer can overwrite this consumer. */
+  using Base::isOverwritable;
+
  protected:
   Consumer(const Region &region, internal::Queue &queue,
            internal::ConsumerDesc &desc, RemoteNotifyFn remoteNotifyFn,
@@ -930,6 +933,7 @@ class VariableDataConsumer : protected internal::ConsumerBase {
 
   // See {@link internal::ConsumerBase} for documentation.
   using Base::empty;
+  using Base::isOverwritable;
   using Base::size;
 
  protected:

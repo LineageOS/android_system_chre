@@ -1009,6 +1009,11 @@ pw::Result<size_t> ConsumerBase::size() {
   return mAvailable;
 }
 
+pw::Result<bool> ConsumerBase::isOverwritable() {
+  PW_TRY(checkState());
+  return mDesc->overwritePolicy == OverwritePolicy::kAllowed;
+}
+
 pw::Status ConsumerBase::checkAvailable(size_t count) {
   PW_TRY(checkState());
   if (count > capacity()) {
