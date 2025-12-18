@@ -5,7 +5,9 @@
 # Environment Checks ###########################################################
 
 ifeq ($(OPT_LEVEL),)
+ifeq (,$(filter clean,$(MAKECMDGOALS)))
 $(warning The OPT_LEVEL variable is unset. Defaulting to 0.)
+endif
 OPT_LEVEL = 0
 endif
 
