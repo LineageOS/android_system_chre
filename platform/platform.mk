@@ -288,6 +288,11 @@ endif
 
 GOOGLE_X86_LINUX_CFLAGS += -Iplatform/shared/public_std_atomic
 GOOGLE_X86_LINUX_CFLAGS += -Iplatform/linux/include
+GOOGLE_X86_LINUX_CFLAGS += -Iplatform/linux/public_fatal_error
+GOOGLE_X86_LINUX_CFLAGS += -Iplatform/linux/public_host_link
+GOOGLE_X86_LINUX_CFLAGS += -Iplatform/linux/public_platform_nanoapp
+GOOGLE_X86_LINUX_CFLAGS += -Iplatform/linux/public_power_control_manager
+GOOGLE_X86_LINUX_CFLAGS += -Iplatform/linux/public_system_timer
 
 # Linux-specific Source Files ##################################################
 

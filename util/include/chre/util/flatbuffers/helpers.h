@@ -59,7 +59,7 @@ class ChreFlatBufferBuilder : public flatbuffers::FlatBufferBuilder {
   }
 
   /**
-   * Serialize a DyanmicVector into a FlatBuffer `vector`.
+   * Serialize a DynamicVector into a FlatBuffer `vector`.
    *
    * @tparam T The data type of the DynamicVector elements.
    * @param v A const reference to the DynamicVector to serialize into the
