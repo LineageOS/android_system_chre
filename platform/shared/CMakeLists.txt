@@ -11,6 +11,13 @@ pw_add_facade(chre.platform.shared.authentication INTERFACE
     include
 )
 
+pw_add_library(chre.platform.shared.assert_func INTERFACE
+  HEADERS
+    include/chre/platform/shared/assert_func.h
+  PUBLIC_INCLUDES
+    include/
+)
+
 pw_add_facade(chre.platform.shared.bt_snoop_log INTERFACE
   BACKEND
     chre.platform.shared.bt_snoop_log_BACKEND

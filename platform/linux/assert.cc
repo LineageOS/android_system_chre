@@ -19,6 +19,7 @@
 #include <cassert>
 
 #include "chre/platform/linux/expect_assert.h"
+#include "chre/platform/log.h"
 
 #ifdef GTEST
 MockAssert *gMockAssert;
