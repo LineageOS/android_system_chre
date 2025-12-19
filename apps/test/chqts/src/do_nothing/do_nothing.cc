@@ -25,6 +25,11 @@
 
 #include "chre_api/chre.h"
 
+#ifdef CHRE_NANOAPP_INTERNAL
+namespace chre {
+namespace {
+#endif  // CHRE_NANOAPP_INTERNAL
+
 extern "C" void nanoappHandleEvent(uint32_t /* senderInstanceId */,
                                    uint16_t /* eventType */,
                                    const void * /* eventData */) {
@@ -38,3 +43,15 @@ extern "C" bool nanoappStart(void) {
 extern "C" void nanoappEnd(void) {
   // Intentionally do nothing.
 }
+
+#ifdef CHRE_NANOAPP_INTERNAL
+}  // anonymous namespace
+}  // namespace chre
+
+#include "chre/platform/static_nanoapp_init.h"
+#include "chre/util/nanoapp/app_id.h"
+#include "chre/util/system/napp_permissions.h"
+
+CHRE_STATIC_NANOAPP_INIT(DoNothing, 0x476f6f6754fffffd, 0x00000001,
+                         chre::NanoappPermissions::CHRE_PERMS_NONE);
+#endif  // CHRE_NANOAPP_INTERNAL
