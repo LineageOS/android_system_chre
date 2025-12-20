@@ -411,7 +411,8 @@ void EventLoop::stop() {
   // Stop accepting new events and tell the main loop to finish
   EventLoopManagerSingleton::get()->postSystemEvent(
       static_cast<uint16_t>(SystemCallbackType::Shutdown),
-      /*eventData=*/this, callback, /*extraData=*/nullptr);
+      /*eventData=*/this, callback, /*extraData=*/nullptr,
+      /* eventLoop= */ this);
 }
 
 void EventLoop::onStopComplete() {
@@ -573,8 +574,9 @@ void EventLoop::deliverNextEvent(const UniquePtr<Nanoapp> &app, Event *event) {
 
 void EventLoop::distributeEvent(Event *event) {
   distributeEventCommon(event);
-  CHRE_ASSERT(event->isUnreferenced());
-  freeEvent(event);
+  if (event->decrementRefCount() == 1) {
+    freeEvent(event);
+  }
 }
 
 bool EventLoop::distributeEventCommon(Event *event) {
@@ -776,7 +778,7 @@ void EventLoop::setCycleWakeupBucketsTimer() {
   mCycleWakeupBucketsHandle =
       EventLoopManagerSingleton::get()->setDelayedCallback(
           SystemCallbackType::CycleNanoappWakeupBucket, nullptr /*data*/,
-          callback, kIntervalWakeupBucket);
+          callback, kIntervalWakeupBucket, /* eventLoop= */ this);
 #endif  // CHRE_IS_SIMULATOR_BUILD
 }
 

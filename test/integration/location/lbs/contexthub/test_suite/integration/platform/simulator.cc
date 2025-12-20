@@ -44,17 +44,17 @@
 #include "absl/time/time.h"
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/nanoapp.h"
+#include "chre/core/settings.h"
+#include "chre/core/static_nanoapps.h"
 #include "chre/platform/linux/platform_log.h"
 #include "chre/platform/linux/thread_context.h"
 #include "chre/platform/shared/init.h"
+#include "chre/target_platform/log.h"
+#include "chre/util/unique_ptr.h"
 #include "chre_api/chre.h"
-#include "core/include/chre/core/settings.h"
-#include "core/include/chre/core/static_nanoapps.h"
 #include "location/lbs/contexthub/test_suite/integration/data_feed/data_feed_base.h"
 #include "location/lbs/contexthub/test_suite/integration/data_feed/fragment.h"
 #include "location/lbs/contexthub/test_suite/integration/data_feed/safe_chre_structs.h"
-#include "platform/linux/include/chre/target_platform/log.h"
-#include "util/include/chre/util/unique_ptr.h"
 
 namespace lbs::contexthub::testing {
 
@@ -111,6 +111,8 @@ Simulator::Simulator() : finished_(1) {
       .oneshot = false,
       .interval = 0,
       .next_expected_delivery = 0,
+      .latency = 0,
+      .with_flush_id = 0,
   };
 
   // always allow timer triggers.
@@ -120,6 +122,8 @@ Simulator::Simulator() : finished_(1) {
       .oneshot = false,
       .interval = 0,
       .next_expected_delivery = 0,
+      .latency = 0,
+      .with_flush_id = 0,
   };
 
   dying_ = false;
@@ -134,7 +138,7 @@ uint64_t GetNextTimeForType(const std::map<uint64_t, ReturnType> passive_data,
                             int64_t last_consumed) {
   for (const auto& msg : passive_data) {
     // maps are ordered by default based on the increasing order of key
-    if (msg.first > last_consumed) {
+    if (msg.first > static_cast<uint64_t>(last_consumed)) {
       return msg.first;
     }
   }
@@ -241,7 +245,11 @@ void Simulator::ConsumePassiveScheduledData(const ScheduledData& data) {
 }
 
 bool Simulator::UnconsumedPassiveScheduledDataExist() {
-  ScheduledData d{.type = kNone};
+  ScheduledData d{
+    .delivery_time_ns = 0,
+    .type = kNone,
+    .sensor_index = 0,
+  };
 
   GetNextPassiveScheduledData(d);
   if (d.type != kNone) {
@@ -609,7 +617,7 @@ std::vector<std::pair<uint64_t, chreMessageToHostData>>
 Simulator::GetReceivedHostMessages() {
   auto ret = std::vector<std::pair<uint64_t, chreMessageFromHostData>>(
       received_messages_.size());
-  for (int i = 0; i < ret.size(); i++) {
+  for (size_t i = 0; i < ret.size(); i++) {
     ret[i].first = received_messages_[i].first;
     ret[i].second = *static_cast<const chreMessageFromHostData*>(
         received_messages_[i].second.get());
@@ -816,6 +824,8 @@ void Simulator::MaybeConnectEndpoint(uint16_t host_endpoint) {
       .hostEndpointType = CHRE_HOST_ENDPOINT_TYPE_APP,
       .isNameValid = 0,
       .isTagValid = 0,
+      .packageName = "",
+      .attributionTag = "",
   };
   if (nanoapps_loaded_) {
     chre::EventLoopManagerSingleton::get()

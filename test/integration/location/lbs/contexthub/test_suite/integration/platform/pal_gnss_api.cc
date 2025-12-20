@@ -63,6 +63,8 @@ bool controlLocationSessionGnss(bool enable, uint32_t minIntervalMs,
       .oneshot = false,
       .interval = minIntervalMs,
       .next_expected_delivery = next_time,
+      .latency = 0,
+      .with_flush_id = 0,
   };
 
   if ((enable || is_passive_enabled) == false)
@@ -99,9 +101,12 @@ bool controlMeasurementSessionGnss(bool enable, uint32_t minIntervalMs) {
 
   sim->data_to_control_[kGnssMeasurement] = LatestControlParams{
       .enabled = enable,
+      .passive_enabled = false,
       .oneshot = false,
       .interval = minIntervalMs,
       .next_expected_delivery = next_time,
+      .latency = 0,
+      .with_flush_id = 0,
   };
 
   if (enable) {
@@ -146,6 +151,8 @@ bool configurePassiveLocationListenerGnss(bool enable) {
         .oneshot = false,
         .interval = 0,
         .next_expected_delivery = 0,
+        .latency = 0,
+        .with_flush_id = 0,
     };
   }
   return true;

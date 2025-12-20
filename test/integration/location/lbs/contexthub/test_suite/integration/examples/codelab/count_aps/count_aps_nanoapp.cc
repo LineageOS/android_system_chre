@@ -26,7 +26,7 @@
 #include <cstdlib>
 #include <cstring>
 
-#include "third_party/contexthub/chre/util/include/chre/util/nanoapp/log.h"
+#include "chre/util/nanoapp/log.h"
 
 #define LOG_TAG "[CountAPsNanoapp]"
 

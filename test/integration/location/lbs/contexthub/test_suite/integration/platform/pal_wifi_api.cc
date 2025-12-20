@@ -57,6 +57,8 @@ bool configureScanMonitor(bool enable) {
           .oneshot = false,
           .interval = 0,
           .next_expected_delivery = 0,
+          .latency = 0,
+          .with_flush_id = 0,
       };
     }
   } else if (!sim->data_to_control_[kWifiScan].enabled && !enable) {
@@ -95,6 +97,8 @@ bool requestScan(const struct chreWifiScanParams *params) {
       .oneshot = true,
       .interval = 0,
       .next_expected_delivery = next_time,
+      .latency = 0,
+      .with_flush_id = 0,
   };
 
   auto copied_params = new SafeChreWifiScanParams(params);
@@ -131,6 +135,8 @@ bool requestRanging(const struct chreWifiRangingParams *params) {
       .oneshot = true,
       .interval = 0,
       .next_expected_delivery = next_time,
+      .latency = 0,
+      .with_flush_id = 0,
   };
 
   auto copied_params = new SafeChreWifiRangingParams(params);
@@ -168,6 +174,11 @@ const struct chrePalWifiApi *chrePalWifiGetApi(uint32_t requestedApiVersion) {
       .releaseScanEvent = lbs::contexthub::testing::releaseScanEvent,
       .requestRanging = lbs::contexthub::testing::requestRanging,
       .releaseRangingEvent = lbs::contexthub::testing::releaseRangingEvent,
+      .nanSubscribe = nullptr,
+      .nanSubscribeCancel = nullptr,
+      .releaseNanDiscoveryEvent = nullptr,
+      .requestNanRanging = nullptr,
+      .getNanCapabilities = nullptr,
   });
   return sim->chre_pal_wifi_api_.get();
 }

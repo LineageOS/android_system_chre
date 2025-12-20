@@ -18,8 +18,8 @@
 
 #include <cstdint>
 
+#include "chre/util/time.h"
 #include "location/lbs/contexthub/test_suite/integration/platform/simulator.h"
-#include "third_party/contexthub/chre/util/include/chre/util/time.h"
 
 using lbs::contexthub::testing::Simulator;
 

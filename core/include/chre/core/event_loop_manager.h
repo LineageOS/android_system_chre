@@ -34,6 +34,7 @@
 #include "chre/core/wifi_request_manager.h"
 #include "chre/core/wwan_request_manager.h"
 #include "chre/platform/atomic.h"
+#include "chre/platform/fatal_error.h"
 #include "chre/platform/memory_manager.h"
 #include "chre/platform/mutex.h"
 #include "chre/util/always_false.h"
@@ -43,6 +44,7 @@
 #include "chre/util/system/system_callback_type.h"
 #include "chre/util/unique_ptr.h"
 #include "chre_api/chre/event.h"
+#include "pw_span/span.h"
 
 #include <cstddef>
 
@@ -91,17 +93,24 @@ class HostMessageHubManager;
  */
 class EventLoopManager : public NonCopyable {
  public:
-  EventLoopManager(BleSocketManager *bleSocketManager, GnssManager *gnssManager,
+  EventLoopManager(pw::span<EventLoop> eventLoops,
+                   BleSocketManager *bleSocketManager, GnssManager *gnssManager,
                    WifiRequestManager *wifiRequestManager,
                    WwanRequestManager *wwanRequestManager,
                    ChreMessageHubManager *chreMessageHubManager,
                    HostMessageHubManager *hostMessageHubManager)
-      : mBleSocketManager(bleSocketManager),
+      : mEventLoops(eventLoops),
+        mBleSocketManager(bleSocketManager),
         mGnssManager(gnssManager),
         mWifiRequestManager(wifiRequestManager),
         mWwanRequestManager(wwanRequestManager),
         mChreMessageHubManager(chreMessageHubManager),
         mHostMessageHubManager(hostMessageHubManager) {
+#ifdef CHRE_MULTI_THREADING_ENABLED
+    CHRE_ASSERT(mEventLoops.size() > 0);
+#else
+    CHRE_ASSERT(mEventLoops.size() == 1);
+#endif  // CHRE_MULTI_THREADING_ENABLED
 #ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
     CHRE_ASSERT(mBleSocketManager != nullptr);
 #endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
@@ -186,6 +195,8 @@ class EventLoopManager : public NonCopyable {
    * @param eventData Arbitrary data to pass to the callback
    * @param callback Function to invoke from the context of the CHRE thread
    * @param extraData Additional arbitrary data to provide to the callback
+   * @param eventLoop An optional pointer to specify the event loop to post to.
+   * If null, the event will be posted on the default event loop.
    *
    * @return true if successfully posted; false ONLY IF the CHRE event loop is
    *         shutting down and not accepting any new events - in this case,
@@ -194,9 +205,13 @@ class EventLoopManager : public NonCopyable {
    *
    * @see postEventOrDie
    * @see deferCallback
+   *
+   * TODO(b/435246073): Avoid default override by requiring caller to specify
+   * the eventLoop argument.
    */
   bool postSystemEvent(uint16_t eventType, void *eventData,
-                       SystemEventCallbackFunction *callback, void *extraData);
+                       SystemEventCallbackFunction *callback, void *extraData,
+                       EventLoop *eventLoop = nullptr);
 
   /**
    * Posts an event to a nanoapp that is currently running (or all nanoapps if
@@ -227,6 +242,34 @@ class EventLoopManager : public NonCopyable {
       uint16_t targetGroupMask = kDefaultTargetGroupMask);
 
   /**
+   * Posts an event to a nanoapp that is currently running (or all nanoapps if
+   * the target instance ID is kBroadcastInstanceId). If the event fails to
+   * post, freeCallback is invoked prior to returning (if not null).
+   *
+   * Safe to call from any thread.
+   *
+   * @param eventType Event type identifier, which implies the type of eventData
+   * @param eventData The data being posted
+   * @param freeCallback Function to invoke to when the event has been processed
+   *        by all recipients; this must be safe to call immediately, to handle
+   *        the case where CHRE is shutting down
+   * @param isLowPriority true if the event is low priority
+   * @param senderInstanceId The instance ID of the sender of this event
+   * @param targetInstanceId The instance ID of the destination of this event
+   * @param targetGroupMask Mask used to limit the recipients that are
+   *        registered to receive this event
+   *
+   * @return true if the event was successfully added to the queue.
+   *
+   * @see chreSendEvent
+   */
+  bool postEvent(uint16_t eventType, void *eventData,
+                 chreEventCompleteFunction *freeCallback, bool isLowPriority,
+                 uint16_t senderInstanceId = kSystemInstanceId,
+                 uint16_t targetInstanceId = kBroadcastInstanceId,
+                 uint16_t targetGroupMask = kDefaultTargetGroupMask);
+
+  /**
    * Leverages the event queue mechanism to schedule a CHRE system callback to
    * be invoked at some point in the future from within the context of the
    * "main" EventLoop. Which EventLoop is considered to be the "main" one is
@@ -240,13 +283,16 @@ class EventLoopManager : public NonCopyable {
    * @param data Arbitrary data to provide to the callback
    * @param callback Function to invoke from within the main CHRE thread
    * @param extraData Additional arbitrary data to provide to the callback
+   * @param eventLoop An optional pointer to specify the event loop to post to.
+   * If null, the event will be posted on the default event loop.
    * @return If true, the callback was deferred successfully; false otherwise.
    */
   bool deferCallback(SystemCallbackType type, void *data,
                      SystemEventCallbackFunction *callback,
-                     void *extraData = nullptr) {
+                     void *extraData = nullptr,
+                     EventLoop *eventLoop = nullptr) {
     return postSystemEvent(static_cast<uint16_t>(type), data, callback,
-                           extraData);
+                           extraData, eventLoop);
   }
 
   /**
@@ -261,11 +307,14 @@ class EventLoopManager : public NonCopyable {
    *        uint16_t, and can also be useful for debugging
    * @param data Pointer to arbitrary data to provide to the callback
    * @param callback Function to invoke from within the main CHRE thread
+   * @param eventLoop An optional pointer to specify the event loop to post to.
+   * If null, the event will be posted on the default event loop.
    * @return If true, the callback was deferred successfully; false otherwise.
    */
   template <typename T>
   bool deferCallback(SystemCallbackType type, UniquePtr<T> &&data,
-                     TypedSystemEventCallbackFunction<T> *callback) {
+                     TypedSystemEventCallbackFunction<T> *callback,
+                     EventLoop *eventLoop = nullptr) {
     auto outerCallback = [](uint16_t callbackType, void *eventData,
                             void *extraData) {
       // Re-wrap eventData in UniquePtr so its destructor will get called and
@@ -281,7 +330,7 @@ class EventLoopManager : public NonCopyable {
     // C++11 ability to cast a function pointer to void*
     bool status =
         postSystemEvent(static_cast<uint16_t>(type), data.get(), outerCallback,
-                        reinterpret_cast<void *>(callback));
+                        reinterpret_cast<void *>(callback), eventLoop);
     if (status) {
       data.release();
     }
@@ -291,10 +340,11 @@ class EventLoopManager : public NonCopyable {
   //! Override that allows passing a lambda for the callback
   template <typename T, typename LambdaT>
   bool deferCallback(SystemCallbackType type, UniquePtr<T> &&data,
-                     LambdaT callback) {
+                     LambdaT callback, EventLoop *eventLoop = nullptr) {
     return deferCallback(
         type, std::move(data),
-        static_cast<TypedSystemEventCallbackFunction<T> *>(callback));
+        static_cast<TypedSystemEventCallbackFunction<T> *>(callback),
+        eventLoop);
   }
 
   //! Disallows passing a null callback, as we don't include a null check in the
@@ -331,14 +381,23 @@ class EventLoopManager : public NonCopyable {
    * @param callback Function to invoke from within the main CHRE event loop -
    *        note that extraData is always passed back as nullptr
    * @param delay The delay to postpone posting the event
+   * @param index An optional parameter to specify the index of the event loop
+   * to post to.
+   * @param eventLoop An optional pointer to specify the event loop to schedule
+   * the callback. If null, the timer will be scheduled on the default event
+   * loop.
    * @return TimerHandle of the requested timer.
    *
    * @see deferCallback
    */
   TimerHandle setDelayedCallback(SystemCallbackType type, void *data,
                                  SystemEventCallbackFunction *callback,
-                                 Nanoseconds delay) {
-    return mEventLoop.getTimerPool().setSystemTimer(delay, callback, type,
+                                 Nanoseconds delay,
+                                 EventLoop *eventLoop = nullptr) {
+    if (eventLoop == nullptr) {
+      eventLoop = &getEventLoop();
+    }
+    return eventLoop->getTimerPool().setSystemTimer(delay, callback, type,
                                                     data);
   }
 
@@ -348,11 +407,20 @@ class EventLoopManager : public NonCopyable {
    * This function is safe to call from any thread.
    *
    * @param timerHandle The TimerHandle returned by setDelayedCallback
+   * @param index An optional parameter to specify the index of the event loop
+   * to cancel delayed callback for.
+   * @param eventLoop An optional pointer to specify the event loop to cancel
+   * the callback. If null, the timer will be cancelled on the default event
+   * loop.
    *
    * @return true if the callback was successfully cancelled
    */
-  bool cancelDelayedCallback(TimerHandle timerHandle) {
-    return mEventLoop.getTimerPool().cancelSystemTimer(timerHandle);
+  bool cancelDelayedCallback(TimerHandle timerHandle,
+                             EventLoop *eventLoop = nullptr) {
+    if (eventLoop == nullptr) {
+      eventLoop = &getEventLoop();
+    }
+    return eventLoop->getTimerPool().cancelSystemTimer(timerHandle);
   }
 
   /**
@@ -395,10 +463,10 @@ class EventLoopManager : public NonCopyable {
   }
 
   /**
-   * @return The event loop managed by this event loop manager.
+   * @return The default event loop managed by this event loop manager.
    */
   EventLoop &getEventLoop() {
-    return mEventLoop;
+    return mEventLoops[0];
   }
 
   /**
@@ -525,6 +593,9 @@ class EventLoopManager : public NonCopyable {
   //! The instance ID generated by getNextInstanceId().
   AtomicUint32 mNextInstanceId{kSystemInstanceId + 1};
 
+  //! The event loops managed by this event loop manager.
+  pw::span<EventLoop> mEventLoops;
+
 #ifdef CHRE_AUDIO_SUPPORT_ENABLED
   //! The audio request manager handles requests for all nanoapps and manages
   //! the state of the audio subsystem that the runtime subscribes to.
@@ -540,9 +611,6 @@ class EventLoopManager : public NonCopyable {
   //! The BLE socket manager tracks offloaded sockets and handles sending
   //! packets between nanoapps and offloaded sockets.
   BleSocketManager *mBleSocketManager = nullptr;
-
-  //! The event loop managed by this event loop manager.
-  EventLoop mEventLoop;
 
   //! The GnssManager that handles requests for all nanoapps. This manages the
   //! state of the GNSS subsystem that the runtime subscribes to.

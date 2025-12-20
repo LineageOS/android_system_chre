@@ -135,6 +135,8 @@ CHRE_MESSAGE_ROUTER_MEMORY_REGION
 std::optional<HostMessageHubManager> gHostMessageHubManager;
 #endif  // CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
 
+std::optional<EventLoop> gEventLoop;
+
 static const char *kChreVersionString = chre::getChreVersionString();
 
 BleSocketManager *getBleSocketManager() {
@@ -243,6 +245,12 @@ void deinitMessageRouter() {
 }  // namespace
 
 void initCommon() {
+  gEventLoop.emplace();
+  pw::span<EventLoop> span(&gEventLoop.value(), 1);
+  initCommon(span);
+}
+
+void initCommon(pw::span<EventLoop> eventLoops) {
   LOGI("CHRE init, version: %s", kChreVersionString);
 
   SystemTime::init();
@@ -250,7 +258,7 @@ void initCommon() {
   initMessageRouter();
 
   EventLoopManagerSingleton::init(
-      getBleSocketManager(), initAndGetGnssManager(),
+      eventLoops, getBleSocketManager(), initAndGetGnssManager(),
       initAndGetWifiRequestManager(), initAndGetWwanRequestManager(),
       initAndGetChreMessageHubManager(), initAndGetHostMessageHubManager());
 }
@@ -263,9 +271,11 @@ void deinitCommon() {
   deinitChreMessageHubManager();
   deinitHostMessageHubManager();
 
+  // The event loop manager must be deinitialized after other managers to avoid
+  // issues in case manager destructors reference the singleton.
   EventLoopManagerSingleton::deinit();
-
   deinitMessageRouter();
+  gEventLoop.reset();
   LOGD("CHRE deinit");
 }
 

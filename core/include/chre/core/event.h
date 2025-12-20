@@ -18,8 +18,10 @@
 #define CHRE_CORE_EVENT_H_
 
 #include "chre/platform/assert.h"
+#include "chre/platform/atomic.h"
 #include "chre/util/non_copyable.h"
 #include "chre/util/system/system_callback_type.h"
+#include "chre/variant/config.h"
 #include "chre_api/chre/event.h"
 
 #include <cstdint>
@@ -41,6 +43,10 @@ constexpr uint16_t kInvalidInstanceId = kBroadcastInstanceId;
 //! registered for it.
 constexpr uint16_t kDefaultTargetGroupMask = 0;
 
+static_assert(!(CHRE_MULTI_THREADING_ENABLED && !CHRE_ATOMIC_UINT8_ENABLED),
+              "CHRE_ATOMIC_UINT8_ENABLED must be enabled when "
+              "CHRE_MULTI_THREADING_ENABLED is enabled.");
+
 class Event : public NonCopyable {
  public:
   Event() = delete;
@@ -50,7 +56,8 @@ class Event : public NonCopyable {
         chreEventCompleteFunction *freeCallback_, bool isLowPriority_,
         uint16_t senderInstanceId_ = kSystemInstanceId,
         uint16_t targetInstanceId_ = kBroadcastInstanceId,
-        uint16_t targetAppGroupMask_ = kDefaultTargetGroupMask)
+        uint16_t targetAppGroupMask_ = kDefaultTargetGroupMask,
+        uint8_t initialRefCount = 1)
       : eventType(eventType_),
         receivedTimeMillis(getTimeMillis()),
         eventData(eventData_),
@@ -59,6 +66,7 @@ class Event : public NonCopyable {
         targetInstanceId(targetInstanceId_),
         targetAppGroupMask(targetAppGroupMask_),
         isLowPriority(isLowPriority_) {
+    mRefCount = initialRefCount;
     // Sending events to the system must only be done via the other constructor
     CHRE_ASSERT(targetInstanceId_ != kSystemInstanceId);
   }
@@ -79,14 +87,32 @@ class Event : public NonCopyable {
     CHRE_ASSERT(systemEventCallback_ != nullptr);
   }
 
+  /**
+   * Atomically increments the reference count of the event by 1.
+   */
   void incrementRefCount() {
+    // TODO(b/435246073): Add support for ++/-- in atomic, and optimize
+    // atomic operations in this function and in decrementRefCount().
+#if CHRE_ATOMIC_UINT8_ENABLED
+    mRefCount.fetch_increment();
+#else
     mRefCount++;
+#endif  // CHRE_ATOMIC_UINT8_ENABLED
     CHRE_ASSERT(mRefCount != 0);
   }
 
-  void decrementRefCount() {
+  /**
+   * Atomically decrements the reference count of the event by 1.
+   *
+   * @return The previous value of the object.
+   */
+  uint8_t decrementRefCount() {
     CHRE_ASSERT(mRefCount > 0);
-    mRefCount--;
+#if CHRE_ATOMIC_UINT8_ENABLED
+    return mRefCount.fetch_decrement();
+#else
+    return mRefCount--;
+#endif  // CHRE_ATOMIC_UINT8_ENABLED
   }
 
   bool isUnreferenced() const {
@@ -147,7 +173,11 @@ class Event : public NonCopyable {
   const bool isLowPriority;
 
  private:
-  uint8_t mRefCount = 0;
+#if CHRE_MULTI_THREADING_ENABLED
+  AtomicUint8 mRefCount = 1;
+#else
+  uint8_t mRefCount = 1;
+#endif  // CHRE_MULTI_THREADING_ENABLED
 };
 
 }  // namespace chre

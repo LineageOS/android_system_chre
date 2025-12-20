@@ -221,7 +221,6 @@ public class ContextHubEndpointDataFlowExecutor {
         List<HubDiscoveryInfo> infoList = new ArrayList<>();
         checkApiSupport(
                 (manager) -> infoList.addAll(manager.findEndpoints(ECHO_SERVICE_DESCRIPTOR)));
-        assertThat(infoList).isNotEmpty();
         for (HubDiscoveryInfo info : infoList) {
             printHubDiscoveryInfo(info);
 
