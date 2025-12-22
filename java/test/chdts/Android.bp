@@ -38,7 +38,8 @@ tradefed_binary_host {
     ],
     required: [
         "compatibility-host-util",
-        "ChdtsTestApp",
+        // TODO(b/467212059): uncomment this after the test app moved to open source dir
+        // "ChdtsTestApp",
     ],
 }
 

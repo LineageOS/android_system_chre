@@ -27,9 +27,10 @@ java_test_host {
     test_suites: [
         "chdts",
     ],
-    device_common_data: [
-        ":ChdtsTestApp",
-    ],
+    // TODO(b/467212059): uncomment this after test app moved to open source dir
+    // device_common_data: [
+    //     ":ChdtsTestApp",
+    // ],
     data: [
         "permissions/**/*.xml",
     ],
