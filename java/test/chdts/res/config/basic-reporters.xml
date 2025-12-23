@@ -13,12 +13,5 @@
      See the License for the specific language governing permissions and
      limitations under the License.
 -->
-<configuration description="Runs the Context Hub Development Test Suite">
-    <option name="test-suite-tag" value="chdts" />
-    <include name="everything" />
-
-    <result_reporter class="com.android.tradefed.result.ConsoleResultReporter">
-        <option name="suppress-passed-tests" value="true" />
-    </result_reporter>
-    <template-include name="reporters" default="basic-reporters" />
+<configuration description="Configuration with basic CHDTS reporters" >
 </configuration>
