@@ -51,7 +51,7 @@ DLL_EXPORT uint32_t chreBleGetFilterCapabilities() {
 
 DLL_EXPORT bool chreBleStartScanAsync(enum chreBleScanMode mode,
                                       uint32_t reportDelayMs,
-                                      const struct chreBleScanFilter *filter) {
+                                      const struct chreBleScanFilter* filter) {
   FakeChreApiProvider::GetInstance()->GetFakeDetector()->chreBleStartScanAsync(
       mode, reportDelayMs, filter);
   return FakeChreApiProvider::GetInstance()
@@ -61,7 +61,7 @@ DLL_EXPORT bool chreBleStartScanAsync(enum chreBleScanMode mode,
 
 DLL_EXPORT bool chreBleStartScanAsyncV1_9(
     enum chreBleScanMode mode, uint32_t reportDelayMs,
-    const struct chreBleScanFilterV1_9 *filter, const void *cookie) {
+    const struct chreBleScanFilterV1_9* filter, const void* cookie) {
   FakeChreApiProvider::GetInstance()
       ->GetFakeDetector()
       ->chreBleStartScanAsyncV1_9(mode, reportDelayMs, filter, cookie);
@@ -77,7 +77,7 @@ DLL_EXPORT bool chreBleStopScanAsync() {
       ->StopScanAsync();
 }
 
-DLL_EXPORT bool chreBleStopScanAsyncV1_9(const void *cookie) {
+DLL_EXPORT bool chreBleStopScanAsyncV1_9(const void* cookie) {
   FakeChreApiProvider::GetInstance()
       ->GetFakeDetector()
       ->chreBleStopScanAsyncV1_9(cookie);
@@ -86,7 +86,7 @@ DLL_EXPORT bool chreBleStopScanAsyncV1_9(const void *cookie) {
       ->StopScanAsyncV1_9(cookie);
 }
 
-DLL_EXPORT bool chreBleFlushAsync(const void *absl_nullable cookie) {
+DLL_EXPORT bool chreBleFlushAsync(const void* absl_nullable cookie) {
   FakeChreApiProvider::GetInstance()->GetFakeDetector()->chreBleFlushAsync(
       cookie);
   return FakeChreApiProvider::GetInstance()
@@ -95,7 +95,7 @@ DLL_EXPORT bool chreBleFlushAsync(const void *absl_nullable cookie) {
 }
 
 DLL_EXPORT bool chreBleReadRssiAsync(uint16_t connectionHandle,
-                                     const void *cookie) {
+                                     const void* cookie) {
   FakeChreApiProvider::GetInstance()->GetFakeDetector()->chreBleReadRssiAsync(
       connectionHandle, cookie);
   return FakeChreApiProvider::GetInstance()
@@ -103,7 +103,7 @@ DLL_EXPORT bool chreBleReadRssiAsync(uint16_t connectionHandle,
       ->ReadRssiAsync(connectionHandle, cookie);
 }
 
-DLL_EXPORT bool chreBleGetScanStatus(struct chreBleScanStatus *status) {
+DLL_EXPORT bool chreBleGetScanStatus(struct chreBleScanStatus* status) {
   FakeChreApiProvider::GetInstance()->GetFakeDetector()->chreBleGetScanStatus(
       status);
   return FakeChreApiProvider::GetInstance()
@@ -120,8 +120,8 @@ DLL_EXPORT bool chreBleSocketAccept(uint64_t socketId) {
 }
 
 DLL_EXPORT int32_t
-chreBleSocketSend(uint64_t socketId, const void *data, uint16_t length,
-                  chreBleSocketPacketFreeFunction *freeCallback) {
+chreBleSocketSend(uint64_t socketId, const void* data, uint16_t length,
+                  chreBleSocketPacketFreeFunction* freeCallback) {
   FakeChreApiProvider::GetInstance()->GetFakeDetector()->chreBleSocketSend(
       socketId, data, length, freeCallback);
   return FakeChreApiProvider::GetInstance()
@@ -135,21 +135,30 @@ namespace contexthub {
 // Create the functions that perform what would actually be run in the linux
 // simulator.
 uint32_t ChreApiBleFunctions::GetCapabilities() {
+#ifdef CHRE_BLE_SUPPORT_ENABLED
   return EventLoopManagerSingleton::get()
       ->getBleRequestManager()
       .getCapabilities();
+#else
+  return CHRE_BLE_CAPABILITIES_NONE;
+#endif  // CHRE_BLE_SUPPORT_ENABLED
 }
 
 uint32_t ChreApiBleFunctions::GetFilterCapabilities() {
+#ifdef CHRE_BLE_SUPPORT_ENABLED
   return EventLoopManagerSingleton::get()
       ->getBleRequestManager()
       .getFilterCapabilities();
+#else
+  return CHRE_BLE_FILTER_CAPABILITIES_NONE;
+#endif  // CHRE_BLE_SUPPORT_ENABLED
 }
 
 bool ChreApiBleFunctions::StartScanAsync(
     chreBleScanMode mode, uint32_t reportDelayMs,
-    const struct chreBleScanFilter *filter) {
-  chre::Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+    const struct chreBleScanFilter* filter) {
+#ifdef CHRE_BLE_SUPPORT_ENABLED
+  chre::Nanoapp* nanoapp = EventLoopManager::validateChreApiCall(__func__);
   if (filter == nullptr) {
     return EventLoopManagerSingleton::get()
         ->getBleRequestManager()
@@ -166,55 +175,76 @@ bool ChreApiBleFunctions::StartScanAsync(
       ->getBleRequestManager()
       .startScanAsync(nanoapp, mode, reportDelayMs, &filter_v1_9,
                       nullptr /* cookie */);
+#else
+  return false;
+#endif  // CHRE_BLE_SUPPORT_ENABLED
 }
 
 bool ChreApiBleFunctions::StartScanAsyncV1_9(
     chreBleScanMode mode, uint32_t reportDelayMs,
-    const struct chreBleScanFilterV1_9 *filter, const void *cookie) {
-  chre::Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+    const struct chreBleScanFilterV1_9* filter, const void* cookie) {
+#ifdef CHRE_BLE_SUPPORT_ENABLED
+  chre::Nanoapp* nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return EventLoopManagerSingleton::get()
       ->getBleRequestManager()
       .startScanAsync(nanoapp, mode, reportDelayMs, filter, cookie);
+#else
+  return false;
+#endif  // CHRE_BLE_SUPPORT_ENABLED
 }
 
 bool ChreApiBleFunctions::StopScanAsync() {
-  chre::Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+#ifdef CHRE_BLE_SUPPORT_ENABLED
+  chre::Nanoapp* nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return EventLoopManagerSingleton::get()->getBleRequestManager().stopScanAsync(
       nanoapp, nullptr);
+#else
+  return false;
+#endif  // CHRE_BLE_SUPPORT_ENABLED
 }
 
-bool ChreApiBleFunctions::StopScanAsyncV1_9(const void *cookie) {
-  chre::Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+bool ChreApiBleFunctions::StopScanAsyncV1_9(const void* cookie) {
+#ifdef CHRE_BLE_SUPPORT_ENABLED
+  chre::Nanoapp* nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return EventLoopManagerSingleton::get()->getBleRequestManager().stopScanAsync(
       nanoapp, cookie);
+#else
+  return false;
+#endif  // CHRE_BLE_SUPPORT_ENABLED
 }
 
-bool ChreApiBleFunctions::FlushAsync(const void * /* cookie */) {
+bool ChreApiBleFunctions::FlushAsync(const void* /* cookie */) {
   // TODO (b/254723363): When flush is implemented in CHRE, call
   // BleRequestManager.flushAsync() here.
   return false;
 }
 
 bool ChreApiBleFunctions::ReadRssiAsync(uint16_t connectionHandle,
-                                        const void *cookie) {
-  chre::Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+                                        const void* cookie) {
+#ifdef CHRE_BLE_SUPPORT_ENABLED
+  chre::Nanoapp* nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return EventLoopManagerSingleton::get()->getBleRequestManager().readRssiAsync(
       nanoapp, connectionHandle, cookie);
+#else
+  return false;
+#endif  // CHRE_BLE_SUPPORT_ENABLED
 }
 
 bool ChreApiBleFunctions::GetScanStatus(
-    struct chreBleScanStatus * /* status */) {
+    struct chreBleScanStatus* /* status */) {
   return false;
 }
 
-bool ChreApiBleFunctions::SocketAccept(uint64_t /* socketId */) {
-  return true;
-}
+bool ChreApiBleFunctions::SocketAccept(uint64_t /* socketId */) { return true; }
 
 int32_t ChreApiBleFunctions::SocketSend(
-    uint64_t /* socketId */, const void * /* data */, uint16_t /* length */,
-    chreBleSocketPacketFreeFunction * /* freeCallback */) {
+    uint64_t /* socketId */, const void* /* data */, uint16_t /* length */,
+    chreBleSocketPacketFreeFunction* /* freeCallback */) {
+#ifdef CHRE_BLE_SUPPORT_ENABLED
   return chreBleSocketSendStatus::CHRE_BLE_SOCKET_SEND_STATUS_SUCCESS;
+#else
+  return chreBleSocketSendStatus::CHRE_ERROR_NOT_SUPPORTED;
+#endif  // CHRE_BLE_SUPPORT_ENABLED
 }
 
 }  // namespace contexthub

@@ -19,6 +19,7 @@
 #include "absl/base/nullability.h"
 #include "chre/core/event_loop.h"
 #include "chre/core/event_loop_manager.h"
+#include "chre/core/nanoapp.h"
 #include "chre/util/macros.h"
 #include "chre_api/chre/re.h"
 #include "location/lbs/contexthub/test_suite/chre_fake_api/chre_api_fake_provider.h"
@@ -41,7 +42,7 @@ DLL_EXPORT uint32_t chreGnssGetCapabilities(void) {
 
 DLL_EXPORT bool chreGnssLocationSessionStartAsync(uint32_t minIntervalMs,
                                                   uint32_t minTimeToNextFixMs,
-                                                  const void *cookie) {
+                                                  const void* cookie) {
   FakeChreApiProvider::GetInstance()
       ->GetFakeDetector()
       ->chreGnssLocationSessionStartAsync(
@@ -53,7 +54,7 @@ DLL_EXPORT bool chreGnssLocationSessionStartAsync(uint32_t minIntervalMs,
       ->LocationSessionStartAsync(minIntervalMs, minTimeToNextFixMs, cookie);
 }
 
-DLL_EXPORT bool chreGnssLocationSessionStopAsync(const void *cookie) {
+DLL_EXPORT bool chreGnssLocationSessionStopAsync(const void* cookie) {
   FakeChreApiProvider::GetInstance()
       ->GetFakeDetector()
       ->chreGnssLocationSessionStopAsync(/*cookie=*/cookie);
@@ -63,7 +64,7 @@ DLL_EXPORT bool chreGnssLocationSessionStopAsync(const void *cookie) {
 }
 
 DLL_EXPORT bool chreGnssMeasurementSessionStartAsync(
-    uint32_t minIntervalMs, const void *absl_nullable cookie) {
+    uint32_t minIntervalMs, const void* absl_nullable cookie) {
   FakeChreApiProvider::GetInstance()
       ->GetFakeDetector()
       ->chreGnssMeasurementSessionStartAsync(/*minIntervalMs=*/minIntervalMs,
@@ -74,7 +75,7 @@ DLL_EXPORT bool chreGnssMeasurementSessionStartAsync(
 }
 
 DLL_EXPORT bool chreGnssMeasurementSessionStopAsync(
-    const void *absl_nullable cookie) {
+    const void* absl_nullable cookie) {
   FakeChreApiProvider::GetInstance()
       ->GetFakeDetector()
       ->chreGnssMeasurementSessionStopAsync(/*cookie=*/cookie);
@@ -98,50 +99,74 @@ namespace contexthub {
 // simulator.
 
 uint32_t ChreApiGnssFunctions::GetCapabilities() {
+#ifdef CHRE_GNSS_SUPPORT_ENABLED
   return EventLoopManagerSingleton::get()->getGnssManager().getCapabilities();
+#else
+  return CHRE_GNSS_CAPABILITIES_NONE;
+#endif  // CHRE_GNSS_SUPPORT_ENABLED
 }
 
 bool ChreApiGnssFunctions::LocationSessionStartAsync(
-    uint32_t minIntervalMs, uint32_t minTimeToNextFixMs, const void *cookie) {
-  chre::Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+    uint32_t minIntervalMs, uint32_t minTimeToNextFixMs, const void* cookie) {
+#ifdef CHRE_GNSS_SUPPORT_ENABLED
+  chre::Nanoapp* nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return EventLoopManagerSingleton::get()
       ->getGnssManager()
       .getLocationSession()
       .addRequest(nanoapp, Milliseconds(minIntervalMs),
                   Milliseconds(minTimeToNextFixMs), cookie);
+#else
+  return false;
+#endif  // CHRE_GNSS_SUPPORT_ENABLED
 }
 
-bool ChreApiGnssFunctions::LocationSessionStopAsync(const void *cookie) {
-  chre::Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+bool ChreApiGnssFunctions::LocationSessionStopAsync(const void* cookie) {
+#ifdef CHRE_GNSS_SUPPORT_ENABLED
+  chre::Nanoapp* nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return EventLoopManagerSingleton::get()
       ->getGnssManager()
       .getLocationSession()
       .removeRequest(nanoapp, cookie);
+#else
+  return false;
+#endif  // CHRE_GNSS_SUPPORT_ENABLED
 }
 
 bool ChreApiGnssFunctions::MeasurementSessionStartAsync(uint32_t minIntervalMs,
-                                                        const void *cookie) {
-  chre::Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+                                                        const void* cookie) {
+#ifdef CHRE_GNSS_SUPPORT_ENABLED
+  chre::Nanoapp* nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return EventLoopManagerSingleton::get()
       ->getGnssManager()
       .getMeasurementSession()
       .addRequest(nanoapp, Milliseconds(minIntervalMs),
                   /*minTimeToNext=*/Milliseconds(0), cookie);
+#else
+  return false;
+#endif  // CHRE_GNSS_SUPPORT_ENABLED
 }
 
-bool ChreApiGnssFunctions::MeasurementSessionStopAsync(const void *cookie) {
-  chre::Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+bool ChreApiGnssFunctions::MeasurementSessionStopAsync(const void* cookie) {
+#ifdef CHRE_GNSS_SUPPORT_ENABLED
+  chre::Nanoapp* nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return EventLoopManagerSingleton::get()
       ->getGnssManager()
       .getMeasurementSession()
       .removeRequest(nanoapp, cookie);
+#else
+  return false;
+#endif  // CHRE_GNSS_SUPPORT_ENABLED
 }
 
 bool ChreApiGnssFunctions::ConfigurePassiveLocationListener(bool enable) {
-  chre::Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+#ifdef CHRE_GNSS_SUPPORT_ENABLED
+  chre::Nanoapp* nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return EventLoopManagerSingleton::get()
       ->getGnssManager()
       .configurePassiveLocationListener(nanoapp, enable);
+#else
+  return false;
+#endif  // CHRE_GNSS_SUPPORT_ENABLED
 }
 
 }  // namespace contexthub
