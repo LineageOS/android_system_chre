@@ -57,9 +57,12 @@ android_test_helper_app {
     certificate: ":unbundled_google.app",
     additional_certificates: [":com_google_android_gms-rotation-2020"],
     lineage: ":com_google_android_gms-rotation-2020.lineage",
-    defaults: [
-        "xts_defaults",
-    ],
+    dex_preopt: {
+        enabled: false,
+    },
+    optimize: {
+        enabled: false,
+    },
 
     // Add dist target for requiring signing
     dist: {
