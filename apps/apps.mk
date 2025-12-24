@@ -36,3 +36,6 @@ include apps/sensor_world/sensor_world.mk
 include apps/spammer/spammer.mk
 include apps/timer_world/timer_world.mk
 include apps/unload_tester/unload_tester.mk
+
+# Test static nanoapps
+include apps/test/chqts/build/do_nothing/do_nothing.mk

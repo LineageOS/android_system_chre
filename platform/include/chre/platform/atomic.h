@@ -111,6 +111,24 @@ class AtomicUint8 : public AtomicUint8Base, public NonCopyable {
   }
 
   /**
+   * Atomically increments the value stored in the atomic object by 1.
+   *
+   * @return The previous value of the object.
+   */
+  uint8_t operator++(int) {
+    return fetch_increment();
+  }
+
+  /**
+   * Atomically decrements the value stored in the atomic object by 1.
+   *
+   * @return The previous value of the object.
+   */
+  uint8_t operator--(int) {
+    return fetch_decrement();
+  }
+
+  /**
    * Atomically loads the current value of the atomic object.
    *
    * @return The current value of the object.
@@ -198,6 +216,24 @@ class AtomicUint32 : public AtomicUint32Base, public NonCopyable {
    */
   operator uint32_t() const {
     return load();
+  }
+
+  /**
+   * Atomically increments the value stored in the atomic object by 1.
+   *
+   * @return The previous value of the object.
+   */
+  uint32_t operator++(int) {
+    return fetch_increment();
+  }
+
+  /**
+   * Atomically decrements the value stored in the atomic object by 1.
+   *
+   * @return The previous value of the object.
+   */
+  uint32_t operator--(int) {
+    return fetch_decrement();
   }
 
   /**

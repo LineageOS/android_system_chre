@@ -23,3 +23,5 @@
 #pragma once
 
 #define CHRE_MULTI_THREADING_ENABLED 0
+
+#define CHRE_ATOMIC_UINT8_ENABLED 1

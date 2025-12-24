@@ -185,3 +185,17 @@ pw_add_library(chre.platform.linux.system_timer STATIC
     chre.platform.system_timer.facade
     chre.util
 )
+
+pw_add_library(chre.platform.linux.assert STATIC
+  HEADERS
+    include/chre/target_platform/assert.h
+    include/chre/platform/linux/expect_assert.h
+  PUBLIC_INCLUDES
+    include/
+  PUBLIC_DEPS
+    chre.platform.shared.assert_func
+  SOURCES
+    assert.cc
+  PRIVATE_DEPS
+    chre.platform.log
+)

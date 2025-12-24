@@ -38,6 +38,9 @@ UniquePtr<Nanoapp> initializeStaticNanoappUnloadTester();
 UniquePtr<Nanoapp> initializeStaticNanoappWifiWorld();
 UniquePtr<Nanoapp> initializeStaticNanoappWwanWorld();
 
+// Test nanoapps
+UniquePtr<Nanoapp> initializeStaticNanoappDoNothing();
+
 }  // namespace chre
 
 #endif  // CHRE_APPS_APPS_H_

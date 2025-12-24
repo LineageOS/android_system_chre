@@ -91,14 +91,8 @@ class Event : public NonCopyable {
    * Atomically increments the reference count of the event by 1.
    */
   void incrementRefCount() {
-    // TODO(b/435246073): Add support for ++/-- in atomic, and optimize
-    // atomic operations in this function and in decrementRefCount().
-#if CHRE_ATOMIC_UINT8_ENABLED
-    mRefCount.fetch_increment();
-#else
-    mRefCount++;
-#endif  // CHRE_ATOMIC_UINT8_ENABLED
-    CHRE_ASSERT(mRefCount != 0);
+    auto prevValue = mRefCount++;
+    CHRE_ASSERT(prevValue != UINT8_MAX);
   }
 
   /**
@@ -107,12 +101,9 @@ class Event : public NonCopyable {
    * @return The previous value of the object.
    */
   uint8_t decrementRefCount() {
-    CHRE_ASSERT(mRefCount > 0);
-#if CHRE_ATOMIC_UINT8_ENABLED
-    return mRefCount.fetch_decrement();
-#else
-    return mRefCount--;
-#endif  // CHRE_ATOMIC_UINT8_ENABLED
+    auto prevValue = mRefCount--;
+    CHRE_ASSERT(prevValue != 0);
+    return prevValue;
   }
 
   bool isUnreferenced() const {
