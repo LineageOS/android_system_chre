@@ -118,7 +118,7 @@ pw::Result<BlockHeader *> allocateBlockRing(const AllocatorRegion &region,
     return pw::Status::InvalidArgument();
   }
   BlockHeader *head = nullptr, *prev = nullptr;
-  for (int i = 0; i < count; ++i) {
+  for (size_t i = 0; i < count; ++i) {
     if (auto *block = allocateBlock(*region.allocator, layout, blockCapacity,
                                     variableData);
         block) {
@@ -1114,7 +1114,7 @@ pw::Status ConsumerBase::updateAvailable() {
 
 pw::Status ConsumerBase::overwriteFastForward(size_t offset) {
   advanceReadIndex(mAvailable - offset, /*buf=*/std::nullopt);
-  mAvailable -= offset;
+  mAvailable = offset;
   return pw::OkStatus();
 }
 
