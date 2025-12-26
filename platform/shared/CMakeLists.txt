@@ -370,6 +370,11 @@ pw_add_library(chre.platform.shared.init STATIC
     init.cc
   PRIVATE_DEPS
     chre.core
+    chre.platform.assert
+    chre.platform.log
+    chre.platform.system_time
+    chre.platform.version
+    chre.util
 )
 
 pw_add_library(chre.platform.shared.loader_util INTERFACE
@@ -738,4 +743,71 @@ pw_add_library(chre.platform.shared.platform_wwan_pal STATIC
     chre.platform.platform_wwan.facade
     chre.platform.shared.pal_system_api
     chre.variant.config
+)
+
+pw_add_library(chre.platform.shared.system_time STATIC
+  SOURCES
+    system_time.cc
+  PRIVATE_DEPS
+    chre.platform.system_time.facade
+)
+
+pw_add_library(chre.platform.shared.platform_audio_pal STATIC
+  HEADERS
+    audio_pal/include/chre/target_platform/platform_audio_base.h
+  PUBLIC_INCLUDES
+    audio_pal/include
+  PUBLIC_DEPS
+    chre.pal.audio
+    chre.platform.shared.platform_pal
+  SOURCES
+    audio_pal/platform_audio.cc
+  PRIVATE_DEPS
+    chre.chre_api
+    chre.core
+    chre.platform.log
+    chre.platform.platform_audio.facade
+    chre.platform.shared.pal_system_api
+    chre.util
+)
+
+pw_add_library(chre.platform.shared.platform_sensor STATIC
+  HEADERS
+    sensor_pal/include/chre/target_platform/platform_sensor_base.h
+  PUBLIC_INCLUDES
+    sensor_pal/include
+  PUBLIC_DEPS
+    chre.chre_api
+  SOURCES
+    sensor_pal/platform_sensor.cc
+  PRIVATE_DEPS
+    chre.platform.platform_sensor.facade
+)
+
+pw_add_library(chre.platform.shared.platform_sensor_manager STATIC
+  HEADERS
+    sensor_pal/include/chre/target_platform/platform_sensor_manager_base.h
+  PUBLIC_INCLUDES
+    sensor_pal/include
+  PUBLIC_DEPS
+    chre.pal.sensor
+  SOURCES
+    sensor_pal/platform_sensor_manager.cc
+  PRIVATE_DEPS
+    chre.core
+    chre.platform.log
+    chre.platform.platform_sensor_manager.facade
+    chre.platform.shared.pal_system_api
+)
+
+pw_add_library(chre.platform.shared.platform_sensor_type_helpers STATIC
+  HEADERS
+    sensor_pal/include/chre/target_platform/platform_sensor_type_helpers_base.h
+  PUBLIC_INCLUDES
+    sensor_pal/include
+  SOURCES
+    sensor_pal/platform_sensor_type_helpers.cc
+  PRIVATE_DEPS
+    chre.platform.platform_sensor_type_helpers.facade
+    chre.util
 )
