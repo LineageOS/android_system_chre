@@ -22,6 +22,7 @@
 #include "absl/base/nullability.h"
 #include "chre/core/event_loop.h"
 #include "chre/core/event_loop_manager.h"
+#include "chre/core/nanoapp.h"
 #include "chre/platform/assert.h"
 #include "chre/platform/memory.h"
 #include "chre/platform/system_time.h"
@@ -45,7 +46,7 @@ DLL_EXPORT uint32_t chreWifiGetCapabilities() {
 }
 
 DLL_EXPORT bool chreWifiConfigureScanMonitorAsync(
-    bool enable, const void *absl_nullable cookie) {
+    bool enable, const void* absl_nullable cookie) {
   FakeChreApiProvider::GetInstance()
       ->GetFakeDetector()
       ->chreWifiConfigureScanMonitorAsync(enable, cookie);
@@ -54,8 +55,8 @@ DLL_EXPORT bool chreWifiConfigureScanMonitorAsync(
       ->ConfigureScanMonitorAsync(enable, cookie);
 }
 
-DLL_EXPORT bool chreWifiRequestScanAsync(const chreWifiScanParams *params,
-                                         const void *absl_nullable cookie) {
+DLL_EXPORT bool chreWifiRequestScanAsync(const chreWifiScanParams* params,
+                                         const void* absl_nullable cookie) {
   FakeChreApiProvider::GetInstance()
       ->GetFakeDetector()
       ->chreWifiRequestScanAsync(
@@ -65,8 +66,8 @@ DLL_EXPORT bool chreWifiRequestScanAsync(const chreWifiScanParams *params,
       ->RequestScanAsync(params, cookie);
 }
 
-DLL_EXPORT bool chreWifiRequestRangingAsync(const chreWifiRangingParams *params,
-                                            const void *cookie) {
+DLL_EXPORT bool chreWifiRequestRangingAsync(const chreWifiRangingParams* params,
+                                            const void* cookie) {
   FakeChreApiProvider::GetInstance()
       ->GetFakeDetector()
       ->chreWifiRequestRangingAsync(params, cookie);
@@ -82,22 +83,30 @@ namespace contexthub {
 // simulator.
 
 uint32_t ChreApiWifiFunctions::GetCapabilities() {
+#ifdef CHRE_WIFI_SUPPORT_ENABLED
   return chre::EventLoopManagerSingleton::get()
       ->getWifiRequestManager()
       .getCapabilities();
+#else
+  return CHRE_WIFI_CAPABILITIES_NONE;
+#endif  // CHRE_WIFI_SUPPORT_ENABLED
 }
 
 bool ChreApiWifiFunctions::ConfigureScanMonitorAsync(bool enable,
-                                                     const void *cookie) {
-  chre::Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+                                                     const void* cookie) {
+#ifdef CHRE_WIFI_SUPPORT_ENABLED
+  chre::Nanoapp* nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return EventLoopManagerSingleton::get()
       ->getWifiRequestManager()
       .configureScanMonitor(nanoapp, enable, cookie);
+#else
+  return false;
+#endif  // CHRE_WIFI_SUPPORT_ENABLED
 }
 
-bool ChreApiWifiFunctions::RequestScanAsync(const chreWifiScanParams *params,
-                                            const void *cookie) {
-  chre::Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+bool ChreApiWifiFunctions::RequestScanAsync(const chreWifiScanParams* params,
+                                            const void* cookie) {
+  chre::Nanoapp* nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return (params == nullptr) ? false
                              : EventLoopManagerSingleton::get()
                                    ->getWifiRequestManager()
@@ -105,12 +114,16 @@ bool ChreApiWifiFunctions::RequestScanAsync(const chreWifiScanParams *params,
 }
 
 bool ChreApiWifiFunctions::RequestRangingAsync(
-    const chreWifiRangingParams *params, const void *cookie) {
-  chre::Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+    const chreWifiRangingParams* params, const void* cookie) {
+#ifdef CHRE_WIFI_SUPPORT_ENABLED
+  chre::Nanoapp* nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return EventLoopManagerSingleton::get()
       ->getWifiRequestManager()
       .requestRanging(chre::WifiRequestManager::RangingType::WIFI_AP, nanoapp,
                       params, cookie);
+#else
+  return false;
+#endif  // CHRE_WIFI_SUPPORT_ENABLED
 }
 
 }  // namespace contexthub

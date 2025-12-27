@@ -37,7 +37,7 @@ using lbs::contexthub::FakeChreApiProvider;
 
 // Export API functions that can be faked using FakeChreAudioApi
 
-DLL_EXPORT bool chreAudioGetSource(uint32_t handle, AudioSource *audioSource) {
+DLL_EXPORT bool chreAudioGetSource(uint32_t handle, AudioSource* audioSource) {
   FakeChreApiProvider::GetInstance()->GetFakeDetector()->chreAudioGetSource(
       handle, audioSource);
   return FakeChreApiProvider::GetInstance()
@@ -57,7 +57,7 @@ DLL_EXPORT bool chreAudioConfigureSource(uint32_t handle, bool enable,
       ->ConfigureSource(handle, enable, bufferDuration, deliveryInterval);
 }
 
-DLL_EXPORT bool chreAudioGetStatus(uint32_t handle, AudioSourceStatus *status) {
+DLL_EXPORT bool chreAudioGetStatus(uint32_t handle, AudioSourceStatus* status) {
   FakeChreApiProvider::GetInstance()->GetFakeDetector()->chreAudioGetStatus(
       handle, status);
   return FakeChreApiProvider::GetInstance()
@@ -72,7 +72,8 @@ namespace contexthub {
 // simulator.
 
 bool ChreApiAudioFunctions::GetSource(uint32_t handle,
-                                      AudioSource *audioSource) {
+                                      AudioSource* audioSource) {
+#ifdef CHRE_AUDIO_SUPPORT_ENABLED
   bool success = false;
   if (audioSource != nullptr) {
     success = EventLoopManagerSingleton::get()
@@ -80,20 +81,27 @@ bool ChreApiAudioFunctions::GetSource(uint32_t handle,
                   .getAudioSource(handle, audioSource);
   }
   return success;
+#else
+  return false;
+#endif  // CHRE_AUDIO_SUPPORT_ENABLED
 }
 
 bool ChreApiAudioFunctions::ConfigureSource(uint32_t handle, bool enable,
                                             uint64_t bufferDuration,
                                             uint64_t deliveryInterval) {
-  chre::Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+#ifdef CHRE_AUDIO_SUPPORT_ENABLED
+  chre::Nanoapp* nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return EventLoopManagerSingleton::get()
       ->getAudioRequestManager()
       .configureSource(nanoapp, handle, enable, bufferDuration,
                        deliveryInterval);
+#else
+  return false;
+#endif  // CHRE_AUDIO_SUPPORT_ENABLED
 }
 
 bool ChreApiAudioFunctions::GetStatus(uint32_t /* handle */,
-                                      AudioSourceStatus * /* status */) {
+                                      AudioSourceStatus* /* status */) {
   return false;
 }
 

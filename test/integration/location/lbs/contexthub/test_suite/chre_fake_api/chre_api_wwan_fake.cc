@@ -21,6 +21,7 @@
 #include "absl/base/nullability.h"
 #include "chre/core/event_loop.h"
 #include "chre/core/event_loop_manager.h"
+#include "chre/core/nanoapp.h"
 #include "chre/core/wwan_request_manager.h"
 #include "chre/util/macros.h"
 #include "location/lbs/contexthub/test_suite/chre_fake_api/chre_api_fake_provider.h"
@@ -40,7 +41,7 @@ DLL_EXPORT uint32_t chreWwanGetCapabilities() {
       ->GetCapabilities();
 }
 
-DLL_EXPORT bool chreWwanGetCellInfoAsync(const void *absl_nullable cookie) {
+DLL_EXPORT bool chreWwanGetCellInfoAsync(const void* absl_nullable cookie) {
   FakeChreApiProvider::GetInstance()
       ->GetFakeDetector()
       ->chreWwanGetCellInfoAsync(cookie);
@@ -56,16 +57,24 @@ namespace contexthub {
 // simulator.
 
 uint32_t ChreApiWwanFunctions::GetCapabilities() {
+#ifdef CHRE_WWAN_SUPPORT_ENABLED
   return chre::EventLoopManagerSingleton::get()
       ->getWwanRequestManager()
       .getCapabilities();
+#else
+  return CHRE_WWAN_CAPABILITIES_NONE;
+#endif  // CHRE_WWAN_SUPPORT_ENABLED
 }
 
-bool ChreApiWwanFunctions::GetCellInfoAsync(const void *cookie) {
-  chre::Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+bool ChreApiWwanFunctions::GetCellInfoAsync(const void* cookie) {
+#ifdef CHRE_WWAN_SUPPORT_ENABLED
+  chre::Nanoapp* nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return chre::EventLoopManagerSingleton::get()
       ->getWwanRequestManager()
       .requestCellInfo(nanoapp, cookie);
+#else
+  return false;
+#endif  // CHRE_WWAN_SUPPORT_ENABLED
 }
 
 }  // namespace contexthub
