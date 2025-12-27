@@ -51,6 +51,7 @@ pw_add_facade(chre.platform.context INTERFACE
   PUBLIC_INCLUDES
     include
   PUBLIC_DEPS
+    chre.core
     chre.variant.config
 )
 

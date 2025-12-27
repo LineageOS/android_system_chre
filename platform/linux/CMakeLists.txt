@@ -1,13 +1,3 @@
-pw_add_library(chre.platform.linux.context STATIC
-  SOURCES
-    context.cc
-  PRIVATE_DEPS
-    chre.core
-    chre.platform.context.facade
-    chre.platform.linux.thread_context
-    chre.variant.config
-)
-
 pw_add_library(chre.platform.linux.fatal_error STATIC
   HEADERS
     public_fatal_error/chre/target_platform/fatal_error.h
@@ -151,13 +141,18 @@ pw_add_library(chre.platform.linux.task_util.task STATIC
 )
 
 
-pw_add_library(chre.platform.linux.thread_context INTERFACE
+pw_add_library(chre.platform.linux.thread_context STATIC
   HEADERS
     include/chre/platform/linux/thread_context.h
   PUBLIC_INCLUDES
     include
   PUBLIC_DEPS
     chre.core
+  SOURCES
+    context.cc
+  PRIVATE_DEPS
+    chre.platform.context.facade
+    chre.variant.config
 )
 
 pw_add_library(chre.platform.linux.system_time STATIC
@@ -198,4 +193,15 @@ pw_add_library(chre.platform.linux.assert STATIC
     assert.cc
   PRIVATE_DEPS
     chre.platform.log
+)
+
+pw_add_library(chre.platform.linux.memory STATIC
+  HEADERS
+    include/chre/target_platform/memory_impl.h
+  PUBLIC_INCLUDES
+    include/
+  SOURCES
+    memory.cc
+  PRIVATE_DEPS
+    chre.platform.memory.facade
 )
