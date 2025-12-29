@@ -33,6 +33,10 @@ struct SensorRequestMessage;
 struct SensorRequestMessageBuilder;
 struct SensorRequestMessageT;
 
+struct SensorRequestArrayMessage;
+struct SensorRequestArrayMessageBuilder;
+struct SensorRequestArrayMessageT;
+
 struct BreakItMessage;
 struct BreakItMessageBuilder;
 struct BreakItMessageT;
@@ -86,11 +90,13 @@ enum class MessageType : uint32_t {
   WIFI_NAN_SUB_CANCEL = 11,
   /// Should be used with WifiNanSubResponseMessage
   WIFI_NAN_SUB_RESP = 12,
+  /// Should be used with SensorRequestArrayMessage
+  SENSOR_REQUEST_ARRAY_TEST = 13,
   MIN = UNSPECIFIED,
-  MAX = WIFI_NAN_SUB_RESP
+  MAX = SENSOR_REQUEST_ARRAY_TEST
 };
 
-inline const MessageType (&EnumValuesMessageType())[13] {
+inline const MessageType (&EnumValuesMessageType())[14] {
   static const MessageType values[] = {
     MessageType::UNSPECIFIED,
     MessageType::TIMER_TEST,
@@ -104,13 +110,14 @@ inline const MessageType (&EnumValuesMessageType())[13] {
     MessageType::GNSS_MEASUREMENT_TEST,
     MessageType::WIFI_NAN_SUB,
     MessageType::WIFI_NAN_SUB_CANCEL,
-    MessageType::WIFI_NAN_SUB_RESP
+    MessageType::WIFI_NAN_SUB_RESP,
+    MessageType::SENSOR_REQUEST_ARRAY_TEST
   };
   return values;
 }
 
 inline const char * const *EnumNamesMessageType() {
-  static const char * const names[14] = {
+  static const char * const names[15] = {
     "UNSPECIFIED",
     "TIMER_TEST",
     "WIFI_SCAN_TEST",
@@ -124,13 +131,14 @@ inline const char * const *EnumNamesMessageType() {
     "WIFI_NAN_SUB",
     "WIFI_NAN_SUB_CANCEL",
     "WIFI_NAN_SUB_RESP",
+    "SENSOR_REQUEST_ARRAY_TEST",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameMessageType(MessageType e) {
-  if (flatbuffers::IsOutRange(e, MessageType::UNSPECIFIED, MessageType::WIFI_NAN_SUB_RESP)) return "";
+  if (flatbuffers::IsOutRange(e, MessageType::UNSPECIFIED, MessageType::SENSOR_REQUEST_ARRAY_TEST)) return "";
   const size_t index = static_cast<size_t>(e);
   return EnumNamesMessageType()[index];
 }
@@ -912,6 +920,77 @@ inline flatbuffers::Offset<SensorRequestMessage> CreateSensorRequestMessage(
 
 flatbuffers::Offset<SensorRequestMessage> CreateSensorRequestMessage(flatbuffers::FlatBufferBuilder &_fbb, const SensorRequestMessageT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
+struct SensorRequestArrayMessageT : public flatbuffers::NativeTable {
+  typedef SensorRequestArrayMessage TableType;
+  std::vector<std::unique_ptr<chre::power_test::SensorRequestMessageT>> requests;
+  SensorRequestArrayMessageT() {
+  }
+};
+
+/// Represents a message to ask the nanoapp to start / stop sampling / batching
+/// a given list of sensors
+struct SensorRequestArrayMessage FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef SensorRequestArrayMessageT NativeTableType;
+  typedef SensorRequestArrayMessageBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_REQUESTS = 4
+  };
+  const flatbuffers::Vector<flatbuffers::Offset<chre::power_test::SensorRequestMessage>> *requests() const {
+    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<chre::power_test::SensorRequestMessage>> *>(VT_REQUESTS);
+  }
+  flatbuffers::Vector<flatbuffers::Offset<chre::power_test::SensorRequestMessage>> *mutable_requests() {
+    return GetPointer<flatbuffers::Vector<flatbuffers::Offset<chre::power_test::SensorRequestMessage>> *>(VT_REQUESTS);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_REQUESTS) &&
+           verifier.VerifyVector(requests()) &&
+           verifier.VerifyVectorOfTables(requests()) &&
+           verifier.EndTable();
+  }
+  SensorRequestArrayMessageT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(SensorRequestArrayMessageT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<SensorRequestArrayMessage> Pack(flatbuffers::FlatBufferBuilder &_fbb, const SensorRequestArrayMessageT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct SensorRequestArrayMessageBuilder {
+  typedef SensorRequestArrayMessage Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_requests(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<chre::power_test::SensorRequestMessage>>> requests) {
+    fbb_.AddOffset(SensorRequestArrayMessage::VT_REQUESTS, requests);
+  }
+  explicit SensorRequestArrayMessageBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  SensorRequestArrayMessageBuilder &operator=(const SensorRequestArrayMessageBuilder &);
+  flatbuffers::Offset<SensorRequestArrayMessage> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<SensorRequestArrayMessage>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<SensorRequestArrayMessage> CreateSensorRequestArrayMessage(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<chre::power_test::SensorRequestMessage>>> requests = 0) {
+  SensorRequestArrayMessageBuilder builder_(_fbb);
+  builder_.add_requests(requests);
+  return builder_.Finish();
+}
+
+inline flatbuffers::Offset<SensorRequestArrayMessage> CreateSensorRequestArrayMessageDirect(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    const std::vector<flatbuffers::Offset<chre::power_test::SensorRequestMessage>> *requests = nullptr) {
+  auto requests__ = requests ? _fbb.CreateVector<flatbuffers::Offset<chre::power_test::SensorRequestMessage>>(*requests) : 0;
+  return chre::power_test::CreateSensorRequestArrayMessage(
+      _fbb,
+      requests__);
+}
+
+flatbuffers::Offset<SensorRequestArrayMessage> CreateSensorRequestArrayMessage(flatbuffers::FlatBufferBuilder &_fbb, const SensorRequestArrayMessageT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
 struct BreakItMessageT : public flatbuffers::NativeTable {
   typedef BreakItMessage TableType;
   bool enable;
@@ -1560,6 +1639,32 @@ inline flatbuffers::Offset<SensorRequestMessage> CreateSensorRequestMessage(flat
       _sensor,
       _sampling_interval_ns,
       _latency_ns);
+}
+
+inline SensorRequestArrayMessageT *SensorRequestArrayMessage::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  std::unique_ptr<chre::power_test::SensorRequestArrayMessageT> _o = std::unique_ptr<chre::power_test::SensorRequestArrayMessageT>(new SensorRequestArrayMessageT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void SensorRequestArrayMessage::UnPackTo(SensorRequestArrayMessageT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = requests(); if (_e) { _o->requests.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->requests[_i] = std::unique_ptr<chre::power_test::SensorRequestMessageT>(_e->Get(_i)->UnPack(_resolver)); } } }
+}
+
+inline flatbuffers::Offset<SensorRequestArrayMessage> SensorRequestArrayMessage::Pack(flatbuffers::FlatBufferBuilder &_fbb, const SensorRequestArrayMessageT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateSensorRequestArrayMessage(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<SensorRequestArrayMessage> CreateSensorRequestArrayMessage(flatbuffers::FlatBufferBuilder &_fbb, const SensorRequestArrayMessageT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const SensorRequestArrayMessageT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _requests = _o->requests.size() ? _fbb.CreateVector<flatbuffers::Offset<chre::power_test::SensorRequestMessage>> (_o->requests.size(), [](size_t i, _VectorArgs *__va) { return CreateSensorRequestMessage(*__va->__fbb, __va->__o->requests[i].get(), __va->__rehasher); }, &_va ) : 0;
+  return chre::power_test::CreateSensorRequestArrayMessage(
+      _fbb,
+      _requests);
 }
 
 inline BreakItMessageT *BreakItMessage::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
