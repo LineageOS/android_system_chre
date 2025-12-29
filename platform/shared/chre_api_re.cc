@@ -25,6 +25,7 @@
 
 using chre::EventLoopManager;
 using chre::EventLoopManagerSingleton;
+using chre::GlobalApiLockGuard;
 using chre::handleNanoappAbort;
 using chre::Nanoapp;
 
@@ -71,6 +72,7 @@ DLL_EXPORT uint64_t chreGetTime() {
 }
 
 DLL_EXPORT int64_t chreGetEstimatedHostTimeOffset() {
+  GlobalApiLockGuard lock;
   return chre::SystemTime::getEstimatedHostTimeOffset();
 }
 
@@ -87,12 +89,14 @@ DLL_EXPORT uint32_t chreGetInstanceId(void) {
 DLL_EXPORT uint32_t chreTimerSet(uint64_t duration, const void *cookie,
                                  bool oneShot) {
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+  GlobalApiLockGuard lock;
   return EventLoopManagerSingleton::get()->getTimerPool().setNanoappTimer(
       nanoapp, chre::Nanoseconds(duration), cookie, oneShot);
 }
 
 DLL_EXPORT bool chreTimerCancel(uint32_t timerId) {
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+  GlobalApiLockGuard lock;
   return EventLoopManagerSingleton::get()->getTimerPool().cancelNanoappTimer(
       nanoapp, timerId);
 }
@@ -108,12 +112,14 @@ DLL_EXPORT void chreAbort(uint32_t /* abortCode */) {
 
 DLL_EXPORT void *chreHeapAlloc(uint32_t bytes) {
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+  GlobalApiLockGuard lock;
   return EventLoopManagerSingleton::get()->getMemoryManager().nanoappAlloc(
       nanoapp, bytes);
 }
 
 DLL_EXPORT void chreHeapFree(void *ptr) {
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+  GlobalApiLockGuard lock;
   EventLoopManagerSingleton::get()->getMemoryManager().nanoappFree(nanoapp,
                                                                    ptr);
 }
@@ -121,6 +127,7 @@ DLL_EXPORT void chreHeapFree(void *ptr) {
 DLL_EXPORT void platform_chreDebugDumpVaLog(const char *formatStr,
                                             va_list args) {
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+  GlobalApiLockGuard lock;
   EventLoopManagerSingleton::get()->getDebugDumpManager().appendNanoappLog(
       *nanoapp, formatStr, args);
 }

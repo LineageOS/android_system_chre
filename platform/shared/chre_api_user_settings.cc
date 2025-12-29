@@ -22,16 +22,19 @@
 
 using chre::EventLoopManager;
 using chre::EventLoopManagerSingleton;
+using chre::GlobalApiLockGuard;
 using chre::Nanoapp;
 using chre::Setting;
 
 DLL_EXPORT int8_t chreUserSettingGetState(uint8_t setting) {
+  GlobalApiLockGuard lock;
   return EventLoopManagerSingleton::get()
       ->getSettingManager()
       .getSettingStateAsInt8(setting);
 }
 
 DLL_EXPORT void chreUserSettingConfigureEvents(uint8_t setting, bool enable) {
+  GlobalApiLockGuard lock;
   if (setting < static_cast<uint8_t>(Setting::SETTING_MAX)) {
     Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
     nanoapp->configureUserSettingEvent(setting, enable);
