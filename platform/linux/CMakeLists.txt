@@ -166,6 +166,8 @@ pw_add_library(chre.platform.linux.system_time STATIC
     system_time.cc
   PRIVATE_DEPS
     chre.platform.assert
+    chre.platform.shared.system_time
+    chre.platform.system_time.facade
 )
 
 pw_add_library(chre.platform.linux.system_timer STATIC
