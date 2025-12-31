@@ -73,6 +73,7 @@ bool ChreApiWwanFunctions::GetCellInfoAsync(const void* cookie) {
       ->getWwanRequestManager()
       .requestCellInfo(nanoapp, cookie);
 #else
+  UNUSED_VAR(cookie);
   return false;
 #endif  // CHRE_WWAN_SUPPORT_ENABLED
 }

@@ -128,6 +128,8 @@ bool ChreApiSensorFunctions::SensorFindDefault(uint8_t sensorType,
       .getSensorHandleForNanoapp(sensorType, CHRE_SENSOR_INDEX_DEFAULT,
                                  *nanoapp, handle);
 #else
+  UNUSED_VAR(sensorType);
+  UNUSED_VAR(handle);
   return false;
 #endif  // CHRE_SENSORS_SUPPORT_ENABLED
 }
@@ -140,6 +142,9 @@ bool ChreApiSensorFunctions::SensorFind(uint8_t sensorType, uint8_t sensorIndex,
       ->getSensorRequestManager()
       .getSensorHandleForNanoapp(sensorType, sensorIndex, *nanoapp, handle);
 #else
+  UNUSED_VAR(sensorType);
+  UNUSED_VAR(sensorIndex);
+  UNUSED_VAR(handle);
   return false;
 #endif  // CHRE_SENSORS_SUPPORT_ENABLED
 }
@@ -158,6 +163,8 @@ bool ChreApiSensorFunctions::SensorGetInfo(uint32_t sensorHandle,
   }
   return success;
 #else
+  UNUSED_VAR(sensorHandle);
+  UNUSED_VAR(info);
   return false;
 #endif  // CHRE_SENSORS_SUPPORT_ENABLED
 }
@@ -174,6 +181,8 @@ bool ChreApiSensorFunctions::SensorGetSamplingStatus(uint32_t sensorHandle,
   }
   return success;
 #else
+  UNUSED_VAR(sensorHandle);
+  UNUSED_VAR(status);
   return false;
 #endif  // CHRE_SENSORS_SUPPORT_ENABLED
 }
@@ -191,6 +200,10 @@ bool ChreApiSensorFunctions::SensorConfigure(uint32_t sensorHandle,
       ->getSensorRequestManager()
       .setSensorRequest(nanoapp, sensorHandle, sensorRequest);
 #else
+  UNUSED_VAR(sensorHandle);
+  UNUSED_VAR(mode);
+  UNUSED_VAR(interval);
+  UNUSED_VAR(latency);
   return false;
 #endif  // CHRE_SENSORS_SUPPORT_ENABLED
 }
@@ -210,6 +223,8 @@ bool ChreApiSensorFunctions::SensorGetThreeAxisBias(uint32_t sensorHandle,
       ->getSensorRequestManager()
       .getThreeAxisBias(sensorHandle, bias);
 #else
+  UNUSED_VAR(sensorHandle);
+  UNUSED_VAR(bias);
   return false;
 #endif  // CHRE_SENSORS_SUPPORT_ENABLED
 }
@@ -221,6 +236,8 @@ bool ChreApiSensorFunctions::SensorFlushAsync(uint32_t sensorHandle,
   return EventLoopManagerSingleton::get()->getSensorRequestManager().flushAsync(
       nanoapp, sensorHandle, cookie);
 #else
+  UNUSED_VAR(sensorHandle);
+  UNUSED_VAR(cookie);
   return false;
 #endif  // CHRE_SENSORS_SUPPORT_ENABLED
 }

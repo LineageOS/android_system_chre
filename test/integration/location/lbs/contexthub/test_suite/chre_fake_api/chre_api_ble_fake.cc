@@ -176,6 +176,9 @@ bool ChreApiBleFunctions::StartScanAsync(
       .startScanAsync(nanoapp, mode, reportDelayMs, &filter_v1_9,
                       nullptr /* cookie */);
 #else
+  UNUSED_VAR(mode);
+  UNUSED_VAR(reportDelayMs);
+  UNUSED_VAR(filter);
   return false;
 #endif  // CHRE_BLE_SUPPORT_ENABLED
 }
@@ -189,6 +192,10 @@ bool ChreApiBleFunctions::StartScanAsyncV1_9(
       ->getBleRequestManager()
       .startScanAsync(nanoapp, mode, reportDelayMs, filter, cookie);
 #else
+  UNUSED_VAR(mode);
+  UNUSED_VAR(reportDelayMs);
+  UNUSED_VAR(filter);
+  UNUSED_VAR(cookie);
   return false;
 #endif  // CHRE_BLE_SUPPORT_ENABLED
 }
@@ -209,6 +216,7 @@ bool ChreApiBleFunctions::StopScanAsyncV1_9(const void* cookie) {
   return EventLoopManagerSingleton::get()->getBleRequestManager().stopScanAsync(
       nanoapp, cookie);
 #else
+  UNUSED_VAR(cookie);
   return false;
 #endif  // CHRE_BLE_SUPPORT_ENABLED
 }
@@ -226,6 +234,8 @@ bool ChreApiBleFunctions::ReadRssiAsync(uint16_t connectionHandle,
   return EventLoopManagerSingleton::get()->getBleRequestManager().readRssiAsync(
       nanoapp, connectionHandle, cookie);
 #else
+  UNUSED_VAR(connectionHandle);
+  UNUSED_VAR(cookie);
   return false;
 #endif  // CHRE_BLE_SUPPORT_ENABLED
 }

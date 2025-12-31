@@ -100,6 +100,8 @@ bool ChreApiWifiFunctions::ConfigureScanMonitorAsync(bool enable,
       ->getWifiRequestManager()
       .configureScanMonitor(nanoapp, enable, cookie);
 #else
+  UNUSED_VAR(enable);
+  UNUSED_VAR(cookie);
   return false;
 #endif  // CHRE_WIFI_SUPPORT_ENABLED
 }
@@ -122,6 +124,8 @@ bool ChreApiWifiFunctions::RequestRangingAsync(
       .requestRanging(chre::WifiRequestManager::RangingType::WIFI_AP, nanoapp,
                       params, cookie);
 #else
+  UNUSED_VAR(params);
+  UNUSED_VAR(cookie);
   return false;
 #endif  // CHRE_WIFI_SUPPORT_ENABLED
 }

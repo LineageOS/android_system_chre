@@ -116,6 +116,9 @@ bool ChreApiGnssFunctions::LocationSessionStartAsync(
       .addRequest(nanoapp, Milliseconds(minIntervalMs),
                   Milliseconds(minTimeToNextFixMs), cookie);
 #else
+  UNUSED_VAR(minIntervalMs);
+  UNUSED_VAR(minTimeToNextFixMs);
+  UNUSED_VAR(cookie);
   return false;
 #endif  // CHRE_GNSS_SUPPORT_ENABLED
 }
@@ -128,6 +131,7 @@ bool ChreApiGnssFunctions::LocationSessionStopAsync(const void* cookie) {
       .getLocationSession()
       .removeRequest(nanoapp, cookie);
 #else
+  UNUSED_VAR(cookie);
   return false;
 #endif  // CHRE_GNSS_SUPPORT_ENABLED
 }
@@ -142,6 +146,8 @@ bool ChreApiGnssFunctions::MeasurementSessionStartAsync(uint32_t minIntervalMs,
       .addRequest(nanoapp, Milliseconds(minIntervalMs),
                   /*minTimeToNext=*/Milliseconds(0), cookie);
 #else
+  UNUSED_VAR(minIntervalMs);
+  UNUSED_VAR(cookie);
   return false;
 #endif  // CHRE_GNSS_SUPPORT_ENABLED
 }
@@ -154,6 +160,7 @@ bool ChreApiGnssFunctions::MeasurementSessionStopAsync(const void* cookie) {
       .getMeasurementSession()
       .removeRequest(nanoapp, cookie);
 #else
+  UNUSED_VAR(cookie);
   return false;
 #endif  // CHRE_GNSS_SUPPORT_ENABLED
 }
@@ -165,6 +172,7 @@ bool ChreApiGnssFunctions::ConfigurePassiveLocationListener(bool enable) {
       ->getGnssManager()
       .configurePassiveLocationListener(nanoapp, enable);
 #else
+  UNUSED_VAR(enable);
   return false;
 #endif  // CHRE_GNSS_SUPPORT_ENABLED
 }
