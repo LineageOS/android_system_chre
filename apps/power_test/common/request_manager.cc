@@ -118,6 +118,7 @@ using power_test::GnssLocationMessage;
 using power_test::GnssMeasurementMessage;
 using power_test::MessageType;
 using power_test::NanoappResponseMessage;
+using power_test::SensorRequestArrayMessage;
 using power_test::SensorRequestMessage;
 using power_test::TimerMessage;
 using power_test::WifiNanSubCancelMessage;
@@ -469,6 +470,31 @@ void RequestManager::handleMessageFromHost(
         const WifiNanSubCancelMessage *msg;
         if (verifyMessage<WifiNanSubCancelMessage>(hostMessage, &msg)) {
           success = cancelWifiNanSub(msg->subscription_id());
+        }
+        break;
+      }
+      case MessageType::SENSOR_REQUEST_ARRAY_TEST: {
+        const SensorRequestArrayMessage *msg;
+        if (verifyMessage<SensorRequestArrayMessage>(hostMessage, &msg)) {
+          success = true;
+          if (msg->requests() == nullptr) {
+            break;
+          }
+          for (size_t i = 0; i < msg->requests()->size(); ++i) {
+            const auto *request = msg->requests()->Get(i);
+            if (request == nullptr) {
+              LOGE("Null request found at index %zu, skipping.", i);
+              success = false;
+              continue;
+            }
+            bool subRequestSuccess = requestSensor(
+                request->enable(), static_cast<uint8_t>(request->sensor()),
+                request->sampling_interval_ns(), request->latency_ns());
+            if (!subRequestSuccess) {
+              LOGE("Failed to configure sensor at index %zu in array", i);
+              success = false;  // Mark overall failure if any sub-request fails
+            }
+          }
         }
         break;
       }

@@ -62,6 +62,12 @@
  *  chre_power_test_client audio <optional: tcm> <enable> <duration_ns>
  *  chre_power_test_client sensor <optional: tcm> <enable> <sensor_type>
  *                                <interval_ns> <optional: latency_ns>
+ *  chre_power_test_client sensor_array <optional: tcm>
+ *                                <enable_1> <sensor_type_1> <optional:
+ *                                interval_ns_1> <optional: latency_ns_1>
+ *                                <enable_2> <sensor_type_2> <optional:
+ *                                interval_ns_2> <optional: latency_ns_2>
+ *                                [... repeat for more sensors]
  *  chre_power_test_client breakit <optional: tcm> <enable>
  *  chre_power_test_client gnss_meas <optional: tcm> <enable> <interval_ms>
  *  chre_power_test_client wifi_nan_sub <optional: tcm> <sub_type>
@@ -78,6 +84,8 @@
  *  cell: start/stop periodic cellular scan
  *  audio: start/stop periodic audio capture
  *  sensor: start/stop periodic sensor sampling
+ *  sensor_array: start/stop multiple sensors (interval/latency optional for
+ *                disable or one-shot)
  *  breakit: start/stop all action for stress tests
  *  gnss_meas: start/stop periodic GNSS measurement
  *
@@ -176,6 +184,7 @@ enum class Command : uint32_t {
   kGnssMeas,
   kNanSub,
   kNanCancel,
+  kSensorArray,
 };
 
 std::unordered_map<string, Command> commandMap{
@@ -191,7 +200,8 @@ std::unordered_map<string, Command> commandMap{
     {"breakit", Command::kBreakIt},
     {"gnss_meas", Command::kGnssMeas},
     {"wifi_nan_sub", Command::kNanSub},
-    {"end_wifi_nan_sub", Command::kNanCancel}};
+    {"end_wifi_nan_sub", Command::kNanCancel},
+    {"sensor_array", Command::kSensorArray}};
 
 std::unordered_map<string, MessageType> messageTypeMap{
     {"timer", MessageType::TIMER_TEST},
@@ -203,7 +213,8 @@ std::unordered_map<string, MessageType> messageTypeMap{
     {"breakit", MessageType::BREAK_IT_TEST},
     {"gnss_meas", MessageType::GNSS_MEASUREMENT_TEST},
     {"wifi_nan_sub", MessageType::WIFI_NAN_SUB},
-    {"end_wifi_nan_sub", MessageType::WIFI_NAN_SUB_CANCEL}};
+    {"end_wifi_nan_sub", MessageType::WIFI_NAN_SUB_CANCEL},
+    {"sensor_array", MessageType::SENSOR_REQUEST_ARRAY_TEST}};
 
 std::unordered_map<string, SensorType> sensorTypeMap{
     {"accelerometer", SensorType::ACCELEROMETER},
@@ -590,6 +601,117 @@ bool validateSensorArguments(std::vector<string> &args) {
   return true;
 }
 
+// Refer to chre_power_test.fbs::SensorRequestMessage
+struct SensorRequestInput {
+  enum ArgOffset {
+    kEnableOrDisable = 0,
+    kType,
+    kInterval,
+    kLatency,
+
+    kCountShort = kType + 1,
+    kCountLong = kLatency + 1
+  };
+
+  bool enable;
+  SensorType sensorType;
+  uint64_t intervalNs;
+  uint64_t latencyNs;
+};
+
+std::optional<std::vector<SensorRequestInput>> parseSensorArrayArgs(
+    std::vector<string> &args) {
+  std::vector<SensorRequestInput> requests;
+  size_t argIndex = 1;
+
+  if (argIndex < args.size() && args[argIndex] == "tcm") {
+    argIndex++;
+  }
+
+  if (argIndex >= args.size()) {
+    LOGE("At least one sensor configuration is required");
+    return std::nullopt;
+  }
+
+  while (argIndex < args.size()) {
+    if (args.size() < argIndex + SensorRequestInput::kCountShort) {
+      LOGE("Enable/disable argument and sensor type are required");
+      return std::nullopt;
+    }
+
+    const string &enableArg =
+        args[argIndex + SensorRequestInput::kEnableOrDisable];
+    bool enable;
+    if (enableArg == "enable") {
+      enable = true;
+    } else if (enableArg == "disable") {
+      enable = false;
+    } else {
+      LOGE("Invalid enable/disable argument: %s", enableArg.c_str());
+      return std::nullopt;
+    }
+
+    const string &typeArg = args[argIndex + SensorRequestInput::kType];
+    auto it = sensorTypeMap.find(typeArg);
+    if (it == sensorTypeMap.end()) {
+      LOGE("Invalid sensor type: %s", typeArg.c_str());
+      return std::nullopt;
+    }
+
+    SensorType sensorType = it->second;
+
+    uint64_t intervalNs = 0;
+    uint64_t latencyNs = 0;
+
+    bool isOneShot = (sensorType == SensorType::STATIONARY_DETECT ||
+                      sensorType == SensorType::INSTANT_MOTION_DETECT);
+
+    if (!enable || isOneShot) {
+      if (isOneShot) {
+        intervalNs = kUint64Max;
+      }
+      argIndex += SensorRequestInput::kCountShort;
+    } else {
+      if (args.size() < argIndex + SensorRequestInput::kCountLong) {
+        LOGE(
+            "Not enough parameters for sensor %s: enable, sensor type, "
+            "interval, and latency are required",
+            typeArg.c_str());
+        return std::nullopt;
+      }
+
+      intervalNs =
+          getNanoseconds(args, argIndex + SensorRequestInput::kInterval);
+      latencyNs = getNanoseconds(args, argIndex + SensorRequestInput::kLatency);
+
+      if (intervalNs == 0) {
+        LOGE(
+            "Non zero sensor sampling interval is required when enabling "
+            "sensor %s",
+            typeArg.c_str());
+        return std::nullopt;
+      }
+      if (latencyNs != 0 && latencyNs < intervalNs) {
+        LOGE(
+            "The latency is not zero and smaller than the interval for sensor "
+            "%s",
+            typeArg.c_str());
+        return std::nullopt;
+      }
+
+      argIndex += SensorRequestInput::kCountLong;
+    }
+
+    requests.push_back({enable, sensorType, intervalNs, latencyNs});
+  }
+
+  return requests;
+}
+
+bool validateSensorArrayArguments(std::vector<string> &args) {
+  return parseSensorArrayArgs(args).has_value();
+}
+
 bool validateWifiArguments(std::vector<string> &args) {
   if (args.size() < 3) {
     LOGE("The interval is required");
@@ -651,6 +773,10 @@ bool validateArguments(Command commandEnum, std::vector<string> &args) {
       return false;
     }
     return true;
+  }
+
+  if (commandEnum == Command::kSensorArray) {
+    return validateSensorArrayArguments(args);
   }
 
   if (args[1] != "enable" && args[1] != "disable") {
@@ -767,6 +893,30 @@ void createSensorMessage(FlatBufferBuilder &fbb, std::vector<string> &args) {
       latencyNanoseconds);
 }
 
+void createSensorArrayMessage(FlatBufferBuilder &fbb,
+                              std::vector<string> &args) {
+  auto inputsOpt = parseSensorArrayArgs(args);
+  if (!inputsOpt.has_value()) {
+    return;
+  }
+  const auto &inputs = inputsOpt.value();
+
+  std::vector<flatbuffers::Offset<ptest::SensorRequestMessage>> requestsVector;
+  requestsVector.reserve(inputs.size());
+
+  for (const auto &input : inputs) {
+    requestsVector.push_back(
+        ptest::CreateSensorRequestMessage(fbb, input.enable, input.sensorType,
+                                          input.intervalNs, input.latencyNs));
+  }
+
+  fbb.Finish(ptest::CreateSensorRequestArrayMessage(
+      fbb, fbb.CreateVector(requestsVector)));
+
+  LOGI("Created SensorRequestArrayMessage with %zu requests",
+       requestsVector.size());
+}
+
 void createBreakItMessage(FlatBufferBuilder &fbb, std::vector<string> &args) {
   bool enable = (args[1] == "enable");
   fbb.Finish(ptest::CreateBreakItMessage(fbb, enable));
@@ -842,6 +992,11 @@ static void usage() {
       " chre_power_test_client audio <optional: tcm> <enable> <duration_ns>\n"
       " chre_power_test_client sensor <optional: tcm> <enable> <sensor_type>"
       " <interval_ns> <optional: latency_ns>\n"
+      " chre_power_test_client sensor_array <optional: tcm>\n"
+      "     <enable_1> <sensor_type_1> <optional: interval_ns_1> "
+      "     <optional: latency_ns_1>\n"
+      "     [<enable_N> <sensor_type_N> <optional: interval_ns_N> "
+      "     <optional: latency_ns_N>]\n"
       " chre_power_test_client breakit <optional: tcm> <enable>\n"
       " chre_power_test_client gnss_meas <optional: tcm> <enable> <interval_ms>"
       "\n"
@@ -859,6 +1014,8 @@ static void usage() {
       "cell: start/stop periodic cellular scan\n"
       "audio: start/stop periodic audio capture\n"
       "sensor: start/stop periodic sensor sampling\n"
+      "sensor_array: start/stop multiple sensors (interval/latency optional "
+      "for disable or one-shot)\n"
       "breakit: start/stop all action for stress tests\n"
       "gnss_meas: start/stop periodic GNSS measurement\n"
       "wifi_nan_sub: start a WiFi NAN subscription\n"
@@ -924,6 +1081,9 @@ void createRequestMessage(Command commandEnum, FlatBufferBuilder &fbb,
       break;
     case Command::kSensor:
       createSensorMessage(fbb, args);
+      break;
+    case Command::kSensorArray:
+      createSensorArrayMessage(fbb, args);
       break;
     case Command::kBreakIt:
       createBreakItMessage(fbb, args);

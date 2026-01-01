@@ -27,6 +27,9 @@ struct AudioRequestMessageBuilder;
 struct SensorRequestMessage;
 struct SensorRequestMessageBuilder;
 
+struct SensorRequestArrayMessage;
+struct SensorRequestArrayMessageBuilder;
+
 struct BreakItMessage;
 struct BreakItMessageBuilder;
 
@@ -74,51 +77,47 @@ enum class MessageType : uint32_t {
   WIFI_NAN_SUB_CANCEL = 11,
   /// Should be used with WifiNanSubResponseMessage
   WIFI_NAN_SUB_RESP = 12,
+  /// Should be used with SensorRequestArrayMessage
+  SENSOR_REQUEST_ARRAY_TEST = 13,
   MIN = UNSPECIFIED,
-  MAX = WIFI_NAN_SUB_RESP
+  MAX = SENSOR_REQUEST_ARRAY_TEST
 };
 
-inline const MessageType (&EnumValuesMessageType())[13] {
+inline const MessageType (&EnumValuesMessageType())[14] {
   static const MessageType values[] = {
-    MessageType::UNSPECIFIED,
-    MessageType::TIMER_TEST,
-    MessageType::WIFI_SCAN_TEST,
-    MessageType::GNSS_LOCATION_TEST,
-    MessageType::CELL_QUERY_TEST,
-    MessageType::AUDIO_REQUEST_TEST,
-    MessageType::SENSOR_REQUEST_TEST,
-    MessageType::BREAK_IT_TEST,
-    MessageType::NANOAPP_RESPONSE,
-    MessageType::GNSS_MEASUREMENT_TEST,
-    MessageType::WIFI_NAN_SUB,
-    MessageType::WIFI_NAN_SUB_CANCEL,
-    MessageType::WIFI_NAN_SUB_RESP
-  };
+      MessageType::UNSPECIFIED,         MessageType::TIMER_TEST,
+      MessageType::WIFI_SCAN_TEST,      MessageType::GNSS_LOCATION_TEST,
+      MessageType::CELL_QUERY_TEST,     MessageType::AUDIO_REQUEST_TEST,
+      MessageType::SENSOR_REQUEST_TEST, MessageType::BREAK_IT_TEST,
+      MessageType::NANOAPP_RESPONSE,    MessageType::GNSS_MEASUREMENT_TEST,
+      MessageType::WIFI_NAN_SUB,        MessageType::WIFI_NAN_SUB_CANCEL,
+      MessageType::WIFI_NAN_SUB_RESP,   MessageType::SENSOR_REQUEST_ARRAY_TEST};
   return values;
 }
 
 inline const char * const *EnumNamesMessageType() {
-  static const char * const names[14] = {
-    "UNSPECIFIED",
-    "TIMER_TEST",
-    "WIFI_SCAN_TEST",
-    "GNSS_LOCATION_TEST",
-    "CELL_QUERY_TEST",
-    "AUDIO_REQUEST_TEST",
-    "SENSOR_REQUEST_TEST",
-    "BREAK_IT_TEST",
-    "NANOAPP_RESPONSE",
-    "GNSS_MEASUREMENT_TEST",
-    "WIFI_NAN_SUB",
-    "WIFI_NAN_SUB_CANCEL",
-    "WIFI_NAN_SUB_RESP",
-    nullptr
-  };
+  static const char *const names[15] = {"UNSPECIFIED",
+                                        "TIMER_TEST",
+                                        "WIFI_SCAN_TEST",
+                                        "GNSS_LOCATION_TEST",
+                                        "CELL_QUERY_TEST",
+                                        "AUDIO_REQUEST_TEST",
+                                        "SENSOR_REQUEST_TEST",
+                                        "BREAK_IT_TEST",
+                                        "NANOAPP_RESPONSE",
+                                        "GNSS_MEASUREMENT_TEST",
+                                        "WIFI_NAN_SUB",
+                                        "WIFI_NAN_SUB_CANCEL",
+                                        "WIFI_NAN_SUB_RESP",
+                                        "SENSOR_REQUEST_ARRAY_TEST",
+                                        nullptr};
   return names;
 }
 
 inline const char *EnumNameMessageType(MessageType e) {
-  if (flatbuffers::IsOutRange(e, MessageType::UNSPECIFIED, MessageType::WIFI_NAN_SUB_RESP)) return "";
+  if (flatbuffers::IsOutRange(e, MessageType::UNSPECIFIED,
+                              MessageType::SENSOR_REQUEST_ARRAY_TEST))
+    return "";
   const size_t index = static_cast<size_t>(e);
   return EnumNamesMessageType()[index];
 }
@@ -736,6 +735,78 @@ inline flatbuffers::Offset<SensorRequestMessage> CreateSensorRequestMessage(
   builder_.add_sensor(sensor);
   builder_.add_enable(enable);
   return builder_.Finish();
+}
+
+/// Represents a message to ask the nanoapp to start / stop sampling / batching
+/// a given list of sensors
+struct SensorRequestArrayMessage FLATBUFFERS_FINAL_CLASS
+    : private flatbuffers::Table {
+  typedef SensorRequestArrayMessageBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_REQUESTS = 4
+  };
+  const flatbuffers::Vector<
+      flatbuffers::Offset<chre::power_test::SensorRequestMessage>> *
+  requests() const {
+    return GetPointer<const flatbuffers::Vector<
+        flatbuffers::Offset<chre::power_test::SensorRequestMessage>> *>(
+        VT_REQUESTS);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) && VerifyOffset(verifier, VT_REQUESTS) &&
+           verifier.VerifyVector(requests()) &&
+           verifier.VerifyVectorOfTables(requests()) && verifier.EndTable();
+  }
+};
+
+struct SensorRequestArrayMessageBuilder {
+  typedef SensorRequestArrayMessage Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_requests(
+      flatbuffers::Offset<flatbuffers::Vector<
+          flatbuffers::Offset<chre::power_test::SensorRequestMessage>>>
+          requests) {
+    fbb_.AddOffset(SensorRequestArrayMessage::VT_REQUESTS, requests);
+  }
+  explicit SensorRequestArrayMessageBuilder(
+      flatbuffers::FlatBufferBuilder &_fbb)
+      : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  SensorRequestArrayMessageBuilder &operator=(
+      const SensorRequestArrayMessageBuilder &);
+  flatbuffers::Offset<SensorRequestArrayMessage> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<SensorRequestArrayMessage>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<SensorRequestArrayMessage>
+CreateSensorRequestArrayMessage(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<flatbuffers::Vector<
+        flatbuffers::Offset<chre::power_test::SensorRequestMessage>>>
+        requests = 0) {
+  SensorRequestArrayMessageBuilder builder_(_fbb);
+  builder_.add_requests(requests);
+  return builder_.Finish();
+}
+
+inline flatbuffers::Offset<SensorRequestArrayMessage>
+CreateSensorRequestArrayMessageDirect(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    const std::vector<
+        flatbuffers::Offset<chre::power_test::SensorRequestMessage>> *requests =
+        nullptr) {
+  auto requests__ =
+      requests
+          ? _fbb.CreateVector<
+                flatbuffers::Offset<chre::power_test::SensorRequestMessage>>(
+                *requests)
+          : 0;
+  return chre::power_test::CreateSensorRequestArrayMessage(_fbb, requests__);
 }
 
 /// Represents a message to enable / disable break-it mode inside the nanoapp.

@@ -43,6 +43,8 @@ enum MessageType : uint {
   WIFI_NAN_SUB_CANCEL,
   /// Should be used with WifiNanSubResponseMessage
   WIFI_NAN_SUB_RESP,
+  /// Should be used with SensorRequestArrayMessage
+  SENSOR_REQUEST_ARRAY_TEST,
 }
 
 /// Represents a message to ask the nanoapp to create a timer that wakes up at
@@ -142,6 +144,12 @@ table SensorRequestMessage {
   sensor:SensorType;
   sampling_interval_ns:ulong;
   latency_ns:ulong;
+}
+
+/// Represents a message to ask the nanoapp to start / stop sampling / batching
+/// a given list of sensors
+table SensorRequestArrayMessage {
+  requests:[SensorRequestMessage];
 }
 
 /// Represents a message to enable / disable break-it mode inside the nanoapp.
