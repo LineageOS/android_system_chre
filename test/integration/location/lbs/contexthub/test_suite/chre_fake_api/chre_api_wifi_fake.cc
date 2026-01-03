@@ -108,11 +108,17 @@ bool ChreApiWifiFunctions::ConfigureScanMonitorAsync(bool enable,
 
 bool ChreApiWifiFunctions::RequestScanAsync(const chreWifiScanParams* params,
                                             const void* cookie) {
+#ifdef CHRE_WIFI_SUPPORT_ENABLED
   chre::Nanoapp* nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return (params == nullptr) ? false
                              : EventLoopManagerSingleton::get()
                                    ->getWifiRequestManager()
                                    .requestScan(nanoapp, params, cookie);
+#else
+  UNUSED_VAR(params);
+  UNUSED_VAR(cookie);
+  return false;
+#endif  // CHRE_WIFI_SUPPORT_ENABLED
 }
 
 bool ChreApiWifiFunctions::RequestRangingAsync(
