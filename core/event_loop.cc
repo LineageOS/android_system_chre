@@ -574,9 +574,7 @@ void EventLoop::deliverNextEvent(const UniquePtr<Nanoapp> &app, Event *event) {
 
 void EventLoop::distributeEvent(Event *event) {
   distributeEventCommon(event);
-  if (event->decrementRefCount() == 1) {
-    freeEvent(event);
-  }
+  freeEvent(event);
 }
 
 bool EventLoop::distributeEventCommon(Event *event) {
@@ -617,6 +615,9 @@ void EventLoop::flushInboundEventQueue() {
 }
 
 void EventLoop::freeEvent(Event *event) {
+  // Free the event if and only if this was the last reference to it.
+  if (event->decrementRefCount() != 1) return;
+
   if (event->targetInstanceId == kSystemInstanceId) {
     event->invokeSystemEventCallback();
   } else if (event->freeCallback != nullptr) {

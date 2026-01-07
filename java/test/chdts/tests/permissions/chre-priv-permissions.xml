@@ -4,6 +4,7 @@
   <privapp-permissions package="com.android.chre.chdts.app">
     <permission name="android.permission.ACCESS_CONTEXT_HUB"/>
     <permission name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
+    <permission name="android.permission.ACCESS_COARSE_LOCATION"/>
     <permission name="android.permission.ACCESS_FINE_LOCATION"/>
     <permission name="android.permission.ACCESS_WIFI_STATE"/>
     <permission name="android.permission.ACTIVITY_RECOGNITION"/>

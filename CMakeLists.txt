@@ -5,6 +5,7 @@ add_subdirectory(chre_api)
 add_subdirectory(core)
 add_subdirectory(pal)
 add_subdirectory(platform)
+add_subdirectory(test)
 add_subdirectory(util)
 add_subdirectory(variant)
 
