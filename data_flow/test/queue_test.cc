@@ -74,16 +74,6 @@ class QueueTest : public ::testing::Test {
   void SetUp() override {
     mStorage.resize(4096);
     mAllocator.Init(pw::ByteSpan(mStorage.data(), mStorage.size()));
-    auto maybeQueue =
-        android::contexthub::data_flow::createQueue<int, kBlockCapacity>(
-            mAllocator, /*local=*/true);
-    ASSERT_EQ(maybeQueue.status(), pw::OkStatus());
-    mQueue = *maybeQueue;
-    auto maybeVarDataQueue =
-        android::contexthub::data_flow::createVariableDataQueue(
-            mAllocator, kVarDataBlockCapacity, /*local=*/true);
-    ASSERT_EQ(maybeVarDataQueue.status(), pw::OkStatus());
-    mVarDataQueue = *maybeVarDataQueue;
   }
 
   void TearDown() override {
@@ -93,13 +83,6 @@ class QueueTest : public ::testing::Test {
     mVarDataProducer.reset();
     mUntypedConsumers.clear();
     mUntypedProducer.reset();
-    mAllocator.Deallocate(mQueue);
-    mAllocator.Deallocate(mVarDataQueue);
-  }
-
-  void setRemote() {
-    static_cast<internal::Queue *>(mQueue)->localNotify = false;
-    static_cast<internal::Queue *>(mVarDataQueue)->localNotify = false;
   }
 
   uintptr_t base() {
@@ -110,40 +93,33 @@ class QueueTest : public ::testing::Test {
     return mStorage.size();
   }
 
-  uint32_t queueOffset() {
-    return reinterpret_cast<uintptr_t>(mQueue) - base();
-  }
-
-  uint32_t varDataQueueOffset() {
-    return reinterpret_cast<uintptr_t>(mVarDataQueue) - base();
-  }
-
   pw::Result<Producer<int>> createLocalProducer(LocalNotifyArgs notifyArgs) {
     return Producer<int>::createLocal(
-        {{.base = base(), .size = size()}, .allocator = &mAllocator}, mQueue,
-        kBaseMaxBlockCount, kBaseMinBlockCount, mDataNotifier, notifyArgs);
+        {{.base = base(), .size = size()}, .allocator = &mAllocator},
+        kBlockCapacity, kBaseMaxBlockCount, kBaseMinBlockCount, mDataNotifier,
+        notifyArgs);
   }
 
   pw::Result<VariableDataProducer> createLocalVarDataProducer(
       LocalNotifyArgs notifyArgs) {
     return VariableDataProducer::createLocal(
         {{.base = base(), .size = size()}, .allocator = &mAllocator},
-        mVarDataQueue, kBaseMaxBlockCount, kBaseMinBlockCount, mDataNotifier,
-        notifyArgs);
+        kVarDataBlockCapacity, kBaseMaxBlockCount, kBaseMinBlockCount,
+        mDataNotifier, notifyArgs);
   }
 
   pw::Result<VariableDataProducer> createRemoteVarDataProducer(
       RemoteNotifyArgs notifyArgs) {
     return VariableDataProducer::createRemote(
         {{.base = base(), .size = size()}, .allocator = &mAllocator},
-        mVarDataQueue, kBaseMaxBlockCount, kBaseMinBlockCount, mDataNotifier,
-        std::move(notifyArgs));
+        kVarDataBlockCapacity, kBaseMaxBlockCount, kBaseMinBlockCount,
+        mDataNotifier, std::move(notifyArgs));
   }
 
   pw::Result<Producer<int>> createRemoteProducer(RemoteNotifyArgs notifyArgs) {
     return Producer<int>::createRemote(
-        {{.base = base(), .size = size()}, .allocator = &mAllocator}, mQueue,
-        kBaseMaxBlockCount, kBaseMinBlockCount, mDataNotifier,
+        {{.base = base(), .size = size()}, .allocator = &mAllocator},
+        kBlockCapacity, kBaseMaxBlockCount, kBaseMinBlockCount, mDataNotifier,
         std::move(notifyArgs));
   }
 
@@ -154,7 +130,8 @@ class QueueTest : public ::testing::Test {
         uint32_t descOffset,
         mProducer->getConsumerManager().addConsumer(id, policyBuilder));
     return Consumer<int>::createLocal({.base = base(), .size = size()},
-                                      queueOffset(), descOffset, notifyArgs);
+                                      mProducer->getQueueOffset(), descOffset,
+                                      notifyArgs);
   }
 
   pw::Result<VariableDataConsumer> createLocalVarDataConsumer(
@@ -164,8 +141,8 @@ class QueueTest : public ::testing::Test {
         uint32_t descOffset,
         mVarDataProducer->getConsumerManager().addConsumer(id, policyBuilder));
     return VariableDataConsumer::createLocal({.base = base(), .size = size()},
-                                             varDataQueueOffset(), descOffset,
-                                             notifyArgs);
+                                             mVarDataProducer->getQueueOffset(),
+                                             descOffset, notifyArgs);
   }
 
   pw::Result<Consumer<int>> createRemoteConsumer(
@@ -174,8 +151,9 @@ class QueueTest : public ::testing::Test {
                   mProducer->getConsumerManager().addConsumer(notifyArgs.id,
                                                               policyBuilder));
     return Consumer<int>::createRemote({.base = base(), .size = size()},
-                                       /*descRegion=*/{}, queueOffset(),
-                                       descOffset, std::move(notifyArgs));
+                                       /*descRegion=*/{},
+                                       mProducer->getQueueOffset(), descOffset,
+                                       std::move(notifyArgs));
   }
 
   pw::Result<VariableDataConsumer> createRemoteVarDataConsumer(
@@ -185,7 +163,7 @@ class QueueTest : public ::testing::Test {
                       notifyArgs.id, policyBuilder));
     return VariableDataConsumer::createRemote(
         {.base = base(), .size = size()}, /*descRegion=*/{},
-        varDataQueueOffset(), descOffset, std::move(notifyArgs));
+        mVarDataProducer->getQueueOffset(), descOffset, std::move(notifyArgs));
   }
 
   pw::Result<VariableDataConsumer> createHostVarDataConsumer(
@@ -196,7 +174,8 @@ class QueueTest : public ::testing::Test {
     PW_TRY_ASSIGN(auto consumer,
                   ::android::contexthub::data_flow::createRemoteConsumer(
                       {.base = base(), .size = size()}, /*descRegion=*/{},
-                      varDataQueueOffset(), descOffset, std::move(notifyArgs)));
+                      mVarDataProducer->getQueueOffset(), descOffset,
+                      std::move(notifyArgs)));
     bool isVarDataConsumer =
         std::holds_alternative<VariableDataConsumer>(consumer);
     EXPECT_TRUE(isVarDataConsumer);
@@ -211,10 +190,11 @@ class QueueTest : public ::testing::Test {
     PW_TRY_ASSIGN(uint32_t descOffset,
                   mProducer->getConsumerManager().addConsumer(notifyArgs.id,
                                                               policyBuilder));
-    PW_TRY_ASSIGN(auto consumer,
-                  ::android::contexthub::data_flow::createRemoteConsumer(
-                      {.base = base(), .size = size()}, /*descRegion=*/{},
-                      queueOffset(), descOffset, std::move(notifyArgs)));
+    PW_TRY_ASSIGN(
+        auto consumer,
+        ::android::contexthub::data_flow::createRemoteConsumer(
+            {.base = base(), .size = size()}, /*descRegion=*/{},
+            mProducer->getQueueOffset(), descOffset, std::move(notifyArgs)));
     bool isUntypedConsumer = std::holds_alternative<UntypedConsumer>(consumer);
     EXPECT_TRUE(isUntypedConsumer);
     if (!isUntypedConsumer) {
@@ -230,7 +210,6 @@ class QueueTest : public ::testing::Test {
   }
 
   void initRemoteProducer(RemoteNotifyArgs notifyArgs) {
-    setRemote();
     auto maybeProducer = createRemoteProducer(std::move(notifyArgs));
     ASSERT_EQ(maybeProducer.status(), pw::OkStatus());
     mProducer.emplace(std::move(*maybeProducer));
@@ -243,7 +222,6 @@ class QueueTest : public ::testing::Test {
   }
 
   void initRemoteVarDataProducer(RemoteNotifyArgs notifyArgs) {
-    static_cast<internal::Queue *>(mVarDataQueue)->localNotify = false;
     auto maybeProducer = createRemoteVarDataProducer(std::move(notifyArgs));
     ASSERT_EQ(maybeProducer.status(), pw::OkStatus());
     mVarDataProducer.emplace(std::move(*maybeProducer));
@@ -306,8 +284,6 @@ class QueueTest : public ::testing::Test {
 
   std::vector<std::byte> mStorage;
   pw::allocator::FirstFitAllocator<> mAllocator;
-  void *mQueue;
-  void *mVarDataQueue;
   DataNotifier mDataNotifier;
   std::optional<Producer<int>> mProducer;
   std::optional<VariableDataProducer> mVarDataProducer;
@@ -323,7 +299,6 @@ TEST_F(QueueTest, ProducerCreateLocalAndDestroy) {
 }
 
 TEST_F(QueueTest, ProducerCreateRemoteAndDestroy) {
-  setRemote();
   RemoteNotifyArgs args = {.fn = getEmptyRemoteNotifyFn(),
                            .id = {std::byte(0)}};
   EXPECT_EQ(createRemoteProducer(std::move(args)).status(), pw::OkStatus());
@@ -352,7 +327,6 @@ TEST_F(QueueTest, ProducerCreateLocalFailureInvalidNotifyFn) {
 }
 
 TEST_F(QueueTest, ProducerCreateRemoteFailureInvalidNotifyFn) {
-  setRemote();
   EXPECT_EQ(createRemoteProducer({}).status(), pw::Status::InvalidArgument());
 }
 
@@ -641,9 +615,9 @@ TEST_F(QueueTest, PushBlockedNonOverwritableConsumerDelayedInit) {
   EXPECT_EQ(mProducer->push(1), pw::Status::Unavailable());
 
   // Initialize the consumer which should then be able to read all of the data.
-  auto consumer = Consumer<int>::createLocal({.base = base(), .size = size()},
-                                             queueOffset(), *descOffsetResult,
-                                             kEmptyLocalNotifyArgs);
+  auto consumer = Consumer<int>::createLocal(
+      {.base = base(), .size = size()}, mProducer->getQueueOffset(),
+      *descOffsetResult, kEmptyLocalNotifyArgs);
   ASSERT_EQ(consumer.status(), pw::OkStatus());
   EXPECT_RESULT_EQ(consumer->size(), mProducer->capacity());
   std::vector<int> output(data.size());
@@ -671,9 +645,9 @@ TEST_F(QueueTest, PushBlockedOverwritableConsumerDelayedInit) {
   EXPECT_EQ(mProducer->push(1), pw::OkStatus());
   EXPECT_EQ(mProducer->size(), 0);
 
-  auto consumer = Consumer<int>::createLocal({.base = base(), .size = size()},
-                                             queueOffset(), *descOffsetResult,
-                                             kEmptyLocalNotifyArgs);
+  auto consumer = Consumer<int>::createLocal(
+      {.base = base(), .size = size()}, mProducer->getQueueOffset(),
+      *descOffsetResult, kEmptyLocalNotifyArgs);
   // The DataLoss is handled on initialization, so createLocal() returns OK.
   ASSERT_EQ(consumer.status(), pw::OkStatus());
 
@@ -1267,9 +1241,9 @@ TEST_F(QueueTest, VariableDataProducerTruncateFailsSizeTooLarge) {
 
 TEST_F(QueueTest, UntypedProducerAndTypedConsumer) {
   auto maybeProducer = UntypedProducer::createLocal(
-      {{.base = base(), .size = size()}, .allocator = &mAllocator}, mQueue,
-      kBaseMaxBlockCount, kBaseMinBlockCount, mDataNotifier,
-      kEmptyLocalNotifyArgs);
+      {{.base = base(), .size = size()}, .allocator = &mAllocator},
+      kBlockCapacity, sizeof(int), alignof(int), kBaseMaxBlockCount,
+      kBaseMinBlockCount, mDataNotifier, kEmptyLocalNotifyArgs);
   ASSERT_EQ(maybeProducer.status(), pw::OkStatus());
   mUntypedProducer.emplace(std::move(*maybeProducer));
   ASSERT_EQ(mUntypedProducer->getElementSize(), sizeof(int));
@@ -1280,10 +1254,9 @@ TEST_F(QueueTest, UntypedProducerAndTypedConsumer) {
           kZeroId, ConsumerPolicyBuilder().setNonOverwritable());
   ASSERT_EQ(descOffsetResult.status(), pw::OkStatus());
 
-  auto maybeConsumer =
-      Consumer<int>::createLocal({.base = base(), .size = size()},
-                                 reinterpret_cast<uintptr_t>(mQueue) - base(),
-                                 *descOffsetResult, kEmptyLocalNotifyArgs);
+  auto maybeConsumer = Consumer<int>::createLocal(
+      {.base = base(), .size = size()}, mUntypedProducer->getQueueOffset(),
+      *descOffsetResult, kEmptyLocalNotifyArgs);
   ASSERT_EQ(maybeConsumer.status(), pw::OkStatus());
   mConsumers.emplace_back(std::move(*maybeConsumer));
 
@@ -1304,10 +1277,9 @@ TEST_F(QueueTest, TypedProducerAndUntypedConsumer) {
           kZeroId, ConsumerPolicyBuilder().setNonOverwritable());
   ASSERT_EQ(descOffsetResult.status(), pw::OkStatus());
 
-  auto maybeConsumer =
-      UntypedConsumer::createLocal({.base = base(), .size = size()},
-                                   reinterpret_cast<uintptr_t>(mQueue) - base(),
-                                   *descOffsetResult, kEmptyLocalNotifyArgs);
+  auto maybeConsumer = UntypedConsumer::createLocal(
+      {.base = base(), .size = size()}, mProducer->getQueueOffset(),
+      *descOffsetResult, kEmptyLocalNotifyArgs);
   ASSERT_EQ(maybeConsumer.status(), pw::OkStatus());
   mUntypedConsumers.emplace_back(std::move(*maybeConsumer));
   ASSERT_EQ(mUntypedConsumers[0].getElementSize(), sizeof(int));
@@ -1326,9 +1298,9 @@ TEST_F(QueueTest, TypedProducerAndUntypedConsumer) {
 
 TEST_F(QueueTest, UntypedProducerAndUntypedConsumer) {
   auto maybeProducer = UntypedProducer::createLocal(
-      {{.base = base(), .size = size()}, .allocator = &mAllocator}, mQueue,
-      kBaseMaxBlockCount, kBaseMinBlockCount, mDataNotifier,
-      kEmptyLocalNotifyArgs);
+      {{.base = base(), .size = size()}, .allocator = &mAllocator},
+      kBlockCapacity, sizeof(int), alignof(int), kBaseMaxBlockCount,
+      kBaseMinBlockCount, mDataNotifier, kEmptyLocalNotifyArgs);
   ASSERT_EQ(maybeProducer.status(), pw::OkStatus());
   mUntypedProducer.emplace(std::move(*maybeProducer));
 
@@ -1337,10 +1309,9 @@ TEST_F(QueueTest, UntypedProducerAndUntypedConsumer) {
           kZeroId, ConsumerPolicyBuilder().setNonOverwritable());
   ASSERT_EQ(descOffsetResult.status(), pw::OkStatus());
 
-  auto maybeConsumer =
-      UntypedConsumer::createLocal({.base = base(), .size = size()},
-                                   reinterpret_cast<uintptr_t>(mQueue) - base(),
-                                   *descOffsetResult, kEmptyLocalNotifyArgs);
+  auto maybeConsumer = UntypedConsumer::createLocal(
+      {.base = base(), .size = size()}, mUntypedProducer->getQueueOffset(),
+      *descOffsetResult, kEmptyLocalNotifyArgs);
   ASSERT_EQ(maybeConsumer.status(), pw::OkStatus());
   mUntypedConsumers.emplace_back(std::move(*maybeConsumer));
 
@@ -1359,20 +1330,6 @@ TEST_F(QueueTest, UntypedProducerAndUntypedConsumer) {
   EXPECT_EQ(mUntypedConsumers[0].pop(popData), pw::OkStatus());
   EXPECT_EQ(poppedValue, pushedValue);
   EXPECT_RESULT_EQ(mUntypedConsumers[0].size(), 0);
-}
-
-TEST_F(QueueTest, CreateQueueUntypedIsSameAsCreateQueue) {
-  auto maybeTypedQueue = createQueue<int, 4>(mAllocator, /*local=*/true);
-  ASSERT_EQ(maybeTypedQueue.status(), pw::OkStatus());
-  auto maybeUntypedQueue =
-      createQueueUntyped(mAllocator, /*blockCapacity=*/4, sizeof(int),
-                         alignof(int), /*local=*/true);
-  ASSERT_EQ(maybeUntypedQueue.status(), pw::OkStatus());
-  EXPECT_EQ(std::memcmp(*maybeTypedQueue, *maybeUntypedQueue,
-                        sizeof(internal::Queue)),
-            0);
-  mAllocator.Deallocate(*maybeTypedQueue);
-  mAllocator.Deallocate(*maybeUntypedQueue);
 }
 
 TEST_F(QueueTest, RemoteNotificationNever) {

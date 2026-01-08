@@ -308,10 +308,10 @@ class Producer : protected internal::ProducerBase {
 
  public:
   /**
-   * Creates a Producer instance for the given local Queue.
+   * Creates a Producer instance for a new local Queue.
    *
-   * @param queue Pointer to queue metadata in shared memory. See {@link
-   * #createQueue()}.
+   * @param region The region of memory from which to allocate the queue.
+   * @param blockCapacity The capacity of each block in elements.
    * @param maxBlockCount The maximum allowed blocks of element storage. Must
    * be >= minBlockCount. This can be adjusted at runtime.
    * @param minBlockCount The minimum required blocks of element storage. Must
@@ -323,30 +323,22 @@ class Producer : protected internal::ProducerBase {
    * Queue and element storage.
    * @return An initialized Producer instance on success.
    */
-  static pw::Result<Producer> createLocal(AllocatorRegion region, void *queue,
-                                          size_t maxBlockCount,
-                                          size_t minBlockCount,
-                                          DataNotifier &dataNotifier,
-                                          LocalNotifyArgs notifyArgs,
-                                          MemoryAccess *memAccess = nullptr) {
-    if (notifyArgs.fn == nullptr || !queue) {
+  static pw::Result<Producer> createLocal(
+      AllocatorRegion region, size_t blockCapacity, size_t maxBlockCount,
+      size_t minBlockCount, DataNotifier &dataNotifier,
+      LocalNotifyArgs notifyArgs, MemoryAccess *memAccess = nullptr) {
+    if (notifyArgs.fn == nullptr) {
       return pw::Status::InvalidArgument();
     }
-    auto queuePtr = static_cast<internal::QueuePrivate *>(queue);
-    if (queuePtr->config.mode !=
-            internal::Queue::DataConfig::Mode::kFixedSize ||
-        queuePtr->config.fixedSize.elementSize != sizeof(ElementType) ||
-        queuePtr->config.fixedSize.elementAlignment != alignof(ElementType) ||
-        !queuePtr->localNotify) {
-      return pw::Status::FailedPrecondition();
-    }
-    auto blockLayout =
-        internal::blockLayout<ElementType>(queuePtr->blockCapacity);
-    PW_TRY(Base::initialize(region, queuePtr, blockLayout, maxBlockCount,
-                            minBlockCount, {.localNotify = notifyArgs}));
-    return Producer(region, *queuePtr, blockLayout, maxBlockCount,
-                    minBlockCount, dataNotifier, /*remoteNotifyFn=*/{},
-                    memAccess);
+    PW_TRY_ASSIGN(internal::QueuePrivate * queuePtr,
+                  Base::initQueue(region, blockCapacity * sizeof(ElementType),
+                                  sizeof(ElementType), alignof(ElementType),
+                                  {.localNotify = notifyArgs}, /*local=*/true));
+    Producer producer(region, *queuePtr, blockCapacity, maxBlockCount,
+                      minBlockCount, dataNotifier, /*remoteNotifyFn=*/{},
+                      memAccess);
+    PW_TRY(producer.initialize(/*variableData=*/false));
+    return producer;
   }
 
   /**
@@ -356,30 +348,23 @@ class Producer : protected internal::ProducerBase {
    * @param notifyArgs Mechanism for notifying Consumers out-of-band and for
    * Consumers to notify this Producer.
    */
-  static pw::Result<Producer> createRemote(AllocatorRegion region, void *queue,
-                                           size_t maxBlockCount,
-                                           size_t minBlockCount,
-                                           DataNotifier &dataNotifier,
-                                           RemoteNotifyArgs notifyArgs,
-                                           MemoryAccess *memAccess = nullptr) {
-    if (!notifyArgs.fn || !queue) {
+  static pw::Result<Producer> createRemote(
+      AllocatorRegion region, size_t blockCapacity, size_t maxBlockCount,
+      size_t minBlockCount, DataNotifier &dataNotifier,
+      RemoteNotifyArgs notifyArgs, MemoryAccess *memAccess = nullptr) {
+    if (!notifyArgs.fn) {
       return pw::Status::InvalidArgument();
     }
-    auto queuePtr = static_cast<internal::QueuePrivate *>(queue);
-    if (queuePtr->config.mode !=
-            internal::Queue::DataConfig::Mode::kFixedSize ||
-        queuePtr->config.fixedSize.elementSize != sizeof(ElementType) ||
-        queuePtr->config.fixedSize.elementAlignment != alignof(ElementType) ||
-        queuePtr->localNotify) {
-      return pw::Status::FailedPrecondition();
-    }
-    auto blockLayout =
-        internal::blockLayout<ElementType>(queuePtr->blockCapacity);
-    PW_TRY(Base::initialize(region, queuePtr, blockLayout, maxBlockCount,
-                            minBlockCount, {.remoteId = notifyArgs.id}));
-    return Producer(region, *queuePtr, blockLayout, maxBlockCount,
-                    minBlockCount, dataNotifier, std::move(notifyArgs.fn),
-                    memAccess);
+    PW_TRY_ASSIGN(
+        internal::QueuePrivate * queuePtr,
+        Base::initQueue(region, blockCapacity * sizeof(ElementType),
+                        sizeof(ElementType), alignof(ElementType),
+                        {.remoteId = notifyArgs.id}, /*local=*/false));
+    Producer producer(region, *queuePtr, blockCapacity, maxBlockCount,
+                      minBlockCount, dataNotifier, std::move(notifyArgs.fn),
+                      memAccess);
+    PW_TRY(producer.initialize(/*variableData=*/false));
+    return producer;
   }
 
   // Moveable.
@@ -415,6 +400,7 @@ class Producer : protected internal::ProducerBase {
   using Base::getBlockCount;
   using Base::getMaxBlockCountTarget;
   using Base::getMinBlockCountTarget;
+  using Base::getQueueOffset;
   using Base::setMaxBlockCountTarget;
   using Base::setMinBlockCountTarget;
 
@@ -500,10 +486,11 @@ class Producer : protected internal::ProducerBase {
   friend class ::android::contexthub::data_flow::ProducerPeer<ElementType>;
 
   Producer(const AllocatorRegion &region, internal::QueuePrivate &queue,
-           pw::allocator::Layout blockLayout, size_t maxBlockCount,
-           size_t minBlockCount, DataNotifier &dataNotifier,
-           RemoteNotifyFn remoteNotifyFn, MemoryAccess *memAccess)
-      : Base(region, queue, blockLayout,
+           size_t blockCapacity, size_t maxBlockCount, size_t minBlockCount,
+           DataNotifier &dataNotifier, RemoteNotifyFn remoteNotifyFn,
+           MemoryAccess *memAccess)
+      : Base(region, queue, internal::blockLayout<ElementType>(blockCapacity),
+             blockCapacity * sizeof(ElementType),
              offsetof(internal::Block<ElementType>, data), maxBlockCount,
              minBlockCount, dataNotifier, std::move(remoteNotifyFn),
              memAccess) {}
@@ -695,24 +682,24 @@ class VariableDataProducer : protected internal::ProducerBase {
 
  public:
   /**
-   * Creates a VariableDataProducer instance for the given local Queue.
+   * Creates a VariableDataProducer instance for a new local Queue.
    *
    * See {@link #Producer::createLocal()} for details and an explanation of the
    * parameters.
    */
   static pw::Result<VariableDataProducer> createLocal(
-      AllocatorRegion region, void *queue, size_t maxBlockCount,
+      AllocatorRegion region, size_t blockCapacity, size_t maxBlockCount,
       size_t minBlockCount, DataNotifier &dataNotifier,
       LocalNotifyArgs notifyArgs, MemoryAccess *memAccess = nullptr);
 
   /**
-   * Creates a VariableDataProducer instance for the given remote Queue.
+   * Creates a VariableDataProducer instance for a new remote Queue.
    *
    * See {@link #Producer::createRemote()} for details and an explanation of the
    * parameters.
    */
   static pw::Result<VariableDataProducer> createRemote(
-      AllocatorRegion region, void *queue, size_t maxBlockCount,
+      AllocatorRegion region, size_t blockCapacity, size_t maxBlockCount,
       size_t minBlockCount, DataNotifier &dataNotifier,
       RemoteNotifyArgs notifyArgs, MemoryAccess *memAccess = nullptr);
 
@@ -739,6 +726,7 @@ class VariableDataProducer : protected internal::ProducerBase {
   using Base::getBlockCount;
   using Base::getMaxBlockCountTarget;
   using Base::getMinBlockCountTarget;
+  using Base::getQueueOffset;
   using Base::setMaxBlockCountTarget;
   using Base::setMinBlockCountTarget;
 
@@ -800,9 +788,9 @@ class VariableDataProducer : protected internal::ProducerBase {
 
  protected:
   VariableDataProducer(const AllocatorRegion &region,
-                       internal::QueuePrivate &queue,
-                       pw::allocator::Layout blockLayout, size_t maxBlockCount,
-                       size_t minBlockCount, DataNotifier &dataNotifier,
+                       internal::QueuePrivate &queue, size_t blockCapacity,
+                       size_t maxBlockCount, size_t minBlockCount,
+                       DataNotifier &dataNotifier,
                        RemoteNotifyFn remoteNotifyFn, MemoryAccess *memAccess);
 
   /**
@@ -967,54 +955,5 @@ class VariableDataConsumer : protected internal::ConsumerBase {
 inline pw::allocator::Layout queueLayout() {
   return pw::allocator::Layout::Of<internal::QueuePrivate>();
 }
-
-/**
- * Initializes all fields in the queue metadata.
- *
- * @param queue Pointer to queue metadata in shared memory.
- * @param capacity The capacity of each block in bytes.
- * @param elementSize The size of each element in bytes. 0 indicates that this
- * is a variable data queue.
- * @param elementAlignment The alignment of an element.
- * @param local True iff the queue is local.
- */
-pw::Status initQueue(void *queue, size_t capacity, size_t elementSize,
-                     size_t elementAlignment, bool local);
-
-/**
- * Initializes the queue metadata for a fixed-element queue.
- *
- * @tparam ElementType The type of elements in the queue.
- * @tparam kBlockCapacity The capacity of each Block in elements.
- * @param queue Pointer to queue metadata in shared memory.
- * @param local True iff the queue is local.
- */
-template <typename ElementType, size_t kBlockCapacity>
-pw::Status initQueue(void *queue, bool local) {
-  return initQueue(queue, kBlockCapacity * sizeof(ElementType),
-                   sizeof(ElementType), alignof(ElementType), local);
-}
-
-/**
- * Allocates and initializes a new queue in shared memory.
- *
- * @tparam ElementType The type of elements in the queue.
- * @tparam kBlockCapacity The capacity of each Block in elements.
- * @param allocator Allocator used for allocating the queue metadata.
- * @param local True iff the queue is local.
- * @return On success, a pointer to the new queue metadata.
- */
-template <typename ElementType, size_t kBlockCapacity>
-pw::Result<void *> createQueue(pw::Allocator &allocator, bool local) {
-  if (auto *queue = allocator.New<internal::QueuePrivate>(); queue) {
-    PW_TRY((initQueue<ElementType, kBlockCapacity>(queue, local)));
-    return queue;
-  }
-  return pw::Status::ResourceExhausted();
-}
-
-/** Allocates and initializes a new variable-data queue in shared memory. */
-pw::Result<void *> createVariableDataQueue(pw::Allocator &allocator,
-                                           size_t blockCapacity, bool local);
 
 }  // namespace android::contexthub::data_flow

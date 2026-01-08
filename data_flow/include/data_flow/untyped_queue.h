@@ -30,26 +30,6 @@
 namespace android::contexthub::data_flow {
 
 /**
- * Allocates and initializes the metadata for a fixed-size queue.
- *
- * This variant is used where the element type is not known at compile-time on
- * the producer side. Instead, the element size and alignment are provided
- * explicitly.
- *
- * @param allocator The allocator used to allocate the queue metadata.
- * @param blockCapacity The capacity of each block in elements.
- * @param elementSize The size of each element in bytes. Must be > 0.
- * @param elementAlignment The alignment of each element.
- * @param local Iff true, this is a local queue. Otherwise, it is a remote
- * queue.
- * @return On success, a pointer to the queue metadata. The caller is expected
- * to deallocate this memory once the queue is no longer in use.
- */
-pw::Result<void *> createQueueUntyped(pw::Allocator &allocator,
-                                      size_t blockCapacity, size_t elementSize,
-                                      size_t elementAlignment, bool local);
-
-/**
  * An untyped producer instance that is aware of element size and alignment.
  *
  * This class is used where the element type is not known at compile-time and
@@ -62,26 +42,28 @@ pw::Result<void *> createQueueUntyped(pw::Allocator &allocator,
 class UntypedProducer : protected internal::ProducerBase {
  public:
   /**
-   * Creates an UntypedProducer instance for the given local Queue.
+   * Creates an UntypedProducer instance for a new local Queue.
    *
    * See {@link #Producer::createLocal()} for details and an explanation of the
    * parameters.
    */
   static pw::Result<UntypedProducer> createLocal(
-      AllocatorRegion region, void *queue, size_t maxBlockCount,
-      size_t minBlockCount, DataNotifier &dataNotifier,
-      LocalNotifyArgs notifyArgs, MemoryAccess *memAccess = nullptr);
+      AllocatorRegion region, size_t blockCapacity, size_t elementSize,
+      size_t elementAlignment, size_t maxBlockCount, size_t minBlockCount,
+      DataNotifier &dataNotifier, LocalNotifyArgs notifyArgs,
+      MemoryAccess *memAccess = nullptr);
 
   /**
-   * Creates an UntypedProducer instance for the given remote Queue.
+   * Creates an UntypedProducer instance for a new remote Queue.
    *
    * See {@link #Producer::createRemote()} for details and an explanation of the
    * parameters.
    */
   static pw::Result<UntypedProducer> createRemote(
-      AllocatorRegion region, void *queue, size_t maxBlockCount,
-      size_t minBlockCount, DataNotifier &dataNotifier,
-      RemoteNotifyArgs notifyArgs, MemoryAccess *memAccess = nullptr);
+      AllocatorRegion region, size_t blockCapacity, size_t elementSize,
+      size_t elementAlignment, size_t maxBlockCount, size_t minBlockCount,
+      DataNotifier &dataNotifier, RemoteNotifyArgs notifyArgs,
+      MemoryAccess *memAccess = nullptr);
 
   // Moveable.
   UntypedProducer(UntypedProducer &&other)
@@ -103,6 +85,7 @@ class UntypedProducer : protected internal::ProducerBase {
   using ProducerBase::getBlockCount;
   using ProducerBase::getMaxBlockCountTarget;
   using ProducerBase::getMinBlockCountTarget;
+  using ProducerBase::getQueueOffset;
   using ProducerBase::setMaxBlockCountTarget;
   using ProducerBase::setMinBlockCountTarget;
   using ProducerBase::stop;
@@ -188,7 +171,8 @@ class UntypedProducer : protected internal::ProducerBase {
 
  protected:
   UntypedProducer(const AllocatorRegion &region, internal::QueuePrivate &queue,
-                  pw::allocator::Layout blockLayout, size_t maxBlockCount,
+                  size_t blockCapacity, size_t elementSize,
+                  size_t elementAlignment, size_t maxBlockCount,
                   size_t minBlockCount, DataNotifier &dataNotifier,
                   RemoteNotifyFn remoteNotifyFn, MemoryAccess *memAccess);
 
