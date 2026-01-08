@@ -135,7 +135,7 @@ bool ExynosChreConnection::isChreRestarted() {
           /* timeoutMs= */ std::chrono::milliseconds(10000));
       LOGW("CHRE restarted! Recover time: %" PRIu64 "ms.",
            ::android::elapsedRealtime() - startTime);
-      chreConnection->mCallback->onChreRestarted();
+      chreConnection->mCallback->onChreReconnected();
     }
   }
 }

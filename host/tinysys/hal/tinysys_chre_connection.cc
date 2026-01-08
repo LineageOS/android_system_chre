@@ -166,7 +166,7 @@ void TinysysChreConnection::messageHandlerTask(
           /* timeoutMs= */ std::chrono::milliseconds(10000));
       LOGW("SCP restarted! CHRE recover time: %" PRIu64 "ms.",
            ::android::elapsedRealtime() - startTime);
-      chreConnection->mCallback->onChreRestarted();
+      chreConnection->mCallback->onChreReconnected();
     }
     chreCurrentState = chreNextState;
   }

@@ -30,9 +30,13 @@ class ChreConnectionCallback {
   virtual void handleMessageFromChre(const unsigned char *message,
                                      size_t messageLen) = 0;
 
-  /** This method should be called when CHRE is reconnected to HAL and ready to
-   * accept new messages. */
-  virtual void onChreRestarted() {};
+  /**
+   * This method should be called when CHRE is reconnected to HAL and ready to
+   * accept new messages.
+   *
+   * @param chreRestarted Whether CHRE has restarted.
+   */
+  virtual void onChreReconnected(bool /*chreRestarted*/ = true) {};
 
   /** This method should be called when CHRE is disconnected from HAL. */
   virtual void onChreDisconnected() {};

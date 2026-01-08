@@ -32,9 +32,11 @@ ExynosContextHub::ExynosContextHub() {
   }
 }
 
-void ExynosContextHub::onChreRestarted() {
-  mLogger.resetNanoappDetokenizerState();
+void ExynosContextHub::onChreReconnected(bool chreRestarted) {
+  if (chreRestarted) {
+    mLogger.resetNanoappDetokenizerState();
+  }
   mPreloadedNanoappLoader->loadPreloadedNanoapps();
-  MultiClientContextHubBase::onChreRestarted();
+  MultiClientContextHubBase::onChreReconnected();
 }
 }  // namespace aidl::android::hardware::contexthub
