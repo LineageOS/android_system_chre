@@ -16,6 +16,7 @@
 
 #include "wifi_scan_result.h"
 
+#include "chre/util/macros.h"
 #include "chre/util/nanoapp/log.h"
 #include "chre_api/chre.h"
 
@@ -23,7 +24,7 @@
 #include <cstring>
 
 WifiScanResult::WifiScanResult(pb_istream_t *apWifiScanResultStream) {
-  memset(mSsid, 0, CHRE_WIFI_SSID_MAX_LEN);
+  memset(mSsid, 0, sizeof(mSsid));
   chre_cross_validation_wifi_WifiScanResult wifiScanResultProto =
       chre_cross_validation_wifi_WifiScanResult_init_default;
   wifiScanResultProto.ssid = {.funcs = {.decode = decodeString}, .arg = mSsid};
@@ -46,7 +47,7 @@ WifiScanResult::WifiScanResult(pb_istream_t *apWifiScanResultStream) {
 }
 
 WifiScanResult::WifiScanResult(const chreWifiScanResult &chreScanResult) {
-  memset(mSsid, 0, CHRE_WIFI_SSID_MAX_LEN);
+  memset(mSsid, 0, sizeof(mSsid));
   memcpy(mSsid, chreScanResult.ssid, chreScanResult.ssidLen);
   memcpy(mBssid, chreScanResult.bssid, CHRE_WIFI_BSSID_LEN);
   mVenueGroup = chreScanResult.venueGroup;
@@ -78,5 +79,6 @@ bool WifiScanResult::bssidsAreEqual(const WifiScanResult &result1,
 bool WifiScanResult::decodeString(pb_istream_t *stream,
                                   const pb_field_t * /*field*/, void **arg) {
   pb_byte_t *strPtr = reinterpret_cast<pb_byte_t *>(*arg);
-  return pb_read(stream, strPtr, stream->bytes_left);
+  size_t bytesToRead = MIN(stream->bytes_left, CHRE_WIFI_SSID_MAX_LEN);
+  return pb_read(stream, strPtr, bytesToRead);
 }
