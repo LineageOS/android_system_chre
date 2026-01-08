@@ -19,6 +19,7 @@
 
 #ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
 
+#include "chre/core/multi_threading_api_mutex.h"
 #include "chre/platform/mutex.h"
 #include "chre/util/dynamic_vector.h"
 #include "chre/util/non_copyable.h"
@@ -229,13 +230,15 @@ class ChreMessageHubManager : public NonCopyable {
   //! Callback to process message sent to a nanoapp - used by the event loop
   static void onMessageToNanoappCallback(
       SystemCallbackType type,
-      UniquePtr<ChreMessageHubManager::MessageCallbackData> &&data);
+      UniquePtr<ChreMessageHubManager::MessageCallbackData> &&data)
+      CHRE_REQUIRES(getMultiThreadingApiMutex());
 
   //! Callback to process session closed or opened event for a nanoapp - used
   //! by the event loop
   static void onSessionStateChangedCallback(
       SystemCallbackType type,
-      UniquePtr<ChreMessageHubManager::SessionCallbackData> &&data);
+      UniquePtr<ChreMessageHubManager::SessionCallbackData> &&data)
+      CHRE_REQUIRES(getMultiThreadingApiMutex());
 
   //! Callback to process session open complete event - used by the event loop
   static void onSessionOpenCompleteCallback(uint16_t type, void *data,

@@ -19,6 +19,7 @@
 #ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
 
 #include "chre/core/ble_l2cap_coc_socket_data.h"
+#include "chre/core/multi_threading_api_mutex.h"
 #include "chre/platform/platform_bt_socket.h"
 #include "chre/platform/platform_bt_socket_resources.h"
 #include "chre/util/memory_pool.h"
@@ -125,23 +126,26 @@ class BleSocketManager : public NonCopyable {
   /**
    * @see handleSocketOpenedByHost
    */
-  void handleSocketOpenedByHostSync(const BleL2capCocSocketData &socketData);
+  void handleSocketOpenedByHostSync(const BleL2capCocSocketData &socketData)
+      CHRE_REQUIRES(getMultiThreadingApiMutex());
 
   /**
    * @see handlePlatformSocketEvent
    */
-  void handlePlatformSocketEventSync(uint64_t socketId,
-                                     SocketEvent socketEvent);
+  void handlePlatformSocketEventSync(uint64_t socketId, SocketEvent socketEvent)
+      CHRE_REQUIRES(getMultiThreadingApiMutex());
 
   /**
    * @see handlePlatformSocketPacket
    */
-  void handlePlatformSocketPacketSync(chreBleSocketPacketEvent *event);
+  void handlePlatformSocketPacketSync(chreBleSocketPacketEvent *event)
+      CHRE_REQUIRES(getMultiThreadingApiMutex());
 
   /**
    * @see handleSocketClosedByHost
    */
-  void handleSocketClosedByHostSync(uint64_t socketId);
+  void handleSocketClosedByHostSync(uint64_t socketId)
+      CHRE_REQUIRES(getMultiThreadingApiMutex());
 
   /**
    * Tracks BT sockets and their corresponding nanoapp.

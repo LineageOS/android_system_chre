@@ -22,6 +22,7 @@
 #include <optional>
 
 #include "chre/core/event.h"
+#include "chre/core/multi_threading_api_mutex.h"
 #include "chre/core/nanoapp.h"
 #include "chre/core/static_nanoapps.h"
 #include "chre/core/timer_handle.h"
@@ -220,7 +221,7 @@ class EventLoop : public NonCopyable {
   bool distributeEventSync(uint16_t eventType, void *eventData,
                            uint16_t targetInstanceId = kBroadcastInstanceId,
                            uint16_t targetGroupMask = kDefaultTargetGroupMask)
-      CHRE_NO_THREAD_SAFETY_ANALYSIS;
+      CHRE_REQUIRES(getMultiThreadingApiMutex());
 
   /**
    * Posts an event to a nanoapp that is currently running (or all nanoapps if
@@ -692,6 +693,19 @@ class EventLoop : public NonCopyable {
    * @return true if the current thread is running this event loop.
    */
   bool inThisEventLoopThread() const;
+
+  /**
+   * Synchronously distributes an event to all nanoapps that should receive it.
+   * This is an internal function that is used by distributeEventSync and
+   * deferred callbacks.
+   *
+   * @param event The Event to distribute to Nanoapps
+   * @param lock The lock that needs to be unlocked before distributing the
+   * event.
+   * @return True if the event was delivered to any nanoapps, otherwise false
+   */
+  bool distributeEventSyncInternal(Event *event, MultiThreadingApiMutex *lock)
+      CHRE_REQUIRES(lock);
 };
 
 }  // namespace chre

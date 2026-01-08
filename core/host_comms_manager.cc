@@ -92,13 +92,14 @@ bool HostCommsManager::completeTransaction(
     [[maybe_unused]] uint32_t transactionId,
     [[maybe_unused]] uint8_t errorCode) {
 #ifdef CHRE_RELIABLE_MESSAGE_SUPPORT_ENABLED
-  auto callback = [](uint16_t /*type*/, void *data, void *extraData) {
-    uint32_t txnId = NestedDataPtr<uint32_t>(data);
-    uint8_t err = NestedDataPtr<uint8_t>(extraData);
-    EventLoopManagerSingleton::get()
-        ->getHostCommsManager()
-        .handleMessageDeliveryStatusSync(txnId, err);
-  };
+  auto callback = [](uint16_t /*type*/, void *data, void *extraData)
+                      CHRE_REQUIRES(getMultiThreadingApiMutex()) {
+                        uint32_t txnId = NestedDataPtr<uint32_t>(data);
+                        uint8_t err = NestedDataPtr<uint8_t>(extraData);
+                        EventLoopManagerSingleton::get()
+                            ->getHostCommsManager()
+                            .handleMessageDeliveryStatusSync(txnId, err);
+                      };
   EventLoopManagerSingleton::get()->deferCallback(
       SystemCallbackType::ReliableMessageEvent,
       NestedDataPtr<uint32_t>(transactionId), callback,
@@ -243,12 +244,14 @@ void HostCommsManager::sendMessageToNanoappFromHost(
   MessageFromHost *craftedMessage = output.second;
 
   if (error == CHRE_ERROR_NONE) {
-    auto callback = [](uint16_t /*type*/, void *data, void * /* extraData */) {
-      MessageFromHost *craftedMessage = static_cast<MessageFromHost *>(data);
-      EventLoopManagerSingleton::get()
-          ->getHostCommsManager()
-          .deliverNanoappMessageFromHost(craftedMessage);
-    };
+    auto callback = [](uint16_t /*type*/, void *data, void * /* extraData */)
+                        CHRE_REQUIRES(getMultiThreadingApiMutex()) {
+                          MessageFromHost *craftedMessage =
+                              static_cast<MessageFromHost *>(data);
+                          EventLoopManagerSingleton::get()
+                              ->getHostCommsManager()
+                              .deliverNanoappMessageFromHost(craftedMessage);
+                        };
 
     if (!EventLoopManagerSingleton::get()->deferCallback(
             SystemCallbackType::DeferredMessageToNanoappFromHost,
@@ -472,7 +475,8 @@ void HostCommsManager::handleDuplicateAndSendMessageDeliveryStatus(
 }
 
 void HostCommsManager::handleMessageDeliveryStatusSync(
-    uint32_t messageSequenceNumber, uint8_t errorCode) {
+    uint32_t messageSequenceNumber, uint8_t errorCode)
+    CHRE_REQUIRES(getMultiThreadingApiMutex()) {
   EventLoop &eventLoop = EventLoopManagerSingleton::get()->getEventLoop();
   uint16_t nanoappInstanceId;
   MessageToHost *message = findMessageToHostBySeq(messageSequenceNumber);

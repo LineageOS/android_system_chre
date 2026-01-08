@@ -506,12 +506,14 @@ void WifiRequestManager::handleScanResponse(bool pending, uint8_t errorCode) {
     uint8_t errorCode;
   };
 
-  auto callback = [](uint16_t /*type*/, void *data, void * /*extraData*/) {
-    CallbackState cbState = NestedDataPtr<CallbackState>(data);
-    EventLoopManagerSingleton::get()
-        ->getWifiRequestManager()
-        .handleScanResponseSync(cbState.pending, cbState.errorCode);
-  };
+  auto callback =
+      [](uint16_t /*type*/, void *data, void * /*extraData*/)
+          CHRE_REQUIRES(getMultiThreadingApiMutex()) {
+            CallbackState cbState = NestedDataPtr<CallbackState>(data);
+            EventLoopManagerSingleton::get()
+                ->getWifiRequestManager()
+                .handleScanResponseSync(cbState.pending, cbState.errorCode);
+          };
 
   CallbackState cbState = {};
   cbState.pending = pending;
@@ -539,12 +541,14 @@ void WifiRequestManager::handleRangingEvent(
 }
 
 void WifiRequestManager::handleScanEvent(struct chreWifiScanEvent *event) {
-  auto callback = [](uint16_t /*type*/, void *data, void * /*extraData*/) {
-    auto *scanEvent = static_cast<struct chreWifiScanEvent *>(data);
-    EventLoopManagerSingleton::get()
-        ->getWifiRequestManager()
-        .distributeScanEventSync(scanEvent);
-  };
+  auto callback = [](uint16_t /*type*/, void *data, void * /*extraData*/)
+                      CHRE_REQUIRES(getMultiThreadingApiMutex()) {
+                        auto *scanEvent =
+                            static_cast<struct chreWifiScanEvent *>(data);
+                        EventLoopManagerSingleton::get()
+                            ->getWifiRequestManager()
+                            .distributeScanEventSync(scanEvent);
+                      };
 
   EventLoopManagerSingleton::get()->deferCallback(
       SystemCallbackType::WifiHandleScanEvent, event, callback);

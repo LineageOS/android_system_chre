@@ -19,6 +19,7 @@
 
 #ifdef CHRE_WIFI_SUPPORT_ENABLED
 
+#include "chre/core/multi_threading_api_mutex.h"
 #include "chre/core/nanoapp.h"
 #include "chre/core/settings.h"
 #include "chre/core/timer_pool.h"
@@ -630,7 +631,8 @@ class WifiRequestManager : public NonCopyable {
    */
   bool distributeScanRequestAsyncResultSync(uint16_t nanoappInstanceId,
                                             bool success, uint8_t errorCode,
-                                            const void *cookie);
+                                            const void *cookie)
+      CHRE_REQUIRES(getMultiThreadingApiMutex());
 
   /**
    * Determines if the current WifiScanEvent was requested by a nanoapp that is
@@ -652,7 +654,8 @@ class WifiRequestManager : public NonCopyable {
    *
    * @param event the wifi scan event.
    */
-  void distributeScanEventSync(chreWifiScanEvent *event);
+  void distributeScanEventSync(chreWifiScanEvent *event)
+      CHRE_REQUIRES(getMultiThreadingApiMutex());
 
   /**
    * Posts an event to a nanoapp indicating the async result of a NAN operation.
@@ -696,7 +699,8 @@ class WifiRequestManager : public NonCopyable {
    *        type of error has occurred. See the chreError enum in the CHRE API
    *        for additional details.
    */
-  void handleScanResponseSync(bool pending, uint8_t errorCode);
+  void handleScanResponseSync(bool pending, uint8_t errorCode)
+      CHRE_REQUIRES(getMultiThreadingApiMutex());
 
   /**
    * Handles the result of a NAN subscription request.
