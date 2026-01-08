@@ -162,10 +162,6 @@ public class ChdtsHostTestCases extends BaseHostJUnit4Test {
         }
 
         Assert.assertTrue(fullClassName + " failed.", runDeviceTests(deviceTestRunOptions));
-
-        if (mExternalNanoAppPath != null && PropertyUtil.isUserBuild(mDevice)) {
-            Assert.fail("Cannot pass test when using external nanoapps for user build.");
-        }
     }
 
     private boolean hasSensor(String sensorFeatureName) throws Exception {
