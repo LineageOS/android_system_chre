@@ -113,12 +113,7 @@ void Manager::handleStepStartMessage(
       if (!chreWifiConfigureScanMonitorAsync(/* enable= */ true,
                                              &kScanMonitoringCookie)) {
         LOGE("chreWifiConfigureScanMonitorAsync() failed");
-        test_shared::sendTestResultWithMsgToHost(
-            mCrossValidatorState.hostEndpoint,
-            chre_cross_validation_wifi_MessageType_STEP_RESULT,
-            /*success=*/false,
-            /* errMessage= */ "setupWifiScanMonitoring failed",
-            /*abortOnFailure=*/false);
+        sendTestResult(/*success=*/false, "setupWifiScanMonitoring failed");
         break;
       }
       LOGD("chreWifiConfigureScanMonitorAsync() succeeded");
