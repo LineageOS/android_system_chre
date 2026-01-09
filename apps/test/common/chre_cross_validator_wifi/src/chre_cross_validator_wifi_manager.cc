@@ -20,6 +20,7 @@
 
 #include "chre/util/nanoapp/log.h"
 #include "chre/util/nanoapp/wifi.h"
+#include "chre/util/time.h"
 #include "chre_api/chre.h"
 #include "send_message.h"
 
@@ -27,6 +28,15 @@ namespace chre::cross_validator_wifi {
 
 // Fake scan monitor cookie which is not used
 constexpr uint32_t kScanMonitoringCookie = 0;
+
+// The cookie to use for the data collection timeout timer
+constexpr uint32_t kTimeoutTimerCookie = 0x1337;
+
+// The timeout for data collection. The host side timeout is 15 seconds, so we
+// set this to be shorter than that to avoid stalling the host.
+// Note that this timeout is only for gathering more scan events if the first
+// compare attempt failed.
+constexpr uint64_t kDataCollectionTimeoutNs = 5 * chre::kOneSecondInNanoseconds;
 
 void Manager::handleEvent(uint32_t senderInstanceId, uint16_t eventType,
                           const void *eventData) {
@@ -41,6 +51,9 @@ void Manager::handleEvent(uint32_t senderInstanceId, uint16_t eventType,
       break;
     case CHRE_EVENT_WIFI_SCAN_RESULT:
       handleWifiScanResult(static_cast<const chreWifiScanEvent *>(eventData));
+      break;
+    case CHRE_EVENT_TIMER:
+      handleTimerEvent(eventData);
       break;
     default:
       LOGE("Unknown message type %" PRIu16 "received when handling event",
@@ -136,6 +149,7 @@ void Manager::handleDataMessage(const chreMessageFromHostData *hostData) {
   }
   if (!mApScanResults.push_back(scanResult)) {
     LOG_OOM();
+    sendTestResult(/*success=*/false, "OOM handling AP scan results");
   }
   LOGD("%s: AP wifi result %" PRIu8 "/%" PRIu8 " is received", __func__,
        static_cast<uint8_t>(scanResultIndex + 1),
@@ -150,19 +164,36 @@ void Manager::handleDataMessage(const chreMessageFromHostData *hostData) {
 }
 
 void Manager::handleWifiScanResult(const chreWifiScanEvent *event) {
-  if (!mScanStartSeen && event->eventIndex != 0) {
+  if (event->eventIndex == 0) {
+    mScanStartSeen = true;
+    if (!mChreScanResults.emplace_back()) {
+      LOG_OOM();
+      sendTestResult(/*success=*/false, "OOM handling CHRE scan batch");
+      return;
+    }
+  }
+
+  if (!mScanStartSeen) {
     LOGW("Dropping chreWifiScanEvent because we haven't seen eventIndex=0");
     return;
   }
-  mScanStartSeen = true;
+
+  auto &currentBatch = mChreScanResults.back();
   for (uint8_t i = 0; i < event->resultCount; i++) {
-    mChreScanResults.push_back(event->results[i]);
+    if (!currentBatch.push_back(event->results[i])) {
+      LOG_OOM();
+      sendTestResult(/*success=*/false, "OOM handling CHRE scan result");
+      return;
+    }
   }
-  LOGD("%s: CHRE wifi result %zu/%" PRIu8 " is received", __func__,
-       mChreScanResults.size(), event->resultTotal);
-  if (mChreScanResults.size() < event->resultTotal) {
+
+  LOGI("%s: CHRE wifi result %zu/%" PRIu8 " is received", __func__,
+       currentBatch.size(), event->resultTotal);
+
+  if (currentBatch.size() < event->resultTotal) {
     return;
   }
+
   mChreDataCollectionDone = true;
   if (mApDataCollectionDone) {
     compareAndSendResultToHost();
@@ -171,116 +202,144 @@ void Manager::handleWifiScanResult(const chreWifiScanEvent *event) {
 
 void Manager::compareAndSendResultToHost() {
   chre_test_common_TestResult testResult;
-  bool belowMaxSizeCheck =
-      mApScanResults.size() <= mExpectedMaxChreResultCanHandle &&
-      mApScanResults.size() != mChreScanResults.size();
-  bool aboveMaxSizeCheck =
-      mApScanResults.size() > mExpectedMaxChreResultCanHandle &&
-      mApScanResults.size() < mChreScanResults.size();
-
-  LOGI("Wifi scan result counts, AP = %zu, CHRE = %zu, MAX = %" PRIu8,
-       mApScanResults.size(), mChreScanResults.size(),
-       mExpectedMaxChreResultCanHandle);
-
   verifyScanResults(&testResult);
-
-  if (belowMaxSizeCheck || aboveMaxSizeCheck) {
-    LOGE("Scan results differ: AP = %zu, CHRE = %zu, MAX = %" PRIu8,
-         mApScanResults.size(), mChreScanResults.size(),
-         mExpectedMaxChreResultCanHandle);
-    sendTestResult(/*success=*/false,
-                   /* errorMessage= */
-                   "There is a different number of AP and CHRE scan results.");
-    return;
+  if (mTimeoutTimerHandle == CHRE_TIMER_INVALID) {
+    mTimeoutTimerHandle =
+        chreTimerSet(kDataCollectionTimeoutNs, &kTimeoutTimerCookie, true);
   }
-
-  test_shared::sendMessageToHost(
-      mCrossValidatorState.hostEndpoint, &testResult,
-      chre_test_common_TestResult_fields,
-      chre_cross_validation_wifi_MessageType_STEP_RESULT);
+  if (testResult.code == chre_test_common_TestResult_Code_PASSED) {
+    if (mTimeoutTimerHandle != CHRE_TIMER_INVALID) {
+      chreTimerCancel(mTimeoutTimerHandle);
+      mTimeoutTimerHandle = CHRE_TIMER_INVALID;
+    }
+    test_shared::sendMessageToHost(
+        mCrossValidatorState.hostEndpoint, &testResult,
+        chre_test_common_TestResult_fields,
+        chre_cross_validation_wifi_MessageType_STEP_RESULT);
+  } else {
+    LOGW("Verification failed for current batch(es). Waiting for more data...");
+  }
 }
 
+// TODO(b/474444219): This function is getting long, refactor it.
 void Manager::verifyScanResults(chre_test_common_TestResult *testResultOut) {
-  bool allResultsValid = true;
-  for (const chreWifiScanResult &result : mChreScanResults) {
-    const WifiScanResult chreWifiScanResult = WifiScanResult(result);
-    bool isValidResult = true;
-    size_t index =
-        getMatchingScanResultIndex(mApScanResults, chreWifiScanResult);
-
-    const char *bssidStr = "<non-printable>";
-    char bssidBuffer[chre::kBssidStrLen];
-    if (chre::parseBssidToStr(chreWifiScanResult.getBssid(), bssidBuffer,
-                              sizeof(bssidBuffer))) {
-      bssidStr = bssidBuffer;
+  // Multi-batch verification: Nanoapp might receive scan events from scans
+  // triggered other than the test host. We consider the test a PASS if ANY
+  // single batch that matches the Host's scan results.
+  for (size_t i = mNumChreScanResultsProcessed; i < mChreScanResults.size();
+       ++i) {
+    const auto &batch = mChreScanResults[i];
+    LOGI("Verifying batch %zu", i);
+    for (size_t j = 0; j < mApScanResults.size(); ++j) {
+      mApScanResults[j].resetSeen();
     }
 
-    // chreWifiScanResult is found
-    if (index != SIZE_MAX) {
-      WifiScanResult &apScanResult = mApScanResults[index];
-      if (apScanResult.getSeen()) {
-        *testResultOut = test_shared::makeTestResultProtoMessage(
-            /*success=*/false, "Saw a CHRE scan result with a duplicate BSSID");
-        isValidResult = false;
-        LOGE("CHRE Scan Result with bssid: %s has a duplicate BSSID", bssidStr);
-      }
-      if (!WifiScanResult::areEqual(chreWifiScanResult, apScanResult)) {
-        *testResultOut = test_shared::makeTestResultProtoMessage(
-            /*success=*/false,
-            "Fields differ between an AP and CHRE scan result with same Bssid");
-        isValidResult = false;
-        LOGE(
-            "CHRE Scan Result with bssid: %s found fields differ with "
-            "an AP scan result with same Bssid",
-            bssidStr);
-      }
-      // Mark this scan result as already seen so that the next time it is used
-      // as a match the test will fail because of duplicate scan results.
-      apScanResult.didSee();
-    } else {
-      // Error CHRE BSSID does not match any AP
+    bool belowMaxSizeCheck =
+        mApScanResults.size() <= mExpectedMaxChreResultCanHandle &&
+        mApScanResults.size() != batch.size();
+    bool aboveMaxSizeCheck =
+        mApScanResults.size() > mExpectedMaxChreResultCanHandle &&
+        mApScanResults.size() < batch.size();
+
+    LOGI("Wifi scan result counts, AP = %zu, CHRE = %zu, MAX = %" PRIu8,
+         mApScanResults.size(), batch.size(), mExpectedMaxChreResultCanHandle);
+
+    if (belowMaxSizeCheck || aboveMaxSizeCheck) {
+      LOGW("Scan results differ: AP = %zu, CHRE = %zu, MAX = %" PRIu8,
+           mApScanResults.size(), batch.size(),
+           mExpectedMaxChreResultCanHandle);
       *testResultOut = test_shared::makeTestResultProtoMessage(
           /*success=*/false,
-          "Could not find an AP scan result with the same Bssid in CHRE "
-          "result");
-      isValidResult = false;
-      LOGE(
-          "CHRE Scan Result with bssid: %s fail to find an AP scan "
-          "with same Bssid",
-          bssidStr);
+          "There is a different number of AP and CHRE scan results.");
     }
 
-    if (!isValidResult) {
-      LOGE("False CHRE Scan Result with the following info:");
-      logChreWifiResult(result);
-      allResultsValid = false;
-    }
-  }
+    bool allResultsValid = true;
+    for (const chreWifiScanResult &result : batch) {
+      const WifiScanResult chreWifiScanResult = WifiScanResult(result);
+      bool isValidResult = true;
+      size_t index =
+          getMatchingScanResultIndex(mApScanResults, chreWifiScanResult);
 
-  for (const WifiScanResult &scanResult : mApScanResults) {
-    if (!scanResult.getSeen()) {
       const char *bssidStr = "<non-printable>";
       char bssidBuffer[chre::kBssidStrLen];
-      if (chre::parseBssidToStr(scanResult.getBssid(), bssidBuffer,
+      if (chre::parseBssidToStr(chreWifiScanResult.getBssid(), bssidBuffer,
                                 sizeof(bssidBuffer))) {
         bssidStr = bssidBuffer;
       }
-      LOGW("AP %s with bssid %s is not seen in CHRE", scanResult.getSsid(),
-           bssidStr);
-      // Since CHRE is more constrained in memory, it is expected that if we
-      // receive over a certain amount of AP, we will drop some of them.
-      if (mApScanResults.size() <= mExpectedMaxChreResultCanHandle) {
+
+      // chreWifiScanResult is found
+      if (index != SIZE_MAX) {
+        WifiScanResult &apScanResult = mApScanResults[index];
+        if (apScanResult.getSeen()) {
+          *testResultOut = test_shared::makeTestResultProtoMessage(
+              /*success=*/false,
+              "Saw a CHRE scan result with a duplicate BSSID");
+          isValidResult = false;
+          LOGW("CHRE Scan Result with bssid: %s has a duplicate BSSID",
+               bssidStr);
+        }
+        if (!WifiScanResult::areEqual(chreWifiScanResult, apScanResult)) {
+          *testResultOut = test_shared::makeTestResultProtoMessage(
+              /*success=*/false,
+              "Fields differ between an AP and CHRE scan result with same "
+              "Bssid");
+          isValidResult = false;
+          LOGW(
+              "CHRE Scan Result with bssid: %s ssid: %s found fields differ "
+              "with an AP scan result with same Bssid",
+              bssidStr, chreWifiScanResult.getSsid());
+        }
+        // Mark this scan result as already seen so that the next time it is
+        // used as a match the test will fail because of duplicate scan results.
+        apScanResult.didSee();
+      } else {
+        // Error CHRE BSSID does not match any AP
         *testResultOut = test_shared::makeTestResultProtoMessage(
             /*success=*/false,
-            "Extra AP information shown in host "
-            "when small number of AP results presenting");
+            "Could not find an AP scan result with the same Bssid in CHRE "
+            "result");
+        isValidResult = false;
+        LOGW(
+            "CHRE Scan Result with bssid: %s fail to find an AP scan "
+            "with same Bssid",
+            bssidStr);
+      }
+
+      if (!isValidResult) {
+        LOGW("False CHRE Scan Result with the following info:");
+        logChreWifiResult(result);
         allResultsValid = false;
       }
     }
-  }
 
-  if (allResultsValid) {
-    *testResultOut = test_shared::makeTestResultProtoMessage(true);
+    for (const WifiScanResult &scanResult : mApScanResults) {
+      if (!scanResult.getSeen()) {
+        const char *bssidStr = "<non-printable>";
+        char bssidBuffer[chre::kBssidStrLen];
+        if (chre::parseBssidToStr(scanResult.getBssid(), bssidBuffer,
+                                  sizeof(bssidBuffer))) {
+          bssidStr = bssidBuffer;
+        }
+        LOGW("AP %s with bssid %s is not seen in CHRE", scanResult.getSsid(),
+             bssidStr);
+        // Since CHRE is more constrained in memory, it is expected that if we
+        // receive over a certain amount of AP, we will drop some of them.
+        if (mApScanResults.size() <= mExpectedMaxChreResultCanHandle) {
+          *testResultOut = test_shared::makeTestResultProtoMessage(
+              /*success=*/false,
+              "Extra AP information shown in host "
+              "when small number of AP results presenting");
+          allResultsValid = false;
+        }
+      }
+    }
+
+    if (allResultsValid) {
+      *testResultOut = test_shared::makeTestResultProtoMessage(true);
+      return;  // Found a matching batch!
+    } else {
+      mNumChreScanResultsProcessed++;
+    }
   }
 }
 
@@ -324,12 +383,21 @@ void Manager::handleWifiAsyncResult(const chreAsyncResult *result) {
   }
   if (result->success) {
     LOGI("Wifi scan monitoring setup successfully");
+    mTimeoutTimerHandle =
+        chreTimerSet(kDataCollectionTimeoutNs, &kTimeoutTimerCookie, true);
     sendTestResult(/*success=*/true);
   } else {
     LOGE("Wifi scan monitoring setup failed async w/ error code %" PRIu8,
          result->errorCode);
     sendTestResult(/*success=*/false,
                    /*errorMessage=*/"Wifi scan monitoring setup failed async");
+  }
+}
+
+void Manager::handleTimerEvent(const void *eventData) {
+  if (eventData == &kTimeoutTimerCookie) {
+    sendTestResult(/*success=*/false,
+                   "Timeout waiting for more wifi scan results");
   }
 }
 

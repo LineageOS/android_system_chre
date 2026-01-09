@@ -71,6 +71,10 @@ class WifiScanResult {
     mSeen = true;
   }
 
+  void resetSeen() {
+    mSeen = false;
+  }
+
   const uint8_t *getBssid() const {
     return mBssid;
   }
