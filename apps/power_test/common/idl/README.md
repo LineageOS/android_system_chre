@@ -36,6 +36,6 @@ make -j
 ./flatc --version
 
 # Install flatc to path
-You can either intall it via moving the `flatc` binary under a path folder or
+You can either install it via moving the `flatc` binary under a path folder or
 sudo make install
 ```
