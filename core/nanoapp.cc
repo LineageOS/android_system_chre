@@ -37,12 +37,12 @@ namespace chre {
 
 constexpr size_t Nanoapp::kMaxSizeWakeupBuckets;
 
-Nanoapp::Nanoapp()
-    : Nanoapp(EventLoopManagerSingleton::get()->getNextInstanceId()) {}
-
-Nanoapp::Nanoapp(uint16_t instanceId) {
+Nanoapp::Nanoapp() {
   // Push first bucket onto wakeup bucket queue
   cycleWakeupBuckets(SystemTime::getMonotonicTime());
+}
+
+Nanoapp::Nanoapp(uint16_t instanceId) : Nanoapp() {
   mInstanceId = instanceId;
 }
 
@@ -186,7 +186,7 @@ void Nanoapp::cycleWakeupBuckets(Nanoseconds timestamp) {
 }
 
 void Nanoapp::logStateToBuffer(DebugDumpWrapper &debugDump) const {
-  debugDump.print(" Id=%" PRIu16 " 0x%016" PRIx64 " ", getInstanceId(),
+  debugDump.print(" Id=0x%" PRIx16 " 0x%016" PRIx64 " ", getInstanceId(),
                   getAppId());
   PlatformNanoapp::logStateToBuffer(debugDump);
   uint32_t perm = getAppPermissions();

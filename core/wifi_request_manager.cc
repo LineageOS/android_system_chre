@@ -453,7 +453,7 @@ bool WifiRequestManager::requestScan(Nanoapp *nanoapp,
   bool success = false;
   uint16_t nanoappInstanceId = nanoapp->getInstanceId();
   if (nanoappHasPendingScanRequest(nanoappInstanceId)) {
-    LOGE("Can't issue new scan request: nanoapp: %" PRIx64
+    LOGE("Can't issue new scan request: nanoapp: 0x%" PRIx64
          " already has a pending request",
          nanoapp->getAppId());
   } else if (!mPendingScanRequests.emplace(nanoappInstanceId, cookie, params)) {
@@ -769,7 +769,7 @@ void WifiRequestManager::dumpDebugLog(const DebugLogEntry &log,
                       log.scanRequest.channelSet, log.scanRequest.syncResult);
       break;
     case WifiScanLogType::SCAN_RESPONSE:
-      debugDump.print("scanRsp: nappId=%" PRIu16 " pending=%" PRIu8
+      debugDump.print("scanRsp: nappId=0x%" PRIx16 " pending=%" PRIu8
                       " errorCode=%" PRIu8 "\n",
                       log.scanResponse.nanoappInstanceId,
                       log.scanResponse.pending, log.scanResponse.errorCode);
@@ -783,14 +783,14 @@ void WifiRequestManager::dumpDebugLog(const DebugLogEntry &log,
                       log.scanEvent.scanAgeMs);
       break;
     case WifiScanLogType::SCAN_MONITOR_REQUEST:
-      debugDump.print("scanMonReq: nappId=%" PRIu16 " enable=%" PRIu8
+      debugDump.print("scanMonReq: nappId=0x%" PRIx16 " enable=%" PRIu8
                       " syncResult=%" PRIu8 "\n",
                       log.scanMonitorRequest.nanoappInstanceId,
                       log.scanMonitorRequest.enable,
                       log.scanMonitorRequest.syncResult);
       break;
     case WifiScanLogType::SCAN_MONITOR_RESULT:
-      debugDump.print("scanMonRes: nappId=%" PRIu16 " enabled=%" PRIu8
+      debugDump.print("scanMonRes: nappId=0x%" PRIx16 " enabled=%" PRIu8
                       " errorCode=%" PRIu8 "\n",
                       log.scanMonitorResult.nanoappInstanceId,
                       log.scanMonitorResult.enabled,
@@ -809,7 +809,7 @@ void WifiRequestManager::logStateToBuffer(DebugDumpWrapper &debugDump) const {
   if (scanMonitorIsEnabled()) {
     debugDump.print(" Scan monitor nanoapps:\n");
     for (uint16_t instanceId : mScanMonitorNanoapps) {
-      debugDump.print("  nappId=%" PRIu16 "\n", instanceId);
+      debugDump.print("  nappId=0x%" PRIx16 "\n", instanceId);
     }
   }
 
@@ -823,7 +823,7 @@ void WifiRequestManager::logStateToBuffer(DebugDumpWrapper &debugDump) const {
   if (!mPendingScanMonitorRequests.empty()) {
     debugDump.print(" Pending scan monitor requests:\n");
     for (const auto &transition : mPendingScanMonitorRequests) {
-      debugDump.print("  enable=%s nappId=%" PRIu16 "\n",
+      debugDump.print("  enable=%s nappId=0x%" PRIx16 "\n",
                       transition.enable ? "true" : "false",
                       transition.nanoappInstanceId);
     }
@@ -846,7 +846,7 @@ void WifiRequestManager::logStateToBuffer(DebugDumpWrapper &debugDump) const {
   if (!mNanoappSubscriptions.empty()) {
     debugDump.print(" Active NAN service subscriptions:\n");
     for (const auto &sub : mNanoappSubscriptions) {
-      debugDump.print("  nappID=%" PRIu16 " sub ID=%" PRIu32 "\n",
+      debugDump.print("  nappID=0x%" PRIx16 " sub ID=%" PRIu32 "\n",
                       sub.nanoappInstanceId, sub.subscriptionId);
     }
   }
