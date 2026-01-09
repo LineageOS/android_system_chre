@@ -193,8 +193,8 @@ void defaultNanoappEnd() {}
 void loadNanoapp(const char *name, uint64_t appId, uint32_t appVersion,
                  uint32_t appPerms, decltype(nanoappStart) *startFunc,
                  decltype(nanoappHandleEvent) *handleEventFunc,
-                 decltype(nanoappEnd) *endFunc, int8_t requestedThreadPriority,
-                 EventLoop *eventLoop) {
+                 decltype(nanoappEnd) *endFunc, EventLoop *eventLoop,
+                 int8_t requestedThreadPriority) {
   UniquePtr<Nanoapp> nanoapp =
       createStaticNanoapp(name, appId, appVersion, appPerms, startFunc,
                           handleEventFunc, endFunc, requestedThreadPriority);
@@ -207,27 +207,28 @@ void loadNanoapp(const char *name, uint64_t appId, uint32_t appVersion,
       CHRE_EVENT_SIMULATION_TEST_NANOAPP_LOADED);
 }
 
-uint64_t loadNanoapp(UniquePtr<TestNanoapp> app) {
+uint64_t loadNanoappOnEventLoop(UniquePtr<TestNanoapp> app,
+                                EventLoop *eventLoop) {
   TestNanoapp *pApp = app.get();
   registerNanoapp(std::move(app));
   loadNanoapp(pApp->name(), pApp->id(), pApp->version(), pApp->perms(), &start,
-              &handleEvent, &end, pApp->requestedThreadPriority());
+              &handleEvent, &end, eventLoop, pApp->requestedThreadPriority());
 
   return pApp->id();
 }
 
 void sendEventToNanoapp(uint64_t appId, uint16_t eventType) {
   uint16_t instanceId;
-  if (EventLoopManagerSingleton::get()
-          ->getEventLoop()
-          .findNanoappInstanceIdByAppId(appId, &instanceId)) {
+  EventLoop *eventLoop =
+      EventLoopManagerSingleton::get()->getEventLoopByAppId(appId);
+  if (eventLoop != nullptr &&
+      eventLoop->findNanoappInstanceIdByAppId(appId, &instanceId)) {
     auto event = memoryAlloc<TestEvent>();
     ASSERT_NE(event, nullptr);
     event->type = eventType;
     EventLoopManagerSingleton::get()->postEventOrDie(
         CHRE_EVENT_TEST_EVENT, static_cast<void *>(event),
         freeTestEventDataCallback, instanceId);
-
   } else {
     LOGE("No instance found for nanoapp id = 0x%016" PRIx64, appId);
   }
@@ -245,13 +246,13 @@ void sendEventToNanoappAndWait(uint64_t appId, uint16_t eventType,
       waitEventType);
 }
 
-void unloadNanoapp(uint64_t appId) {
+void unloadNanoappOnEventLoop(uint64_t appId, EventLoop *eventLoop) {
   uint64_t *ptr = memoryAlloc<uint64_t>();
   ASSERT_NE(ptr, nullptr);
   *ptr = appId;
   EventLoopManagerSingleton::get()->deferCallback(
       SystemCallbackType::HandleUnloadNanoapp, ptr,
-      testFinishUnloadingNanoappCallback);
+      testFinishUnloadingNanoappCallback, /* extraData= */ nullptr, eventLoop);
 
   TestEventQueueSingleton::get()->waitForEvent(
       CHRE_EVENT_SIMULATION_TEST_NANOAPP_UNLOADED);

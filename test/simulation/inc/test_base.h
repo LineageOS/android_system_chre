@@ -24,12 +24,14 @@
 
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/nanoapp.h"
+#include "chre/platform/assert.h"
 #include "chre/platform/system_time.h"
 #include "chre/platform/system_timer.h"
 #include "chre/util/system/message_router.h"
 #include "chre/util/time.h"
 #include "mock_bt_offload.h"
 #include "test_event_queue.h"
+#include "test_util.h"
 
 #include "pw_bluetooth_proxy/proxy_host.h"
 
@@ -119,6 +121,25 @@ class TestBase : public testing::Test {
     return nanoapp;
   }
 
+  virtual EventLoop *getEventLoopForRequestedPriority(
+      int8_t requestedThreadPriority) = 0;
+
+  uint64_t loadNanoapp(UniquePtr<TestNanoapp> app) {
+    EventLoop *eventLoop =
+        getEventLoopForRequestedPriority(app->requestedThreadPriority());
+    CHRE_ASSERT(eventLoop != nullptr);
+    return loadNanoappOnEventLoop(std::move(app), eventLoop);
+  }
+
+  void unloadNanoapp(uint64_t appId) {
+    int8_t requestedThreadPriority =
+        queryNanoapp(appId)->requestedThreadPriority();
+    EventLoop *eventLoop = getEventLoopForRequestedPriority(
+        queryNanoapp(appId)->requestedThreadPriority());
+    CHRE_ASSERT(eventLoop != nullptr);
+    unloadNanoappOnEventLoop(appId, eventLoop);
+  }
+
   class MemberInitLogger {
    public:
     MemberInitLogger() {
@@ -145,6 +166,11 @@ class SingleThreadTestBase : public TestBase {
   void SetUp() override;
   void TearDown() override;
 
+  EventLoop *getEventLoopForRequestedPriority(
+      int8_t /* requestedThreadPriority */) override {
+    return &mEventLoop.value();
+  }
+
   std::optional<EventLoop> mEventLoop;
   std::thread mChreThread;
 };
@@ -163,6 +189,14 @@ class MultiThreadTestBaseT : public TestBase {
 
   EventLoop *getEventLoop(size_t index) {
     return &(*mEventLoops)[index];
+  }
+
+  EventLoop *getEventLoopForRequestedPriority(
+      int8_t requestedThreadPriority) override {
+    return requestedThreadPriority ==
+                   NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND
+               ? getEventLoop(1)
+               : getEventLoop(0);
   }
 };
 
