@@ -89,7 +89,8 @@ class WifiScanResult {
 
 
  private:
-  char mSsid[CHRE_WIFI_SSID_MAX_LEN];
+  // SSID is a max of 32 bytes, we need an extra byte for the null terminator.
+  char mSsid[CHRE_WIFI_SSID_MAX_LEN + 1];
   uint8_t mBssid[CHRE_WIFI_BSSID_LEN];
 
   uint8_t mTotalNumResults = 0;
