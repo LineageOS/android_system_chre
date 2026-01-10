@@ -73,15 +73,17 @@ bool shouldAcceptMessageToHostFromNanoapp(Nanoapp *nanoapp, void *messageData,
 
 }  // namespace
 
-HostCommsManager::HostCommsManager()
+HostCommsManager::HostCommsManager(EventLoop *eventLoop)
 #ifdef CHRE_RELIABLE_MESSAGE_SUPPORT_ENABLED
     : mDuplicateMessageDetector(kReliableMessageDuplicateDetectorTimeout),
-      mTransactionManager(
-          *this,
-          EventLoopManagerSingleton::get()->getEventLoop().getTimerPool(),
-          kReliableMessageRetryWaitTime, kReliableMessageMaxAttempts)
-#endif  // CHRE_RELIABLE_MESSAGE_SUPPORT_ENABLED
+      mTransactionManager(*this,
+                          EventLoopManagerSingleton::get()->getTimerPool(),
+                          kReliableMessageRetryWaitTime, eventLoop,
+                          kReliableMessageMaxAttempts) {
+#else
 {
+  UNUSED_VAR(eventLoop);
+#endif  // CHRE_RELIABLE_MESSAGE_SUPPORT_ENABLED
 }
 
 // TODO(b/346345637): rename this to align it with the message delivery status

@@ -798,7 +798,8 @@ void EventLoop::unloadNanoappAtIndex(size_t index, bool nanoappStarted) {
 #endif  // CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
 
   const uint32_t numCancelledTimers =
-      getTimerPool().cancelAllNanoappTimers(nanoapp.get());
+      EventLoopManagerSingleton::get()->getTimerPool().cancelAllNanoappTimers(
+          nanoapp.get());
   logDanglingResources("timers", numCancelledTimers);
 
   const uint32_t numFreedBlocks =

@@ -18,6 +18,7 @@
 #include "chre/core/event.h"
 #include "chre/core/event_loop.h"
 #include "chre/core/event_loop_manager.h"
+#include "chre/platform/context.h"
 #include "chre/platform/fatal_error.h"
 #include "chre/platform/log.h"
 #include "chre/platform/system_time.h"
@@ -39,14 +40,25 @@ TimerPool::TimerPool() {
   }
 }
 
+TimerHandle TimerPool::setNanoappTimer(const Nanoapp *nanoapp,
+                                       Nanoseconds duration, const void *cookie,
+                                       bool isOneShot) {
+  CHRE_ASSERT(nanoapp != nullptr);
+  EventLoop *eventLoop = getCurrentEventLoop();
+  CHRE_ASSERT(eventLoop != nullptr);
+  return setTimer(nanoapp->getInstanceId(), duration, cookie,
+                  nullptr /* systemCallback */,
+                  SystemCallbackType::FirstCallbackType, isOneShot, eventLoop);
+}
+
 TimerHandle TimerPool::setSystemTimer(Nanoseconds duration,
                                       SystemEventCallbackFunction *callback,
                                       SystemCallbackType callbackType,
-                                      void *data) {
+                                      void *data, EventLoop *eventLoop) {
   CHRE_ASSERT(callback != nullptr);
   TimerHandle timerHandle =
       setTimer(kSystemInstanceId, duration, data, callback, callbackType,
-               true /* isOneShot */);
+               true /* isOneShot */, eventLoop);
 
   if (timerHandle == CHRE_TIMER_INVALID) {
     FATAL_ERROR("Failed to set system timer");
@@ -77,8 +89,8 @@ uint32_t TimerPool::cancelAllNanoappTimers(const Nanoapp *nanoapp) {
 TimerHandle TimerPool::setTimer(uint16_t instanceId, Nanoseconds duration,
                                 const void *cookie,
                                 SystemEventCallbackFunction *systemCallback,
-                                SystemCallbackType callbackType,
-                                bool isOneShot) {
+                                SystemCallbackType callbackType, bool isOneShot,
+                                EventLoop *eventLoop) {
   LockGuard<Mutex> lock(mMutex);
 
   TimerRequest timerRequest;
@@ -90,6 +102,7 @@ TimerHandle TimerPool::setTimer(uint16_t instanceId, Nanoseconds duration,
   timerRequest.systemCallback = systemCallback;
   timerRequest.callbackType = callbackType;
   timerRequest.isOneShot = isOneShot;
+  timerRequest.eventLoop = eventLoop;
 
   bool success = insertTimerRequestLocked(timerRequest);
 
@@ -270,12 +283,13 @@ bool TimerPool::handleExpiredTimersAndScheduleNextLocked() {
         success = EventLoopManagerSingleton::get()->deferCallback(
             currentTimerRequest.callbackType,
             const_cast<void *>(currentTimerRequest.cookie),
-            currentTimerRequest.systemCallback);
+            currentTimerRequest.systemCallback, currentTimerRequest.eventLoop);
       } else {
         success = EventLoopManagerSingleton::get()->deferCallback(
             SystemCallbackType::TimerPoolTimerExpired,
             NestedDataPtr<TimerHandle>(currentTimerRequest.timerHandle),
-            TimerPool::handleTimerExpiredCallback, this);
+            TimerPool::handleTimerExpiredCallback, this,
+            currentTimerRequest.eventLoop);
       }
       if (!success) {
         LOGW("Failed to defer timer callback");
@@ -362,7 +376,8 @@ void TimerPool::handleTimerExpiredCallback(uint16_t /* type */, void *data,
     }
   }
 
-  if (!EventLoopManagerSingleton::get()->getEventLoop().distributeEventSync(
+  CHRE_ASSERT(currentTimerRequest.eventLoop != nullptr);
+  if (!currentTimerRequest.eventLoop->distributeEventSync(
           CHRE_EVENT_TIMER, const_cast<void *>(currentTimerRequest.cookie),
           currentTimerRequest.instanceId)) {
     LOGW("Failed to deliver timer event");

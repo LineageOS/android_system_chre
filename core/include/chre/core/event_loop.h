@@ -24,7 +24,7 @@
 #include "chre/core/event.h"
 #include "chre/core/nanoapp.h"
 #include "chre/core/static_nanoapps.h"
-#include "chre/core/timer_pool.h"
+#include "chre/core/timer_handle.h"
 #include "chre/platform/mutex.h"
 #include "chre/platform/power_control_manager.h"
 #include "chre/platform/system_time.h"
@@ -341,15 +341,6 @@ class EventLoop : public NonCopyable {
   }
 
   /**
-   * Obtains the TimerPool associated with this event loop.
-   *
-   * @return The timer pool owned by this event loop.
-   */
-  TimerPool &getTimerPool() {
-    return mTimerPool;
-  }
-
-  /**
    * Searches the set of nanoapps managed by this EventLoop for one with the
    * given instance ID.
    *
@@ -510,9 +501,6 @@ class EventLoop : public NonCopyable {
 
   //! The last time wakeup buckets were pushed onto the nanoapps.
   Nanoseconds mTimeLastWakeupBucketCycled;
-
-  //! The timer used schedule timed events for tasks running in this event loop.
-  TimerPool mTimerPool;
 
   //! The list of nanoapps managed by this event loop.
   DynamicVector<UniquePtr<Nanoapp>> mNanoapps;

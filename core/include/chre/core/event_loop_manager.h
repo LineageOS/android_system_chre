@@ -31,6 +31,7 @@
 #include "chre/core/settings.h"
 #include "chre/core/system_health_monitor.h"
 #include "chre/core/telemetry_manager.h"
+#include "chre/core/timer_pool.h"
 #include "chre/core/wifi_request_manager.h"
 #include "chre/core/wwan_request_manager.h"
 #include "chre/platform/atomic.h"
@@ -99,18 +100,14 @@ class EventLoopManager : public NonCopyable {
                    WwanRequestManager *wwanRequestManager,
                    ChreMessageHubManager *chreMessageHubManager,
                    HostMessageHubManager *hostMessageHubManager)
-      : mEventLoops(eventLoops),
+      : mEventLoops(checkEventLoops(eventLoops)),
         mBleSocketManager(bleSocketManager),
         mGnssManager(gnssManager),
+        mHostCommsManager(&getEventLoop()),
         mWifiRequestManager(wifiRequestManager),
         mWwanRequestManager(wwanRequestManager),
         mChreMessageHubManager(chreMessageHubManager),
         mHostMessageHubManager(hostMessageHubManager) {
-#ifdef CHRE_MULTI_THREADING_ENABLED
-    CHRE_ASSERT(mEventLoops.size() > 0);
-#else
-    CHRE_ASSERT(mEventLoops.size() == 1);
-#endif  // CHRE_MULTI_THREADING_ENABLED
 #ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
     CHRE_ASSERT(mBleSocketManager != nullptr);
 #endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
@@ -397,8 +394,8 @@ class EventLoopManager : public NonCopyable {
     if (eventLoop == nullptr) {
       eventLoop = &getEventLoop();
     }
-    return eventLoop->getTimerPool().setSystemTimer(delay, callback, type,
-                                                    data);
+    return getTimerPool().setSystemTimer(delay, callback, type, data,
+                                         eventLoop);
   }
 
   /**
@@ -409,18 +406,11 @@ class EventLoopManager : public NonCopyable {
    * @param timerHandle The TimerHandle returned by setDelayedCallback
    * @param index An optional parameter to specify the index of the event loop
    * to cancel delayed callback for.
-   * @param eventLoop An optional pointer to specify the event loop to cancel
-   * the callback. If null, the timer will be cancelled on the default event
-   * loop.
    *
    * @return true if the callback was successfully cancelled
    */
-  bool cancelDelayedCallback(TimerHandle timerHandle,
-                             EventLoop *eventLoop = nullptr) {
-    if (eventLoop == nullptr) {
-      eventLoop = &getEventLoop();
-    }
-    return eventLoop->getTimerPool().cancelSystemTimer(timerHandle);
+  bool cancelDelayedCallback(TimerHandle timerHandle) {
+    return getTimerPool().cancelSystemTimer(timerHandle);
   }
 
   /**
@@ -564,6 +554,13 @@ class EventLoopManager : public NonCopyable {
   }
 
   /**
+   * @return The global timer pool.
+   */
+  TimerPool &getTimerPool() {
+    return mTimerPool;
+  }
+
+  /**
    * Performs second-stage initialization of things that are not necessarily
    * required at construction time but need to be completed prior to executing
    * any nanoapps.
@@ -621,6 +618,23 @@ class EventLoopManager : public NonCopyable {
    *         specified event loop, false otherwise.
    */
   bool postEventToLoop(EventLoop &loop, Event *event, bool isLowPriority);
+
+  /**
+   * Static function to check the event loop argument.
+   */
+  static pw::span<EventLoop> checkEventLoops(pw::span<EventLoop> eventLoops) {
+#ifdef CHRE_MULTI_THREADING_ENABLED
+    CHRE_ASSERT(eventLoops.size() > 0);
+#else
+    CHRE_ASSERT(eventLoops.size() == 1);
+#endif  // CHRE_MULTI_THREADING_ENABLED
+    return eventLoops;
+  }
+
+  //! The global timer pool used schedule timed events.
+  //! Note: the TimerPool must be initialized first to allow any other members
+  //! of the EventLoopManager to access it during initialization.
+  TimerPool mTimerPool;
 
 #ifdef CHRE_STATIC_EVENT_LOOP
   //! The maximum number of events that can be active in the system.

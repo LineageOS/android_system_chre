@@ -117,7 +117,12 @@ typedef HostMessage MessageToHost;
  */
 class HostCommsManager : public HostLink, private TransactionManagerCallback {
  public:
-  HostCommsManager();
+  /**
+   * Initializes the HostCommsManager.
+   *
+   * @param eventLoop The event loop to use for deferring callbacks.
+   */
+  HostCommsManager(EventLoop *eventLoop);
 
   /**
    * Completes a reliable message transaction.

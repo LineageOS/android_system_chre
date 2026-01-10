@@ -214,18 +214,14 @@ uint32_t ChreApiReFunctions::GetInstanceId() {
 uint32_t ChreApiReFunctions::TimerSet(uint64_t duration, const void *cookie,
                                       bool one_shot) {
   chre::Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
-  return EventLoopManagerSingleton::get()
-      ->getEventLoop()
-      .getTimerPool()
-      .setNanoappTimer(nanoapp, chre::Nanoseconds(duration), cookie, one_shot);
+  return EventLoopManagerSingleton::get()->getTimerPool().setNanoappTimer(
+      nanoapp, chre::Nanoseconds(duration), cookie, one_shot);
 }
 
 bool ChreApiReFunctions::TimerCancel(uint32_t timer_id) {
   chre::Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
-  return EventLoopManagerSingleton::get()
-      ->getEventLoop()
-      .getTimerPool()
-      .cancelNanoappTimer(nanoapp, timer_id);
+  return EventLoopManagerSingleton::get()->getTimerPool().cancelNanoappTimer(
+      nanoapp, timer_id);
 }
 
 uint32_t ChreApiReFunctions::GetApiVersion() {

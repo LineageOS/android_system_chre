@@ -43,7 +43,7 @@ class MockTimerPool {
  public:
   MOCK_METHOD(TimerHandle, setSystemTimer,
               (Nanoseconds, SystemEventCallbackFunction, SystemCallbackType,
-               void *));
+               void *, EventLoop *));
   MOCK_METHOD(bool, cancelSystemTimer, (TimerHandle));
 };
 
@@ -51,7 +51,8 @@ class FakeTimerPool {
  public:
   TimerHandle setSystemTimer(Nanoseconds duration,
                              SystemEventCallbackFunction *callback,
-                             SystemCallbackType /*callbackType*/, void *data) {
+                             SystemCallbackType /*callbackType*/, void *data,
+                             EventLoop * /* eventLoop */) {
     Timer timer = {
         .expiry = SystemTime::getMonotonicTime() + duration,
         .callback = callback,
@@ -121,11 +122,13 @@ class TransactionManagerTest : public testing::Test {
  public:
  protected:
   TxnMgr defaultTxnMgr() {
-    return TxnMgr(mFakeCb, mTimerPool, kTimeout, kMaxAttempts);
+    return TxnMgr(mFakeCb, mTimerPool, kTimeout, /*eventLoop=*/nullptr,
+                  kMaxAttempts);
   }
 
   TxnMgrF defaultTxnMgrF() {
-    return TxnMgrF(mFakeCb, mFakeTimerPool, kTimeout, kMaxAttempts);
+    return TxnMgrF(mFakeCb, mFakeTimerPool, kTimeout, /*eventLoop=*/nullptr,
+                   kMaxAttempts);
   }
 
   static constexpr uint32_t kTimerId = 1;
@@ -140,7 +143,7 @@ class TransactionManagerTest : public testing::Test {
 TEST_F(TransactionManagerTest, StartSingleTransaction) {
   TxnMgr tm = defaultTxnMgr();
 
-  EXPECT_CALL(mTimerPool, setSystemTimer(kTimeout, _, _, _))
+  EXPECT_CALL(mTimerPool, setSystemTimer(kTimeout, _, _, _, _))
       .Times(1)
       .WillOnce(Return(kTimerId));
 
@@ -155,7 +158,7 @@ TEST_F(TransactionManagerTest, StartSingleTransaction) {
 TEST_F(TransactionManagerTest, RemoveSingleTransaction) {
   TxnMgr tm = defaultTxnMgr();
 
-  EXPECT_CALL(mTimerPool, setSystemTimer(_, _, _, _))
+  EXPECT_CALL(mTimerPool, setSystemTimer(_, _, _, _, _))
       .Times(1)
       .WillOnce(Return(kTimerId));
 
@@ -328,7 +331,8 @@ TEST_F(TransactionManagerTest, MultipleTimeouts) {
 }
 
 TEST_F(TransactionManagerTest, CallbackUsesCorrectGroupId) {
-  TxnMgrF tm(mMockCb, mFakeTimerPool, kTimeout, /*maxAttempts=*/1);
+  TxnMgrF tm(mMockCb, mFakeTimerPool, kTimeout, /*eventLoop=*/nullptr,
+             /*maxAttempts=*/1);
 
   EXPECT_CALL(mMockCb, onTransactionAttempt(_, 1)).Times(1);
   EXPECT_CALL(mMockCb, onTransactionAttempt(_, 2)).Times(1);
