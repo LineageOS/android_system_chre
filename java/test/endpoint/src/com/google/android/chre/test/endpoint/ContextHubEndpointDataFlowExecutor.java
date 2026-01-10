@@ -222,72 +222,77 @@ public class ContextHubEndpointDataFlowExecutor {
         checkApiSupport(
                 (manager) -> infoList.addAll(manager.findEndpoints(ECHO_SERVICE_DESCRIPTOR)));
         for (HubDiscoveryInfo info : infoList) {
-            printHubDiscoveryInfo(info);
+            doTestDataFlow(info, endpoint, callback);
+        }
+    }
 
-            // Only run this test if we find an Echo service hosted on a hub that supports
-            // data flows.
-            Optional<Boolean> dataFlowSupported = Optional.empty();
-            HubEndpointIdentifier id = info.getHubEndpointInfo().getIdentifier();
-            List<HubInfo> hubs = new ArrayList<>();
-            checkApiSupport((manager) -> hubs.addAll(manager.getHubs()));
-            for (HubInfo hub : hubs) {
-                if (hub.getId() == id.getHub()) {
-                    dataFlowSupported = Optional.of(hub.areDataFlowsSupported());
-                    break;
-                }
+    private void doTestDataFlow(HubDiscoveryInfo info, HubEndpoint endpoint,
+                                TestDataFlowCallback callback) {
+        printHubDiscoveryInfo(info);
+
+        // Only run this test if we find an Echo service hosted on a hub that supports
+        // data flows.
+        Optional<Boolean> dataFlowSupported = Optional.empty();
+        HubEndpointIdentifier id = info.getHubEndpointInfo().getIdentifier();
+        List<HubInfo> hubs = new ArrayList<>();
+        checkApiSupport((manager) -> hubs.addAll(manager.getHubs()));
+        for (HubInfo hub : hubs) {
+            if (hub.getId() == id.getHub()) {
+                dataFlowSupported = Optional.of(hub.areDataFlowsSupported());
+                break;
             }
-            assertWithMessage("Hub 0x" + id.getHub() + " not found in getHubs()")
-                    .that(dataFlowSupported)
-                    .isPresent();
-            if (!dataFlowSupported.get()) {
-                Log.d(TAG, "Data flow not supported on hub 0x" + id.getHub() + ", skipping");
-                continue;
-            }
+        }
+        assertWithMessage("Hub 0x" + id.getHub() + " not found in getHubs()")
+                .that(dataFlowSupported)
+                .isPresent();
+        if (!dataFlowSupported.get()) {
+            Log.d(TAG, "Data flow not supported on hub 0x" + id.getHub() + ", skipping");
+            return;
+        }
 
-            HubEndpointInfo offloadEndpointInfo = info.getHubEndpointInfo();
-            assertThat(offloadEndpointInfo).isNotNull();
-            callback.setSourceInfo(offloadEndpointInfo);
+        HubEndpointInfo offloadEndpointInfo = info.getHubEndpointInfo();
+        assertThat(offloadEndpointInfo).isNotNull();
+        callback.setSourceInfo(offloadEndpointInfo);
 
-            // Create the data flow and add the offload endpoint as a sink
-            DataFlowDataConfig dataConfig =
-                    DataFlowDataConfig.createFixedSize(
-                            DATA_FLOW_ELEMENT_SIZE, DATA_FLOW_ELEMENT_ALIGNMENT);
-            DataFlowSource source =
-                    endpoint.createDataFlowSource(
-                            Collections.singleton(offloadEndpointInfo.getIdentifier().getHub()),
-                            dataConfig,
-                            MIN_CAPACITY_BYTES,
-                            MAX_CAPACITY_BYTES);
-            assertThat(source).isNotNull();
-            source.shareDataFlow(
-                    offloadEndpointInfo,
-                    DataFlowNewDataAlertPolicy.createStreamingPolicy(),
-                    /* canOverwrite= */ false);
+        // Create the data flow and add the offload endpoint as a sink
+        DataFlowDataConfig dataConfig =
+                DataFlowDataConfig.createFixedSize(
+                        DATA_FLOW_ELEMENT_SIZE, DATA_FLOW_ELEMENT_ALIGNMENT);
+        DataFlowSource source =
+                endpoint.createDataFlowSource(
+                        Collections.singleton(offloadEndpointInfo.getIdentifier().getHub()),
+                        dataConfig,
+                        MIN_CAPACITY_BYTES,
+                        MAX_CAPACITY_BYTES);
+        assertThat(source).isNotNull();
+        source.shareDataFlow(
+                offloadEndpointInfo,
+                DataFlowNewDataAlertPolicy.createStreamingPolicy(),
+                /* canOverwrite= */ false);
 
-            // Wait for the sink to be created for us
-            DataFlowSink sink = callback.waitForNewSink(offloadEndpointInfo);
-            assertThat(sink).isNotNull();
+        // Wait for the sink to be created for us
+        DataFlowSink sink = callback.waitForNewSink(offloadEndpointInfo);
+        assertThat(sink).isNotNull();
 
-            // Send data to the sink and confirm it echos back to us
-            ByteBuffer dataBuffer = ByteBuffer.allocate(ECHO_DATA_SIZE_BYTES);
-            for (int i = 0; i < ECHO_DATA_SIZE_BYTES; ++i) {
-                dataBuffer.put((byte) i);
-            }
-            dataBuffer.rewind();
-            DataFlowData data = new DataFlowData(dataBuffer, dataConfig);
+        // Send data to the sink and confirm it echos back to us
+        ByteBuffer dataBuffer = ByteBuffer.allocate(ECHO_DATA_SIZE_BYTES);
+        for (int i = 0; i < ECHO_DATA_SIZE_BYTES; ++i) {
+            dataBuffer.put((byte) i);
+        }
+        dataBuffer.rewind();
+        DataFlowData data = new DataFlowData(dataBuffer, dataConfig);
 
-            for (int i = 0; i < ECHO_DATA_SIZE_BYTES; ++i) {
-                source.push(data, /* canOverwrite= */ false);
+        for (int i = 0; i < ECHO_DATA_SIZE_BYTES; ++i) {
+            source.push(data, /* canOverwrite= */ false);
 
-                DataFlowData echo = callback.waitForNewData(sink);
-                assertThat(echo).isNotNull();
-                List<ByteBuffer> buffers = echo.getBuffers();
-                assertThat(buffers).isNotEmpty();
-                ByteBuffer echoBuffer = buffers.get(0);
-                assertThat(echoBuffer).isNotNull();
-                assertThat(echoBuffer.capacity()).isEqualTo(dataBuffer.capacity());
-                assertThat(echoBuffer).isEqualTo(dataBuffer);
-            }
+            DataFlowData echo = callback.waitForNewData(sink);
+            assertThat(echo).isNotNull();
+            List<ByteBuffer> buffers = echo.getBuffers();
+            assertThat(buffers).isNotEmpty();
+            ByteBuffer echoBuffer = buffers.get(0);
+            assertThat(echoBuffer).isNotNull();
+            assertThat(echoBuffer.capacity()).isEqualTo(dataBuffer.capacity());
+            assertThat(echoBuffer).isEqualTo(dataBuffer);
         }
     }
 

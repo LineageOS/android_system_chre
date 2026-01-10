@@ -60,7 +60,11 @@ class Manager {
   CrossValidatorState mCrossValidatorState;
 
   DynamicVector<WifiScanResult> mApScanResults;
-  DynamicVector<chreWifiScanResult> mChreScanResults;
+
+  // Nanoapp might receive multiple batches when there are different host asking
+  // for scan.
+  // This stores each batch separately to allow individual verification.
+  DynamicVector<DynamicVector<chreWifiScanResult>> mChreScanResults;
 
   // The expected max chre scan results to be validated. This number is an
   // arbitrary number we assume that CHRE can handle. It is perfectly fine for
@@ -71,9 +75,16 @@ class Manager {
   // to avoid catching the tail end of a previous scan result.
   bool mScanStartSeen = false;
 
+  //! The number of CHRE scan result batches that have been processed and
+  //! verified.
+  size_t mNumChreScanResultsProcessed = 0;
+
   //! Bools indicating that data collection is complete for each side
   bool mApDataCollectionDone = false;
   bool mChreDataCollectionDone = false;
+
+  //! The timer handle for the data collection timeout.
+  uint32_t mTimeoutTimerHandle = CHRE_TIMER_INVALID;
 
   /**
    * Handle a message from the host.
@@ -90,6 +101,13 @@ class Manager {
    */
   void handleStepStartMessage(
       chre_cross_validation_wifi_StepStartCommand stepStartCommand);
+
+  /**
+   * Handle a timer event.
+   *
+   * @param eventData The cookie passed to the timer.
+   */
+  void handleTimerEvent(const void *eventData);
 
   /**
    * Sends the test result to host.

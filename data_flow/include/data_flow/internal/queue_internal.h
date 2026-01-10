@@ -341,6 +341,9 @@ class ProducerBase {
    */
   virtual ~ProducerBase();
 
+  /** @return the offset of the queue from the base of its allocator region. */
+  uint32_t getQueueOffset() const;
+
   /**
    * Disables this instance and signals to consumers to clean up.
    *
@@ -460,40 +463,50 @@ class ProducerBase {
     kStopped,
   };
 
+  /** Checks creation arguments. */
+  static pw::Status checkArgs(const AllocatorRegion &region,
+                              size_t maxBlockCount, size_t minBlockCount);
+
   /**
-   * Allocates an initial ring of blocks and initializes producer metadata.
+   * Allocates and initializes all fields in the queue metadata.
    *
-   * @param region Shared memory region for the queue.
-   * @param queue The queue metadata in shared memory.
-   * @param layout Layout for allocating Blocks.
-   * @param maxBlockCount The maximum allowed blocks of element storage. Must
-   * be >= minBlockCount.
-   * @param minBlockCount The minimum required blocks of element storage. Must
-   * be > 0.
+   * @param region AllocatorRegion for allocating the queue.
+   * @param capacity The capacity of each block in bytes.
+   * @param elementSize The size of each element in bytes. 0 indicates that this
+   * is a variable data queue.
+   * @param elementAlignment The alignment of an element.
    * @param idOrNotifyFn The new instance's id for remote notifications or the
    * LocalNotifyFn for notifying it.
-   * @return pw::OkStatus() on success.
+   * @param local True iff the queue is local.
+   * @return On success, a pointer to the new queue metadata.
    */
-  static pw::Status initialize(const AllocatorRegion &region,
-                               QueuePrivate *queue,
-                               pw::allocator::Layout layout,
-                               size_t maxBlockCount, size_t minBlockCount,
-                               IdOrNotifyFn idOrNotifyFn);
+  static pw::Result<QueuePrivate *> initQueue(
+      const AllocatorRegion &region, size_t capacity, size_t elementSize,
+      size_t elementAlignment, IdOrNotifyFn idOrNotifyFn, bool local);
 
   /**
    * See {@link Producer::createLocal()} for a description of most parameters.
    *
    * @param queue The queue metadata in shared memory.
    * @param blockLayout Layout for allocating Blocks.
+   * @param blockCapacity The capacity of each Block in bytes.
    * @param dataOffset Offset of the data field in a Block.
    * @param remoteNotifyFn Function for notifying Consumers out-of-band only for
    * remote queues.
    */
   ProducerBase(const AllocatorRegion &region, QueuePrivate &queue,
-               pw::allocator::Layout blockLayout, uint32_t dataOffset,
-               size_t maxBlockCount, size_t minBlockCount,
+               pw::allocator::Layout blockLayout, uint32_t blockCapacity,
+               uint32_t dataOffset, size_t maxBlockCount, size_t minBlockCount,
                DataNotifier &dataNotifier, RemoteNotifyFn remoteNotifyFn,
                MemoryAccess *memAccess);
+
+  /**
+   * Allocates the initial block ring and finalizes the queue metadata.
+   *
+   * @param variableData true iff this is a variable data queue.
+   * @return pw::OkStatus() on success.
+   */
+  pw::Status initialize(bool variableData);
 
   /**
    * Checks whether the queue can accommodate the given amount of data.

@@ -331,6 +331,14 @@ size_t getDataOffset(internal::Queue &queue) {
 }
 
 /**
+ * @return the offset of data within a block for a fixed-size element queue.
+ * @param alignment The alignment of the element type.
+ */
+size_t getDataOffset(size_t elementAlignment) {
+  return internal::alignTo(sizeof(internal::BlockHeader), elementAlignment);
+}
+
+/**
  * @return the block layout for the given fixed-size element queue.
  * @param queue The queue metadata.
  */
@@ -342,35 +350,68 @@ pw::allocator::Layout getBlockLayout(internal::Queue &queue) {
                                blockAlignment);
 }
 
+/**
+ * @return the block layout for the given fixed-size element queue.
+ * @param blockCapacity The capacity of each block in elements.
+ * @param elementSize The size of each element in bytes.
+ * @param elementAlignment The alignment of the element type.
+ */
+pw::allocator::Layout getBlockLayout(size_t blockCapacity, size_t elementSize,
+                                     size_t elementAlignment) {
+  size_t blockAlignment =
+      std::max(alignof(internal::BlockHeader), elementAlignment);
+  return pw::allocator::Layout(
+      getDataOffset(elementAlignment) + blockCapacity * elementSize,
+      blockAlignment);
+}
+
 }  // namespace
 
-pw::Status ProducerBase::initialize(const AllocatorRegion &region,
-                                    QueuePrivate *queue,
-                                    pw::allocator::Layout layout,
-                                    size_t maxBlockCount, size_t minBlockCount,
-                                    IdOrNotifyFn idOrNotifyFn) {
+pw::Status ProducerBase::checkArgs(const AllocatorRegion &region,
+                                   size_t maxBlockCount, size_t minBlockCount) {
   if (region.size > UINT32_MAX || !region.allocator ||
       maxBlockCount < minBlockCount) {
-    PW_LOG_ERROR("ProducerBase::initialize: Invalid arguments");
+    PW_LOG_ERROR("ProducerBase::checkArgs: Invalid arguments");
     return pw::Status::InvalidArgument();
   }
-  bool variableData = queue->config.mode != DataConfigMode::kFixedSize;
-  PW_TRY_ASSIGN(auto *tailBlock,
-                allocateBlockRing(region, layout, queue->blockCapacity,
-                                  minBlockCount, variableData));
-  auto &desc = tailBlock->producerDesc;
-  initProducerDesc(desc, /*writeIndex=*/0, /*correction=*/0, tailBlock,
-                   region.base);
-  queue->idOrNotifyFn = idOrNotifyFn;
-  queue->blockListEpoch.store(getBlockListEpoch(minBlockCount, /*epoch=*/0));
-  queue->producerOffset = toOffset(region.base, &desc);
   return pw::OkStatus();
+}
+
+pw::Result<QueuePrivate *> ProducerBase::initQueue(
+    const AllocatorRegion &region, size_t capacity, size_t elementSize,
+    size_t elementAlignment, IdOrNotifyFn idOrNotifyFn, bool local) {
+  auto *queue = region.allocator->New<internal::QueuePrivate>();
+  if (!queue) {
+    return pw::Status::ResourceExhausted();
+  }
+  queue->producerOffset = internal::kOffsetInvalid;
+  if (elementSize) {
+    if (capacity % elementSize != 0) {
+      PW_LOG_ERROR(
+          "initQueue: capacity %zu is not a multiple of element size %zu",
+          capacity, elementSize);
+      region.allocator->Delete(queue);
+      return pw::Status::InvalidArgument();
+    }
+    queue->blockCapacity = capacity;
+    queue->config.mode = DataConfigMode::kFixedSize;
+    queue->config.fixedSize.elementSize = elementSize;
+    queue->config.fixedSize.elementAlignment = elementAlignment;
+  } else {
+    queue->blockCapacity =
+        internal::alignTo(capacity, alignof(internal::VariableDataHeader));
+    queue->config.mode = DataConfigMode::kVariableSizeBasic;
+  }
+  queue->idOrNotifyFn = idOrNotifyFn;
+  queue->localNotify = local;
+  return queue;
 }
 
 ProducerBase::ProducerBase(const AllocatorRegion &region, QueuePrivate &queue,
                            pw::allocator::Layout blockLayout,
-                           uint32_t dataOffset, size_t /*maxBlockCount*/,
-                           size_t minBlockCount, DataNotifier &dataNotifier,
+                           uint32_t blockCapacity, uint32_t dataOffset,
+                           size_t /*maxBlockCount*/, size_t minBlockCount,
+                           DataNotifier &dataNotifier,
                            RemoteNotifyFn remoteNotifyFn,
                            MemoryAccess *memAccess)
     : mRegion(region),
@@ -380,11 +421,21 @@ ProducerBase::ProducerBase(const AllocatorRegion &region, QueuePrivate &queue,
       mMemAccess(memAccess),
       kBlockLayout(blockLayout),
       kDataOffset(dataOffset),
-      kBlockCapacity(queue.blockCapacity),
-      mDesc(fromOffset<ProducerDesc>(mRegion, queue.producerOffset)),
-      mCurrBlock(fromOffset<BlockHeader>(mRegion, mDesc->tailBlockOffset,
-                                         kBlockLayout)),
+      kBlockCapacity(blockCapacity),
+      mCurrBlock(nullptr),  // Indicate that it is uninitialized.
       mBlockCount(minBlockCount) {}
+
+pw::Status ProducerBase::initialize(bool variableData) {
+  PW_TRY_ASSIGN(mCurrBlock,
+                allocateBlockRing(mRegion, kBlockLayout, kBlockCapacity,
+                                  mBlockCount, variableData));
+  mDesc = &mCurrBlock->producerDesc;
+  initProducerDesc(*mDesc, /*writeIndex=*/0, /*correction=*/0, mCurrBlock,
+                   mRegion.base);
+  mQueue->blockListEpoch.store(getBlockListEpoch(mBlockCount, /*epoch=*/0));
+  mQueue->producerOffset = toOffset(mRegion.base, mDesc);
+  return pw::OkStatus();
+}
 
 ProducerBase::~ProducerBase() {
   if (mState == State::kMovedFrom) {
@@ -403,9 +454,12 @@ ProducerBase::~ProducerBase() {
     eraseConsumerNode(node);
   }
   // Release element storage back to the region allocator.
-  deallocateBlockRing(
-      mRegion, kBlockLayout,
-      fromOffset<BlockHeader>(mRegion, mDesc->tailBlockOffset, kBlockLayout));
+  deallocateBlockRing(mRegion, kBlockLayout, mCurrBlock);
+  mRegion.allocator->Deallocate(mQueue);
+}
+
+uint32_t ProducerBase::getQueueOffset() const {
+  return toOffset(mRegion.base, mQueue);
 }
 
 void ProducerBase::stop() {
@@ -1234,74 +1288,55 @@ void DataNotifier::notifyIfAtWatermark(internal::ProducerBase &producer,
 }
 
 pw::Result<VariableDataProducer> VariableDataProducer::createLocal(
-    AllocatorRegion region, void *queue, size_t maxBlockCount,
+    AllocatorRegion region, size_t blockCapacity, size_t maxBlockCount,
     size_t minBlockCount, DataNotifier &dataNotifier,
     LocalNotifyArgs notifyArgs, MemoryAccess *memAccess) {
-  if (!notifyArgs.fn || !queue) {
+  if (!notifyArgs.fn) {
     PW_LOG_ERROR(
         "VariableDataProducer::createLocal: Invalid notifyArgs or queue");
     return pw::Status::InvalidArgument();
   }
-  auto queuePtr = static_cast<internal::QueuePrivate *>(queue);
-  if (queuePtr->config.mode == DataConfigMode::kFixedSize) {
-    PW_LOG_ERROR("VariableDataProducer::createLocal: Fixed size queue");
-    return pw::Status::FailedPrecondition();
-  } else if (!queuePtr->localNotify) {
-    PW_LOG_ERROR("VariableDataProducer::createLocal: Queue is not local");
-    return pw::Status::FailedPrecondition();
-  } else if (queuePtr->config.mode == DataConfigMode::kVariableSizeAligned) {
-    PW_LOG_ERROR(
-        "VariableDataProducer::createLocal: Aligned variable-size data not "
-        "supported");
-    return pw::Status::Unimplemented();
-  }
-  auto blockLayout = internal::variableDataBlockLayout(queuePtr->blockCapacity);
-  PW_TRY(Base::initialize(region, queuePtr, blockLayout, maxBlockCount,
-                          minBlockCount, {.localNotify = notifyArgs}));
-  return VariableDataProducer(region, *queuePtr, blockLayout, maxBlockCount,
-                              minBlockCount, dataNotifier,
-                              /*remoteNotifyFn=*/{}, memAccess);
+  PW_TRY_ASSIGN(internal::QueuePrivate * queuePtr,
+                Base::initQueue(region, blockCapacity, /*elementSize=*/0,
+                                /*elementAlignment=*/0,
+                                {.localNotify = notifyArgs}, /*local=*/true));
+  VariableDataProducer producer(region, *queuePtr, blockCapacity, maxBlockCount,
+                                minBlockCount, dataNotifier,
+                                /*remoteNotifyFn=*/{}, memAccess);
+  PW_TRY(producer.initialize(/*variableData=*/true));
+  return producer;
 }
 
 pw::Result<VariableDataProducer> VariableDataProducer::createRemote(
-    AllocatorRegion region, void *queue, size_t maxBlockCount,
+    AllocatorRegion region, size_t blockCapacity, size_t maxBlockCount,
     size_t minBlockCount, DataNotifier &dataNotifier,
     RemoteNotifyArgs notifyArgs, MemoryAccess *memAccess) {
-  if (!notifyArgs.fn || !queue) {
+  if (!notifyArgs.fn) {
     PW_LOG_ERROR(
         "VariableDataProducer::createRemote: Invalid notifyArgs or queue");
     return pw::Status::InvalidArgument();
   }
-  auto queuePtr = static_cast<internal::QueuePrivate *>(queue);
-  if (queuePtr->config.mode == DataConfigMode::kFixedSize) {
-    PW_LOG_ERROR("VariableDataProducer::createRemote: Fixed size queue");
-    return pw::Status::FailedPrecondition();
-  } else if (queuePtr->localNotify) {
-    PW_LOG_ERROR("VariableDataProducer::createRemote: Queue is local");
-    return pw::Status::FailedPrecondition();
-  } else if (queuePtr->config.mode == DataConfigMode::kVariableSizeAligned) {
-    PW_LOG_ERROR(
-        "VariableDataProducer::createRemote: Aligned variable-size data not "
-        "supported");
-    return pw::Status::Unimplemented();
-  }
-  auto blockLayout = internal::variableDataBlockLayout(queuePtr->blockCapacity);
-  PW_TRY(Base::initialize(region, queuePtr, blockLayout, maxBlockCount,
-                          minBlockCount, {.remoteId = notifyArgs.id}));
-  return VariableDataProducer(region, *queuePtr, blockLayout, maxBlockCount,
-                              minBlockCount, dataNotifier,
-                              std::move(notifyArgs.fn), memAccess);
+  PW_TRY_ASSIGN(internal::QueuePrivate * queuePtr,
+                Base::initQueue(region, blockCapacity, /*elementSize=*/0,
+                                /*elementAlignment=*/0,
+                                {.remoteId = notifyArgs.id}, /*local=*/false));
+  VariableDataProducer producer(region, *queuePtr, blockCapacity, maxBlockCount,
+                                minBlockCount, dataNotifier,
+                                std::move(notifyArgs.fn), memAccess);
+  PW_TRY(producer.initialize(/*variableData=*/true));
+  return producer;
 }
 
 VariableDataProducer::VariableDataProducer(
     const AllocatorRegion &region, internal::QueuePrivate &queue,
-    pw::allocator::Layout blockLayout, size_t maxBlockCount,
-    size_t minBlockCount, DataNotifier &dataNotifier,
-    RemoteNotifyFn remoteNotifyFn, MemoryAccess *memAccess)
-    : ProducerBase(region, queue, blockLayout,
-                   offsetof(internal::VariableDataBlock, data), maxBlockCount,
-                   minBlockCount, dataNotifier, std::move(remoteNotifyFn),
-                   memAccess) {}
+    size_t blockCapacity, size_t maxBlockCount, size_t minBlockCount,
+    DataNotifier &dataNotifier, RemoteNotifyFn remoteNotifyFn,
+    MemoryAccess *memAccess)
+    : ProducerBase(region, queue,
+                   internal::variableDataBlockLayout(blockCapacity),
+                   blockCapacity, offsetof(internal::VariableDataBlock, data),
+                   maxBlockCount, minBlockCount, dataNotifier,
+                   std::move(remoteNotifyFn), memAccess) {}
 
 pw::Result<pw::ByteSpan> VariableDataProducer::reserve(size_t count) {
   if (mCurrentHdrPtr) {
@@ -1550,118 +1585,66 @@ pw::Status VariableDataConsumer::overwriteFastForward(size_t offset) {
   return resync(offset);
 }
 
-pw::Status initQueue(void *queue, size_t capacity, size_t elementSize,
-                     size_t elementAlignment, bool local) {
-  auto &queueRef = *static_cast<internal::Queue *>(queue);
-  queueRef.producerOffset = internal::kOffsetInvalid;
-  if (elementSize) {
-    if (capacity % elementSize != 0) {
-      PW_LOG_ERROR(
-          "initQueue: capacity %zu is not a multiple of element size %zu",
-          capacity, elementSize);
-      return pw::Status::InvalidArgument();
-    }
-    queueRef.blockCapacity = capacity;
-    queueRef.config.mode = DataConfigMode::kFixedSize;
-    queueRef.config.fixedSize.elementSize = elementSize;
-    queueRef.config.fixedSize.elementAlignment = elementAlignment;
-  } else {
-    queueRef.blockCapacity =
-        internal::alignTo(capacity, alignof(internal::VariableDataHeader));
-    queueRef.config.mode = DataConfigMode::kVariableSizeBasic;
-  }
-  queueRef.localNotify = local;
-  return pw::OkStatus();
-}
-
-pw::Result<void *> createVariableDataQueue(pw::Allocator &allocator,
-                                           size_t blockCapacity, bool local) {
-  if (auto *queue = allocator.New<internal::QueuePrivate>(); queue) {
-    PW_TRY(initQueue(queue, blockCapacity, /*elementSize=*/0,
-                     /*elementAlignment=*/0, local));
-    return queue;
-  }
-  PW_LOG_ERROR("createVariableDataQueue: Failed to allocate metadata");
-  return pw::Status::ResourceExhausted();
-}
-
-pw::Result<void *> createQueueUntyped(pw::Allocator &allocator,
-                                      size_t blockCapacity, size_t elementSize,
-                                      size_t elementAlignment, bool local) {
-  if (auto *queue = allocator.New<internal::QueuePrivate>(); queue) {
-    PW_TRY(initQueue(queue, blockCapacity * elementSize, elementSize,
-                     elementAlignment, local));
-    return queue;
-  }
-  PW_LOG_ERROR("createQueueUntyped: Failed to allocate metadata");
-  return pw::Status::ResourceExhausted();
-}
-
 pw::Result<UntypedProducer> UntypedProducer::createLocal(
-    AllocatorRegion region, void *queue, size_t maxBlockCount,
-    size_t minBlockCount, DataNotifier &dataNotifier,
-    LocalNotifyArgs notifyArgs, MemoryAccess *memAccess) {
-  if (notifyArgs.fn == nullptr || !queue) {
+    AllocatorRegion region, size_t blockCapacity, size_t elementSize,
+    size_t elementAlignment, size_t maxBlockCount, size_t minBlockCount,
+    DataNotifier &dataNotifier, LocalNotifyArgs notifyArgs,
+    MemoryAccess *memAccess) {
+  if (notifyArgs.fn == nullptr) {
     PW_LOG_ERROR(
         "UntypedProducer::createLocal: Received null notify function or "
         "metadata");
     return pw::Status::InvalidArgument();
   }
-  auto queuePtr = static_cast<internal::QueuePrivate *>(queue);
-  if (queuePtr->config.mode != DataConfigMode::kFixedSize ||
-      queuePtr->blockCapacity % queuePtr->config.fixedSize.elementSize != 0 ||
-      !queuePtr->localNotify) {
-    PW_LOG_ERROR(
-        "UntypedProducer::createLocal: Unexpected queue config. Must be fixed "
-        "size, capacity a multiple of element size, and local.");
-    return pw::Status::FailedPrecondition();
-  }
-  auto blockLayout = internal::getBlockLayout(*queuePtr);
-  PW_TRY(ProducerBase::initialize(region, queuePtr, blockLayout, maxBlockCount,
-                                  minBlockCount, {.localNotify = notifyArgs}));
-  return UntypedProducer(region, *queuePtr, blockLayout, maxBlockCount,
-                         minBlockCount, dataNotifier, {}, memAccess);
+  PW_TRY_ASSIGN(
+      internal::QueuePrivate * queuePtr,
+      ProducerBase::initQueue(region, blockCapacity * elementSize, elementSize,
+                              elementAlignment, {.localNotify = notifyArgs},
+                              /*local=*/true));
+  UntypedProducer producer(region, *queuePtr, blockCapacity, elementSize,
+                           elementAlignment, maxBlockCount, minBlockCount,
+                           dataNotifier, {}, memAccess);
+  PW_TRY(producer.initialize(/*variableData=*/false));
+  return producer;
 }
 
 pw::Result<UntypedProducer> UntypedProducer::createRemote(
-    AllocatorRegion region, void *queue, size_t maxBlockCount,
-    size_t minBlockCount, DataNotifier &dataNotifier,
-    RemoteNotifyArgs notifyArgs, MemoryAccess *memAccess) {
-  if (notifyArgs.fn == nullptr || !queue) {
+    AllocatorRegion region, size_t blockCapacity, size_t elementSize,
+    size_t elementAlignment, size_t maxBlockCount, size_t minBlockCount,
+    DataNotifier &dataNotifier, RemoteNotifyArgs notifyArgs,
+    MemoryAccess *memAccess) {
+  if (notifyArgs.fn == nullptr) {
     PW_LOG_ERROR(
         "UntypedProducer::createRemote: Received null notify function or "
         "metadata");
     return pw::Status::InvalidArgument();
   }
-  auto queuePtr = static_cast<internal::QueuePrivate *>(queue);
-  if (queuePtr->config.mode != DataConfigMode::kFixedSize ||
-      queuePtr->blockCapacity % queuePtr->config.fixedSize.elementSize != 0 ||
-      queuePtr->localNotify) {
-    PW_LOG_ERROR(
-        "UntypedProducer::createRemote: Unexpected queue config. Must be "
-        "fixed size, capacity a multiple of element size, and remote.");
-    return pw::Status::FailedPrecondition();
-  }
-  auto blockLayout = internal::getBlockLayout(*queuePtr);
-  PW_TRY(ProducerBase::initialize(region, queuePtr, blockLayout, maxBlockCount,
-                                  minBlockCount, {.remoteId = notifyArgs.id}));
-  return UntypedProducer(region, *queuePtr, blockLayout, maxBlockCount,
-                         minBlockCount, dataNotifier, std::move(notifyArgs.fn),
-                         memAccess);
+  PW_TRY_ASSIGN(
+      internal::QueuePrivate * queuePtr,
+      ProducerBase::initQueue(region, blockCapacity * elementSize, elementSize,
+                              elementAlignment, {.remoteId = notifyArgs.id},
+                              /*local=*/false));
+  UntypedProducer producer(region, *queuePtr, blockCapacity, elementSize,
+                           elementAlignment, maxBlockCount, minBlockCount,
+                           dataNotifier, std::move(notifyArgs.fn), memAccess);
+  PW_TRY(producer.initialize(/*variableData=*/false));
+  return producer;
 }
 
-UntypedProducer::UntypedProducer(const AllocatorRegion &region,
-                                 internal::QueuePrivate &queue,
-                                 pw::allocator::Layout blockLayout,
-                                 size_t maxBlockCount, size_t minBlockCount,
-                                 DataNotifier &dataNotifier,
-                                 RemoteNotifyFn remoteNotifyFn,
-                                 MemoryAccess *memAccess)
-    : ProducerBase(region, queue, blockLayout, internal::getDataOffset(queue),
-                   maxBlockCount, minBlockCount, dataNotifier,
-                   std::move(remoteNotifyFn), memAccess),
-      mElementSize(queue.config.fixedSize.elementSize),
-      mElementAlignment(queue.config.fixedSize.elementAlignment) {}
+UntypedProducer::UntypedProducer(
+    const AllocatorRegion &region, internal::QueuePrivate &queue,
+    size_t blockCapacity, size_t elementSize, size_t elementAlignment,
+    size_t maxBlockCount, size_t minBlockCount, DataNotifier &dataNotifier,
+    RemoteNotifyFn remoteNotifyFn, MemoryAccess *memAccess)
+    : ProducerBase(region, queue,
+                   internal::getBlockLayout(blockCapacity, elementSize,
+                                            elementAlignment),
+                   blockCapacity * elementSize,
+                   internal::getDataOffset(elementAlignment), maxBlockCount,
+                   minBlockCount, dataNotifier, std::move(remoteNotifyFn),
+                   memAccess),
+      mElementSize(elementSize),
+      mElementAlignment(elementAlignment) {}
 
 pw::Result<UntypedConsumer> UntypedConsumer::createLocal(
     Region region, uint32_t queueOffset, uint32_t descOffset,
