@@ -618,43 +618,22 @@ class WifiRequestManager : public NonCopyable {
                                        uint8_t errorCode, const void *cookie);
 
   /**
-   * Synchronously distributes an event to a nanoapp indicating the result of a
-   * request for an active wifi scan.
+   * Releases a WiFi scan event after nanoapps have consumed it.
    *
-   * @param nanoappInstanceId The nanoapp instance ID to direct the event to.
-   * @param success If the request for a wifi resource was successful.
-   * @param errorCode The error code when success is set to false.
-   * @param cookie The cookie to be provided to the nanoapp. This is
-   *        round-tripped from the nanoapp to provide context.
-   *
-   * @return true if the event was successfully delivered.
+   * @param event The scan event to free.
    */
-  bool distributeScanRequestAsyncResultSync(uint16_t nanoappInstanceId,
-                                            bool success, uint8_t errorCode,
-                                            const void *cookie)
-      CHRE_REQUIRES(getMultiThreadingApiMutex());
+  void releaseWifiScanEvent(struct chreWifiScanEvent *event) {
+    mPlatformWifi.releaseScanEvent(event);
+  }
 
   /**
-   * Determines if the current WifiScanEvent was requested by a nanoapp that is
-   * not registered to receive broadcast events of CHRE_EVENT_WIFI_SCAN_RESULT.
-   *
-   * For use in conjunction with distributeScanEventSync so that the nanoapp can
-   * be temporarily registered for broadcast delievery of the event.
-   *
-   * @return A pointer to the nanoapp which needs to be temporarily registered,
-   *         if any. Otherwise nullptr.
-   */
-  Nanoapp *getUnregisteredNanoappRequestingScan() const;
-
-  /**
-   * Synchronously distributes a chreWifiScanEvent to the requesting nanoapp as
-   * well as any nanoapps registered for broadcast. This allows for pre- and
-   * post-processing of the event to neatly manage broadcast registrations.
-   * This method must be invoked on the CHRE event loop thread.
+   * Delivers a chreWifiScanEvent to the requesting nanoapp as
+   * well as any nanoapps registered for broadcast. This method must be invoked
+   * on the CHRE event loop thread.
    *
    * @param event the wifi scan event.
    */
-  void distributeScanEventSync(chreWifiScanEvent *event)
+  void handleScanEventSync(chreWifiScanEvent *event)
       CHRE_REQUIRES(getMultiThreadingApiMutex());
 
   /**
