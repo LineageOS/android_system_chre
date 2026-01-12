@@ -79,8 +79,8 @@ void Test::validateChreAsyncResult(const chreAsyncResult *result,
     EXPECT_FAIL_RETURN("Request requestType mismatch");
   }
   if (chreGetTime() - request.requestTimeNs > request.timeoutNs) {
-    uint32_t time =
-        request.timeoutNs / nanoapp_testing::kOneSecondInNanoseconds;
+    uint32_t time = static_cast<uint32_t>(
+        request.timeoutNs / nanoapp_testing::kOneSecondInNanoseconds);
     EXPECT_FAIL_RETURN("Did not receive chreWifiAsyncEvent within time (sec): ",
                        &time);
   }

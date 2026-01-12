@@ -17,15 +17,12 @@
 #include <cinttypes>
 
 #include "chre_api/chre.h"
-namespace chre {
 
-extern "C" void nanoappHandleEvent(uint32_t senderInstanceId,
-                                   uint16_t eventType, const void *eventData) {}
+void nanoappHandleEvent(uint32_t senderInstanceId, uint16_t eventType,
+                        const void *eventData) {}
 
-extern "C" bool nanoappStart(void) {
+bool nanoappStart(void) {
   return true;
 }
 
-extern "C" void nanoappEnd(void) {}
-
-}  // namespace chre
+void nanoappEnd(void) {}

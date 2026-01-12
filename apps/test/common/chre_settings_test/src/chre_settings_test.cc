@@ -19,21 +19,17 @@
 #include "chre_api/chre.h"
 #include "chre_settings_test_manager.h"
 
-namespace chre {
-
-extern "C" void nanoappHandleEvent(uint32_t senderInstanceId,
-                                   uint16_t eventType, const void *eventData) {
-  settings_test::ManagerSingleton::get()->handleEvent(senderInstanceId,
-                                                      eventType, eventData);
+void nanoappHandleEvent(uint32_t senderInstanceId, uint16_t eventType,
+                        const void *eventData) {
+  chre::settings_test::ManagerSingleton::get()->handleEvent(
+      senderInstanceId, eventType, eventData);
 }
 
-extern "C" bool nanoappStart(void) {
-  settings_test::ManagerSingleton::init();
+bool nanoappStart(void) {
+  chre::settings_test::ManagerSingleton::init();
   return true;
 }
 
-extern "C" void nanoappEnd(void) {
-  settings_test::ManagerSingleton::deinit();
+void nanoappEnd(void) {
+  chre::settings_test::ManagerSingleton::deinit();
 }
-
-}  // namespace chre

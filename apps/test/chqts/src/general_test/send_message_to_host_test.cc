@@ -221,7 +221,7 @@ void SendMessageToHostTest::prepTestMemory() {
   for (size_t i = 0; i < 2; i++) {
     size_t messageSize = i == 0 ? chreGetMessageToHostMaxSize() + 1
                                 : chreGetMessageToHostMaxSize();
-    sLargeMessageData[i] = chreHeapAlloc(messageSize);
+    sLargeMessageData[i] = chreHeapAlloc(static_cast<uint32_t>(messageSize));
     if (sLargeMessageData[i] == nullptr) {
       EXPECT_FAIL_RETURN("Insufficient heap memory for test");
     }

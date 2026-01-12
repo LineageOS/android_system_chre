@@ -549,8 +549,9 @@ void BasicWifiTest::startRangingAsyncTestStage() {
   // mark it as a success.
   if (mWifiCapabilities & CHRE_WIFI_CAPABILITIES_RTT_RANGING &&
       mLatestWifiScanResults.size() != 0) {
-    testRequestRangingAsync(mLatestWifiScanResults.data(),
-                            mLatestWifiScanResults.size());
+    testRequestRangingAsync(
+        mLatestWifiScanResults.data(),
+        static_cast<uint8_t>(mLatestWifiScanResults.size()));
     resetCurrentWifiRequest(&kRequestRangingCookie,
                             CHRE_WIFI_REQUEST_TYPE_RANGING,
                             CHRE_WIFI_RANGING_RESULT_TIMEOUT_NS);

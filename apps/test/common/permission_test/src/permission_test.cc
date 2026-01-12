@@ -33,10 +33,9 @@
  * prior to accepting a nanoapp request.
  */
 
-namespace chre {
 namespace {
 
-constexpr Nanoseconds kGnssMinInterval = Seconds(1);
+constexpr chre::Nanoseconds kGnssMinInterval = chre::Seconds(1);
 
 void checkAudioApis(uint32_t hostEndpointId) {
   struct chreAudioSource audioSource;
@@ -44,7 +43,7 @@ void checkAudioApis(uint32_t hostEndpointId) {
     if (chreAudioConfigureSource(i, true /* enable */,
                                  audioSource.minBufferDuration,
                                  audioSource.minBufferDuration)) {
-      test_shared::sendTestResultWithMsgToHost(
+      chre::test_shared::sendTestResultWithMsgToHost(
           hostEndpointId, permission_test_MessageType_TEST_RESULT,
           false /* success */, "Configured audio without audio permission");
     }
@@ -58,7 +57,7 @@ void checkGnssApis(uint32_t hostEndpointId) {
   if (chreGnssLocationSessionStartAsync(kGnssMinInterval.toRawNanoseconds(),
                                         kGnssMinInterval.toRawNanoseconds(),
                                         nullptr /* cookie */)) {
-    test_shared::sendTestResultWithMsgToHost(
+    chre::test_shared::sendTestResultWithMsgToHost(
         hostEndpointId, permission_test_MessageType_TEST_RESULT,
         false /* success */,
         "Requested GNSS location without the GNSS permission");
@@ -66,14 +65,14 @@ void checkGnssApis(uint32_t hostEndpointId) {
 
   if (chreGnssMeasurementSessionStartAsync(kGnssMinInterval.toRawNanoseconds(),
                                            nullptr /* cookie */)) {
-    test_shared::sendTestResultWithMsgToHost(
+    chre::test_shared::sendTestResultWithMsgToHost(
         hostEndpointId, permission_test_MessageType_TEST_RESULT,
         false /* success */,
         "Requested GNSS measurements without the GNSS permission");
   }
 
   if (chreGnssConfigurePassiveLocationListener(true /* enable */)) {
-    test_shared::sendTestResultWithMsgToHost(
+    chre::test_shared::sendTestResultWithMsgToHost(
         hostEndpointId, permission_test_MessageType_TEST_RESULT,
         false /* success */,
         "Requested GNSS passive locations without the GNSS permission");
@@ -83,14 +82,14 @@ void checkGnssApis(uint32_t hostEndpointId) {
 void checkWifiApis(uint32_t hostEndpointId) {
   if (chreWifiConfigureScanMonitorAsync(true /* enable */,
                                         nullptr /* cookie */)) {
-    test_shared::sendTestResultWithMsgToHost(
+    chre::test_shared::sendTestResultWithMsgToHost(
         hostEndpointId, permission_test_MessageType_TEST_RESULT,
         false /* success */,
         "Requested WiFi scan monitor without WiFi permission");
   }
 
   if (chreWifiRequestScanAsyncDefault(nullptr /* cookie */)) {
-    test_shared::sendTestResultWithMsgToHost(
+    chre::test_shared::sendTestResultWithMsgToHost(
         hostEndpointId, permission_test_MessageType_TEST_RESULT,
         false /* success */, "Requested WiFi scan without WiFi permission");
   }
@@ -101,7 +100,7 @@ void checkWifiApis(uint32_t hostEndpointId) {
 
 void checkWwanApis(uint32_t hostEndpointId) {
   if (chreWwanGetCellInfoAsync(nullptr /* cookie */)) {
-    test_shared::sendTestResultWithMsgToHost(
+    chre::test_shared::sendTestResultWithMsgToHost(
         hostEndpointId, permission_test_MessageType_TEST_RESULT,
         false /* success */, "Requested cell info without WWAN permission");
   }
@@ -130,7 +129,7 @@ void handleMessageFromHost(uint32_t senderInstanceId,
     success = true;
   }
 
-  test_shared::sendTestResultWithMsgToHost(
+  chre::test_shared::sendTestResultWithMsgToHost(
       hostData->hostEndpoint,
       permission_test_MessageType_TEST_RESULT /* messageType */, success,
       nullptr /* errMessage */);
@@ -138,8 +137,8 @@ void handleMessageFromHost(uint32_t senderInstanceId,
 
 }  // anonymous namespace
 
-extern "C" void nanoappHandleEvent(uint32_t senderInstanceId,
-                                   uint16_t eventType, const void *eventData) {
+void nanoappHandleEvent(uint32_t senderInstanceId, uint16_t eventType,
+                        const void *eventData) {
   if (eventType == CHRE_EVENT_MESSAGE_FROM_HOST) {
     handleMessageFromHost(
         senderInstanceId,
@@ -151,10 +150,8 @@ extern "C" void nanoappHandleEvent(uint32_t senderInstanceId,
   }
 }
 
-extern "C" bool nanoappStart(void) {
+bool nanoappStart(void) {
   return true;
 }
 
-extern "C" void nanoappEnd(void) {}
-
-}  // namespace chre
+void nanoappEnd(void) {}

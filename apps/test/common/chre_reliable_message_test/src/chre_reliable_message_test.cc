@@ -18,22 +18,18 @@
 
 #include "chre_reliable_message_test_manager.h"
 
-namespace chre {
-
 using ::chre::reliable_message_test::ManagerSingleton;
 
-extern "C" void nanoappHandleEvent(uint32_t senderInstanceId,
-                                   uint16_t eventType, const void *eventData) {
+void nanoappHandleEvent(uint32_t senderInstanceId, uint16_t eventType,
+                        const void *eventData) {
   ManagerSingleton::get()->handleEvent(senderInstanceId, eventType, eventData);
 }
 
-extern "C" bool nanoappStart(void) {
+bool nanoappStart(void) {
   ManagerSingleton::init();
   return ManagerSingleton::get()->start();
 }
 
-extern "C" void nanoappEnd(void) {
+void nanoappEnd(void) {
   ManagerSingleton::get()->end();
 }
-
-}  // namespace chre

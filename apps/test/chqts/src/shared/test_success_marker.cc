@@ -28,7 +28,7 @@ TestSuccessMarker::TestSuccessMarker(uint32_t numStages) {
     EXPECT_FAIL_RETURN("Total number of stage should be less than 33, got %d",
                        &numStages);
   }
-  mAllFinished = (UINT64_C(1) << numStages) - 1;
+  mAllFinished = static_cast<uint32_t>((UINT64_C(1) << numStages) - 1);
 }
 
 void TestSuccessMarker::markStage(uint32_t stage) {

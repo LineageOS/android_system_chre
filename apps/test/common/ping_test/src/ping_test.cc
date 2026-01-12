@@ -25,8 +25,6 @@
 
 #define LOG_TAG "[PingTest]"
 
-namespace chre {
-
 namespace {
 
 //! The message payload to use when responding to a ping request.
@@ -59,7 +57,7 @@ void handleMessageFromHost(uint32_t senderInstanceId,
   }
 
   if (!success) {
-    test_shared::sendTestResultToHost(
+    chre::test_shared::sendTestResultToHost(
         hostData->hostEndpoint,
         ping_test_MessageType_TEST_RESULT /* messageType */,
         false /* success */);
@@ -68,8 +66,8 @@ void handleMessageFromHost(uint32_t senderInstanceId,
 
 }  // anonymous namespace
 
-extern "C" void nanoappHandleEvent(uint32_t senderInstanceId,
-                                   uint16_t eventType, const void *eventData) {
+void nanoappHandleEvent(uint32_t senderInstanceId, uint16_t eventType,
+                        const void *eventData) {
   if (eventType == CHRE_EVENT_MESSAGE_FROM_HOST) {
     handleMessageFromHost(
         senderInstanceId,
@@ -81,10 +79,8 @@ extern "C" void nanoappHandleEvent(uint32_t senderInstanceId,
   }
 }
 
-extern "C" bool nanoappStart(void) {
+bool nanoappStart(void) {
   return true;
 }
 
-extern "C" void nanoappEnd(void) {}
-
-}  // namespace chre
+void nanoappEnd(void) {}
