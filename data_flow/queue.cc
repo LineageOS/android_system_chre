@@ -41,8 +41,6 @@
 
 namespace android::contexthub::data_flow {
 
-using DataConfigMode = internal::Queue::DataConfig::Mode;
-
 namespace internal {
 namespace {
 
@@ -65,7 +63,8 @@ void deallocateBlockRing(const AllocatorRegion &region,
   }
   for (BlockHeader *block = head; block;) {
     auto *tmp = block;
-    block = fromOffset<BlockHeader>(region, block->nextBlockOffset, layout);
+    block =
+        fromOffset<BlockHeader>(region, block->nextBlockOffsetBytes, layout);
     region.allocator->Deallocate(tmp);
     if (block == head) {
       return;
@@ -88,12 +87,13 @@ BlockHeader *allocateBlock(pw::Allocator &allocator,
                            bool variableData) {
   auto *block = static_cast<BlockHeader *>(allocator.Allocate(layout));
   if (block) {
-    block->baseIndex.store(0);
-    block->skipIndex.store(blockCapacity);
+    std::atomic_ref(block->baseIndex).store(0);
+    std::atomic_ref(block->skipIndex).store(blockCapacity);
   }
   if (variableData) {
-    auto *variableDataBlock = reinterpret_cast<VariableDataBlock *>(block);
-    variableDataBlock->header.firstElementIndex = blockCapacity;
+    auto *variableDataBlock =
+        reinterpret_cast<VariableDataBlockHeader *>(block);
+    variableDataBlock->firstElementIndex = blockCapacity;
   }
   return block;
 }
@@ -125,7 +125,7 @@ pw::Result<BlockHeader *> allocateBlockRing(const AllocatorRegion &region,
       if (!head) {
         head = block;
       } else {
-        prev->nextBlockOffset = toOffset(region.base, block);
+        prev->nextBlockOffsetBytes = toOffset(region.base, block);
       }
       prev = block;
     } else {
@@ -134,7 +134,7 @@ pw::Result<BlockHeader *> allocateBlockRing(const AllocatorRegion &region,
       return pw::Status::ResourceExhausted();
     }
   }
-  prev->nextBlockOffset = internal::toOffset(region.base, head);
+  prev->nextBlockOffsetBytes = internal::toOffset(region.base, head);
   return head;
 }
 
@@ -217,9 +217,9 @@ constexpr uint32_t ringDiff(uint32_t end, uint32_t begin, uint32_t size) {
 void initProducerDesc(ProducerDesc &desc, uint32_t writeIndex,
                       uint32_t correction, BlockHeader *tailBlock,
                       uintptr_t shmemBase) {
-  desc.writeIndex.store(writeIndex);
+  std::atomic_ref(desc.writeIndex).store(writeIndex);
   desc.indexCorrection = correction;
-  desc.tailBlockOffset = toOffset(shmemBase, tailBlock);
+  desc.tailBlockOffsetBytes = toOffset(shmemBase, tailBlock);
 }
 
 /**
@@ -301,10 +301,10 @@ uint32_t blockCountForEpoch(uint32_t epoch) {
  */
 uint32_t indexCorrectionIncrement(BlockHeader *curr, BlockHeader *next,
                                   uint32_t capacity) {
-  auto baseIndex = curr->baseIndex.load();
-  auto skipIndex = curr->skipIndex.load();
+  auto baseIndex = std::atomic_ref(curr->baseIndex).load();
+  auto skipIndex = std::atomic_ref(curr->skipIndex).load();
   uint32_t diffBase = skipIndex == capacity ? baseIndex : skipIndex;
-  return ringDiff(next->baseIndex.load(), diffBase, capacity);
+  return ringDiff(std::atomic_ref(next->baseIndex).load(), diffBase, capacity);
 }
 
 /**
@@ -326,7 +326,9 @@ size_t getDataOffset(internal::Queue &queue) {
   // Calculate the offset of data within the block based on the element
   // alignment. This must be equivalent to the offset of Block<T>.data for some
   // T of the same size and alignment.
-  size_t elementAlignment = queue.config.fixedSize.elementAlignment;
+  size_t elementAlignment =
+      queue.elementConfig.get<ElementConfig::Tag::fixedSize>()
+          .elementAlignmentBytes;
   return internal::alignTo(sizeof(internal::BlockHeader), elementAlignment);
 }
 
@@ -339,15 +341,16 @@ size_t getDataOffset(size_t elementAlignment) {
 }
 
 /**
- * @return the block layout for the given fixed-size element queue.
+ * @return the base block layout for the given fixed-size element queue.
  * @param queue The queue metadata.
  */
-pw::allocator::Layout getBlockLayout(internal::Queue &queue) {
-  size_t elementAlignment = queue.config.fixedSize.elementAlignment;
+pw::allocator::Layout getBlockBaseLayout(internal::Queue &queue) {
+  size_t elementAlignment =
+      queue.elementConfig.get<ElementConfig::Tag::fixedSize>()
+          .elementAlignmentBytes;
   size_t blockAlignment =
       std::max(alignof(internal::BlockHeader), elementAlignment);
-  return pw::allocator::Layout(getDataOffset(queue) + queue.blockCapacity,
-                               blockAlignment);
+  return pw::allocator::Layout(getDataOffset(queue), blockAlignment);
 }
 
 /**
@@ -380,11 +383,16 @@ pw::Status ProducerBase::checkArgs(const AllocatorRegion &region,
 pw::Result<QueuePrivate *> ProducerBase::initQueue(
     const AllocatorRegion &region, size_t capacity, size_t elementSize,
     size_t elementAlignment, IdOrNotifyFn idOrNotifyFn, bool local) {
+  if (!elementAlignment || (elementAlignment & (elementAlignment - 1)) != 0) {
+    PW_LOG_ERROR("initQueue: elementAlignment %zu is not a power of 2",
+                 elementAlignment);
+    return pw::Status::InvalidArgument();
+  }
   auto *queue = region.allocator->New<internal::QueuePrivate>();
   if (!queue) {
     return pw::Status::ResourceExhausted();
   }
-  queue->producerOffset = internal::kOffsetInvalid;
+  queue->queue.sourceMetadataOffsetBytes = internal::kOffsetInvalid;
   if (elementSize) {
     if (capacity % elementSize != 0) {
       PW_LOG_ERROR(
@@ -393,17 +401,28 @@ pw::Result<QueuePrivate *> ProducerBase::initQueue(
       region.allocator->Delete(queue);
       return pw::Status::InvalidArgument();
     }
-    queue->blockCapacity = capacity;
-    queue->config.mode = DataConfigMode::kFixedSize;
-    queue->config.fixedSize.elementSize = elementSize;
-    queue->config.fixedSize.elementAlignment = elementAlignment;
+    queue->queue.blockCapacityBytes = capacity;
+    queue->queue.elementConfig.set<ElementConfig::Tag::fixedSize>(
+        ElementConfig::FixedSize{
+            .elementSizeBytes = static_cast<int32_t>(elementSize),
+            .elementAlignmentBytes = static_cast<char16_t>(elementAlignment)});
   } else {
-    queue->blockCapacity =
-        internal::alignTo(capacity, alignof(internal::VariableDataHeader));
-    queue->config.mode = DataConfigMode::kVariableSizeBasic;
+    if (elementAlignment > 1) {
+      PW_LOG_ERROR(
+          "initQueue: elementAlignment %zu > 1 not supported yet for variable "
+          "size elements",
+          elementAlignment);
+      region.allocator->Delete(queue);
+      return pw::Status::InvalidArgument();
+    }
+    queue->queue.blockCapacityBytes =
+        internal::alignTo(capacity, alignof(internal::VariableElementHeader));
+    queue->queue.elementConfig.set<ElementConfig::Tag::variableSize>(
+        ElementConfig::VariableSize{
+            .elementAlignmentBytes = static_cast<char16_t>(elementAlignment)});
   }
-  queue->idOrNotifyFn = idOrNotifyFn;
-  queue->localNotify = local;
+  std::memcpy(&queue->queue.sourceId, &idOrNotifyFn, sizeof(IdOrNotifyFn));
+  queue->queue.localNotify = local;
   return queue;
 }
 
@@ -429,11 +448,13 @@ pw::Status ProducerBase::initialize(bool variableData) {
   PW_TRY_ASSIGN(mCurrBlock,
                 allocateBlockRing(mRegion, kBlockLayout, kBlockCapacity,
                                   mBlockCount, variableData));
-  mDesc = &mCurrBlock->producerDesc;
+  mDesc = &mCurrBlock->sourceMetadata;
   initProducerDesc(*mDesc, /*writeIndex=*/0, /*correction=*/0, mCurrBlock,
                    mRegion.base);
-  mQueue->blockListEpoch.store(getBlockListEpoch(mBlockCount, /*epoch=*/0));
-  mQueue->producerOffset = toOffset(mRegion.base, mDesc);
+  std::atomic_ref(mQueue->queue.blockListEpoch)
+      .store(getBlockListEpoch(mBlockCount, /*epoch=*/0));
+  std::atomic_ref(mQueue->queue.sourceMetadataOffsetBytes)
+      .store(toOffset(mRegion.base, mDesc));
   return pw::OkStatus();
 }
 
@@ -467,7 +488,8 @@ void ProducerBase::stop() {
     return;
   }
   mState = State::kStopped;
-  mQueue->producerOffset.store(kOffsetInvalid);
+  std::atomic_ref(mQueue->queue.sourceMetadataOffsetBytes)
+      .store(kOffsetInvalid);
   // Mark the producer as torn down and notify all consumers.
   forAllConsumers(
       /*excludeMask=*/0,
@@ -493,7 +515,8 @@ pw::Result<pw::ByteSpan> ProducerBase::reserve(size_t count) {
   PW_TRY_ASSIGN(uint32_t size, checkAvailable(count, /*allOrNothing=*/true));
   // Return a span over the next available contiguous region.
   auto *begin = blockData(mCurrBlock, kDataOffset) + mCurrBlockIndex;
-  if (advanceContiguous(mCurrBlock->baseIndex, mCurrBlock->skipIndex,
+  if (advanceContiguous(std::atomic_ref(mCurrBlock->baseIndex).load(),
+                        std::atomic_ref(mCurrBlock->skipIndex).load(),
                         kBlockCapacity, mCurrBlockIndex, size)) {
     enterNextBlock(mCurrBlock, /*correction=*/nullptr, mCurrBlockIndex,
                    /*convertSkipToBase=*/true);
@@ -517,10 +540,11 @@ pw::Status ProducerBase::truncate(size_t size) {
   }
   mReserved = size;
   // Sync the current block and index back to the write index.
-  mCurrBlock =
-      fromOffset<BlockHeader>(mRegion, mDesc->tailBlockOffset, kBlockLayout);
+  mCurrBlock = fromOffset<BlockHeader>(mRegion, mDesc->tailBlockOffsetBytes,
+                                       kBlockLayout);
   mCurrBlockIndex =
-      (mDesc->writeIndex.load() + mDesc->indexCorrection) % kBlockCapacity;
+      (std::atomic_ref(mDesc->writeIndex).load() + mDesc->indexCorrection) %
+      kBlockCapacity;
   // Advance to the new reservation size.
   advanceBlockIndexWithData(mCurrBlock, mCurrBlockIndex, /*correction=*/nullptr,
                             size, /*data=*/std::nullopt,
@@ -592,10 +616,10 @@ pw::Result<size_t> ProducerBase::checkAvailable(size_t count,
 
 void ProducerBase::advanceWriteIndex(uint32_t count,
                                      std::optional<pw::ConstByteSpan> data) {
-  uint32_t writeIndex = mDesc->writeIndex.load();
+  uint32_t writeIndex = std::atomic_ref(mDesc->writeIndex).load();
   uint32_t correction = mDesc->indexCorrection;
-  auto *block =
-      fromOffset<BlockHeader>(mRegion, mDesc->tailBlockOffset, kBlockLayout);
+  auto *block = fromOffset<BlockHeader>(mRegion, mDesc->tailBlockOffsetBytes,
+                                        kBlockLayout);
   uint32_t blockIndex = (writeIndex + correction) % kBlockCapacity;
   advanceBlockIndexWithData(block, blockIndex, &correction, count, data,
                             /*convertSkipToBase=*/data.has_value());
@@ -613,7 +637,8 @@ void ProducerBase::advanceBlockIndexWithData(
     // index.
     auto *copyDst = blockData(block, kDataOffset) + index;
     bool toNextBlock =
-        advanceContiguous(block->baseIndex.load(), block->skipIndex.load(),
+        advanceContiguous(std::atomic_ref(block->baseIndex).load(),
+                          std::atomic_ref(block->skipIndex).load(),
                           kBlockCapacity, index, advance);
     if (data) {
       std::memcpy(copyDst, data->data(), advance);
@@ -631,40 +656,42 @@ void ProducerBase::advanceBlockIndexWithData(
 void ProducerBase::enterNextBlock(BlockHeader *&block, uint32_t *correction,
                                   uint32_t &index, bool convertSkipToBase) {
   auto *nextBlock = fromOffset<BlockHeader>(
-      mRegion, block->nextBlockOffset.load(), kBlockLayout);
+      mRegion, std::atomic_ref(block->nextBlockOffsetBytes).load(),
+      kBlockLayout);
   // If the next block was skipped from on the last visit, set its base
   // index to that skip index and reset the skip index.
-  auto nextSkipIndex = nextBlock->skipIndex.load();
+  auto nextSkipIndex = std::atomic_ref(nextBlock->skipIndex).load();
   if (convertSkipToBase && nextSkipIndex != kBlockCapacity) {
-    nextBlock->baseIndex.store(nextSkipIndex);
-    nextBlock->skipIndex.store(kBlockCapacity);
+    std::atomic_ref(nextBlock->baseIndex).store(nextSkipIndex);
+    std::atomic_ref(nextBlock->skipIndex).store(kBlockCapacity);
   }
   if (correction) {
     // Update the index correction to be applied to the write index.
-    correction += indexCorrectionIncrement(block, nextBlock, kBlockCapacity);
+    *correction += indexCorrectionIncrement(block, nextBlock, kBlockCapacity);
   }
   block = nextBlock;
-  index = block->baseIndex;
+  index = std::atomic_ref(block->baseIndex).load();
 }
 
 void ProducerBase::updateWriteIndex(BlockHeader *tailBlock, uint32_t writeIndex,
                                     uint32_t correction) {
-  if (tailBlock ==
-      fromOffset<BlockHeader>(mRegion, mDesc->tailBlockOffset, kBlockLayout)) {
+  if (tailBlock == fromOffset<BlockHeader>(mRegion, mDesc->tailBlockOffsetBytes,
+                                           kBlockLayout)) {
     // If the currently linked tail block is still the tail, just store the
     // new write index.
-    mDesc->writeIndex.store(writeIndex);
+    std::atomic_ref(mDesc->writeIndex).store(writeIndex);
   } else {
     // Initialize the descriptor in the new tail block, then link it.
-    auto &newDesc = tailBlock->producerDesc;
+    auto &newDesc = tailBlock->sourceMetadata;
     initProducerDesc(newDesc, writeIndex, correction, tailBlock, mRegion.base);
-    mQueue->producerOffset.store(toOffset(mRegion.base, &newDesc));
+    std::atomic_ref(mQueue->queue.sourceMetadataOffsetBytes)
+        .store(toOffset(mRegion.base, &newDesc));
     mDesc = &newDesc;
   }
 }
 
 void ProducerBase::updateAvailable(uint32_t increment) {
-  auto tail = mDesc->writeIndex.load() + mReserved;
+  auto tail = std::atomic_ref(mDesc->writeIndex).load() + mReserved;
   mAvailable = capacity() - mReserved;  // Reset available counts.
   // Consumers that have been overwritten or would otherwise need to sync back
   // to the producer position should not block writes to the queue, as well as
@@ -677,7 +704,7 @@ void ProducerBase::updateAvailable(uint32_t increment) {
       excludeMask,
       [this](internal::ConsumerNode &node, uint32_t producerFlags,
              uint32_t tail, uint32_t increment) {
-        auto readIndex = node.desc->readIndex.load();
+        auto readIndex = std::atomic_ref(node.desc->readIndex).load();
         auto diff = writeReadDiff(tail, readIndex);
         bool overwritable = node.policy.overwrite == OverwritePolicy::kAllowed;
         bool overwritten = false;
@@ -705,7 +732,8 @@ void ProducerBase::updateAvailable(uint32_t increment) {
 void ProducerBase::setConsumerFlag(ConsumerNode &node, uint32_t current,
                                    ProducerFlags flag, bool forceNotify) {
   uint32_t flagCounter = getFlagsCounter(current) + kFlagCountInc;
-  node.desc->producerFlags.store(static_cast<uint32_t>(flag) | flagCounter);
+  std::atomic_ref(node.desc->sourceFlags)
+      .store(static_cast<uint32_t>(flag) | flagCounter);
   // NOTE: If forceNotify, still check that the consumer has been initialized.
   if ((forceNotify &&
        getProducerFlags(current) != ProducerFlags::kPendingInit) ||
@@ -715,7 +743,7 @@ void ProducerBase::setConsumerFlag(ConsumerNode &node, uint32_t current,
 }
 
 void ProducerBase::notifyConsumer(ConsumerDesc &desc) {
-  notify(desc.idOrNotifyFn, mRemoteNotifyFn);
+  notify(*reinterpret_cast<IdOrNotifyFn *>(&desc.id), mRemoteNotifyFn);
 }
 
 pw::Result<uint32_t> ProducerBase::addConsumer(pw::ConstByteSpan id,
@@ -742,18 +770,21 @@ pw::Result<uint32_t> ProducerBase::addConsumer(pw::ConstByteSpan id,
   node->policy = policy;
   // Initialize the descriptor.
   std::memset(desc, 0, sizeof(internal::ConsumerDesc));
+  std::memcpy(&desc->id, id.data(), id.size());
   // Let the consumer know if they are overwritable.
-  desc->overwritePolicy = policy.overwrite;
-  desc->consumerFlags.store(
-      static_cast<uint32_t>(internal::ConsumerFlags::kFlagsCleared));
-  desc->producerFlags.store(
-      static_cast<uint32_t>(internal::ProducerFlags::kPendingInit) |
-      internal::kFlagCountInc);
+  desc->isOverwritable = policy.overwrite == OverwritePolicy::kAllowed;
+  std::atomic_ref(desc->sinkFlags)
+      .store(static_cast<uint32_t>(internal::ConsumerFlags::kFlagsCleared));
+  std::atomic_ref(desc->sourceFlags)
+      .store(static_cast<uint32_t>(internal::ProducerFlags::kPendingInit) |
+             internal::kFlagCountInc);
   // Sync the consumer to the producer.
   desc->indexCorrection = mDesc->indexCorrection;
-  desc->readIndex.store(mDesc->writeIndex.load());
-  desc->initHeadBlockOffset = mDesc->tailBlockOffset;
-  desc->initBlockListEpoch = mQueue->blockListEpoch.load();
+  std::atomic_ref(desc->readIndex)
+      .store(std::atomic_ref(mDesc->writeIndex).load());
+  desc->initialHeadBlockOffsetBytes = mDesc->tailBlockOffsetBytes;
+  desc->initialBlockListEpoch =
+      std::atomic_ref(mQueue->queue.blockListEpoch).load();
   // Link the node to the list of consumers.
   mQueue->consumerList.push_back(*node);
   // Return the offset of the descriptor in the region it was allocated from.
@@ -768,7 +799,8 @@ pw::Status ProducerBase::updateConsumerPolicy(pw::ConstByteSpan id,
     if (id.size() == node->id.size() &&
         !std::memcmp(node->id.data(), id.data(), id.size())) {
       node->policy = policy;
-      node->desc->overwritePolicy = policy.overwrite;
+      node->desc->isOverwritable =
+          policy.overwrite == OverwritePolicy::kAllowed;
       return pw::OkStatus();
     }
     ++node;
@@ -787,7 +819,7 @@ pw::Status ProducerBase::pruneConsumers(
        node != mQueue->consumerList.end();) {
     if (match(node->id)) {
       // If the consumer is matched, mark it disconnected and remove it.
-      setConsumerFlag(*node, node->desc->producerFlags.load(),
+      setConsumerFlag(*node, std::atomic_ref(node->desc->sourceFlags).load(),
                       ProducerFlags::kDisconnected);
       eraseConsumerNode(node);
     } else {
@@ -821,9 +853,9 @@ bool ProducerBase::isFlagInMask(internal::ConsumerDesc &desc,
     // If the flag hasn't been cleared, clear it now.
     if (internal::getProducerFlags(producerFlags) !=
         internal::ProducerFlags::kNone) {
-      desc.producerFlags.store(
-          internal::getFlagsCounter(producerFlags) |
-          static_cast<uint32_t>(internal::ProducerFlags::kNone));
+      std::atomic_ref(desc.sourceFlags)
+          .store(internal::getFlagsCounter(producerFlags) |
+                 static_cast<uint32_t>(internal::ProducerFlags::kNone));
     }
     return false;
   }
@@ -847,8 +879,10 @@ pw::Status ProducerBase::checkPolicy(ConsumerPolicy policy) {
   if (policy.notification == NotificationPolicy::kHighWaterMark ||
       policy.notification == NotificationPolicy::kOpportunistic) {
     uint64_t threshold = policy.data;
-    if (mQueue->config.mode == Queue::DataConfig::Mode::kFixedSize) {
-      threshold *= mQueue->config.fixedSize.elementSize;
+    if (mQueue->queue.elementConfig.getTag() == ElementConfig::Tag::fixedSize) {
+      threshold *=
+          mQueue->queue.elementConfig.get<ElementConfig::Tag::fixedSize>()
+              .elementSizeBytes;
     }
     if (threshold > capacity()) {
       PW_LOG_ERROR("ProducerBase::checkPolicy: watermark of %" PRIu64
@@ -888,12 +922,12 @@ ConsumerBase::ConsumerBase(const Region &region, Queue &queue,
                            MemoryAccess *memAccess)
     : mRegion(region),
       mRemoteNotifyFn(std::move(remoteNotifyFn)),
-      kBlockLayout{baseBlockLayout.size() + queue.blockCapacity,
+      kBlockLayout{baseBlockLayout.size() + queue.blockCapacityBytes,
                    baseBlockLayout.alignment()},
       mQueue(&queue),
       mDesc(&desc),
       mMemAccess(memAccess),
-      kBlockCapacity(queue.blockCapacity),
+      kBlockCapacity(queue.blockCapacityBytes),
       kDataOffset(dataOffset) {}
 
 pw::Status ConsumerBase::initialize(
@@ -904,8 +938,8 @@ pw::Status ConsumerBase::initialize(
         "or vice versa");
     return pw::Status::FailedPrecondition();
   }
-  auto consumerFlags = mDesc->consumerFlags.load();
-  mCurrentFlags = mDesc->producerFlags.load();
+  auto consumerFlags = std::atomic_ref(mDesc->sinkFlags).load();
+  mCurrentFlags = std::atomic_ref(mDesc->sourceFlags).load();
   auto flagValue = getAndCheckProducerFlags(mCurrentFlags, consumerFlags);
   if (!(flagValue == ProducerFlags::kPendingInit ||
         flagValue == ProducerFlags::kOverwrite ||
@@ -917,14 +951,14 @@ pw::Status ConsumerBase::initialize(
                ? pw::Status::Aborted()
                : pw::Status::FailedPrecondition();
   }
-  mDesc->idOrNotifyFn = idOrNotifyFn;
+  std::memcpy(&mDesc->id, &idOrNotifyFn, sizeof(IdOrNotifyFn));
   // mBlockListEpoch must be set before capacity() is called when setting a
   // default mOverwriteResetOffset. This is subsequently used if the consumer
   // has already been overwritten.
-  mBlockListEpoch = mDesc->initBlockListEpoch;
+  mBlockListEpoch = mDesc->initialBlockListEpoch;
   mOverwriteResetOffset = overwriteResetOffset.value_or(capacity() / 2);
-  mHeadBlock = fromOffset<BlockHeader>(mRegion, mDesc->initHeadBlockOffset,
-                                       kBlockLayout);
+  mHeadBlock = fromOffset<BlockHeader>(
+      mRegion, mDesc->initialHeadBlockOffsetBytes, kBlockLayout);
   if (flagValue == ProducerFlags::kOverwrite) {
     PW_TRY(handleOverwrite());
   }
@@ -948,8 +982,8 @@ pw::Status ConsumerBase::checkState() {
     PW_LOG_ERROR("ConsumerBase::checkState: instance is disabled");
     return pw::Status::FailedPrecondition();
   }
-  mCurrentFlags = mDesc->producerFlags.load();
-  auto consumerFlags = mDesc->consumerFlags.load();
+  mCurrentFlags = std::atomic_ref(mDesc->sourceFlags).load();
+  auto consumerFlags = std::atomic_ref(mDesc->sinkFlags).load();
   auto flagValue = getAndCheckProducerFlags(mCurrentFlags, consumerFlags);
   switch (flagValue) {
     case ProducerFlags::kFinished:
@@ -978,11 +1012,11 @@ pw::Status ConsumerBase::checkState() {
       [[fallthrough]];
     case ProducerFlags::kNone:
       // As long as we're in a good state, keep the epoch in sync.
-      mBlockListEpoch = mQueue->blockListEpoch.load();
+      mBlockListEpoch = std::atomic_ref(mQueue->blockListEpoch).load();
       return pw::OkStatus();
     default:  // Unexpected flag value. Clear it.
       PW_LOG_WARN("ConsumerBase::checkState: unexpected flag value %" PRIu16,
-                  flagValue);
+                  static_cast<uint16_t>(flagValue));
       clearFlags();
       return pw::OkStatus();
   }
@@ -994,17 +1028,19 @@ pw::Result<pw::ConstByteSpan> ConsumerBase::peek(size_t count) {
   if (!mPeeked) {
     mCurrBlock = mHeadBlock;
     mCurrBlockIndex =
-        (mDesc->readIndex.load() + mDesc->indexCorrection) % kBlockCapacity;
+        (std::atomic_ref(mDesc->readIndex).load() + mDesc->indexCorrection) %
+        kBlockCapacity;
   }
   mPeeked += count;
   const auto *data = blockData(mCurrBlock, kDataOffset) + mCurrBlockIndex;
   uint32_t advance = count;
-  if (advanceContiguous(mCurrBlock->baseIndex.load(),
-                        mCurrBlock->skipIndex.load(), kBlockCapacity,
-                        mCurrBlockIndex, advance)) {
+  if (advanceContiguous(std::atomic_ref(mCurrBlock->baseIndex).load(),
+                        std::atomic_ref(mCurrBlock->skipIndex).load(),
+                        kBlockCapacity, mCurrBlockIndex, advance)) {
     mCurrBlock = fromOffset<BlockHeader>(
-        mRegion, mCurrBlock->nextBlockOffset.load(), kBlockLayout);
-    mCurrBlockIndex = mCurrBlock->baseIndex.load();
+        mRegion, std::atomic_ref(mCurrBlock->nextBlockOffsetBytes).load(),
+        kBlockLayout);
+    mCurrBlockIndex = std::atomic_ref(mCurrBlock->baseIndex).load();
   }
   PW_TRY(checkState());
   return pw::ConstByteSpan(data, count);
@@ -1065,14 +1101,14 @@ pw::Result<size_t> ConsumerBase::size() {
 
 pw::Result<bool> ConsumerBase::isOverwritable() {
   PW_TRY(checkState());
-  return mDesc->overwritePolicy == OverwritePolicy::kAllowed;
+  return mDesc->isOverwritable;
 }
 
 pw::Status ConsumerBase::checkAvailable(size_t count) {
   PW_TRY(checkState());
   if (count > capacity()) {
     // If the epoch has changed, check against the updated capacity.
-    mBlockListEpoch = mQueue->blockListEpoch.load();
+    mBlockListEpoch = std::atomic_ref(mQueue->blockListEpoch).load();
     if (count > capacity()) {
       PW_LOG_ERROR(
           "ConsumerBase::checkAvailable: count %zu exceeds capacity %zu", count,
@@ -1095,7 +1131,7 @@ size_t ConsumerBase::advanceReadIndex(size_t count,
                                       std::optional<pw::ByteSpan> buf,
                                       bool stopOnNextBlock) {
   auto pending = count;
-  auto readIndex = mDesc->readIndex.load();
+  auto readIndex = std::atomic_ref(mDesc->readIndex).load();
   uint32_t blockIndex = (readIndex + mDesc->indexCorrection) % kBlockCapacity;
   auto correction = mDesc->indexCorrection;
   // Loop through the contiguous regions, copying out data and tracking index
@@ -1103,9 +1139,10 @@ size_t ConsumerBase::advanceReadIndex(size_t count,
   while (pending > 0) {
     uint32_t advance = pending;
     const auto *dataPtr = blockData(mHeadBlock, kDataOffset) + blockIndex;
-    bool toNextBlock = advanceContiguous(mHeadBlock->baseIndex.load(),
-                                         mHeadBlock->skipIndex.load(),
-                                         kBlockCapacity, blockIndex, advance);
+    bool toNextBlock =
+        advanceContiguous(std::atomic_ref(mHeadBlock->baseIndex).load(),
+                          std::atomic_ref(mHeadBlock->skipIndex).load(),
+                          kBlockCapacity, blockIndex, advance);
     if (buf) {
       std::memcpy(buf->data(), dataPtr, advance);
       buf = buf->subspan(advance);
@@ -1113,17 +1150,18 @@ size_t ConsumerBase::advanceReadIndex(size_t count,
     pending -= advance;
     if (toNextBlock) {
       auto *nextBlock = fromOffset<BlockHeader>(
-          mRegion, mHeadBlock->nextBlockOffset.load(), kBlockLayout);
+          mRegion, std::atomic_ref(mHeadBlock->nextBlockOffsetBytes).load(),
+          kBlockLayout);
       correction +=
           indexCorrectionIncrement(mHeadBlock, nextBlock, kBlockCapacity);
       mHeadBlock = nextBlock;
-      blockIndex = mHeadBlock->baseIndex.load();
+      blockIndex = std::atomic_ref(mHeadBlock->baseIndex).load();
       if (stopOnNextBlock) {
         break;
       }
     }
   }
-  mDesc->readIndex.store(readIndex + count - pending);
+  std::atomic_ref(mDesc->readIndex).store(readIndex + count - pending);
   mDesc->indexCorrection = correction;
   return count - pending;
 }
@@ -1137,7 +1175,7 @@ void ConsumerBase::maybeNotifyOnRead() {
 
 pw::Status ConsumerBase::handleOverwrite() {
   // If the epoch has changed, just sync to the producer.
-  if (mQueue->blockListEpoch.load() != mBlockListEpoch) {
+  if (std::atomic_ref(mQueue->blockListEpoch).load() != mBlockListEpoch) {
     return syncToProducer();
   }
   // Update mAvailable to determine how much to fast-forward.
@@ -1153,7 +1191,7 @@ pw::Status ConsumerBase::handleOverwrite() {
   PW_TRY(overwriteFastForward(offset));
   // If the epoch changed since we attempted to fast forward, the fast forward
   // is invalidated. Sync to the producer.
-  if (mQueue->blockListEpoch.load() != mBlockListEpoch) {
+  if (std::atomic_ref(mQueue->blockListEpoch).load() != mBlockListEpoch) {
     return syncToProducer();
   }
   return pw::OkStatus();
@@ -1161,8 +1199,8 @@ pw::Status ConsumerBase::handleOverwrite() {
 
 pw::Status ConsumerBase::updateAvailable() {
   PW_TRY_ASSIGN(auto *producerDesc, getProducerDesc());
-  mAvailable =
-      writeReadDiff(producerDesc->writeIndex.load(), mDesc->readIndex.load());
+  mAvailable = writeReadDiff(std::atomic_ref(producerDesc->writeIndex).load(),
+                             std::atomic_ref(mDesc->readIndex).load());
   return pw::OkStatus();
 }
 
@@ -1174,18 +1212,18 @@ pw::Status ConsumerBase::overwriteFastForward(size_t offset) {
 
 pw::Status ConsumerBase::syncToProducer() {
   PW_TRY_ASSIGN(auto *producerDesc, getProducerDesc());
-  auto readIndex = producerDesc->writeIndex.load();
-  mDesc->readIndex.store(readIndex);
+  auto readIndex = std::atomic_ref(producerDesc->writeIndex).load();
+  std::atomic_ref(mDesc->readIndex).store(readIndex);
   mDesc->indexCorrection = producerDesc->indexCorrection;
-  mHeadBlock = fromOffset<BlockHeader>(mRegion, producerDesc->tailBlockOffset,
-                                       kBlockLayout);
-  mBlockListEpoch = mQueue->blockListEpoch.load();
+  mHeadBlock = fromOffset<BlockHeader>(
+      mRegion, producerDesc->tailBlockOffsetBytes, kBlockLayout);
+  mBlockListEpoch = std::atomic_ref(mQueue->blockListEpoch).load();
   return pw::OkStatus();
 }
 
 pw::Result<ProducerDesc *> ConsumerBase::getProducerDesc() {
-  auto *producerDesc =
-      fromOffset<ProducerDesc>(mRegion, mQueue->producerOffset.load());
+  auto *producerDesc = fromOffset<ProducerDesc>(
+      mRegion, std::atomic_ref(mQueue->sourceMetadataOffsetBytes).load());
   if (!producerDesc) {
     disableAndNotify();
     PW_LOG_ERROR("ConsumerBase::getProducerDesc: Producer gone");
@@ -1195,23 +1233,24 @@ pw::Result<ProducerDesc *> ConsumerBase::getProducerDesc() {
 }
 
 size_t ConsumerBase::capacity() {
-  return mQueue->blockCapacity * blockCountForEpoch(mBlockListEpoch);
+  return mQueue->blockCapacityBytes * blockCountForEpoch(mBlockListEpoch);
 }
 
 void ConsumerBase::disableAndNotify() {
   mActive = false;
-  mDesc->consumerFlags.store(static_cast<uint32_t>(ConsumerFlags::kFinished));
+  std::atomic_ref(mDesc->sinkFlags)
+      .store(static_cast<uint32_t>(ConsumerFlags::kFinished));
   notifyProducer();
 }
 
 void ConsumerBase::notifyProducer() {
-  notify(mDesc->idOrNotifyFn, mRemoteNotifyFn);
+  notify(*reinterpret_cast<IdOrNotifyFn *>(&mQueue->sourceId), mRemoteNotifyFn);
 }
 
 void ConsumerBase::clearFlags() {
   auto counter = getFlagsCounter(mCurrentFlags);
-  mDesc->consumerFlags.store(
-      static_cast<uint32_t>(ConsumerFlags::kFlagsCleared) | counter);
+  std::atomic_ref(mDesc->sinkFlags)
+      .store(static_cast<uint32_t>(ConsumerFlags::kFlagsCleared) | counter);
   mCurrentFlags = static_cast<uint32_t>(ProducerFlags::kNone) | counter;
 }
 
@@ -1222,7 +1261,7 @@ void DataNotifier::onWrite(internal::ProducerBase &producer) {
   // flags or ProducerFlags::kBlocking).
   uint16_t excludeMask =
       ~(static_cast<uint16_t>(internal::ProducerFlags::kBlocking));
-  uint32_t tail = producer.mDesc->writeIndex.load();
+  uint32_t tail = std::atomic_ref(producer.mDesc->writeIndex).load();
   producer.forAllConsumers(
       excludeMask,
       [&](internal::ConsumerNode &node, uint32_t /*producerFlags*/,
@@ -1278,10 +1317,14 @@ void DataNotifier::notifyIfAtWatermark(internal::ProducerBase &producer,
   // Calculate the threshold in bytes from the policy data and queue
   // configuration.
   uint32_t threshold = policyData;
-  if (producer.mQueue->config.mode == DataConfigMode::kFixedSize) {
-    threshold *= producer.mQueue->config.fixedSize.elementSize;
+  if (producer.mQueue->queue.elementConfig.getTag() ==
+      internal::ElementConfig::Tag::fixedSize) {
+    threshold *= producer.mQueue->queue.elementConfig
+                     .get<internal::ElementConfig::Tag::fixedSize>()
+                     .elementSizeBytes;
   }
-  if (internal::writeReadDiff(writeIndex, consumer.readIndex.load()) >=
+  if (internal::writeReadDiff(writeIndex,
+                              std::atomic_ref(consumer.readIndex).load()) >=
       threshold) {
     producer.notifyConsumer(consumer);
   }
@@ -1298,7 +1341,7 @@ pw::Result<VariableDataProducer> VariableDataProducer::createLocal(
   }
   PW_TRY_ASSIGN(internal::QueuePrivate * queuePtr,
                 Base::initQueue(region, blockCapacity, /*elementSize=*/0,
-                                /*elementAlignment=*/0,
+                                /*elementAlignment=*/1,
                                 {.localNotify = notifyArgs}, /*local=*/true));
   VariableDataProducer producer(region, *queuePtr, blockCapacity, maxBlockCount,
                                 minBlockCount, dataNotifier,
@@ -1318,7 +1361,7 @@ pw::Result<VariableDataProducer> VariableDataProducer::createRemote(
   }
   PW_TRY_ASSIGN(internal::QueuePrivate * queuePtr,
                 Base::initQueue(region, blockCapacity, /*elementSize=*/0,
-                                /*elementAlignment=*/0,
+                                /*elementAlignment=*/1,
                                 {.remoteId = notifyArgs.id}, /*local=*/false));
   VariableDataProducer producer(region, *queuePtr, blockCapacity, maxBlockCount,
                                 minBlockCount, dataNotifier,
@@ -1341,16 +1384,16 @@ VariableDataProducer::VariableDataProducer(
 pw::Result<pw::ByteSpan> VariableDataProducer::reserve(size_t count) {
   if (mCurrentHdrPtr) {
     PW_TRY_ASSIGN(auto reservation, Base::reserve(count));
-    mCurrentHdrPtr->size += count;
+    mCurrentHdrPtr->sizeBytes += count;
     return reservation;
   }
   // Reserve space for the element size and data.
   PW_TRY_ASSIGN(auto reservation,
-                Base::reserve(count + sizeof(internal::VariableDataHeader)));
+                Base::reserve(count + sizeof(internal::VariableElementHeader)));
   mCurrentHdrPtr =
-      reinterpret_cast<internal::VariableDataHeader *>(reservation.data());
-  mCurrentHdrPtr->size = count;
-  reservation = reservation.subspan(sizeof(internal::VariableDataHeader));
+      reinterpret_cast<internal::VariableElementHeader *>(reservation.data());
+  mCurrentHdrPtr->sizeBytes = count;
+  reservation = reservation.subspan(sizeof(internal::VariableElementHeader));
   // If the reservation was at the end of a contiguous chunk, retrieve the next
   // contiguous chunk. This must succeed.
   if (reservation.empty()) {
@@ -1360,9 +1403,9 @@ pw::Result<pw::ByteSpan> VariableDataProducer::reserve(size_t count) {
 }
 
 pw::Status VariableDataProducer::truncate(size_t size) {
-  PW_TRY(Base::truncate(size + sizeof(internal::VariableDataHeader)));
+  PW_TRY(Base::truncate(size + sizeof(internal::VariableElementHeader)));
   // Store the new size. The memory address of the element size has not changed.
-  mCurrentHdrPtr->size = size;
+  mCurrentHdrPtr->sizeBytes = size;
   return pw::OkStatus();
 }
 
@@ -1378,7 +1421,7 @@ pw::Status VariableDataProducer::commit() {
   // the reservation is header aligned and the block capacity is a multiple of
   // the header size.
   mReserved =
-      internal::alignTo(mReserved, alignof(internal::VariableDataHeader));
+      internal::alignTo(mReserved, alignof(internal::VariableElementHeader));
   PW_TRY(Base::commit(mReserved));
   return pw::OkStatus();
 }
@@ -1391,15 +1434,15 @@ pw::Status VariableDataProducer::push(pw::ConstByteSpan element) {
   }
   // Calculate the total size of the element and header, rounding up to align
   // the next header.
-  const auto kTotalSize =
-      internal::alignTo(element.size() + sizeof(internal::VariableDataHeader),
-                        alignof(internal::VariableDataHeader));
+  const auto kTotalSize = internal::alignTo(
+      element.size() + sizeof(internal::VariableElementHeader),
+      alignof(internal::VariableElementHeader));
   PW_TRY(checkAvailable(kTotalSize, /*allOrNothing=*/true));
   updateFirstElementIndex();  // Enable consumers to seek to an element.
-  internal::VariableDataHeader hdr{.size =
-                                       static_cast<uint32_t>(element.size())};
+  internal::VariableElementHeader hdr{.sizeBytes =
+                                          static_cast<int32_t>(element.size())};
   advanceWriteIndex(sizeof(hdr), pw::as_bytes(pw::span(&hdr, 1)));
-  advanceWriteIndex(hdr.size, element);
+  advanceWriteIndex(hdr.sizeBytes, element);
   advanceWriteIndex(kTotalSize - element.size() - sizeof(hdr),
                     /*data=*/std::nullopt);
   // Notify consumers as required.
@@ -1409,12 +1452,13 @@ pw::Status VariableDataProducer::push(pw::ConstByteSpan element) {
 
 void VariableDataProducer::updateFirstElementIndex() {
   auto *tailBlock = internal::fromOffset<internal::VariableDataBlock>(
-      mRegion, mDesc->tailBlockOffset, kBlockLayout);
+      mRegion, mDesc->tailBlockOffsetBytes, kBlockLayout);
   if (tailBlock->header.firstElementIndex == kBlockCapacity) {
     // Only set the first element index if this is the first variable size
     // element to be written into this block (on this pass through the block).
     tailBlock->header.firstElementIndex =
-        (mDesc->writeIndex.load() + mDesc->indexCorrection) % kBlockCapacity;
+        (std::atomic_ref(mDesc->writeIndex).load() + mDesc->indexCorrection) %
+        kBlockCapacity;
   }
 }
 
@@ -1436,11 +1480,12 @@ pw::Result<VariableDataConsumer> VariableDataConsumer::createLocal(
   }
   PW_TRY_ASSIGN(auto queueAndDesc, checkArgs(region, /*descRegion=*/nullptr,
                                              queueOffset, descOffset));
-  if (queueAndDesc.first->config.mode == DataConfigMode::kFixedSize) {
+  if (queueAndDesc.first->elementConfig.getTag() ==
+      internal::ElementConfig::Tag::fixedSize) {
     PW_LOG_ERROR("VariableDataConsumer::createLocal: Fixed size queue");
     return pw::Status::FailedPrecondition();
-  } else if (queueAndDesc.first->config.mode ==
-             DataConfigMode::kVariableSizeAligned) {
+  } else if (queueAndDesc.first->elementConfig.getTag() !=
+             internal::ElementConfig::Tag::variableSize) {
     PW_LOG_ERROR(
         "VariableDataConsumer::createLocal: Aligned variable-size data not "
         "supported");
@@ -1465,11 +1510,12 @@ pw::Result<VariableDataConsumer> VariableDataConsumer::createRemote(
   auto *descRegionPtr = descRegion ? &*descRegion : nullptr;
   PW_TRY_ASSIGN(auto queueAndDesc,
                 checkArgs(region, descRegionPtr, queueOffset, descOffset));
-  if (queueAndDesc.first->config.mode == DataConfigMode::kFixedSize) {
+  if (queueAndDesc.first->elementConfig.getTag() ==
+      internal::ElementConfig::Tag::fixedSize) {
     PW_LOG_ERROR("VariableDataConsumer::createRemote: Fixed size queue");
     return pw::Status::FailedPrecondition();
-  } else if (queueAndDesc.first->config.mode ==
-             DataConfigMode::kVariableSizeAligned) {
+  } else if (queueAndDesc.first->elementConfig.getTag() !=
+             internal::ElementConfig::Tag::variableSize) {
     PW_LOG_ERROR(
         "VariableDataConsumer::createRemote: Aligned variable-size data not "
         "supported");
@@ -1494,12 +1540,12 @@ VariableDataConsumer::VariableDataConsumer(const Region &region,
 
 pw::Result<size_t> VariableDataConsumer::getHeadSize() {
   if (mCurrentHdr) {
-    return mCurrentHdr->size;
+    return mCurrentHdr->sizeBytes;
   }
-  internal::VariableDataHeader hdr;
+  internal::VariableElementHeader hdr;
   PW_TRY(Base::popNoNotify(pw::as_writable_bytes(pw::span(&hdr, 1))));
   mCurrentHdr = hdr;
-  return mCurrentHdr->size;
+  return mCurrentHdr->sizeBytes;
 }
 
 pw::Result<pw::ConstByteSpan> VariableDataConsumer::peek() {
@@ -1507,7 +1553,7 @@ pw::Result<pw::ConstByteSpan> VariableDataConsumer::peek() {
     PW_TRY(getHeadSize());
   }
   // Peek from the remaining bytes of the current head element.
-  return Base::peek(mCurrentHdr->size - mPeeked);
+  return Base::peek(mCurrentHdr->sizeBytes - mPeeked);
 }
 
 pw::Status VariableDataConsumer::releaseNoNotify() {
@@ -1516,8 +1562,8 @@ pw::Status VariableDataConsumer::releaseNoNotify() {
     PW_TRY(getHeadSize());
   }
   // Get the total size including alignment adjustment.
-  auto totalSize = internal::alignTo(mCurrentHdr->size,
-                                     alignof(internal::VariableDataHeader));
+  auto totalSize = internal::alignTo(mCurrentHdr->sizeBytes,
+                                     alignof(internal::VariableElementHeader));
   PW_TRY(Base::releaseNoNotify(totalSize));
   mCurrentHdr.reset();
   return pw::OkStatus();
@@ -1527,12 +1573,12 @@ pw::Status VariableDataConsumer::pop(pw::ByteSpan &buffer) {
   if (!mCurrentHdr) {
     PW_TRY(getHeadSize());
   }
-  buffer = buffer.subspan(0, mCurrentHdr->size);
+  buffer = buffer.subspan(0, mCurrentHdr->sizeBytes);
   PW_TRY(Base::popNoNotify(buffer));
   // Move the read index to the start of the next element, notifying the
   // producer if required.
-  constexpr size_t kAlignment = alignof(internal::VariableDataHeader);
-  auto offset = mCurrentHdr->size & (kAlignment - 1);
+  constexpr size_t kAlignment = alignof(internal::VariableElementHeader);
+  auto offset = mCurrentHdr->sizeBytes & (kAlignment - 1);
   auto adjustment = offset ? kAlignment - offset : 0;
   PW_TRY(Base::release(adjustment));
   mCurrentHdr.reset();
@@ -1570,14 +1616,15 @@ pw::Status VariableDataConsumer::overwriteFastForward(size_t offset) {
             ->header.firstElementIndex;
     if (firstElementIndex != kBlockCapacity && mAvailable < capacity()) {
       auto diff = internal::ringDiff(
-          firstElementIndex, mHeadBlock->baseIndex.load(), kBlockCapacity);
+          firstElementIndex, std::atomic_ref(mHeadBlock->baseIndex).load(),
+          kBlockCapacity);
       mAvailable -= advanceReadIndex(diff, /*buf=*/std::nullopt);
       break;
     }
   }
   // If the epoch changed since we attempted to fast forward, the fast forward
   // is invalidated. Sync to the producer.
-  if (mQueue->blockListEpoch.load() != mBlockListEpoch) {
+  if (std::atomic_ref(mQueue->blockListEpoch).load() != mBlockListEpoch) {
     return syncToProducer();
   }
   clearFlags();
@@ -1603,7 +1650,7 @@ pw::Result<UntypedProducer> UntypedProducer::createLocal(
                               /*local=*/true));
   UntypedProducer producer(region, *queuePtr, blockCapacity, elementSize,
                            elementAlignment, maxBlockCount, minBlockCount,
-                           dataNotifier, {}, memAccess);
+                           dataNotifier, /*remoteNotifyFn=*/{}, memAccess);
   PW_TRY(producer.initialize(/*variableData=*/false));
   return producer;
 }
@@ -1656,7 +1703,8 @@ pw::Result<UntypedConsumer> UntypedConsumer::createLocal(
   }
   PW_TRY_ASSIGN(auto queueAndDesc, checkArgs(region, /*descRegion=*/nullptr,
                                              queueOffset, descOffset));
-  if (queueAndDesc.first->config.mode != DataConfigMode::kFixedSize) {
+  if (queueAndDesc.first->elementConfig.getTag() !=
+      internal::ElementConfig::Tag::fixedSize) {
     PW_LOG_ERROR(
         "UntypedConsumer::createLocal: Unexpected queue config. Must be fixed "
         "size.");
@@ -1681,7 +1729,8 @@ pw::Result<UntypedConsumer> UntypedConsumer::createRemote(
   auto *descRegionPtr = descRegion ? &*descRegion : nullptr;
   PW_TRY_ASSIGN(auto queueAndDesc,
                 checkArgs(region, descRegionPtr, queueOffset, descOffset));
-  if (queueAndDesc.first->config.mode != DataConfigMode::kFixedSize) {
+  if (queueAndDesc.first->elementConfig.getTag() !=
+      internal::ElementConfig::Tag::fixedSize) {
     PW_LOG_ERROR(
         "UntypedConsumer::createRemote: Unexpected queue config. Must be fixed "
         "size.");
@@ -1698,10 +1747,14 @@ UntypedConsumer::UntypedConsumer(const Region &region, internal::Queue &queue,
                                  internal::ConsumerDesc &desc,
                                  RemoteNotifyFn remoteNotifyFn,
                                  MemoryAccess *memAccess)
-    : ConsumerBase(region, queue, desc, internal::getBlockLayout(queue),
+    : ConsumerBase(region, queue, desc, internal::getBlockBaseLayout(queue),
                    internal::getDataOffset(queue), std::move(remoteNotifyFn),
                    memAccess),
-      mElementSize(queue.config.fixedSize.elementSize),
-      mElementAlignment(queue.config.fixedSize.elementAlignment) {}
+      mElementSize(
+          queue.elementConfig.get<internal::ElementConfig::Tag::fixedSize>()
+              .elementSizeBytes),
+      mElementAlignment(
+          queue.elementConfig.get<internal::ElementConfig::Tag::fixedSize>()
+              .elementAlignmentBytes) {}
 
 }  // namespace android::contexthub::data_flow
