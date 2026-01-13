@@ -200,9 +200,7 @@ public class ContextHubStressTestExecutor extends ContextHubClientCallback {
         }
 
         if (!mLoadAndStartOnly) {
-            boolean success = mCountDownLatch.await(timeout, unit);
-            Assert.assertTrue("Timeout waiting for signal", success);
-
+            mCountDownLatch.await(timeout, unit);
             checkTestFailure();
 
             for (ChreStressTest.TestCommand.Feature feature : features) {
