@@ -625,6 +625,44 @@ class EventLoopManager : public NonCopyable {
     return &mGlobalApiMutex;
   }
 
+  /**
+   * @return The BLE capabilities. This function must be called with the global
+   * API mutex locked.
+   */
+  uint32_t getBleCapabilitiesLocked();
+
+  /**
+Same as chreBleGetFilterCapabilities, but must be called with the global API
+   * mutex locked.
+   *
+   * @return The BLE filter capabilities.
+   */
+  uint32_t getBleFilterCapabilitiesLocked();
+
+  /**
+   * Same as chreWifiGetCapabilities, but must be called with the global API
+   * mutex locked.
+   *
+   * @return The WiFi capabilities.
+   */
+  uint32_t getWifiCapabilitiesLocked();
+
+  /**
+   * Same as chreGnssGetCapabilities, but must be called with the global API
+   * mutex locked.
+   *
+   * @return The GNSS capabilities.
+   */
+  uint32_t getGnssCapabilitiesLocked();
+
+  /**
+   * Same as chreWwanGetCapabilities, but must be called with the global API
+   * mutex locked.
+   *
+   * @return The WWAN capabilities.
+   */
+  uint32_t getWwanCapabilitiesLocked();
+
  private:
   /**
    * Posts an event to a specific event loop.

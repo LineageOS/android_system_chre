@@ -31,7 +31,7 @@ using chre::NanoappPermissions;
 DLL_EXPORT uint32_t chreGnssGetCapabilities() {
 #ifdef CHRE_GNSS_SUPPORT_ENABLED
   GlobalApiLockGuard lock;
-  return EventLoopManagerSingleton::get()->getGnssManager().getCapabilities();
+  return EventLoopManagerSingleton::get()->getGnssCapabilitiesLocked();
 #else
   return CHRE_GNSS_CAPABILITIES_NONE;
 #endif  // CHRE_GNSS_SUPPORT_ENABLED

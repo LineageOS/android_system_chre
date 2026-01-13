@@ -29,9 +29,7 @@ using chre::NanoappPermissions;
 DLL_EXPORT uint32_t chreWifiGetCapabilities() {
 #ifdef CHRE_WIFI_SUPPORT_ENABLED
   GlobalApiLockGuard lock;
-  return EventLoopManagerSingleton::get()
-      ->getWifiRequestManager()
-      .getCapabilities();
+  return EventLoopManagerSingleton::get()->getWifiCapabilitiesLocked();
 #else
   return CHRE_WIFI_CAPABILITIES_NONE;
 #endif  // CHRE_WIFI_SUPPORT_ENABLED

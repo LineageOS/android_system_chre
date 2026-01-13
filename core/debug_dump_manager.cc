@@ -111,12 +111,21 @@ void DebugDumpManager::appendCapabilities() {
                    CHRE_EXTRACT_MINOR_VERSION(chreGetVersion()),
                    CHRE_EXTRACT_PATCH_VERSION(chreGetVersion()));
   mDebugDump.print("\tCHRE: 0x%" PRIx32 "\n", chreGetCapabilities());
-  mDebugDump.print("\tBLE: 0x%" PRIx32 "\n", chreBleGetCapabilities());
-  mDebugDump.print("\tBLE Filter: 0x%" PRIx32 "\n",
-                   chreBleGetFilterCapabilities());
-  mDebugDump.print("\tWIFI: 0x%" PRIx32 "\n", chreWifiGetCapabilities());
-  mDebugDump.print("\tGNSS: 0x%" PRIx32 "\n", chreGnssGetCapabilities());
-  mDebugDump.print("\tWWAN: 0x%" PRIx32 "\n", chreWwanGetCapabilities());
+  mDebugDump.print(
+      "\tBLE: 0x%" PRIx32 "\n",
+      EventLoopManagerSingleton::get()->getBleCapabilitiesLocked());
+  mDebugDump.print(
+      "\tBLE Filter: 0x%" PRIx32 "\n",
+      EventLoopManagerSingleton::get()->getBleFilterCapabilitiesLocked());
+  mDebugDump.print(
+      "\tWIFI: 0x%" PRIx32 "\n",
+      EventLoopManagerSingleton::get()->getWifiCapabilitiesLocked());
+  mDebugDump.print(
+      "\tGNSS: 0x%" PRIx32 "\n",
+      EventLoopManagerSingleton::get()->getGnssCapabilitiesLocked());
+  mDebugDump.print(
+      "\tWWAN: 0x%" PRIx32 "\n",
+      EventLoopManagerSingleton::get()->getWwanCapabilitiesLocked());
 }
 
 void DebugDumpManager::sendFrameworkDebugDumps() {

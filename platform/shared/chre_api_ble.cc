@@ -29,9 +29,7 @@ using chre::NanoappPermissions;
 DLL_EXPORT uint32_t chreBleGetCapabilities() {
 #ifdef CHRE_BLE_SUPPORT_ENABLED
   GlobalApiLockGuard lock;
-  return EventLoopManagerSingleton::get()
-      ->getBleRequestManager()
-      .getCapabilities();
+  return EventLoopManagerSingleton::get()->getBleCapabilitiesLocked();
 #else
   return CHRE_BLE_CAPABILITIES_NONE;
 #endif  // CHRE_BLE_SUPPORT_ENABLED
@@ -40,9 +38,7 @@ DLL_EXPORT uint32_t chreBleGetCapabilities() {
 DLL_EXPORT uint32_t chreBleGetFilterCapabilities() {
 #ifdef CHRE_BLE_SUPPORT_ENABLED
   GlobalApiLockGuard lock;
-  return EventLoopManagerSingleton::get()
-      ->getBleRequestManager()
-      .getFilterCapabilities();
+  return EventLoopManagerSingleton::get()->getBleFilterCapabilitiesLocked();
 #else
   return CHRE_BLE_FILTER_CAPABILITIES_NONE;
 #endif  // CHRE_BLE_SUPPORT_ENABLED

@@ -29,9 +29,7 @@ using chre::NanoappPermissions;
 DLL_EXPORT uint32_t chreWwanGetCapabilities() {
 #ifdef CHRE_WWAN_SUPPORT_ENABLED
   GlobalApiLockGuard lock;
-  return EventLoopManagerSingleton::get()
-      ->getWwanRequestManager()
-      .getCapabilities();
+  return EventLoopManagerSingleton::get()->getWwanCapabilitiesLocked();
 #else
   return CHRE_WWAN_CAPABILITIES_NONE;
 #endif  // CHRE_WWAN_SUPPORT_ENABLED
