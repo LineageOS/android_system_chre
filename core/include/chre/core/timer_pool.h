@@ -20,7 +20,9 @@
 #include <cstdint>
 #include "chre_api/chre/re.h"
 
+#include "chre/core/event_loop.h"
 #include "chre/core/nanoapp.h"
+#include "chre/core/timer_handle.h"
 #include "chre/platform/mutex.h"
 #include "chre/platform/system_timer.h"
 #include "chre/util/non_copyable.h"
@@ -32,14 +34,6 @@ namespace chre {
 
 // Forward declaration needed to friend TimerPool.
 class TimerTest;
-
-/**
- * The type to use when referring to a timer instance.
- *
- * Note that this mirrors the CHRE API definition of a timer handle, so should
- * not be changed without appropriate consideration.
- */
-typedef uint32_t TimerHandle;
 
 /**
  * Tracks requests from CHRE apps for timed events.
@@ -63,12 +57,7 @@ class TimerPool : public NonCopyable {
    *         not successful.
    */
   TimerHandle setNanoappTimer(const Nanoapp *nanoapp, Nanoseconds duration,
-                              const void *cookie, bool isOneShot) {
-    CHRE_ASSERT(nanoapp != nullptr);
-    return setTimer(nanoapp->getInstanceId(), duration, cookie,
-                    nullptr /* systemCallback */,
-                    SystemCallbackType::FirstCallbackType, isOneShot);
-  }
+                              const void *cookie, bool isOneShot);
 
   /**
    * Requests a timer for a system callback. When the timer expires, the
@@ -84,11 +73,13 @@ class TimerPool : public NonCopyable {
    * @param callbackType The type of this callback.
    * @param data Arbitrary data to pass to the callback. Note that extraData is
    *        always given to the callback as nullptr.
+   * @param eventLoop The event loop to post the timer callback to.
    * @return TimerHandle of the requested timer.
    */
   TimerHandle setSystemTimer(Nanoseconds duration,
                              SystemEventCallbackFunction *callback,
-                             SystemCallbackType callbackType, void *data);
+                             SystemCallbackType callbackType, void *data,
+                             EventLoop *eventLoop);
 
   /**
    * Cancels a timer given a handle.
@@ -149,6 +140,9 @@ class TimerPool : public NonCopyable {
     //! The instance ID from which this request was made
     uint16_t instanceId;
 
+    //! The pointer to the event loop to post the timer callback to.
+    EventLoop *eventLoop;
+
     /**
      * Returns whether the current request expires after the passed one.
      *
@@ -203,13 +197,16 @@ class TimerPool : public NonCopyable {
    * @param systemCallback Callback to invoke (only for system-started timers).
    * @param callbackType Identifier to pass to the callback.
    * @param isOneShot false if the timer is expected to auto-reload.
+   * @param eventLoop The pointer to the event loop to post the timer callback
+   * to.
    * @return TimerHandle of the requested timer. Returns CHRE_TIMER_INVALID if
    *         not successful.
    */
   TimerHandle setTimer(uint16_t instanceId, Nanoseconds duration,
                        const void *cookie,
                        SystemEventCallbackFunction *systemCallback,
-                       SystemCallbackType callbackType, bool isOneShot);
+                       SystemCallbackType callbackType, bool isOneShot,
+                       EventLoop *eventLoop);
 
   /**
    * Cancels a timer given a handle.

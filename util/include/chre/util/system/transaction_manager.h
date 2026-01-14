@@ -19,6 +19,7 @@
 
 #include <cstdint>
 
+#include "chre/core/event_loop.h"
 #include "chre/util/array_queue.h"
 #include "chre/util/non_copyable.h"
 #include "chre/util/optional.h"
@@ -77,15 +78,18 @@ class TransactionManager : public NonCopyable {
    * @param timerPool TimerPool-like object to use for retry timers
    * @param timeout How long to wait for remove() to be called after
    *        onTransactionAttempt() before trying again or failing
+   * @param eventLoop The event loop to post timer callbacks to.
    * @param maxAttempts Maximum number of times to try the transaction before
    *        giving up
    */
   TransactionManager(TransactionManagerCallback &cb, TimerPoolType &timerPool,
-                     Nanoseconds timeout, uint8_t maxAttempts = 3)
+                     Nanoseconds timeout, EventLoop *eventLoop,
+                     uint8_t maxAttempts = 3)
       : kTimeout(timeout),
         kMaxAttempts(maxAttempts),
         mTimerPool(timerPool),
-        mCb(cb) {
+        mCb(cb),
+        mEventLoop(eventLoop) {
     CHRE_ASSERT(timeout.toRawNanoseconds() > 0);
   }
 
@@ -168,6 +172,9 @@ class TransactionManager : public NonCopyable {
 
   TimerPoolType &mTimerPool;
   TransactionManagerCallback &mCb;
+
+  //! The event loop to post timer callbacks to.
+  EventLoop *mEventLoop;
 
   //! Delayed assignment to start at a pseudo-random value
   Optional<uint32_t> mNextTransactionId;

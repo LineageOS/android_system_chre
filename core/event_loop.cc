@@ -136,6 +136,15 @@ void EventLoop::forEachNanoapp(NanoappCallbackFunction *callback, void *data) {
   }
 }
 
+void EventLoop::unregisterEventForNanoapp(uint16_t instanceId,
+                                          uint16_t eventType,
+                                          uint16_t targetGroupMask) {
+  Nanoapp *nanoapp = findNanoappByInstanceId(instanceId);
+  if (nanoapp != nullptr) {
+    nanoapp->unregisterForBroadcastEvent(eventType, targetGroupMask);
+  }
+}
+
 void EventLoop::invokeMessageFreeFunction(uint64_t appId,
                                           chreMessageFreeFunction *freeFunction,
                                           void *message, size_t messageSize) {
@@ -334,7 +343,15 @@ bool EventLoop::distributeEventSync(uint16_t eventType, void *eventData,
               /* isLowPriority= */ false,
               /* senderInstanceId= */ kSystemInstanceId, targetInstanceId,
               targetGroupMask);
-  return distributeEventCommon(&event);
+
+  // This function is only called from a deferred callback context,
+  // and the global mutex must be unlocked prior to potentially entering
+  // nanoapp code.
+  auto *lock = EventLoopManagerSingleton::get()->getGlobalApiMutex();
+  lock->unlock();
+  bool success = distributeEventCommon(&event);
+  lock->lock();
+  return success;
 }
 
 // TODO(b/435246073): Remove once migrated to new EventLoopManager APIs
@@ -352,6 +369,7 @@ bool EventLoop::postSystemEvent(uint16_t eventType, void *eventData,
   return EventLoopManagerSingleton::get()->postSystemEvent(eventType, eventData,
                                                            callback, extraData);
 }
+
 bool EventLoop::postLowPriorityEventOrFree(
     uint16_t eventType, void *eventData,
     chreEventCompleteFunction *freeCallback, uint16_t senderInstanceId,
@@ -642,10 +660,15 @@ void EventLoop::freeEvent(Event *event) {
   // Free the event if and only if this was the last reference to it.
   if (event->decrementRefCount() != 1) return;
 
+  mCurrentFreeingEventStack.push_back(event);
+  // It's possible for a deferred callback or free event to result in
+  // modifying internal states, so we lock the global mutex here.
   if (event->targetInstanceId == kSystemInstanceId) {
+    GlobalApiLockGuard lock;
     event->invokeSystemEventCallback();
   } else if (event->freeCallback != nullptr) {
     if (event->senderInstanceId == kSystemInstanceId) {
+      GlobalApiLockGuard lock;
       event->invokeEventFreeCallback();
     } else {
       mCurrentApp = lookupAppByInstanceId(event->senderInstanceId);
@@ -662,6 +685,7 @@ void EventLoop::freeEvent(Event *event) {
     }
   }
   EventLoopManagerSingleton::get()->deallocateEvent(event);
+  mCurrentFreeingEventStack.pop_back();
 }
 
 Nanoapp *EventLoop::lookupAppByAppId(uint64_t appId) const {
@@ -774,7 +798,8 @@ void EventLoop::unloadNanoappAtIndex(size_t index, bool nanoappStarted) {
 #endif  // CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
 
   const uint32_t numCancelledTimers =
-      getTimerPool().cancelAllNanoappTimers(nanoapp.get());
+      EventLoopManagerSingleton::get()->getTimerPool().cancelAllNanoappTimers(
+          nanoapp.get());
   logDanglingResources("timers", numCancelledTimers);
 
   const uint32_t numFreedBlocks =

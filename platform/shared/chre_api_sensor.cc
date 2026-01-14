@@ -18,11 +18,14 @@
 
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/sensor_request.h"
+#include "chre/util/lock_guard.h"
 #include "chre/util/macros.h"
 #include "chre/util/time.h"
 
 using chre::EventLoopManager;
 using chre::EventLoopManagerSingleton;
+using chre::GlobalApiLockGuard;
+using chre::MultiThreadingApiMutex;
 using chre::Nanoapp;
 using chre::Nanoseconds;
 using chre::SensorMode;
@@ -36,7 +39,8 @@ DLL_EXPORT bool chreSensorFindDefault(uint8_t sensorType, uint32_t *handle) {
 
 DLL_EXPORT bool chreSensorFind(uint8_t sensorType, uint8_t sensorIndex,
                                uint32_t *handle) {
-#if CHRE_SENSORS_SUPPORT_ENABLED
+#ifdef CHRE_SENSORS_SUPPORT_ENABLED
+  GlobalApiLockGuard lock;
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return EventLoopManagerSingleton::get()
       ->getSensorRequestManager()
@@ -52,6 +56,7 @@ DLL_EXPORT bool chreSensorFind(uint8_t sensorType, uint8_t sensorIndex,
 DLL_EXPORT bool chreGetSensorInfo(uint32_t sensorHandle,
                                   struct chreSensorInfo *info) {
 #ifdef CHRE_SENSORS_SUPPORT_ENABLED
+  GlobalApiLockGuard lock;
   CHRE_ASSERT(info);
 
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
@@ -73,6 +78,7 @@ DLL_EXPORT bool chreGetSensorInfo(uint32_t sensorHandle,
 DLL_EXPORT bool chreGetSensorSamplingStatus(
     uint32_t sensorHandle, struct chreSensorSamplingStatus *status) {
 #ifdef CHRE_SENSORS_SUPPORT_ENABLED
+  GlobalApiLockGuard lock;
   CHRE_ASSERT(status);
 
   bool success = false;
@@ -93,6 +99,7 @@ DLL_EXPORT bool chreSensorConfigure(uint32_t sensorHandle,
                                     enum chreSensorConfigureMode mode,
                                     uint64_t interval, uint64_t latency) {
 #ifdef CHRE_SENSORS_SUPPORT_ENABLED
+  GlobalApiLockGuard lock;
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
   SensorMode sensorMode = getSensorModeFromEnum(mode);
   SensorRequest sensorRequest(nanoapp->getInstanceId(), sensorMode,
@@ -112,6 +119,7 @@ DLL_EXPORT bool chreSensorConfigure(uint32_t sensorHandle,
 DLL_EXPORT bool chreSensorConfigureBiasEvents(uint32_t sensorHandle,
                                               bool enable) {
 #ifdef CHRE_SENSORS_SUPPORT_ENABLED
+  GlobalApiLockGuard lock;
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return EventLoopManagerSingleton::get()
       ->getSensorRequestManager()
@@ -126,6 +134,7 @@ DLL_EXPORT bool chreSensorConfigureBiasEvents(uint32_t sensorHandle,
 DLL_EXPORT bool chreSensorGetThreeAxisBias(
     uint32_t sensorHandle, struct chreSensorThreeAxisData *bias) {
 #ifdef CHRE_SENSORS_SUPPORT_ENABLED
+  GlobalApiLockGuard lock;
   return EventLoopManagerSingleton::get()
       ->getSensorRequestManager()
       .getThreeAxisBias(sensorHandle, bias);
@@ -139,6 +148,7 @@ DLL_EXPORT bool chreSensorGetThreeAxisBias(
 DLL_EXPORT bool chreSensorFlushAsync(uint32_t sensorHandle,
                                      const void *cookie) {
 #ifdef CHRE_SENSORS_SUPPORT_ENABLED
+  GlobalApiLockGuard lock;
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
   return EventLoopManagerSingleton::get()->getSensorRequestManager().flushAsync(
       nanoapp, sensorHandle, cookie);

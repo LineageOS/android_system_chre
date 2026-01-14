@@ -296,7 +296,7 @@ void LogMessageParser::logV2(const uint8_t *logBuffer, size_t logBufferSize,
         break;
     }
     if (!logMessageSize.has_value()) {
-      LOGE("Log message at offset %zu is corrupted, aborting...", bufferIndex);
+      LOGE("Log message decoding failed");
       return;
     }
     bufferIndex += kLogHeaderSize + logMessageSize.value();

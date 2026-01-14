@@ -162,7 +162,7 @@ void TransactionManager<kMaxTransactions, TimerPoolType>::setTimer(
     Nanoseconds duration) {
   mTimerHandle = mTimerPool.setSystemTimer(
       duration, onTimerExpired, SystemCallbackType::TransactionManagerTimeout,
-      /*data=*/this);
+      /*data=*/this, mEventLoop);
 }
 
 template <size_t kMaxTransactions, class TimerPoolType>

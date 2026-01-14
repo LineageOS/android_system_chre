@@ -19,6 +19,7 @@
 
 #ifdef CHRE_SENSORS_SUPPORT_ENABLED
 
+#include "chre/core/multi_threading_api_mutex.h"
 #include "chre/core/sensor.h"
 #include "chre/core/sensor_request.h"
 #include "chre/core/sensor_request_multiplexer.h"
@@ -122,8 +123,7 @@ class SensorRequestManager : public NonCopyable {
   bool getSensorInfo(uint32_t sensorHandle, const Nanoapp &nanoapp,
                      struct chreSensorInfo *info) const;
   /*
-   * Removes all requests of a sensorType and unregisters all nanoapps for its
-   * events.
+   * Removes all requests of a sensorType.
    *
    * @param sensorHandle The handle of the sensor.
    * @return true if all requests of the sensor type have been successfully
@@ -264,15 +264,26 @@ class SensorRequestManager : public NonCopyable {
   void logStateToBuffer(DebugDumpWrapper &debugDump) const;
 
   /**
-   * Releases the sensor data event back to the platform. Also removes any
-   * requests for a one-shot sensor if the sensor type corresponds to a one-shot
-   * sensor.
+   * Releases the sensor data event back to the platform.
    *
    * @param eventType the sensor event type that was sent and now needs to be
    *     released.
    * @param eventData the event data to be released back to the platform.
    */
   void releaseSensorDataEvent(uint16_t eventType, void *eventData);
+
+  /**
+   * Releases a one-shot sensor data event back to the platform.
+   *
+   * The nanoapp that the event was targeting will unregister the one-shot
+   * event, and once all nanoapps have received the event, the event will be
+   * released by the platform sensor manager.
+   *
+   * @param eventType the sensor event type that was sent and now needs to be
+   *     released.
+   * @param eventData the event data to be released back to the platform.
+   */
+  void releaseOneShotSensorDataEvent(uint16_t eventType, void *eventData);
 
   /**
    * Releases the bias data back to the platform.
@@ -382,6 +393,25 @@ class SensorRequestManager : public NonCopyable {
   FixedSizeVector<FlushRequest, kMaxFlushRequests> mFlushRequestQueue;
 
   PlatformSensorManager mPlatformSensorManager;
+
+  /**
+   * A reference counted container of a one-shot event.
+   */
+  struct RefCountedOneShotEvent {
+    RefCountedOneShotEvent(void *eventData, uint32_t refCount) {
+      this->eventData = eventData;
+      this->refCount = refCount;
+    }
+    void *eventData;
+    uint32_t refCount;
+  };
+  //! A list of one-shot sensor events that are pending distribution through
+  //! unicast events. A refcounted container of a shared eventData is used
+  //! across multiple unicast events to avoid duplicating data. The refcount
+  //! of this container is decremented when the unicast event is freed, and
+  //! when the refcount reaches zero, the event data will be released by the
+  //! platform sensor.
+  DynamicVector<RefCountedOneShotEvent> mPendingOneShotSensorEvents;
 
   /**
    * Makes a specified flush request, and sets the timeout timer appropriately.

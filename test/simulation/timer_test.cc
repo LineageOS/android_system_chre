@@ -90,8 +90,7 @@ TEST_F(TimerTest, SetupAndCancelPeriodicTimer) {
 
   uint64_t appId = loadNanoapp(MakeUnique<App>());
 
-  TimerPool &timerPool =
-      EventLoopManagerSingleton::get()->getEventLoop().getTimerPool();
+  TimerPool &timerPool = EventLoopManagerSingleton::get()->getTimerPool();
 
   uint16_t instanceId;
   EXPECT_TRUE(EventLoopManagerSingleton::get()
@@ -159,8 +158,7 @@ TEST_F(TimerTest, CancelPeriodicTimerOnUnload) {
 
   uint64_t appId = loadNanoapp(MakeUnique<App>());
 
-  TimerPool &timerPool =
-      EventLoopManagerSingleton::get()->getEventLoop().getTimerPool();
+  TimerPool &timerPool = EventLoopManagerSingleton::get()->getTimerPool();
 
   uint16_t instanceId;
   EXPECT_TRUE(EventLoopManagerSingleton::get()
