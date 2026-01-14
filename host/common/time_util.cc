@@ -16,12 +16,17 @@
 
 #include "chre_host/time_util.h"
 
+#include <android-base/parseint.h>
+
 #include <chrono>
 #include <cinttypes>
 #include <cstdio>
 #include <ctime>
 #include <iomanip>
 #include <iostream>
+#include <optional>
+#include <regex>
+#include <sstream>
 #include <string>
 
 namespace android::chre {
@@ -73,6 +78,70 @@ std::string formatNanos(uint64_t nanos) {
   ss << seconds << '.' << std::setw(3) << std::setfill('0') << milliseconds
      << ' ' << std::setw(3) << std::setfill('0') << microseconds << ' '
      << std::setw(3) << std::setfill('0') << nanoseconds_part;
+
+  return ss.str();
+}
+
+std::string appendWalltimeToTimestamp(const std::string &str,
+                                      std::optional<int64_t> hostOffset) {
+  // Regex to find timestamp keys ('ts=', 'time=', 'time(ns)=') followed by
+  // digits. The group (ms)? optionally captures the millisecond unit.
+  // The capture groups:
+  //   - Group 1: The timestamp key (e.g., "ts=", "time=", "time(ns)=")
+  //   - Group 2: The timestamp value (digits)
+  //   - Group 3: Optional "ms" unit
+  std::regex ts_regex(R"(\b(ts=|time=|time\(ns\)=)(\d+)(ms)?)");
+  auto it = std::sregex_iterator(str.begin(), str.end(), ts_regex);
+  auto end = std::sregex_iterator();
+
+  if (it == end) {
+    return str;  // No matches, return original string
+  }
+
+  std::ostringstream ss;
+  size_t last_pos = 0;
+  for (; it != end; ++it) {
+    std::smatch match = *it;
+    if (match.size() < 3) {
+      continue;
+    }
+    ss << str.substr(last_pos, match.position() - last_pos);
+
+    uint64_t ts_val = 0;
+    bool success = android::base::ParseUint(match[2].str(), &ts_val);
+    if (!success) {
+      continue;
+    }
+
+    uint64_t ts_val_ns = 0;
+
+    // Check if the 3rd capture group ("ms") matched
+    if (match.size() >= 4 && match[3].matched) {
+      // Case: Milliseconds (e.g., ts=123ms)
+      // Output exactly as is, do not use formatNanos
+      ss << match[1].str() << ts_val << "ms";
+      ts_val_ns = ts_val * 1000000;  // Convert to ns for walltime calc
+    } else {
+      // Case: Nanoseconds (e.g., ts=123456)
+      // Format for readability using existing logic
+      ss << "ts=" << formatNanos(ts_val);
+      ts_val_ns = ts_val;
+    }
+
+    if (hostOffset.has_value()) {
+      ts_val_ns += hostOffset.value();
+      ss << " [" << realtimeNsToWallclockTime(ts_val_ns) << "]";
+    }
+    last_pos = match.position() + match.length();
+
+    if (last_pos + 1 < str.size() && str.substr(last_pos, 2) == "ns") {
+      last_pos += 2;
+    }
+  }
+  // Append the remainder of the string after the last match
+  if (last_pos < str.size()) {
+    ss << str.substr(last_pos);
+  }
 
   return ss.str();
 }

@@ -1414,6 +1414,7 @@ cc_library_static {
         "host/common/time_util.cc",
     ],
     shared_libs: [
+        "libbase",
         "liblog",
         "libutils",
     ],

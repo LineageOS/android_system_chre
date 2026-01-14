@@ -137,64 +137,6 @@ std::optional<int64_t> tryExtractEstimatedHostOffset(const std::string &str) {
   return std::nullopt;
 }
 
-/**
- * Appends a human-readable wall time to nanosecond timestamps in a
- * string.
- *
- * This function searches for nanosecond timestamp in format like "ts=%d",
- * "time=%d", "time(ns)=%d" where <nanoseconds> is a numerical value not
- * followed by "ms". For each match, it calculates the corresponding wall time
- * and appends it in brackets. It also formats the nanosecond timestamp for
- * better readability. The nanosecond timestamps are assumed to be generated
- * by a source like SystemClock.elapsedRealtimeNanos().
- */
-std::string appendWalltimeToTimestamp(const std::string &str,
-                                      std::optional<int64_t> hostOffset) {
-  // Regex to find timestamp keys ('ts=', 'time=', 'time(ns)=') followed by
-  // digits. The negative lookahead `(?!ms)` ensures we skip timestamps
-  // explicitly in milliseconds.
-  std::regex ts_regex(R"(\b(ts=|time=|time\(ns\)=)(\d+)(?!ms))");
-  auto it = std::sregex_iterator(str.begin(), str.end(), ts_regex);
-  auto end = std::sregex_iterator();
-
-  if (it == end) {
-    return str;  // No matches, return original string
-  }
-
-  std::ostringstream ss;
-  size_t last_pos = 0;
-  for (; it != end; ++it) {
-    std::smatch match = *it;
-    if (match.size() < 3) {
-      continue;
-    }
-    ss << str.substr(last_pos, match.position() - last_pos);
-
-    uint64_t ts_val = 0;
-    bool success = base::ParseUint(match[2].str(), &ts_val);
-    if (!success) {
-      continue;
-    }
-    ss << "ts=" << chre::formatNanos(ts_val);
-
-    if (hostOffset.has_value()) {
-      ts_val += hostOffset.value();
-      ss << " [" << chre::realtimeNsToWallclockTime(ts_val) << "]";
-    }
-    last_pos = match.position() + match.length();
-
-    if (last_pos + 1 < str.size() && str.substr(last_pos, 2) == "ns") {
-      last_pos += 2;
-    }
-  }
-  // Append the remainder of the string after the last match
-  if (last_pos < str.size()) {
-    ss << str.substr(last_pos);
-  }
-
-  return ss.str();
-}
-
 }  // anonymous namespace
 
 MultiClientContextHubBase::MultiClientContextHubBase() {
@@ -863,7 +805,7 @@ void MultiClientContextHubBase::onDebugDumpData(
   if (mEstimatedHostTimeOffset == std::nullopt) {
     mEstimatedHostTimeOffset = tryExtractEstimatedHostOffset(str);
   }
-  str = appendWalltimeToTimestamp(str, mEstimatedHostTimeOffset);
+  str = chre::appendWalltimeToTimestamp(str, mEstimatedHostTimeOffset);
   debugDumpAppend(str);
 }
 
