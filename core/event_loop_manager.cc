@@ -59,14 +59,15 @@ EventLoop *EventLoopManager::getEventLoopByAppId(uint64_t appId) {
 
 EventLoop *EventLoopManager::getEventLoopByInstanceId(
     uint16_t nanoappInstanceId) {
-  for (auto &eventLoop : mEventLoops) {
-    Nanoapp *nanoapp = eventLoop.findNanoappByInstanceId(nanoappInstanceId);
-    if (nanoapp != nullptr) {
-      return &eventLoop;
-    }
+  NanoappInstanceId nanoappInstanceIdStruct;
+  nanoappInstanceIdStruct.instanceIdAndEventLoopIndex = nanoappInstanceId;
+  if (nanoappInstanceIdStruct.eventLoopIndex < mEventLoops.size()) {
+    return &mEventLoops[nanoappInstanceIdStruct.eventLoopIndex];
+  } else {
+    LOGE("Invalid event loop index %" PRIu16 " for instanceId 0x%" PRIx16,
+         nanoappInstanceIdStruct.eventLoopIndex, nanoappInstanceId);
+    return nullptr;
   }
-
-  return nullptr;
 }
 
 uint16_t EventLoopManager::getNextInstanceId() {
