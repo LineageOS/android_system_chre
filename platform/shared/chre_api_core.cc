@@ -157,21 +157,34 @@ DLL_EXPORT bool chreSendMessageToHostEndpoint(
 
 DLL_EXPORT bool chreGetNanoappInfoByAppId(uint64_t appId,
                                           struct chreNanoappInfo *info) {
-  GlobalApiLockGuard lock;
-  return EventLoopManagerSingleton::get()
-      ->getEventLoop()
-      .populateNanoappInfoForAppId(appId, info);
+  EventLoop *eventLoop =
+      EventLoopManagerSingleton::get()->getEventLoopByAppId(appId);
+  if (eventLoop == nullptr) {
+    LOGE("No event loop found for app ID=0x%" PRIx64, appId);
+    return false;
+  } else {
+    // Note that populateNanoappInfoForAppId is thread-safe.
+    return eventLoop->populateNanoappInfoForAppId(appId, info);
+  }
 }
 
 DLL_EXPORT bool chreGetNanoappInfoByInstanceId(uint32_t instanceId,
                                                struct chreNanoappInfo *info) {
-  GlobalApiLockGuard lock;
   CHRE_ASSERT(instanceId <= UINT16_MAX);
   if (instanceId <= UINT16_MAX) {
-    return EventLoopManagerSingleton::get()
-        ->getEventLoop()
-        .populateNanoappInfoForInstanceId(static_cast<uint16_t>(instanceId),
-                                          info);
+    uint16_t instanceIdUint16 = static_cast<uint16_t>(instanceId);
+    EventLoop *eventLoop =
+        EventLoopManagerSingleton::get()->getEventLoopByInstanceId(
+            instanceIdUint16);
+    if (eventLoop == nullptr) {
+      LOGE("No event loop found for app instance ID=0x%" PRIx16,
+           instanceIdUint16);
+      return false;
+    } else {
+      // Note that populateNanoappInfoForInstanceId is thread-safe.
+      return eventLoop->populateNanoappInfoForInstanceId(instanceIdUint16,
+                                                         info);
+    }
   }
   return false;
 }
