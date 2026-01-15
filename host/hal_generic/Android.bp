@@ -65,7 +65,7 @@ cc_defaults {
         "-Wthread-safety", // Need to be explicitly set
     ],
     shared_libs: [
-        "android.hardware.bluetooth.socket-V1-ndk",
+        "android.hardware.bluetooth.socket-V2-ndk",
     ],
     static_libs: [
         "chre_config_util",

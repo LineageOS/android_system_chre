@@ -31,6 +31,8 @@
 namespace android::hardware::contexthub::common::implementation {
 namespace {
 
+using ::aidl::android::hardware::contexthub::DataFlowId;
+using ::aidl::android::hardware::contexthub::DataFlowSinkRegistrationParams;
 using ::aidl::android::hardware::contexthub::EndpointId;
 using ::aidl::android::hardware::contexthub::EndpointInfo;
 using ::aidl::android::hardware::contexthub::ErrorCode;
@@ -72,6 +74,13 @@ class MockEndpointCallback : public IEndpointCallback {
               (override));
   MOCK_METHOD(ScopedAStatus, onEndpointSessionOpenComplete, (int32_t),
               (override));
+  MOCK_METHOD(ScopedAStatus, onDataFlowHostSinkRegistered,
+              (const DataFlowSinkRegistrationParams &), (override));
+  MOCK_METHOD(ScopedAStatus, onDataFlowOffloadEndpointUnregistered,
+              (const DataFlowId &, const EndpointId &,
+               const std::vector<EndpointId> &),
+              (override));
+
   MOCK_METHOD(SpAIBinder, asBinder, (), (override));
   MOCK_METHOD(bool, isRemote, (), (override));
   MOCK_METHOD(ScopedAStatus, getInterfaceVersion, (int32_t *), (override));

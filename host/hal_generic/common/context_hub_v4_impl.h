@@ -20,6 +20,7 @@
 
 #include <array>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -31,10 +32,15 @@
 #include <flatbuffers/flatbuffers.h>
 
 #include "message_hub_manager.h"
+#include "region_manager.h"
+#include "wakelock_manager.h"
 
 namespace android::hardware::contexthub::common::implementation {
 
 using ::aidl::android::hardware::contexthub::BnEndpointCommunication;
+using ::aidl::android::hardware::contexthub::DataFlowId;
+using ::aidl::android::hardware::contexthub::DataFlowInfo;
+using ::aidl::android::hardware::contexthub::DataFlowSinkRegistrationParams;
 using ::aidl::android::hardware::contexthub::EndpointId;
 using ::aidl::android::hardware::contexthub::EndpointInfo;
 using ::aidl::android::hardware::contexthub::HubInfo;
@@ -43,6 +49,8 @@ using ::aidl::android::hardware::contexthub::IEndpointCommunication;
 using ::aidl::android::hardware::contexthub::Message;
 using ::aidl::android::hardware::contexthub::MessageDeliveryStatus;
 using ::aidl::android::hardware::contexthub::Reason;
+using ::aidl::android::hardware::contexthub::SharedDataRegion;
+using ::aidl::android::hardware::contexthub::SharedDataRegionRequirements;
 using ::ndk::ScopedAStatus;
 
 /**
@@ -53,11 +61,17 @@ class ContextHubV4Impl {
  public:
   using SendMessageFn =
       std::function<bool(const flatbuffers::FlatBufferBuilder &builder)>;
-
-  explicit ContextHubV4Impl(SendMessageFn sendMessageFn)
+  ContextHubV4Impl(SendMessageFn sendMessageFn,
+                   std::unique_ptr<RegionManager> regionManager,
+                   std::unique_ptr<WakelockManager> wakelockManager)
       : mManager(std::bind(&ContextHubV4Impl::unlinkDeadHostHub, this,
                            std::placeholders::_1)),
-        mSendMessageFn(std::move(sendMessageFn)) {}
+        mSendMessageFn(std::move(sendMessageFn)),
+        mRegionManager(std::move(regionManager)),
+        mWakelockManager(std::move(wakelockManager)) {}
+  explicit ContextHubV4Impl(SendMessageFn sendMessageFn)
+      : ContextHubV4Impl(std::move(sendMessageFn), /*regionManager=*/{},
+                         /*wakelockManager=*/{}) {}
   ~ContextHubV4Impl() = default;
 
   /**
@@ -100,6 +114,8 @@ class ContextHubV4Impl {
   bool handleMessageFromChre(const ::chre::fbs::ChreMessageUnion &message);
 
  private:
+  friend class HostHubInterface;
+
   // Callbacks for each message type from CHRE.
   void onGetMessageHubsAndEndpointsResponse(
       const ::chre::fbs::GetMessageHubsAndEndpointsResponseT &msg);
@@ -128,6 +144,8 @@ class ContextHubV4Impl {
 
   MessageHubManager mManager;
   SendMessageFn mSendMessageFn;
+  std::unique_ptr<RegionManager> mRegionManager;
+  std::unique_ptr<WakelockManager> mWakelockManager;
 
   // This lock is required to be held around any operation which modifies the
   // sets of host hubs or endpoints known by mManager and then sends an update
@@ -147,11 +165,8 @@ class ContextHubV4Impl {
 class HostHubInterface : public BnEndpointCommunication {
  public:
   explicit HostHubInterface(std::shared_ptr<MessageHubManager::HostHub> hub,
-                            ContextHubV4Impl::SendMessageFn &sendMessageFn,
-                            std::mutex &hostHubOpLock)
-      : mHub(std::move(hub)),
-        mSendMessageFn(sendMessageFn),
-        mHostHubOpLock(hostHubOpLock) {
+                            ContextHubV4Impl &hal)
+      : mHub(std::move(hub)), mHal(hal) {
     assert(mHub != nullptr);
   }
   ~HostHubInterface() = default;
@@ -172,12 +187,25 @@ class HostHubInterface : public BnEndpointCommunication {
   ScopedAStatus closeEndpointSession(int32_t sessionId, Reason reason) override;
   ScopedAStatus endpointSessionOpenComplete(int32_t sessionId) override;
   ScopedAStatus unregister() override;
+  ScopedAStatus allocateSharedDataRegion(
+      const SharedDataRegionRequirements &requirements,
+      SharedDataRegion *region) override;
+  ScopedAStatus freeSharedDataRegion(int32_t id) override;
+  ScopedAStatus registerDataFlowHostSource(const EndpointId &endpoint,
+                                           const DataFlowInfo &info,
+                                           int32_t *id) override;
+  ScopedAStatus unregisterDataFlowHostSource(int32_t id) override;
+  ScopedAStatus registerDataFlowOffloadSink(
+      const DataFlowSinkRegistrationParams &params,
+      const std::shared_ptr<
+          IEndpointCommunication::IRegisterOffloadSinkCallback> &callback)
+      override;
+  ScopedAStatus unregisterDataFlowHostSink(
+      const EndpointId &sinkId, const DataFlowId &dataFlowId) override;
 
  private:
   std::shared_ptr<MessageHubManager::HostHub> mHub;
-  // see ContextHubV4Impl::mSendMessageFn.
-  ContextHubV4Impl::SendMessageFn &mSendMessageFn;
-  std::mutex &mHostHubOpLock;  // see ContextHubV4Impl::mHostHubOpLock.
+  ContextHubV4Impl &mHal;
 };
 
 }  // namespace android::hardware::contexthub::common::implementation
