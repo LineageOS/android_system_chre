@@ -27,7 +27,7 @@
 
 namespace chre {
 
-class InfoStructVersionTest : public TestBase {};
+class InfoStructVersionTest : public SingleThreadTestBase {};
 
 TEST_F(InfoStructVersionTest, InfoStructOldVersionCheckForAppPermission) {
   constexpr uint8_t kInfoStructVersionOld = 2;

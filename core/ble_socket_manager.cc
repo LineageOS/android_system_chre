@@ -66,11 +66,12 @@ void BleSocketManager::handleSocketOpenedByHost(
   }
   EventLoopManagerSingleton::get()->deferCallback(
       SystemCallbackType::BleSocketConnected, std::move(cbData),
-      [](SystemCallbackType, UniquePtr<BleL2capCocSocketData> &&data) {
-        EventLoopManagerSingleton::get()
-            ->getBleSocketManager()
-            .handleSocketOpenedByHostSync(*(data.get()));
-      });
+      [](SystemCallbackType, UniquePtr<BleL2capCocSocketData> &&data)
+          CHRE_REQUIRES(getMultiThreadingApiMutex()) {
+            EventLoopManagerSingleton::get()
+                ->getBleSocketManager()
+                .handleSocketOpenedByHostSync(*(data.get()));
+          });
 }
 
 void BleSocketManager::handleSocketOpenedByHostSync(
@@ -176,13 +177,14 @@ void BleSocketManager::handlePlatformSocketEvent(uint64_t socketId,
   socketEvent->socketId = socketId;
   socketEvent->event = event;
 
-  auto callback = [](SystemCallbackType,
-                     UniquePtr<socketEventData> &&socketEvent) {
-    EventLoopManagerSingleton::get()
-        ->getBleSocketManager()
-        .handlePlatformSocketEventSync(socketEvent->socketId,
-                                       socketEvent->event);
-  };
+  auto callback =
+      [](SystemCallbackType, UniquePtr<socketEventData> &&socketEvent)
+          CHRE_REQUIRES(getMultiThreadingApiMutex()) {
+            EventLoopManagerSingleton::get()
+                ->getBleSocketManager()
+                .handlePlatformSocketEventSync(socketEvent->socketId,
+                                               socketEvent->event);
+          };
 
   EventLoopManagerSingleton::get()->deferCallback(
       SystemCallbackType::BleSocketEvent, std::move(socketEvent), callback);
@@ -226,12 +228,13 @@ void BleSocketManager::handlePlatformSocketPacket(uint64_t socketId,
   packetEvent->data = data;
   packetEvent->length = length;
 
-  auto callback = [](SystemCallbackType,
-                     UniquePtr<chreBleSocketPacketEvent> &&packetEvent) {
-    EventLoopManagerSingleton::get()
-        ->getBleSocketManager()
-        .handlePlatformSocketPacketSync(packetEvent.get());
-  };
+  auto callback =
+      [](SystemCallbackType, UniquePtr<chreBleSocketPacketEvent> &&packetEvent)
+          CHRE_REQUIRES(getMultiThreadingApiMutex()) {
+            EventLoopManagerSingleton::get()
+                ->getBleSocketManager()
+                .handlePlatformSocketPacketSync(packetEvent.get());
+          };
   EventLoopManagerSingleton::get()->deferCallback(
       SystemCallbackType::BleSocketPacketEvent, std::move(packetEvent),
       callback);
@@ -274,11 +277,12 @@ void BleSocketManager::handleSocketClosedByHost(uint64_t socketId) {
   }
   EventLoopManagerSingleton::get()->deferCallback(
       SystemCallbackType::BleSocketClosed, std::move(cbData),
-      [](SystemCallbackType /*type*/, UniquePtr<uint64_t> &&data) {
-        EventLoopManagerSingleton::get()
-            ->getBleSocketManager()
-            .handleSocketClosedByHostSync(*data.get());
-      });
+      [](SystemCallbackType /*type*/, UniquePtr<uint64_t> &&data)
+          CHRE_REQUIRES(getMultiThreadingApiMutex()) {
+            EventLoopManagerSingleton::get()
+                ->getBleSocketManager()
+                .handleSocketClosedByHostSync(*data.get());
+          });
 }
 
 void BleSocketManager::handleSocketClosedByHostSync(uint64_t socketId) {

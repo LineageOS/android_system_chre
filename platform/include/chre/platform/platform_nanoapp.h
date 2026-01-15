@@ -106,6 +106,12 @@ class PlatformNanoapp : public PlatformNanoappBase, public NonCopyable {
   const char *getAppName() const;
 
   /**
+   * Retrieves the nanoapp's requested thread priority. See
+   * NANOAPP_REQUESTED_THREAD_PRIORITY_* for possible values.
+   */
+  int8_t getRequestedThreadPriority() const;
+
+  /**
    * Returns true if the nanoapp should not appear in the context hub HAL list
    * of nanoapps, e.g. because it implements some device functionality purely
    * beneath the HAL.

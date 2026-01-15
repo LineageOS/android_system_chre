@@ -21,6 +21,7 @@
 #include "chre_api/chre/re.h"
 
 #include "chre/core/event_loop.h"
+#include "chre/core/multi_threading_api_mutex.h"
 #include "chre/core/nanoapp.h"
 #include "chre/core/timer_handle.h"
 #include "chre/platform/mutex.h"
@@ -334,7 +335,8 @@ class TimerPool : public NonCopyable {
    * @param extraData The extra data pointer passed to the callback.
    */
   static void handleTimerExpiredCallback(uint16_t type, void *data,
-                                         void *extraData);
+                                         void *extraData)
+      CHRE_REQUIRES(getMultiThreadingApiMutex());
 };
 
 }  // namespace chre

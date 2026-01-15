@@ -266,7 +266,7 @@ pw::UniquePtr<std::byte[]> createMessageData(
   return messageData;
 }
 
-class ChreMessageHubTest : public TestBase {};
+class ChreMessageHubTest : public SingleThreadTestBase {};
 
 TEST_F(ChreMessageHubTest, NanoappsAreEndpointsToChreMessageHub) {
   class App : public TestNanoapp {
@@ -1000,8 +1000,7 @@ TEST_F(ChreMessageHubTest, NanoappSendsMessageToGenericEndpoint) {
                             CHRE_EVENT_MSG_SESSION_OPENED);
 
   // Send the message to the other hub and verify it was received
-  sendEventToNanoappAndWait(appId, TEST_SEND_MESSAGE,
-                            TEST_SEND_MESSAGE);
+  sendEventToNanoappAndWait(appId, TEST_SEND_MESSAGE, TEST_SEND_MESSAGE);
 
   EXPECT_EQ(message.data.size(), kMessageSize);
   for (size_t i = 0; i < kMessageSize; ++i) {

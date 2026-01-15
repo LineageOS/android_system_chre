@@ -22,6 +22,7 @@
 
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/nanoapp.h"
+#include "chre/platform/context.h"
 #include "chre/platform/system_time.h"
 #include "chre/util/dynamic_vector.h"
 #include "chre/util/macros.h"
@@ -138,17 +139,17 @@ UniquePtr<Nanoapp> createStaticNanoapp(
     const char *name, uint64_t appId, uint32_t appVersion, uint32_t appPerms,
     decltype(nanoappStart) *startFunc,
     decltype(nanoappHandleEvent) *handleEventFunc,
-    decltype(nanoappEnd) *endFunc) {
+    decltype(nanoappEnd) *endFunc, int8_t requestedThreadPriority) {
   return createStaticNanoapp(CHRE_NSL_NANOAPP_INFO_STRUCT_MINOR_VERSION, name,
                              appId, appVersion, appPerms, startFunc,
-                             handleEventFunc, endFunc);
+                             handleEventFunc, endFunc, requestedThreadPriority);
 }
 
 UniquePtr<Nanoapp> createStaticNanoapp(
     uint8_t infoStructVersion, const char *name, uint64_t appId,
     uint32_t appVersion, uint32_t appPerms, decltype(nanoappStart) *startFunc,
     decltype(nanoappHandleEvent) *handleEventFunc,
-    decltype(nanoappEnd) *endFunc) {
+    decltype(nanoappEnd) *endFunc, int8_t requestedThreadPriority) {
   auto nanoapp = MakeUnique<Nanoapp>();
   auto nanoappInfo = MakeUnique<chreNslNanoappInfo>();
   chreNslNanoappInfo *appInfo = nanoappInfo.get();
@@ -168,6 +169,7 @@ UniquePtr<Nanoapp> createStaticNanoapp(
   appInfo->appVersionString = "<undefined>";
   appInfo->appPermissions = appPerms;
   appInfo->minChreApiVersion = CHRE_API_VERSION;
+  appInfo->requestedThreadPriority = requestedThreadPriority;
   EXPECT_FALSE(nanoapp.isNull());
   nanoapp->loadStatic(appInfo);
 
@@ -257,22 +259,30 @@ void unloadNanoapp(uint64_t appId) {
 
 void testFinishLoadingNanoappCallback(SystemCallbackType /* type */,
                                       UniquePtr<Nanoapp> &&nanoapp) {
-  EventLoopManagerSingleton::get()->getEventLoop().startNanoapp(
-      std::move(nanoapp));
+  EventLoop *eventLoop = getCurrentEventLoop();
+  ASSERT_NE(eventLoop, nullptr);
+  auto *lock = EventLoopManagerSingleton::get()->getGlobalApiMutex();
+  lock->unlock();
+  eventLoop->startNanoapp(std::move(nanoapp));
   TestEventQueueSingleton::get()->pushEvent(
       CHRE_EVENT_SIMULATION_TEST_NANOAPP_LOADED);
+  lock->lock();
 }
 
 void testFinishUnloadingNanoappCallback(uint16_t /* type */, void *data,
                                         void * /* extraData */) {
-  EventLoop &eventLoop = EventLoopManagerSingleton::get()->getEventLoop();
+  EventLoop *eventLoop = getCurrentEventLoop();
+  ASSERT_NE(eventLoop, nullptr);
+  UniquePtr<uint64_t> appId =
+      UniquePtr<uint64_t>(static_cast<uint64_t *>(data));
   uint16_t instanceId = 0;
-  uint64_t *appId = static_cast<uint64_t *>(data);
-  ASSERT_TRUE(eventLoop.findNanoappInstanceIdByAppId(*appId, &instanceId));
-  eventLoop.unloadNanoapp(instanceId, true);
-  memoryFree(data);
+  ASSERT_TRUE(eventLoop->findNanoappInstanceIdByAppId(*appId, &instanceId));
+  auto *lock = EventLoopManagerSingleton::get()->getGlobalApiMutex();
+  lock->unlock();
+  eventLoop->unloadNanoapp(instanceId, true);
   TestEventQueueSingleton::get()->pushEvent(
       CHRE_EVENT_SIMULATION_TEST_NANOAPP_UNLOADED);
+  lock->lock();
 }
 
 void freeTestEventDataCallback(uint16_t /*eventType*/, void *eventData) {

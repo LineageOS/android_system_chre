@@ -37,7 +37,7 @@
 namespace chre {
 namespace {
 
-class MemoryTest : public TestBase {};
+class MemoryTest : public SingleThreadTestBase {};
 
 TEST_F(MemoryTest, MemoryAllocateAndFree) {
   CREATE_CHRE_TEST_EVENT(ALLOCATE, 0);

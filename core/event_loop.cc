@@ -344,12 +344,16 @@ bool EventLoop::distributeEventSync(uint16_t eventType, void *eventData,
               /* senderInstanceId= */ kSystemInstanceId, targetInstanceId,
               targetGroupMask);
 
+  return distributeEventSyncInternal(&event, getMultiThreadingApiMutex());
+}
+
+bool EventLoop::distributeEventSyncInternal(Event *event,
+                                            MultiThreadingApiMutex *lock) {
   // This function is only called from a deferred callback context,
   // and the global mutex must be unlocked prior to potentially entering
   // nanoapp code.
-  auto *lock = EventLoopManagerSingleton::get()->getGlobalApiMutex();
   lock->unlock();
-  bool success = distributeEventCommon(&event);
+  bool success = distributeEventCommon(event);
   lock->lock();
   return success;
 }

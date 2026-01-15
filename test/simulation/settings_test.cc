@@ -35,7 +35,7 @@ namespace chre {
 
 namespace {
 
-class SettingsTest : public TestBase {};
+class SettingsTest : public SingleThreadTestBase {};
 
 int8_t gExpectedLocationSettingState;
 int8_t gExpectedWifiSettingState;

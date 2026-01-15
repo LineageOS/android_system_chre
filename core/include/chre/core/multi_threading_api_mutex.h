@@ -53,4 +53,11 @@ class CHRE_CAPABILITY("mutex") MultiThreadingApiMutex : public NonCopyable {
 #endif  // CHRE_MULTI_THREADING_ENABLED
 };
 
+/**
+ * @return A pointer to the global API mutex. This is used to synchronize
+ *         access to CHRE resources when multiple threads might be calling CHRE
+ *         APIs.
+ */
+MultiThreadingApiMutex *getMultiThreadingApiMutex();
+
 }  // namespace chre

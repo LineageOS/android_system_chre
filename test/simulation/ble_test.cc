@@ -42,7 +42,7 @@ CREATE_CHRE_TEST_EVENT(GET_SCAN_STATUS, 5);
 CREATE_CHRE_TEST_EVENT(RSSI_REQUEST, 6);
 CREATE_CHRE_TEST_EVENT(RSSI_REQUEST_SENT, 7);
 
-class BleTest : public TestBase {};
+class BleTest : public SingleThreadTestBase {};
 
 class BleTestNanoapp : public TestNanoapp {
  public:

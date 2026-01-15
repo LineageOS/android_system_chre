@@ -73,10 +73,10 @@ pw::Result<EmbossT> buildCommandResponseSuccessEvent(
   return view;
 }
 
-class BleSocketTest : public TestBase {
+class BleSocketTest : public SingleThreadTestBase {
  public:
   void SetUp() override {
-    TestBase::SetUp();
+    SingleThreadTestBase::SetUp();
     resetSocketVariables();
 
     sendLeConnectionCompleteSubevent(mSocketData.connectionHandle);

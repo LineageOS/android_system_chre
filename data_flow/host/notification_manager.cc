@@ -37,10 +37,10 @@
 namespace android::contexthub::data_flow {
 namespace {
 
-using ::aidl::android::hardware::contexthub::DataFlowConsumerHandle;
+using ::aidl::android::hardware::contexthub::DataFlowAlertFds;
 using ::aidl::android::hardware::contexthub::DataFlowId;
 using ::aidl::android::hardware::contexthub::DataFlowInfo;
-using ::aidl::android::hardware::contexthub::DataFlowNotificationFds;
+using ::aidl::android::hardware::contexthub::DataFlowSinkContext;
 using ::aidl::android::hardware::contexthub::EndpointId;
 using ::aidl::android::hardware::contexthub::HubInfo;
 
@@ -52,8 +52,8 @@ pw::Result<ndk::ScopedFileDescriptor> tryGetFdOp(int fd, int line) {
   return ndk::ScopedFileDescriptor(fd);
 }
 
-pw::Result<DataFlowNotificationFds> createEventFds(bool needsHalAck) {
-  DataFlowNotificationFds fds;
+pw::Result<DataFlowAlertFds> createEventFds(bool needsHalAck) {
+  DataFlowAlertFds fds;
   PW_TRY_ASSIGN(fds.waking, tryGetFdOp(eventfd(0, EFD_NONBLOCK), __LINE__));
   PW_TRY_ASSIGN(fds.nonWaking, tryGetFdOp(eventfd(0, EFD_NONBLOCK), __LINE__));
   if (needsHalAck) {
@@ -72,9 +72,9 @@ pw::Status sendNotification(int fd) {
 
 }  // namespace
 
-pw::Result<DataFlowNotificationFds> dupEventFds(
-    const DataFlowNotificationFds &fds, bool needsHalAck) {
-  DataFlowNotificationFds dupFds;
+pw::Result<DataFlowAlertFds> dupEventFds(const DataFlowAlertFds &fds,
+                                         bool needsHalAck) {
+  DataFlowAlertFds dupFds;
   PW_TRY_ASSIGN(dupFds.waking, tryGetFdOp(dup(fds.waking.get()), __LINE__));
   PW_TRY_ASSIGN(dupFds.nonWaking,
                 tryGetFdOp(dup(fds.nonWaking.get()), __LINE__));
@@ -95,13 +95,12 @@ NotificationManager::~NotificationManager() {
 pw::Result<std::pair<DataFlowInfo, NotificationManager::NotificationDataHandle>>
 NotificationManager::prepareHostProducerDataFlowInfo() {
   PW_TRY_ASSIGN(auto fdsAndHandle, prepareHostProducerDataFlowEventFds());
-  return std::make_pair(
-      DataFlowInfo{.notificationFds = std::move(fdsAndHandle.first)},
-      fdsAndHandle.second);
+  return std::make_pair(DataFlowInfo{.alertFds = std::move(fdsAndHandle.first)},
+                        fdsAndHandle.second);
 }
 
-pw::Result<std::pair<DataFlowNotificationFds,
-                     NotificationManager::NotificationDataHandle>>
+pw::Result<
+    std::pair<DataFlowAlertFds, NotificationManager::NotificationDataHandle>>
 NotificationManager::prepareHostProducerDataFlowEventFds() {
   // Create the eventfds. Then dup them to create the DataFlowInfo to send to
   // the service.
@@ -172,14 +171,14 @@ pw::Status NotificationManager::removeHostProducerDataFlow(int id) {
   return pw::OkStatus();
 }
 
-pw::Result<::aidl::android::hardware::contexthub::DataFlowConsumerHandle>
+pw::Result<::aidl::android::hardware::contexthub::DataFlowSinkContext>
 NotificationManager::addOffloadConsumerAndCreateHandle(int dataFlow,
                                                        EndpointId consumer) {
   PW_TRY_ASSIGN(auto fds, addOffloadConsumerAndGetEventFds(dataFlow, consumer));
-  return DataFlowConsumerHandle{.notificationFds = std::move(fds)};
+  return DataFlowSinkContext{.alertFds = std::move(fds)};
 }
 
-pw::Result<DataFlowNotificationFds>
+pw::Result<DataFlowAlertFds>
 NotificationManager::addOffloadConsumerAndGetEventFds(int dataFlow,
                                                       EndpointId consumer) {
   std::lock_guard lock(mLock);
@@ -228,23 +227,22 @@ pw::Status NotificationManager::removeOffloadConsumer(EndpointId consumer) {
 }
 
 pw::Status NotificationManager::enableHostConsumerFromHandle(
-    const DataFlowConsumerHandle &consumer) {
+    const DataFlowSinkContext &consumer) {
   if (!consumer.info.has_value()) {
     ALOGE("Attempted to enable consumer without producer notify fds.");
     return pw::Status::InvalidArgument();
   }
   PW_TRY_ASSIGN(auto notifyHostFds,
-                dupEventFds(consumer.notificationFds, /*needsHalAck=*/true));
-  PW_TRY_ASSIGN(
-      auto notifyOffloadFds,
-      dupEventFds(consumer.info->notificationFds, /*needsHalAck=*/false));
+                dupEventFds(consumer.alertFds, /*needsHalAck=*/true));
+  PW_TRY_ASSIGN(auto notifyOffloadFds,
+                dupEventFds(consumer.info->alertFds, /*needsHalAck=*/false));
   return enableHostConsumerFromEventFds(consumer.id, std::move(notifyHostFds),
                                         std::move(notifyOffloadFds));
 }
 
 pw::Status NotificationManager::enableHostConsumerFromEventFds(
-    DataFlowId dataFlow, DataFlowNotificationFds &&notifyHostFds,
-    DataFlowNotificationFds &&notifyOffloadFds) {
+    DataFlowId dataFlow, DataFlowAlertFds &&notifyHostFds,
+    DataFlowAlertFds &&notifyOffloadFds) {
   std::lock_guard lock(mLock);
   auto it = mOffloadDataFlowToHandles.find(dataFlow);
   if (it != mOffloadDataFlowToHandles.end()) {

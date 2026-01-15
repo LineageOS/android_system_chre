@@ -33,7 +33,7 @@
 namespace chre {
 namespace {
 
-class WifiScanTest : public TestBase {};
+class WifiScanTest : public SingleThreadTestBase {};
 
 using namespace std::chrono_literals;
 
@@ -47,17 +47,17 @@ struct WifiAsyncData {
 constexpr uint64_t kAppOneId = 0x0123456789000001;
 constexpr uint64_t kAppTwoId = 0x0123456789000002;
 
-class WifiScanRequestQueueTestBase : public TestBase {
+class WifiScanRequestQueueTestBase : public SingleThreadTestBase {
  public:
   void SetUp() {
-    TestBase::SetUp();
+    SingleThreadTestBase::SetUp();
     // Add delay to make sure the requests are queued.
     chrePalWifiDelayResponse(PalWifiAsyncRequestTypes::SCAN,
                              /* milliseconds= */ 100ms);
   }
 
   void TearDown() {
-    TestBase::TearDown();
+    SingleThreadTestBase::TearDown();
     chrePalWifiDelayResponse(PalWifiAsyncRequestTypes::SCAN,
                              /* milliseconds= */ 0ms);
   }
@@ -287,7 +287,8 @@ TEST_F(WifiScanRequestQueueTestBase, WifiScanEventBeforeResponseTest) {
           auto event = static_cast<const TestEvent *>(eventData);
           switch (event->type) {
             case SCAN_REQUEST:
-              EXPECT_TRUE(chreWifiConfigureScanMonitorAsync(true, /*cookie=*/nullptr));
+              EXPECT_TRUE(
+                  chreWifiConfigureScanMonitorAsync(true, /*cookie=*/nullptr));
               break;
           }
         }

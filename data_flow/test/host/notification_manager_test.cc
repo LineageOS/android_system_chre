@@ -35,10 +35,10 @@
 namespace android::contexthub::data_flow {
 namespace {
 
-using ::aidl::android::hardware::contexthub::DataFlowConsumerHandle;
+using ::aidl::android::hardware::contexthub::DataFlowAlertFds;
 using ::aidl::android::hardware::contexthub::DataFlowId;
 using ::aidl::android::hardware::contexthub::DataFlowInfo;
-using ::aidl::android::hardware::contexthub::DataFlowNotificationFds;
+using ::aidl::android::hardware::contexthub::DataFlowSinkContext;
 using ::aidl::android::hardware::contexthub::EndpointId;
 using ::testing::_;
 
@@ -62,22 +62,22 @@ class NotificationManagerTest : public ::testing::Test {
         [this](DataFlowId, bool) { mNotificationCount++; });
   }
 
-  pw::Result<DataFlowConsumerHandle> createHostConsumerHandle(
+  pw::Result<DataFlowSinkContext> createHostConsumerHandle(
       DataFlowId dataFlowId) {
     PW_TRY_ASSIGN(auto eventFdsPair, createHostConsumerEventFds());
-    return DataFlowConsumerHandle{
+    return DataFlowSinkContext{
         .id = dataFlowId,
-        .info = DataFlowInfo{.notificationFds = std::move(eventFdsPair.second)},
-        .notificationFds = std::move(eventFdsPair.first)};
+        .info = DataFlowInfo{.alertFds = std::move(eventFdsPair.second)},
+        .alertFds = std::move(eventFdsPair.first)};
   };
 
-  pw::Result<std::pair<DataFlowNotificationFds, DataFlowNotificationFds>>
+  pw::Result<std::pair<DataFlowAlertFds, DataFlowAlertFds>>
   createHostConsumerEventFds() {
-    DataFlowNotificationFds notifyHostFds{
+    DataFlowAlertFds notifyHostFds{
         .waking = ndk::ScopedFileDescriptor(eventfd(0, EFD_NONBLOCK)),
         .nonWaking = ndk::ScopedFileDescriptor(eventfd(0, EFD_NONBLOCK)),
         .halAck = ndk::ScopedFileDescriptor(eventfd(0, EFD_NONBLOCK))};
-    DataFlowNotificationFds notifyOffloadFds{
+    DataFlowAlertFds notifyOffloadFds{
         .waking = ndk::ScopedFileDescriptor(eventfd(0, EFD_NONBLOCK)),
         .nonWaking = ndk::ScopedFileDescriptor(eventfd(0, EFD_NONBLOCK))};
     if (notifyHostFds.waking.get() < 0 || notifyHostFds.nonWaking.get() < 0 ||
@@ -103,7 +103,7 @@ class NotificationManagerTest : public ::testing::Test {
     return std::move(result.first);
   }
 
-  pw::Result<DataFlowNotificationFds> setupHostProducerDataFlowEventFds(
+  pw::Result<DataFlowAlertFds> setupHostProducerDataFlowEventFds(
       int dataFlowId, std::vector<int> *waitFds = nullptr) {
     PW_TRY_ASSIGN(auto result, mManager->prepareHostProducerDataFlowEventFds());
     if (waitFds) {
@@ -125,9 +125,9 @@ class NotificationManagerTest : public ::testing::Test {
 TEST_F(NotificationManagerTest, PrepareAndDiscardHostProducerDataFlow) {
   auto result = mManager->prepareHostProducerDataFlowInfo();
   ASSERT_TRUE(result.ok());
-  EXPECT_GE(result->first.notificationFds.waking.get(), 0);
-  EXPECT_GE(result->first.notificationFds.nonWaking.get(), 0);
-  EXPECT_GE(result->first.notificationFds.halAck.get(), 0);
+  EXPECT_GE(result->first.alertFds.waking.get(), 0);
+  EXPECT_GE(result->first.alertFds.nonWaking.get(), 0);
+  EXPECT_GE(result->first.alertFds.halAck.get(), 0);
   EXPECT_NE(result->second, nullptr);
 
   EXPECT_EQ(mManager->discardNotificationDataHandle(result->second),
@@ -155,8 +155,8 @@ TEST_F(NotificationManagerTest, AddAndRemoveOffloadConsumer) {
   auto consumerResult =
       mManager->addOffloadConsumerAndCreateHandle(dataFlowId, consumerId);
   ASSERT_TRUE(consumerResult.ok());
-  EXPECT_GE(consumerResult->notificationFds.waking.get(), 0);
-  EXPECT_GE(consumerResult->notificationFds.nonWaking.get(), 0);
+  EXPECT_GE(consumerResult->alertFds.waking.get(), 0);
+  EXPECT_GE(consumerResult->alertFds.nonWaking.get(), 0);
 
   EXPECT_EQ(mManager->removeOffloadConsumer(consumerId), pw::OkStatus());
   EXPECT_CALL(*mWaiter, removeFd(_)).Times(2);
@@ -212,7 +212,7 @@ TEST_F(NotificationManagerTest, NotifyOffloadProducerWaking) {
   DataFlowId dataFlowId = {.hubId = 1, .id = 1};
   auto hostConsumer = createHostConsumerHandle(dataFlowId);
   ASSERT_TRUE(hostConsumer.ok());
-  auto wakingFd = hostConsumer->info->notificationFds.waking.dup();
+  auto wakingFd = hostConsumer->info->alertFds.waking.dup();
   ASSERT_GE(wakingFd.get(), 0);
 
   EXPECT_CALL(*mWaiter, addFd(_)).Times(2);
@@ -238,7 +238,7 @@ TEST_F(NotificationManagerTest, NotifyOffloadProducerNonWaking) {
   DataFlowId dataFlowId = {.hubId = 1, .id = 1};
   auto hostConsumer = createHostConsumerHandle(dataFlowId);
   ASSERT_TRUE(hostConsumer.ok());
-  auto nonWakingFd = hostConsumer->info->notificationFds.nonWaking.dup();
+  auto nonWakingFd = hostConsumer->info->alertFds.nonWaking.dup();
   ASSERT_GE(nonWakingFd.get(), 0);
 
   EXPECT_CALL(*mWaiter, addFd(_)).Times(2);
@@ -268,7 +268,7 @@ TEST_F(NotificationManagerTest, NotifyOffloadConsumerWaking) {
   auto consumerResult =
       mManager->addOffloadConsumerAndCreateHandle(dataFlowId, consumerId);
   ASSERT_TRUE(consumerResult.ok());
-  auto &wakingFd = consumerResult->notificationFds.waking;
+  auto &wakingFd = consumerResult->alertFds.waking;
   ASSERT_GE(wakingFd.get(), 0);
 
   EXPECT_EQ(mManager->notifyOffloadConsumer(consumerId, /*waking=*/true),
@@ -295,7 +295,7 @@ TEST_F(NotificationManagerTest, NotifyOffloadConsumerNonWaking) {
   auto consumerResult =
       mManager->addOffloadConsumerAndCreateHandle(dataFlowId, consumerId);
   ASSERT_TRUE(consumerResult.ok());
-  auto &nonWakingFd = consumerResult->notificationFds.nonWaking;
+  auto &nonWakingFd = consumerResult->alertFds.nonWaking;
   ASSERT_GE(nonWakingFd.get(), 0);
 
   EXPECT_EQ(mManager->notifyOffloadConsumer(consumerId, /*waking=*/false),
@@ -347,9 +347,9 @@ TEST_F(NotificationManagerTest, HandleHostConsumerNotifications) {
   DataFlowId dataFlowId = {.hubId = 1, .id = 1};
   auto hostConsumer = createHostConsumerHandle(dataFlowId);
   ASSERT_TRUE(hostConsumer.ok());
-  auto wakingFd = hostConsumer->notificationFds.waking.dup();
-  auto nonWakingFd = hostConsumer->notificationFds.nonWaking.dup();
-  auto halAckFd = hostConsumer->notificationFds.halAck.dup();
+  auto wakingFd = hostConsumer->alertFds.waking.dup();
+  auto nonWakingFd = hostConsumer->alertFds.nonWaking.dup();
+  auto halAckFd = hostConsumer->alertFds.halAck.dup();
   ASSERT_GE(wakingFd.get(), 0);
   ASSERT_GE(nonWakingFd.get(), 0);
   ASSERT_GE(halAckFd.get(), 0);
@@ -529,7 +529,7 @@ TEST_F(NotificationManagerTest, EnableDuplicateHostConsumer) {
 
 TEST_F(NotificationManagerTest, EnableHostConsumerWithInvalidFds) {
   DataFlowId dataFlowId = {.hubId = 1, .id = 1};
-  DataFlowConsumerHandle consumer = {.id = dataFlowId};
+  DataFlowSinkContext consumer = {.id = dataFlowId};
   EXPECT_EQ(mManager->enableHostConsumerFromHandle(consumer),
             pw::Status::InvalidArgument());
 }

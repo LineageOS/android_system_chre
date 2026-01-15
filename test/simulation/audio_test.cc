@@ -36,7 +36,7 @@
 namespace chre {
 namespace {
 
-class AudioTest : public TestBase {};
+class AudioTest : public SingleThreadTestBase {};
 
 class AudioNanoapp : public TestNanoapp {
  public:

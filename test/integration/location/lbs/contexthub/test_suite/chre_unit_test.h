@@ -124,8 +124,14 @@ class ChreUnitTest : public ::testing::Test {
     test_name##end_test_counter.DecrementCount();                             \
   }                                                                           \
   void nanoapp_run##test_name() {                                             \
+    chre::UniquePtr<chre::Nanoapp> nanoapp =                                  \
+        lbs::contexthub::InitializeNanoapp(nanoapp_start##test_name,          \
+                                           nanoapp_handle_event##test_name,   \
+                                           nanoapp_end##test_name);           \
     chre::registerThreadContext(                                              \
         &chre::EventLoopManagerSingleton::get()->getEventLoop());             \
+    chre::EventLoopManagerSingleton::get()->getEventLoop().startNanoapp(      \
+        std::move(nanoapp));                                                  \
     chre::EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(    \
         lbs::contexthub::ChreUnitTest::kStartNanoappTestEventType, nullptr,   \
         chre::freeEventDataCallback, 1);                                      \
@@ -139,34 +145,29 @@ class ChreUnitTest : public ::testing::Test {
 //
 // The initializer constructor will run before anything else in the unit test,
 // and the destructor will be the last thing run in the cleanup stage.
-#define NANOAPP_INITIALIZER_LOGIC_(test_case_name, test_name)               \
-                                                                            \
-  NANOAPP_TEST_CLASS_INITIALIZER_NAME_(                                     \
-      test_case_name,                                                       \
-      test_name)::NANOAPP_TEST_CLASS_INITIALIZER_NAME_(test_case_name,      \
-                                                       test_name)(          \
-      NANOAPP_TEST_CLASS_NAME_(test_case_name, test_name) * test_hook) {    \
-    test_case_name##_##test_name##_TestHook = test_hook;                    \
-    test_hook->StartChre();                                                 \
-    chre::UniquePtr<chre::Nanoapp> nanoapp =                                \
-        lbs::contexthub::InitializeNanoapp(nanoapp_start##test_name,        \
-                                           nanoapp_handle_event##test_name, \
-                                           nanoapp_end##test_name);         \
-    test_hook->LoadNanoapp(std::move(nanoapp));                             \
-    test_hook->ConfigureApi();                                              \
-    std::thread(nanoapp_run##test_name).detach();                           \
-    test_name##init_counter.Wait();                                         \
-  }                                                                         \
-                                                                            \
-  NANOAPP_TEST_CLASS_INITIALIZER_NAME_(                                     \
-      test_case_name,                                                       \
-      test_name)::~NANOAPP_TEST_CLASS_INITIALIZER_NAME_(test_case_name,     \
-                                                        test_name)() {      \
-    chre::EventLoopManagerSingleton::get()->getEventLoop().stop();          \
-    test_name##deinit_counter.Wait();                                       \
-    lbs::contexthub::FakeChreApiProvider::ResetInstance();                  \
-    lbs::contexthub::FakeChrexApiProvider::ResetInstance();                 \
-    test_case_name##_##test_name##_TestHook->ShutdownChre();                \
+#define NANOAPP_INITIALIZER_LOGIC_(test_case_name, test_name)            \
+                                                                         \
+  NANOAPP_TEST_CLASS_INITIALIZER_NAME_(                                  \
+      test_case_name,                                                    \
+      test_name)::NANOAPP_TEST_CLASS_INITIALIZER_NAME_(test_case_name,   \
+                                                       test_name)(       \
+      NANOAPP_TEST_CLASS_NAME_(test_case_name, test_name) * test_hook) { \
+    test_case_name##_##test_name##_TestHook = test_hook;                 \
+    test_hook->StartChre();                                              \
+    test_hook->ConfigureApi();                                           \
+    std::thread(nanoapp_run##test_name).detach();                        \
+    test_name##init_counter.Wait();                                      \
+  }                                                                      \
+                                                                         \
+  NANOAPP_TEST_CLASS_INITIALIZER_NAME_(                                  \
+      test_case_name,                                                    \
+      test_name)::~NANOAPP_TEST_CLASS_INITIALIZER_NAME_(test_case_name,  \
+                                                        test_name)() {   \
+    chre::EventLoopManagerSingleton::get()->getEventLoop().stop();       \
+    test_name##deinit_counter.Wait();                                    \
+    lbs::contexthub::FakeChreApiProvider::ResetInstance();               \
+    lbs::contexthub::FakeChrexApiProvider::ResetInstance();              \
+    test_case_name##_##test_name##_TestHook->ShutdownChre();             \
   }
 
 // Generates a valid subclass of the given test_fixture that runs the test

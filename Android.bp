@@ -1647,6 +1647,7 @@ filegroup {
         "core/host_comms_manager.cc",
         "core/host_endpoint_manager.cc",
         "core/host_message_hub_manager.cc",
+        "core/multi_threading_api_mutex.cc",
         "core/nanoapp.cc",
         "core/sensor.cc",
         "core/sensor_request.cc",

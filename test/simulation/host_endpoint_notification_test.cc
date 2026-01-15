@@ -33,7 +33,7 @@ namespace chre {
 
 namespace {
 
-class HostEndpointNotificationTest : public TestBase {};
+class HostEndpointNotificationTest : public SingleThreadTestBase {};
 
 //! The host endpoint ID to use for this test.
 constexpr uint16_t kHostEndpointId = 123;

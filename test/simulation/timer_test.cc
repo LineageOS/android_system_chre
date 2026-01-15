@@ -34,7 +34,7 @@
 namespace chre {
 
 // TimerTest is required to access private members of the TimerPool.
-class TimerTest : public TestBase {
+class TimerTest : public SingleThreadTestBase {
  protected:
   bool hasNanoappTimers(TimerPool &pool, uint16_t instanceId) {
     return pool.hasNanoappTimers(instanceId);

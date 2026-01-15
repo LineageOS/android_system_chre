@@ -75,6 +75,7 @@ pw_add_library(chre.core STATIC
     gnss_manager.cc
     host_comms_manager.cc
     host_endpoint_manager.cc
+    multi_threading_api_mutex.cc
     nanoapp.cc
     sensor.cc
     sensor_request.cc

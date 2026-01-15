@@ -36,7 +36,7 @@
 namespace chre {
 namespace {
 
-class SensorTest : public TestBase {};
+class SensorTest : public SingleThreadTestBase {};
 
 // Validates that the default accelerometer sensor can be found.
 TEST_F(SensorTest, FindDefaultSensor) {

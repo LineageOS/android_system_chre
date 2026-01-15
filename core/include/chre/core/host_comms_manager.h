@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "chre/core/multi_threading_api_mutex.h"
 #include "chre/core/nanoapp.h"
 #include "chre/core/timer_pool.h"
 #include "chre/platform/atomic.h"
@@ -319,7 +320,8 @@ class HostCommsManager : public HostLink, private TransactionManagerCallback {
    * @param craftedMessage Message from host to be delivered to the
    * destination nanoapp
    */
-  void deliverNanoappMessageFromHost(MessageFromHost *craftedMessage);
+  void deliverNanoappMessageFromHost(MessageFromHost *craftedMessage)
+      CHRE_REQUIRES(getMultiThreadingApiMutex());
 
   /**
    * Sends a message to the host from a nanoapp. This method also

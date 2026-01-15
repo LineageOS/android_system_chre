@@ -45,7 +45,7 @@ pw::Status RpcTestService::Increment(const chre_rpc_NumberMessage &request,
 
 namespace {
 
-class RpcTest : public TestBase {};
+class RpcTest : public SingleThreadTestBase {};
 
 TEST_F(RpcTest, PwRpcCanPublishServicesInNanoappStart) {
   class App : public TestNanoapp {
