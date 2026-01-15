@@ -52,3 +52,13 @@ partners to debug tests.
 ```
 chdts-tradefed run chdts --skip-system-status-check com.android.compatibility.common.tradefed.targetprep.NetworkConnectivityChecker --module chdts-tradefed-tests --primary-abi-only --test com.android.chre.chdts.ChdtsHostTestCases#testContextHubBusyStartupNanoAppTest --module-arg chdts-tradefed-tests:set-option:com.android.chre.chdts.ChdtsHostTestCases:externalNanoAppPath:/vendor/etc/chre/chdts
 ```
+
+## Enable stress test
+
+The stress test is by default disabled, and the stress test returns ASSUMPTION_FAILURE status.
+To enable the stress test, `stressTestDurationSeconds` parameter requires a positive number.
+You could tune this parameter to run the stress test longer.
+
+```
+chdts-tradefed run chdts --skip-system-status-check com.android.compatibility.common.tradefed.targetprep.NetworkConnectivityChecker --module chdts-tradefed-tests --primary-abi-only --test com.android.chre.chdts.ChdtsHostTestCases#testContextHubStress --module-arg chdts-tradefed-tests:set-option:com.android.chre.chdts.ChdtsHostTestCases:stressTestDurationSeconds:30
+```

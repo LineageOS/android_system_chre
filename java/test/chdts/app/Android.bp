@@ -30,6 +30,9 @@ android_library {
         "aidl/**/I*.aidl",
         "src/**/*.java",
     ],
+    exclude_srcs: [
+        "src/**/GtsContextHubStressTest.java",
+    ],
     asset_dirs: ["assets"],
     libs: ["android.test.runner.stubs"],
     static_libs: [
@@ -54,6 +57,9 @@ android_library {
 
 android_test_helper_app {
     name: "ChdtsTestApp",
+    srcs: [
+        "src/**/GtsContextHubStressTest.java",
+    ],
     dex_preopt: {
         enabled: false,
     },
@@ -75,6 +81,7 @@ android_test_helper_app {
         "context-hub-chre-concurrency-test",
         "context-hub-permissions-test",
         "context-hub-rpc-service-test",
+        "context-hub-stress-test",
         "android.chre.flags-aconfig-java",
     ],
     sdk_version: "test_current",

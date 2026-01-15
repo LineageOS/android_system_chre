@@ -26,6 +26,7 @@ import android.hardware.location.ContextHubManager;
 import android.hardware.location.NanoAppBinary;
 import android.os.Build;
 import android.os.Bundle;
+import android.text.TextUtils;
 
 import androidx.test.InstrumentationRegistry;
 
@@ -398,5 +399,24 @@ public class ContextHubHostTestUtil {
     private static boolean isChdts() {
         Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
         return "com.android.chre.chdts.app".equals(context.getPackageName());
+    }
+
+    /**
+     * @return Returns the duration of stress test in seconds.
+     * If stressTestDurationSeconds <=0, the stress test will be disabled.
+     */
+    public static long getStressTestDurationSeconds() {
+        Bundle extras = InstrumentationRegistry.getArguments();
+        if (extras == null || TextUtils.isEmpty(extras.getString("stressTestDurationSeconds"))) {
+            return 0;
+        }
+        try {
+            long duration = Long.parseLong(extras.getString("stressTestDurationSeconds"));
+            return duration;
+        } catch (NumberFormatException e) {
+            Assert.fail("Failed to parse stressTestDurationSeconds: "
+                    + extras.getString("stressTestDurationSeconds"));
+            return 0;
+        }
     }
 }
