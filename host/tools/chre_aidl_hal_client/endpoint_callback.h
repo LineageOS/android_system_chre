@@ -34,7 +34,8 @@ using aidl::android::hardware::contexthub::AsyncEventType;
 using aidl::android::hardware::contexthub::BnContextHubCallback;
 using aidl::android::hardware::contexthub::BnEndpointCallback;
 using aidl::android::hardware::contexthub::ContextHubInfo;
-using aidl::android::hardware::contexthub::ContextHubMessage;
+using aidl::android::hardware::contexthub::DataFlowId;
+using aidl::android::hardware::contexthub::DataFlowSinkRegistrationParams;
 using aidl::android::hardware::contexthub::EndpointId;
 using aidl::android::hardware::contexthub::EndpointInfo;
 using aidl::android::hardware::contexthub::HostEndpointInfo;
@@ -89,6 +90,13 @@ class EndpointCallback : public BnEndpointCallback {
                                        Reason in_reason) override;
 
   ScopedAStatus onEndpointSessionOpenComplete(int32_t in_sessionId) override;
+
+  ScopedAStatus onDataFlowHostSinkRegistered(
+      const DataFlowSinkRegistrationParams &in_params) override;
+
+  ScopedAStatus onDataFlowOffloadEndpointUnregistered(
+      const DataFlowId &in_dataFlowId, const EndpointId &in_endpointId,
+      const std::vector<EndpointId> &in_destinationIds) override;
 };
 
 class EndpointHelper {

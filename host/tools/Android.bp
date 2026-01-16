@@ -30,7 +30,7 @@ cc_binary {
         "chre_aidl_hal_client/*.cc",
     ],
     shared_libs: [
-        "android.hardware.contexthub-V4-ndk",
+        "android.hardware.contexthub-V5-ndk",
         "libaconfig_storage_read_api_cc",
         "libbase",
         "libbinder_ndk",

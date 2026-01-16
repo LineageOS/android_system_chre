@@ -379,10 +379,10 @@ void Manager::validateGnssAsyncResult(const chreAsyncResult *result,
 void Manager::handleBleAdvertismentEvent(
     const chreBleAdvertisementEvent *event) {
   for (uint8_t i = 0; i < event->numReports; i++) {
-    uint64_t timestamp =
-        event->reports[i].timestamp / chre::kOneMillisecondInNanoseconds;
+    uint64_t timestamp = event->reports[i].timestamp;
 
-    LOGI("Received BLE advertisement event at %" PRIu64 " ms", timestamp);
+    LOGI("Received BLE advertisement event at %" PRIu64 " ns (%" PRIu64 " ms)",
+         timestamp, timestamp / chre::kOneMillisecondInNanoseconds);
     checkTimestamp(timestamp, mPrevBleAdTimestampMs);
     mPrevBleAdTimestampMs = timestamp;
   }

@@ -125,9 +125,14 @@ void getAllHubs() {
     std::cerr << "No hubs found" << std::endl;
     return;
   }
-  for (const auto &[hubId, hubDetails] : hubs) {
+  for (const auto &[hubId, hubDetails, sharedDataCapabilities] : hubs) {
     std::cout << "Hub id: 0x" << std::hex << hubId << " "
-              << hubDetails.toString() << std::endl;
+              << hubDetails.toString();
+    if (sharedDataCapabilities) {
+      std::cout << "; supports data flows: "
+                << sharedDataCapabilities->dataFlowsSupported;
+    }
+    std::cout << std::endl;
   }
 }
 
@@ -358,9 +363,14 @@ void halClientGetHubs(HalClient *halClient) {
     std::cerr << "No hubs found" << std::endl;
     return;
   }
-  for (const auto &[hubId, hubDetails] : hubs) {
+  for (const auto &[hubId, hubDetails, sharedDataCapabilities] : hubs) {
     std::cout << "Hub id: 0x" << std::hex << hubId << " "
-              << hubDetails.toString() << std::endl;
+              << hubDetails.toString();
+    if (sharedDataCapabilities) {
+      std::cout << "; supports data flows: "
+                << sharedDataCapabilities->dataFlowsSupported;
+    }
+    std::cout << std::endl;
   }
 }
 

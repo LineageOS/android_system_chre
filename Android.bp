@@ -105,7 +105,7 @@ cc_defaults {
     ],
     shared_libs: [
         "android.frameworks.stats-V2-ndk",
-        "android.hardware.contexthub-V4-ndk",
+        "android.hardware.contexthub-V5-ndk",
         "chre_atoms_log",
         "chremetrics-cpp",
         "libaconfig_storage_read_api_cc",
@@ -157,7 +157,7 @@ cc_library_static {
     header_libs: ["chre_flatbuffers"],
     export_header_lib_headers: ["chre_flatbuffers"],
     shared_libs: [
-        "android.hardware.contexthub-V4-ndk",
+        "android.hardware.contexthub-V5-ndk",
         "libaconfig_storage_read_api_cc",
         "libbase",
         "libbinder_ndk",
@@ -514,7 +514,7 @@ cc_library_static {
         "util/include",
     ],
     shared_libs: [
-        "android.hardware.contexthub-V4-ndk",
+        "android.hardware.contexthub-V5-ndk",
         "libcutils",
         "libutils",
     ],
@@ -577,7 +577,7 @@ cc_test_host {
         "util/include/",
     ],
     static_libs: [
-        "android.hardware.contexthub-V4-ndk",
+        "android.hardware.contexthub-V5-ndk",
         "chre_flags_c_lib",
         "chre_host_common",
         "chre_host_util",
@@ -588,7 +588,7 @@ cc_test_host {
     ],
     shared_libs: [
         "android.frameworks.stats-V2-ndk",
-        "android.hardware.contexthub-V4-ndk",
+        "android.hardware.contexthub-V5-ndk",
         "chre_atoms_log",
         "libaconfig_storage_read_api_cc",
         "libbase",

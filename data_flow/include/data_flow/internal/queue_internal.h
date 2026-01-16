@@ -17,8 +17,11 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
+
+#include <aidl/android/hardware/contexthub/SharedDataRegion.h>
 
 #include "data_flow/queue_defs.h"
 #include "pw_allocator/allocator.h"
@@ -40,19 +43,50 @@ class MemoryAccess;
 
 namespace internal {
 
-// TODO(b/444261568): Replace std::atomic<uint32_t> with chre::AtomicUint32 to
-// allow for platforms that don't have <atomic> support. This will require a way
-// to report something like is_always_lock_free for a given platform's
-// implementation.
+// TODO(b/444261568): Replace std::atomic_ref<uint32_t> with an equivalent based
+// on chre::AtomicUint32 to allow for platforms that don't have <atomic>
+// support. This will require a way to report something like is_always_lock_free
+// for a given platform's implementation.
 static_assert(std::atomic<uint32_t>::is_always_lock_free);
 
+// The following types are aliases of the shared memory ABI types defined in the
+// ContextHub HAL AIDL. Note that in the interface, the names are mapped in the
+// following way: queue -> data flow, producer -> source, consumer -> sink.
+using ProducerDesc = ::aidl::android::hardware::contexthub::SharedDataRegion::
+    DataFlowSourceMetadata;
+using ConsumerDesc = ::aidl::android::hardware::contexthub::SharedDataRegion::
+    DataFlowSinkMetadata;
+using Queue =
+    ::aidl::android::hardware::contexthub::SharedDataRegion::DataFlowMetadata;
+using ElementConfig = ::aidl::android::hardware::contexthub::SharedDataRegion::
+    DataFlowElementConfig;
+using BlockHeader = ::aidl::android::hardware::contexthub::SharedDataRegion::
+    DataFlowBlockHeader;
+using VariableDataBlockHeader = ::aidl::android::hardware::contexthub::
+    SharedDataRegion::DataFlowVariableSizeBlockHeader;
+using VariableElementHeader = ::aidl::android::hardware::contexthub::
+    SharedDataRegion::DataFlowVariableSizeElementHeader;
+using Version =
+    ::aidl::android::hardware::contexthub::SharedDataRegion::Version;
+using SourceFlags = ::aidl::android::hardware::contexthub::SharedDataRegion::
+    DataFlowSinkMetadata::SourceFlags;
+using SinkFlags = ::aidl::android::hardware::contexthub::SharedDataRegion::
+    DataFlowSinkMetadata::SinkFlags;
+
 //! Analog to nullptr for offsets in shared memory.
-constexpr uint32_t kOffsetInvalid = UINT32_MAX;
+constexpr uint32_t kOffsetInvalid = static_cast<uint32_t>(
+    ::aidl::android::hardware::contexthub::SharedDataRegion::OFFSET_INVALID);
 
 //! Maximum size of an endpoint id.
 constexpr size_t kMaxIdSize = 16;
 
-//! Endpoint id for remote notifications or local callback.
+/**
+ * Endpoint id for remote notifications or local callback.
+ *
+ * This overloads SharedDataRegion::EndpointIdFixedSize for the purposes of
+ * local queues or remote queues using a different id format. Its size must be
+ * the same.
+ */
 union alignas(8) IdOrNotifyFn {
   LocalNotifyArgs localNotify;
   union {
@@ -60,24 +94,13 @@ union alignas(8) IdOrNotifyFn {
     struct {
       uint64_t hubId;
       uint64_t endpointId;
-    };
+    } endpointId;
     std::array<std::byte, kMaxIdSize> remoteId;
   };
 } __attribute__((packed));
-static_assert(sizeof(IdOrNotifyFn) == 16);
-
-/** Producer metadata in shared memory. */
-struct alignas(8) ProducerDesc {
-  // Current write index. Updated by the producer.
-  std::atomic<uint32_t> writeIndex;
-  // Correction to index for calculating index within Block::data.
-  uint32_t indexCorrection;
-  // Offset of the block containing the current write index in shared memory.
-  uint32_t tailBlockOffset;
-  // Reserved for future use.
-  uint8_t reserved[12];
-} __attribute__((packed));
-static_assert(sizeof(ProducerDesc) == 24);
+static_assert(sizeof(IdOrNotifyFn) ==
+              sizeof(::aidl::android::hardware::contexthub::SharedDataRegion::
+                         EndpointIdFixedSize));
 
 /**
  * Flags used by the Producer to indicate exceptional state.
@@ -87,148 +110,19 @@ static_assert(sizeof(ProducerDesc) == 24);
  * set of values.
  */
 enum class ProducerFlags : uint16_t {
-  kNone = 0x0,            // No flags set. Consumer does not need to ack this.
-  kPendingInit = 0x1,     // Consumer state allocated, pending Consumer().
-  kBlocking = 0x1 << 1,   // Producer cannot write until this Consumer reads.
-  kOverwrite = 0x1 << 2,  // Producer overwrote this Consumer.
-  kFinished = 0x1 << 3,   // Producer torn down.
-  kDisconnected = 0x1 << 4,  // The consumer endpoint disconnected.
+  kNone = 0x0,  // No flags set. Consumer does not need to ack this.
+  kPendingInit = static_cast<uint16_t>(SourceFlags::PENDING_INIT),
+  kBlocking = static_cast<uint16_t>(SourceFlags::BLOCKING),
+  kOverwrite = static_cast<uint16_t>(SourceFlags::OVERWRITE),
+  kFinished = static_cast<uint16_t>(SourceFlags::FINISHED),
+  kDisconnected = static_cast<uint16_t>(SourceFlags::DISCONNECTED),
 };
 
 /** Flags used by the Consumer to acknowledge ProducerFlags or tear down. */
 enum class ConsumerFlags : uint16_t {
-  kFlagsCleared = 0,  // Producer flags have been handled.
-  kFinished,          // Consumer torn down and ready for deallocation.
+  kFlagsCleared = static_cast<uint16_t>(SinkFlags::CLEARED),
+  kFinished = static_cast<uint16_t>(SinkFlags::FINISHED),
 };
-
-/**
- * Queue implementation version. Uses the same numbering scheme as the CHRE API.
- *
- * Minor version changes require that the following are maintained:
- * - The form and meaning of any existing struct fields
- * - The size and alignment of ProducerDesc and BlockHeader
- *
- * Major version changes will use new struct definitions, however, the first
- * field of Queue and ConsumerDesc must be a Version.
- */
-struct Version {
-  uint8_t major;
-  uint8_t minor;
-  uint16_t patch;
-};
-static_assert(sizeof(Version) == 4);
-
-/** Consumer metadata in shared memory. */
-struct ConsumerDesc {
-  // Consumer version.
-  Version version;
-  // Current read index. Updated by the consumer.
-  std::atomic<uint32_t> readIndex;
-  // Correction to index for calculating index within Block::data.
-  uint32_t indexCorrection;
-  // The following two fields are a way to emulate a single flag set by
-  // the producer and atomically read and cleared by the consumer. The producer
-  // only writes to producerFlags while the consumer only writes to
-  // consumerFlags. The producer maintains a local counter whose value is
-  // incremented on every write and included in producerFlags. The consumer
-  // copies the latest read counter value into consumerFlags to indicate that it
-  // has handled the producer flags up to that counter value, effectively
-  // clearing it.
-  // { 0-15: ProducerFlags | 16-31: counter incremented on write }
-  std::atomic<uint32_t> producerFlags;
-  // Id for remote notification or local callback.
-  IdOrNotifyFn idOrNotifyFn;
-  // { 0-15: ConsumerFlags | 16-31: latest value of producerFlags counter }
-  std::atomic<uint32_t> consumerFlags;
-  // The current tail block offset when the producer is adding the consumer. If
-  // the consumer is not overwritten by the time it initialized, it will use
-  // this as its head block.
-  uint32_t initHeadBlockOffset;
-  // The initial block count and list epoch when the producer adds the consumer.
-  // The consumer uses this to attempt to recover data if the producer
-  // overwrites it before it initializes.
-  uint32_t initBlockListEpoch;
-  // Set by the producer. Indicates whether this consumer may be overwritten.
-  // This field is intended to inform a consumer of the policy. The consumer
-  // cannot modify this field to affect producer behavior.
-  OverwritePolicy overwritePolicy;
-  // Padding bytes. Reserved for future use.
-  uint8_t padding[11];
-} __attribute__((packed));
-static_assert(sizeof(ConsumerDesc) == 56);
-
-/** Queue metadata in shared memory. */
-struct alignas(8) Queue {
-  // Producer version.
-  Version version;
-  // Offset of the ProducerDesc in shared memory. Updated by the producer.
-  std::atomic<uint32_t> producerOffset;
-  // Producer id for remote notification or local callback.
-  IdOrNotifyFn idOrNotifyFn;
-  // Captures the current epoch of the block list and the block count. Updated
-  // by the producer.
-  // Format: { 0-15: epoch counter | 16-31: block count }
-  std::atomic<uint32_t> blockListEpoch;
-  // Block capacity in bytes.
-  uint32_t blockCapacity;
-  // Configuration of the data in the queue.
-  struct DataConfig {
-    enum class Mode : uint8_t {
-      kFixedSize = 0,
-      // Variable-size elements preceded by a 4-byte header containing the size.
-      kVariableSizeBasic = 1,
-      // Variable-size elements with the header and data aligned as requested.
-      kVariableSizeAligned = 2,
-    };
-    union {
-      struct {  // kFixedSize
-        uint32_t elementSize;
-        uint16_t elementAlignment;
-      } __attribute__((packed)) fixedSize;
-      struct {  // kVariableSizeAligned
-        uint16_t elementAlignment;
-        uint8_t elementHdrSize;
-        uint8_t elementHdrAlignment;
-      } __attribute__((packed)) variableSize;
-      uint8_t size[7];  // Future configs can use up to 7 bytes.
-    } __attribute__((packed));
-    Mode mode;
-  } __attribute__((packed)) config;
-  // True iff notifications are done using IdOrNotifyFn.fn
-  uint8_t localNotify;
-  // Padding bytes. Reserved for future use.
-  uint8_t padding[7];
-} __attribute__((packed));
-static_assert(sizeof(Queue) == 48);
-
-/** Header that precedes the aligned array of elements. */
-struct alignas(8) BlockHeader {
-  // Storage for the ProducerDesc in the current tail block.
-  ProducerDesc producerDesc;
-  // Offset of the next block in shared memory. May refer back to this block.
-  std::atomic<uint32_t> nextBlockOffset;  // Updated by the producer.
-  // Base index for reading/writing this block. Initialized to 0.
-  std::atomic<uint32_t> baseIndex;  // Updated by the producer.
-  // Index at which to jump to the next block. Initialized to kCapacity.
-  std::atomic<uint32_t> skipIndex;  // Updated by the producer.
-  // Reserved for future use.
-  uint8_t reserved[12];
-} __attribute__((packed));
-static_assert(sizeof(BlockHeader) == 48);
-
-/** Header that precedes the storage for variable-size elements. */
-struct alignas(8) VariableDataBlockHeader {
-  BlockHeader base;
-  uint32_t firstElementIndex;  // Initialized to block capacity.
-  uint8_t reserved[12];        // Reserved for future use.
-} __attribute__((packed));
-static_assert(sizeof(VariableDataBlockHeader) == 64);
-
-/** Header preceding each variable-size element. */
-struct alignas(4) VariableDataHeader {
-  uint32_t size;  // Element size in bytes.
-} __attribute__((packed));
-static_assert(sizeof(VariableDataHeader) == 4);
 
 /** Block of element storage. */
 template <typename ElementType>
@@ -250,12 +144,12 @@ struct VariableDataBlock {
   VariableDataBlockHeader header;
   // Element storage is aligned to the size of the header so that the header can
   // always be read contiguously.
-  alignas(VariableDataHeader) std::byte data[];
+  alignas(VariableElementHeader) std::byte data[];
 };
 
 /** @return Layout for allocating VariableDataBlocks using pw::Allocator. */
 constexpr pw::allocator::Layout variableDataBlockLayout(size_t blockCapacity) {
-  constexpr auto kHdrAlignment = alignof(VariableDataHeader);
+  constexpr auto kHdrAlignment = alignof(VariableElementHeader);
   constexpr auto kUnalignedBits = kHdrAlignment - 1;
   // Round up the block capacity to a multiple of the element header alignment
   // (power-of-2) to ensure that an element header is never split in an
@@ -296,7 +190,8 @@ struct ConsumerNode : public ConsumerListNode {
 };
 
 /** Queue shared metadata and producer data that is not part of the ABI. */
-struct QueuePrivate : public Queue {
+struct QueuePrivate {
+  Queue queue;
   pw::containers::future::IntrusiveList<ConsumerNode> consumerList;
 };
 
@@ -1010,8 +905,8 @@ void ProducerBase::forAllConsumers(uint16_t excludeMask, const Fn &fn,
   for (auto node = mQueue->consumerList.begin();
        node != mQueue->consumerList.end();) {
     auto *desc = node->desc;
-    auto consumerFlags = desc->consumerFlags.load();
-    auto producerFlags = desc->producerFlags.load();
+    auto consumerFlags = std::atomic_ref(desc->sinkFlags).load();
+    auto producerFlags = std::atomic_ref(desc->sourceFlags).load();
     if (static_cast<uint16_t>(consumerFlags) ==
         static_cast<uint16_t>(internal::ConsumerFlags::kFinished)) {
       eraseConsumerNode(node);  // Moves node forward.

@@ -78,10 +78,10 @@ class QueueTest : public ::testing::Test {
 
   void TearDown() override {
     mConsumers.clear();
-    mProducer.reset();
     mVarDataConsumers.clear();
-    mVarDataProducer.reset();
     mUntypedConsumers.clear();
+    mProducer.reset();
+    mVarDataProducer.reset();
     mUntypedProducer.reset();
   }
 
@@ -1153,9 +1153,10 @@ TEST_F(QueueTest, VariableDataConsumerResyncAcrossBlocks) {
 
   // Push a large element that leaves just enough space in the first block to
   // prevent the next element header from fitting, forcing a block wrap.
-  constexpr size_t kRemainingSpace = sizeof(internal::VariableDataHeader) - 1;
+  constexpr size_t kRemainingSpace =
+      sizeof(internal::VariableElementHeader) - 1;
   size_t data1_size = kVarDataBlockCapacity -
-                      sizeof(internal::VariableDataHeader) - kRemainingSpace;
+                      sizeof(internal::VariableElementHeader) - kRemainingSpace;
   std::vector<std::byte> data1(data1_size, std::byte(0xAA));
   ASSERT_EQ(mVarDataProducer->push(data1), pw::OkStatus());
 
@@ -1164,8 +1165,8 @@ TEST_F(QueueTest, VariableDataConsumerResyncAcrossBlocks) {
   ASSERT_EQ(mVarDataProducer->push(data2), pw::OkStatus());
 
   // Resync to keep only the second element.
-  ASSERT_EQ(mVarDataConsumers[0].resync(data2.size() +
-                                        sizeof(internal::VariableDataHeader)),
+  ASSERT_EQ(mVarDataConsumers[0].resync(
+                data2.size() + sizeof(internal::VariableElementHeader)),
             pw::OkStatus());
 
   // Verify that the consumer now only sees the second element.

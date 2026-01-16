@@ -132,12 +132,12 @@ ScopedAStatus ContextHubV4Impl::registerEndpointHub(
         BnContextHub::EX_CONTEXT_HUB_UNSPECIFIED);
   }
   *hubInterface = ndk::SharedRefBase::make<HostHubInterface>(
-      std::move(*statusOrHub), mSendMessageFn, mHostHubOpLock);
+      std::move(*statusOrHub), *this);
   return ScopedAStatus::ok();
 }
 
 ScopedAStatus HostHubInterface::registerEndpoint(const EndpointInfo &endpoint) {
-  std::lock_guard lock(mHostHubOpLock);  // See header documentation.
+  std::lock_guard lock(mHal.mHostHubOpLock);  // See header documentation.
   if (auto status = mHub->addEndpoint(endpoint); !status.ok()) {
     LOGE("Failed to register endpoint 0x%" PRIx64 " on hub 0x%" PRIx64
          " with %" PRId32,
@@ -146,7 +146,7 @@ ScopedAStatus HostHubInterface::registerEndpoint(const EndpointInfo &endpoint) {
   }
   flatbuffers::FlatBufferBuilder builder;
   HostProtocolHostV4::encodeRegisterEndpoint(builder, endpoint);
-  if (!mSendMessageFn(builder)) {
+  if (!mHal.mSendMessageFn(builder)) {
     LOGE("Failed to send RegisterEndpoint for (0x%" PRIx64 ", 0x%" PRIx64 ")",
          endpoint.id.hubId, endpoint.id.id);
     mHub->removeEndpoint(endpoint.id).IgnoreError();
@@ -158,7 +158,7 @@ ScopedAStatus HostHubInterface::registerEndpoint(const EndpointInfo &endpoint) {
 
 ScopedAStatus HostHubInterface::unregisterEndpoint(
     const EndpointInfo &endpoint) {
-  std::lock_guard lock(mHostHubOpLock);  // See header documentation.
+  std::lock_guard lock(mHal.mHostHubOpLock);  // See header documentation.
   auto statusOrSessions = mHub->removeEndpoint(endpoint.id);
   if (!statusOrSessions.ok()) {
     LOGE("Failed to unregister endpoint 0x%" PRIx64 " on hub 0x%" PRIx64
@@ -168,7 +168,7 @@ ScopedAStatus HostHubInterface::unregisterEndpoint(
   }
   flatbuffers::FlatBufferBuilder builder;
   HostProtocolHostV4::encodeUnregisterEndpoint(builder, endpoint.id);
-  if (!mSendMessageFn(builder)) {
+  if (!mHal.mSendMessageFn(builder)) {
     LOGE("Failed to send RegisterEndpoint for (0x%" PRIx64 ", 0x%" PRIx64 ")",
          endpoint.id.hubId, endpoint.id.id);
     return ScopedAStatus::fromServiceSpecificError(
@@ -210,7 +210,7 @@ ScopedAStatus HostHubInterface::openEndpointSession(
   HostProtocolHostV4::encodeOpenEndpointSessionRequest(
       builder, mHub->id(), sessionId, initiator, destination,
       serviceDescriptor);
-  if (!mSendMessageFn(builder)) {
+  if (!mHal.mSendMessageFn(builder)) {
     LOGE("Failed to send OpenEndpointSessionRequest for session %" PRId32,
          sessionId);
     mHub->closeSession(sessionId, Reason::UNSPECIFIED).IgnoreError();
@@ -232,7 +232,7 @@ ScopedAStatus HostHubInterface::sendMessageToEndpoint(int32_t sessionId,
   flatbuffers::FlatBufferBuilder builder;
   HostProtocolHostV4::encodeEndpointSessionMessage(builder, mHub->id(),
                                                    sessionId, msg);
-  if (!mSendMessageFn(builder)) {
+  if (!mHal.mSendMessageFn(builder)) {
     LOGE("Failed to send EndpointSessionMessage over session %" PRId32,
          sessionId);
     return ScopedAStatus::fromServiceSpecificError(
@@ -252,7 +252,7 @@ ScopedAStatus HostHubInterface::sendMessageDeliveryStatusToEndpoint(
   flatbuffers::FlatBufferBuilder builder;
   HostProtocolHostV4::encodeEndpointSessionMessageDeliveryStatus(
       builder, mHub->id(), sessionId, msgStatus);
-  if (!mSendMessageFn(builder)) {
+  if (!mHal.mSendMessageFn(builder)) {
     LOGE(
         "Failed to send EndpointSessionMessageDeliveryStatus over session "
         "%" PRId32,
@@ -274,7 +274,7 @@ ScopedAStatus HostHubInterface::closeEndpointSession(int32_t sessionId,
   flatbuffers::FlatBufferBuilder builder;
   HostProtocolHostV4::encodeEndpointSessionClosed(builder, mHub->id(),
                                                   sessionId, reason);
-  if (!mSendMessageFn(builder)) {
+  if (!mHal.mSendMessageFn(builder)) {
     LOGE("Failed to send EndpointSessionClosed for session %" PRId32,
          sessionId);
     return ScopedAStatus::fromServiceSpecificError(
@@ -294,7 +294,7 @@ ScopedAStatus HostHubInterface::endpointSessionOpenComplete(int32_t sessionId) {
   flatbuffers::FlatBufferBuilder builder;
   HostProtocolHostV4::encodeEndpointSessionOpened(builder, mHub->id(),
                                                   sessionId);
-  if (!mSendMessageFn(builder)) {
+  if (!mHal.mSendMessageFn(builder)) {
     LOGE("Failed to send EndpointSessionOpened for session %" PRId32,
          sessionId);
     return ScopedAStatus::fromServiceSpecificError(
@@ -304,16 +304,60 @@ ScopedAStatus HostHubInterface::endpointSessionOpenComplete(int32_t sessionId) {
 }
 
 ScopedAStatus HostHubInterface::unregister() {
-  std::lock_guard lock(mHostHubOpLock);  // See header documentation.
+  std::lock_guard lock(mHal.mHostHubOpLock);  // See header documentation.
   if (auto status = mHub->unregister(); !status.ok()) {
     return fromPwStatus(status);
   }
   flatbuffers::FlatBufferBuilder builder;
   HostProtocolHostV4::encodeUnregisterMessageHub(builder, mHub->id());
-  if (!mSendMessageFn(builder)) {
+  if (!mHal.mSendMessageFn(builder)) {
     LOGE("Failed to send UnregisterMessageHub for hub 0x%" PRIx64, mHub->id());
   }
   return ScopedAStatus::ok();
+}
+
+ScopedAStatus HostHubInterface::allocateSharedDataRegion(
+    const SharedDataRegionRequirements & /*requirements*/,
+    SharedDataRegion * /*region*/) {
+  // TODO(b/463163051): Implement this.
+  LOGE("allocateSharedDataRegion not implemented");
+  return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+}
+
+ScopedAStatus HostHubInterface::freeSharedDataRegion(int32_t /*id*/) {
+  // TODO(b/463163051): Implement this.
+  LOGE("freeSharedDataRegion not implemented");
+  return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+}
+
+ScopedAStatus HostHubInterface::registerDataFlowHostSource(
+    const EndpointId & /*endpoint*/, const DataFlowInfo & /*info*/,
+    int32_t * /*id*/) {
+  // TODO(b/463163051): Implement this.
+  LOGE("registerDataFlowHostSource not implemented");
+  return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+}
+
+ScopedAStatus HostHubInterface::unregisterDataFlowHostSource(int32_t /*id*/) {
+  // TODO(b/463163051): Implement this.
+  LOGE("unregisterDataFlowHostSource not implemented");
+  return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+}
+
+ScopedAStatus HostHubInterface::registerDataFlowOffloadSink(
+    const DataFlowSinkRegistrationParams & /*params*/,
+    const std::shared_ptr<IEndpointCommunication::IRegisterOffloadSinkCallback>
+        & /*callback*/) {
+  // TODO(b/463163051): Implement this.
+  LOGE("registerDataFlowOffloadSink not implemented");
+  return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+}
+
+ScopedAStatus HostHubInterface::unregisterDataFlowHostSink(
+    const EndpointId & /*sinkId*/, const DataFlowId & /*dataFlowId*/) {
+  // TODO(b/463163051): Implement this.
+  LOGE("unregisterDataFlowHostSink not implemented");
+  return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
 }
 
 bool ContextHubV4Impl::handleMessageFromChre(

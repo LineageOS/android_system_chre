@@ -810,7 +810,7 @@ class VariableDataProducer : protected internal::ProducerBase {
                       uint32_t &index, bool convertSkipToBase) override;
 
   // If set, size of the current reserved element in shared memory.
-  internal::VariableDataHeader *mCurrentHdrPtr = nullptr;
+  internal::VariableElementHeader *mCurrentHdrPtr = nullptr;
 };
 
 /** A consumer on a queue of variable-size elements. */
@@ -948,7 +948,7 @@ class VariableDataConsumer : protected internal::ConsumerBase {
    */
   pw::Status overwriteFastForward(size_t offset) override;
 
-  std::optional<internal::VariableDataHeader> mCurrentHdr = std::nullopt;
+  std::optional<internal::VariableElementHeader> mCurrentHdr = std::nullopt;
 };
 
 /** Layout used to allocate queue metadata in shared memory. */

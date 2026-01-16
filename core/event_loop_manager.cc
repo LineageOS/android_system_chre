@@ -46,6 +46,29 @@ bool EventLoopManager::inEventLoopForNanoapp(uint64_t appId) {
   return eventLoop->findNanoappInstanceIdByAppId(appId, &instanceId);
 }
 
+EventLoop *EventLoopManager::getEventLoopByAppId(uint64_t appId) {
+  for (auto &eventLoop : mEventLoops) {
+    Nanoapp *nanoapp = eventLoop.findNanoappByAppId(appId);
+    if (nanoapp != nullptr) {
+      return &eventLoop;
+    }
+  }
+
+  return nullptr;
+}
+
+EventLoop *EventLoopManager::getEventLoopByInstanceId(
+    uint16_t nanoappInstanceId) {
+  for (auto &eventLoop : mEventLoops) {
+    Nanoapp *nanoapp = eventLoop.findNanoappByInstanceId(nanoappInstanceId);
+    if (nanoapp != nullptr) {
+      return &eventLoop;
+    }
+  }
+
+  return nullptr;
+}
+
 uint16_t EventLoopManager::getNextInstanceId() {
   EventLoop *eventLoop = getCurrentEventLoop();
   if (eventLoop == nullptr) {

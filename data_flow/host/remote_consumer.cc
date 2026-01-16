@@ -37,23 +37,21 @@ createRemoteConsumer(Region region, std::optional<Region> descRegion,
   if (!queue) {
     return pw::Status::InvalidArgument();
   }
-  switch (queue->config.mode) {
-    case internal::Queue::DataConfig::Mode::kFixedSize: {
+  switch (queue->elementConfig.getTag()) {
+    case internal::ElementConfig::Tag::fixedSize: {
       PW_TRY_ASSIGN(auto consumer, UntypedConsumer::createRemote(
                                        region, descRegion, queueOffset,
                                        descOffset, std::move(notifyArgs),
                                        /*memAccess=*/nullptr));
       return consumer;
     }
-    case internal::Queue::DataConfig::Mode::kVariableSizeBasic: {
+    case internal::ElementConfig::Tag::variableSize: {
       PW_TRY_ASSIGN(auto consumer, VariableDataConsumer::createRemote(
                                        region, descRegion, queueOffset,
                                        descOffset, std::move(notifyArgs),
                                        /*memAccess=*/nullptr));
       return consumer;
     }
-    case internal::Queue::DataConfig::Mode::kVariableSizeAligned:
-      return pw::Status::Unimplemented();
     default:
       return pw::Status::InvalidArgument();
   }

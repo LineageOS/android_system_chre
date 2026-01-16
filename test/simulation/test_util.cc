@@ -193,13 +193,15 @@ void defaultNanoappEnd() {}
 void loadNanoapp(const char *name, uint64_t appId, uint32_t appVersion,
                  uint32_t appPerms, decltype(nanoappStart) *startFunc,
                  decltype(nanoappHandleEvent) *handleEventFunc,
-                 decltype(nanoappEnd) *endFunc) {
-  UniquePtr<Nanoapp> nanoapp = createStaticNanoapp(
-      name, appId, appVersion, appPerms, startFunc, handleEventFunc, endFunc);
+                 decltype(nanoappEnd) *endFunc, int8_t requestedThreadPriority,
+                 EventLoop *eventLoop) {
+  UniquePtr<Nanoapp> nanoapp =
+      createStaticNanoapp(name, appId, appVersion, appPerms, startFunc,
+                          handleEventFunc, endFunc, requestedThreadPriority);
 
   EventLoopManagerSingleton::get()->deferCallback(
       SystemCallbackType::FinishLoadingNanoapp, std::move(nanoapp),
-      testFinishLoadingNanoappCallback);
+      testFinishLoadingNanoappCallback, eventLoop);
 
   TestEventQueueSingleton::get()->waitForEvent(
       CHRE_EVENT_SIMULATION_TEST_NANOAPP_LOADED);
@@ -209,7 +211,7 @@ uint64_t loadNanoapp(UniquePtr<TestNanoapp> app) {
   TestNanoapp *pApp = app.get();
   registerNanoapp(std::move(app));
   loadNanoapp(pApp->name(), pApp->id(), pApp->version(), pApp->perms(), &start,
-              &handleEvent, &end);
+              &handleEvent, &end, pApp->requestedThreadPriority());
 
   return pApp->id();
 }

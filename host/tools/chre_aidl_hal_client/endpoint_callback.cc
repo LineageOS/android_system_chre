@@ -88,6 +88,32 @@ ScopedAStatus EndpointCallback::onEndpointSessionOpenComplete(
   return ScopedAStatus::ok();
 }
 
+ScopedAStatus EndpointCallback::onDataFlowHostSinkRegistered(
+    const DataFlowSinkRegistrationParams &in_params) {
+  std::cout << "EndpointCallback::onDataFlowHostSinkRegistered called for sink "
+            << in_params.sinkId.toString() << " for source "
+            << in_params.sourceId.toString();
+  if (in_params.sessionId != IEndpointCommunication::SESSION_ID_INVALID) {
+    std::cout << " over session ID " << in_params.sessionId;
+  }
+  std::cout << " with context " << in_params.context.toString() << std::endl;
+  return ScopedAStatus::ok();
+}
+
+ScopedAStatus EndpointCallback::onDataFlowOffloadEndpointUnregistered(
+    const DataFlowId &in_dataFlowId, const EndpointId &in_endpointId,
+    const std::vector<EndpointId> &in_destinationIds) {
+  std::cout << "EndpointCallback::onDataFlowOffloadEndpointUnregistered called "
+               "for data flow ID "
+            << in_dataFlowId.toString() << " from endpoint "
+            << in_endpointId.toString() << " to " << in_destinationIds.size()
+            << " destination(s): " << std::endl;
+  for (const auto &destinationId : in_destinationIds) {
+    std::cout << "  - " << destinationId.toString() << std::endl;
+  }
+  return ScopedAStatus::ok();
+}
+
 void EndpointHelper::printEndpoints(std::vector<EndpointInfo> &endpoints) {
   if (endpoints.empty()) {
     std::cout << "No endpoints found" << std::endl;
@@ -95,7 +121,7 @@ void EndpointHelper::printEndpoints(std::vector<EndpointInfo> &endpoints) {
   }
   std::cout << "Found " << endpoints.size() << " endpoint(s):" << std::endl;
   for (const auto &[endpoint, type, name, version, tag, requiredPermissions,
-                    services] : endpoints) {
+                    services, sharedDataSupportVersion] : endpoints) {
     const std::string versionString =
         type == EndpointInfo::EndpointType::NANOAPP
             ? NanoappHelper::parseAppVersion(version)
@@ -128,6 +154,13 @@ void EndpointHelper::printEndpoints(std::vector<EndpointInfo> &endpoints) {
       for (const auto &service : services) {
         std::cout << "    - " << service.toString() << std::endl;
       }
+    }
+
+    if (sharedDataSupportVersion) {
+      std::cout << "  Shared Data Support Version (min. major version): "
+                << sharedDataSupportVersion->version.toString() << "("
+                << sharedDataSupportVersion->minimumCompatibleMajorVersion
+                << ")" << std::endl;
     }
   }
   std::cout << "----------------------------------------" << std::endl;
