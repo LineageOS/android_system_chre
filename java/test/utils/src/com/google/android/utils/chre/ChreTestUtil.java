@@ -111,10 +111,28 @@ public class ChreTestUtil {
     }
 
     /**
-     * Same as loadNanoApp(), but asserts that it succeeds.
+     * Loads a nanoapp and asserts that it was successful.
+     *
+     * If the nanoapp is already found on the hub, this method will automatically
+     * unload it first to ensure a clean state for the test.
+     *
+     * @param manager       The ContextHubManager to use to load the nanoapp.
+     * @param info          The ContextHubInfo describing the Context Hub to load the nanoapp to.
+     * @param nanoAppBinary The nanoapp binary to load.
      */
     public static void loadNanoAppAssertSuccess(
             ContextHubManager manager, ContextHubInfo info, NanoAppBinary nanoAppBinary) {
+        List<NanoAppState> nanoAppStates = queryNanoAppsAssertSuccess(manager, info);
+        for (NanoAppState state : nanoAppStates) {
+            if (state.getNanoAppId() == nanoAppBinary.getNanoAppId()) {
+                long nanoAppId = nanoAppBinary.getNanoAppId();
+                if (!unloadNanoApp(manager, info, nanoAppId)) {
+                    Assert.fail("Failed to unload existing nanoapp with ID 0x"
+                            + Long.toHexString(nanoAppId) + " before loading a new one.");
+                }
+                break;
+            }
+        }
         if (!loadNanoApp(manager, info, nanoAppBinary)) {
             Assert.fail("Failed to load nanoapp");
         }
