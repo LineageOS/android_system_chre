@@ -16,24 +16,18 @@
 
 #include "rpc_service_manager.h"
 
-namespace chre {
-namespace rpc_service_test {
-
-extern "C" void nanoappHandleEvent(uint32_t senderInstanceId,
-                                   uint16_t eventType, const void *eventData) {
-  RpcServiceManagerSingleton::get()->handleEvent(senderInstanceId, eventType,
-                                                 eventData);
+void nanoappHandleEvent(uint32_t senderInstanceId, uint16_t eventType,
+                        const void *eventData) {
+  chre::rpc_service_test::RpcServiceManagerSingleton::get()->handleEvent(
+      senderInstanceId, eventType, eventData);
 }
 
-extern "C" bool nanoappStart(void) {
-  RpcServiceManagerSingleton::init();
-  return RpcServiceManagerSingleton::get()->start();
+bool nanoappStart(void) {
+  chre::rpc_service_test::RpcServiceManagerSingleton::init();
+  return chre::rpc_service_test::RpcServiceManagerSingleton::get()->start();
 }
 
-extern "C" void nanoappEnd(void) {
-  RpcServiceManagerSingleton::get()->end();
-  RpcServiceManagerSingleton::deinit();
+void nanoappEnd(void) {
+  chre::rpc_service_test::RpcServiceManagerSingleton::get()->end();
+  chre::rpc_service_test::RpcServiceManagerSingleton::deinit();
 }
-
-}  // namespace rpc_service_test
-}  // namespace chre

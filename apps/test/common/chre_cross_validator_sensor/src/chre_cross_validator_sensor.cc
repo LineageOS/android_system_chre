@@ -30,21 +30,17 @@
  * sensorType for logging.
  */
 
-namespace chre {
-
-extern "C" void nanoappHandleEvent(uint32_t senderInstanceId,
-                                   uint16_t eventType, const void *eventData) {
-  cross_validator_sensor::ManagerSingleton::get()->handleEvent(
+void nanoappHandleEvent(uint32_t senderInstanceId, uint16_t eventType,
+                        const void *eventData) {
+  chre::cross_validator_sensor::ManagerSingleton::get()->handleEvent(
       senderInstanceId, eventType, eventData);
 }
 
-extern "C" bool nanoappStart(void) {
-  cross_validator_sensor::ManagerSingleton::init();
+bool nanoappStart(void) {
+  chre::cross_validator_sensor::ManagerSingleton::init();
   return true;
 }
 
-extern "C" void nanoappEnd(void) {
-  cross_validator_sensor::ManagerSingleton::deinit();
+void nanoappEnd(void) {
+  chre::cross_validator_sensor::ManagerSingleton::deinit();
 }
-
-}  // namespace chre

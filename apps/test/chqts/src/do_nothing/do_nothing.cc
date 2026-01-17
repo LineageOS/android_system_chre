@@ -30,17 +30,17 @@ namespace chre {
 namespace {
 #endif  // CHRE_NANOAPP_INTERNAL
 
-extern "C" void nanoappHandleEvent(uint32_t /* senderInstanceId */,
-                                   uint16_t /* eventType */,
-                                   const void * /* eventData */) {
+void nanoappHandleEvent(uint32_t /* senderInstanceId */,
+                        uint16_t /* eventType */,
+                        const void * /* eventData */) {
   // Intentionally do nothing.
 }
 
-extern "C" bool nanoappStart(void) {
+bool nanoappStart(void) {
   return true;
 }
 
-extern "C" void nanoappEnd(void) {
+void nanoappEnd(void) {
   // Intentionally do nothing.
 }
 

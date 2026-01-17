@@ -113,22 +113,27 @@ TEST_F(SingleThreadTestBase, CanLoadAndStartMultipleNanoapps) {
   constexpr uint64_t kAppId2 = 0x456;
   constexpr uint32_t kAppVersion = 0;
   constexpr uint32_t kAppPerms = 0;
-  loadNanoapp("Test nanoapp", kAppId1, kAppVersion, kAppPerms,
-              defaultNanoappStart, defaultNanoappHandleEvent,
-              defaultNanoappEnd);
-
-  loadNanoapp("Test nanoapp", kAppId2, kAppVersion, kAppPerms,
-              defaultNanoappStart, defaultNanoappHandleEvent,
-              defaultNanoappEnd);
+  TestNanoappInfo info1;
+  info1.name = "Test nanoapp 1";
+  info1.id = kAppId1;
+  info1.version = kAppVersion;
+  info1.perms = kAppPerms;
+  loadNanoapp(MakeUnique<TestNanoapp>(info1));
+  TestNanoappInfo info2;
+  info2.name = "Test nanoapp 2";
+  info2.id = kAppId2;
+  info2.version = kAppVersion;
+  info2.perms = kAppPerms;
+  loadNanoapp(MakeUnique<TestNanoapp>(info2));
 
   uint16_t id1;
-  EXPECT_TRUE(EventLoopManagerSingleton::get()
-                  ->getEventLoop()
-                  .findNanoappInstanceIdByAppId(kAppId1, &id1));
+  EXPECT_TRUE(
+      getEventLoopForRequestedPriority(NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL)
+          ->findNanoappInstanceIdByAppId(kAppId1, &id1));
   uint16_t id2;
-  EXPECT_TRUE(EventLoopManagerSingleton::get()
-                  ->getEventLoop()
-                  .findNanoappInstanceIdByAppId(kAppId2, &id2));
+  EXPECT_TRUE(
+      getEventLoopForRequestedPriority(NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL)
+          ->findNanoappInstanceIdByAppId(kAppId2, &id2));
 
   EXPECT_NE(id1, id2);
 }
@@ -248,33 +253,33 @@ void MultiThreadTestBaseT<kNumEventLoops>::TearDown() {
 }
 
 TEST_F(MultiThreadTestBase, CanLoadAndStartMultiThreadNanoapp) {
-  constexpr uint64_t kAppId = 0x0123456789abcdef;
+  constexpr uint64_t kAppId1 = 0x0123456789abcdef;
   constexpr uint32_t kAppVersion = 0;
   constexpr uint32_t kAppPerms = 0;
-
-  UniquePtr<Nanoapp> nanoapp = createStaticNanoapp(
-      "Test nanoapp", kAppId, kAppVersion, kAppPerms, defaultNanoappStart,
-      defaultNanoappHandleEvent, defaultNanoappEnd);
-
-  EventLoopManagerSingleton::get()->deferCallback(
-      SystemCallbackType::FinishLoadingNanoapp, std::move(nanoapp),
-      testFinishLoadingNanoappCallback);
-  waitForEvent(CHRE_EVENT_SIMULATION_TEST_NANOAPP_LOADED);
-  EXPECT_TRUE(getEventLoop(0)->findNanoappByAppId(kAppId) != nullptr);
+  TestNanoappInfo info1;
+  info1.name = "Test nanoapp 1";
+  info1.id = kAppId1;
+  info1.version = kAppVersion;
+  info1.perms = kAppPerms;
+  info1.requestedThreadPriority = NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL;
+  loadNanoapp(MakeUnique<TestNanoapp>(info1));
+  EXPECT_NE(
+      getEventLoopForRequestedPriority(NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL)
+          ->findNanoappByAppId(kAppId1),
+      nullptr);
 
   constexpr uint64_t kAppId2 = 0xfedcba9876543210;
-  constexpr uint32_t kAppVersion2 = 0;
-  constexpr uint32_t kAppPerms2 = 0;
-
-  UniquePtr<Nanoapp> nanoapp2 = createStaticNanoapp(
-      "Test nanoapp 2", kAppId2, kAppVersion2, kAppPerms2, defaultNanoappStart,
-      defaultNanoappHandleEvent, defaultNanoappEnd,
-      NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
-  EventLoopManagerSingleton::get()->deferCallback(
-      SystemCallbackType::FinishLoadingNanoapp, std::move(nanoapp2),
-      testFinishLoadingNanoappCallback, &(*mEventLoops)[1]);
-  waitForEvent(CHRE_EVENT_SIMULATION_TEST_NANOAPP_LOADED);
-  EXPECT_TRUE(getEventLoop(1)->findNanoappByAppId(kAppId2) != nullptr);
+  TestNanoappInfo info2;
+  info2.name = "Test nanoapp 2";
+  info2.id = kAppId2;
+  info2.version = kAppVersion;
+  info2.perms = kAppPerms;
+  info2.requestedThreadPriority = NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND;
+  loadNanoapp(MakeUnique<TestNanoapp>(info2));
+  EXPECT_NE(getEventLoopForRequestedPriority(
+                NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND)
+                ->findNanoappByAppId(kAppId2),
+            nullptr);
 }
 
 // Explicitly instantiate the TestEventQueueSingleton to reduce codesize.

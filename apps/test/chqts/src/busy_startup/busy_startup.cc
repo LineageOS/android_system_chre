@@ -133,8 +133,8 @@ static void checkSensorEvent(const void *eventData) {
   gTestSuccessMarker.markStageAndSuccessOnFinish(BUSY_STARTUP_STAGE_SENSOR);
 }
 
-extern "C" void nanoappHandleEvent(uint32_t senderInstanceId,
-                                   uint16_t eventType, const void *eventData) {
+void nanoappHandleEvent(uint32_t senderInstanceId, uint16_t eventType,
+                        const void *eventData) {
   if (gInMethod) {
     EXPECT_FAIL_RETURN("CHRE reentered nanoapp");
   }
@@ -162,7 +162,7 @@ extern "C" void nanoappHandleEvent(uint32_t senderInstanceId,
   gInMethod = false;
 }
 
-extern "C" bool nanoappStart(void) {
+bool nanoappStart(void) {
   gInMethod = true;
   void *ptr = chreHeapAlloc(15);
   if (ptr == nullptr) {
@@ -218,7 +218,7 @@ extern "C" bool nanoappStart(void) {
   return true;
 }
 
-extern "C" void nanoappEnd(void) {
+void nanoappEnd(void) {
   if (!chreSensorConfigureModeOnly(gSensorHandle,
                                    CHRE_SENSOR_CONFIGURE_MODE_DONE)) {
     EXPECT_FAIL_RETURN("Unable to configure sensor mode to DONE");

@@ -28,18 +28,18 @@
 #include <shared/abort.h>
 #include "chre_api/chre.h"
 
-extern "C" void nanoappHandleEvent(uint32_t /* senderInstanceId */,
-                                   uint16_t /* eventType */,
-                                   const void * /* eventData */) {
+void nanoappHandleEvent(uint32_t /* senderInstanceId */,
+                        uint16_t /* eventType */,
+                        const void * /* eventData */) {
   // Intentionally do nothing.
 }
 
-extern "C" bool nanoappStart(void) {
+bool nanoappStart(void) {
   // Return failure
   return false;
 }
 
-extern "C" void nanoappEnd(void) {
+void nanoappEnd(void) {
   // It is an error for the CHRE to call this method.
   nanoapp_testing::abort(nanoapp_testing::AbortBlame::kChreInNanoappEnd);
 }

@@ -261,14 +261,14 @@ void App::freeTest() {
 
 static general_test::App gApp;
 
-extern "C" void nanoappHandleEvent(uint32_t senderInstanceId,
-                                   uint16_t eventType, const void *eventData) {
+void nanoappHandleEvent(uint32_t senderInstanceId, uint16_t eventType,
+                        const void *eventData) {
   gApp.handleEvent(senderInstanceId, eventType, eventData);
 }
 
 static uint32_t zeroedBytes[13];
 
-extern "C" bool nanoappStart(void) {
+bool nanoappStart(void) {
   // zeroedBytes is in the BSS and needs to be zero'd out.
   for (size_t i = 0; i < sizeof(zeroedBytes) / sizeof(zeroedBytes[0]); i++) {
     if (zeroedBytes[i] != 0) {
@@ -281,7 +281,7 @@ extern "C" bool nanoappStart(void) {
   return gApp.wasConstructed();
 }
 
-extern "C" void nanoappEnd(void) {
+void nanoappEnd(void) {
   if (gApp.wasDestructed()) {
     // It's not legal for us to send a message from here.  The best
     // we can do is abort, although there's no means for the end user

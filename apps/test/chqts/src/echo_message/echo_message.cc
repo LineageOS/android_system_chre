@@ -32,8 +32,10 @@
 #include "chre/util/macros.h"
 #include "chre_api/chre.h"
 
+#ifdef CHRE_NANOAPP_INTERNAL
 namespace chre {
 namespace {
+#endif  // CHRE_NANOAPP_INTERNAL
 
 void messageFreeCallback(void *message, size_t size) {
   UNUSED_VAR(size);
@@ -41,8 +43,8 @@ void messageFreeCallback(void *message, size_t size) {
   chreHeapFree(message);
 }
 
-extern "C" void nanoappHandleEvent(uint32_t senderInstanceId,
-                                   uint16_t eventType, const void *eventData) {
+void nanoappHandleEvent(uint32_t senderInstanceId, uint16_t eventType,
+                        const void *eventData) {
   if (eventType == CHRE_EVENT_MESSAGE_FROM_HOST) {
     auto *msg = static_cast<const chreMessageFromHostData *>(eventData);
 
@@ -67,11 +69,13 @@ extern "C" void nanoappHandleEvent(uint32_t senderInstanceId,
   }
 }
 
-extern "C" bool nanoappStart(void) {
+bool nanoappStart(void) {
   return true;
 }
 
-extern "C" void nanoappEnd(void) {}
-
+void nanoappEnd(void) {}
+#ifdef CHRE_NANOAPP_INTERNAL
 }  // anonymous namespace
 }  // namespace chre
+
+#endif  // CHRE_NANOAPP_INTERNAL

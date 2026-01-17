@@ -19,22 +19,17 @@
 #include "chre_api/chre.h"
 #include "chre_api_test_manager.h"
 
-namespace chre {
-
-extern "C" void nanoappHandleEvent(uint32_t senderInstanceId,
-                                   uint16_t eventType, const void *eventData) {
+void nanoappHandleEvent(uint32_t senderInstanceId, uint16_t eventType,
+                        const void *eventData) {
   ChreApiTestManagerSingleton::get()->handleEvent(senderInstanceId, eventType,
                                                   eventData);
 }
-
-extern "C" bool nanoappStart(void) {
+bool nanoappStart(void) {
   ChreApiTestManagerSingleton::init();
   return ChreApiTestManagerSingleton::get()->start();
 }
 
-extern "C" void nanoappEnd(void) {
+void nanoappEnd(void) {
   ChreApiTestManagerSingleton::get()->end();
   ChreApiTestManagerSingleton::deinit();
 }
-
-}  // namespace chre

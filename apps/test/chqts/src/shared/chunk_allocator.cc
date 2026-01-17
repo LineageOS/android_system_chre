@@ -58,7 +58,7 @@ bool ChunkAllocatorBase::free(void *pointer) {
   if (!getSlot(pointer, &slot)) {
     return false;
   }
-  mAllocatedSlots &= ~(1 << slot);
+  mAllocatedSlots &= ~(1U << slot);
   return true;
 }
 

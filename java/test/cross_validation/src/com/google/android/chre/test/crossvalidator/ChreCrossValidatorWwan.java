@@ -262,36 +262,33 @@ public class ChreCrossValidatorWwan extends ChreCrossValidatorBase implements Ex
     }
 
     void verifyCellInfoContents() {
-        List<CellInfo> apCellInfoList = mApCellInfo;
-        // Match all CHRE cell infos to AP cell infos
-        // AP cell info entries are removed from the list as they are matched.
-        for (ChreCrossValidationWwan.WwanCellInfo cCi :
-                mChreCellInfoResult.get().getCellInfoList()) {
-            switch (cCi.getCellInfoType()) {
-                case ChreCrossValidationWwan.WwanCellInfoType.WWAN_CELL_INFO_TYPE_NR:
-                    Assert.assertTrue(
-                            "Could not find matching Nr CellInfo",
-                            matchAndRemoveCellInfoNr(cCi, apCellInfoList));
-                    break;
-                case ChreCrossValidationWwan.WwanCellInfoType.WWAN_CELL_INFO_TYPE_LTE:
-                    Assert.assertTrue(
-                            "Could not find matching Lte CellInfo",
-                            matchAndRemoveCellInfoLte(cCi, apCellInfoList));
-                    break;
-                case ChreCrossValidationWwan.WwanCellInfoType.WWAN_CELL_INFO_TYPE_GSM:
-                    Assert.assertTrue(
-                            "Could not find matching Gsm CellInfo",
-                            matchAndRemoveCellInfoGsm(cCi, apCellInfoList));
-                    break;
-                case ChreCrossValidationWwan.WwanCellInfoType.WWAN_CELL_INFO_TYPE_WCDMA:
-                    Assert.assertTrue(
-                            "Could not find matching Wcdma CellInfo",
-                            matchAndRemoveCellInfoWcdma(cCi, apCellInfoList));
-                    break;
-                default:
-                    Assert.fail(
-                            "Can't match CHRE cell info of unknown type: "
-                                    + cCi.getCellInfoType().name());
+        // Make a mutable copy of the CHRE cell info list
+        List<ChreCrossValidationWwan.WwanCellInfo> chreCellInfoList =
+                new java.util.ArrayList<>(mChreCellInfoResult.get().getCellInfoList());
+
+        // Match all AP cell infos to CHRE cell infos
+        // CHRE cell info entries are removed from the list as they are matched.
+        for (CellInfo apCi : mApCellInfo) {
+            boolean matched = false;
+            if (apCi instanceof CellInfoNr) {
+                matched = matchAndRemoveCellInfoNr((CellInfoNr) apCi, chreCellInfoList);
+                Assert.assertTrue(
+                        "Could not find matching CHRE Nr CellInfo for AP info: " + apCi, matched);
+            } else if (apCi instanceof CellInfoLte) {
+                matched = matchAndRemoveCellInfoLte((CellInfoLte) apCi, chreCellInfoList);
+                Assert.assertTrue(
+                        "Could not find matching CHRE Lte CellInfo for AP info: " + apCi, matched);
+            } else if (apCi instanceof CellInfoGsm) {
+                matched = matchAndRemoveCellInfoGsm((CellInfoGsm) apCi, chreCellInfoList);
+                Assert.assertTrue(
+                        "Could not find matching CHRE Gsm CellInfo for AP info: " + apCi, matched);
+            } else if (apCi instanceof CellInfoWcdma) {
+                matched = matchAndRemoveCellInfoWcdma((CellInfoWcdma) apCi, chreCellInfoList);
+                Assert.assertTrue(
+                        "Could not find matching CHRE Wcdma CellInfo for AP info: " + apCi,
+                        matched);
+            } else {
+                Assert.fail("AP cell info of unknown type: " + apCi.getClass().getName());
             }
         }
     }
@@ -448,18 +445,19 @@ public class ChreCrossValidatorWwan extends ChreCrossValidatorBase implements Ex
     }
 
     boolean matchAndRemoveCellInfoNr(
-            ChreCrossValidationWwan.WwanCellInfo chreCellInfo, List<CellInfo> apCellInfoList) {
-        Log.i(TAG, "CHRE cell info: " + chreCellInfoNrToString(chreCellInfo));
-        Iterator<CellInfo> apCellInfoIterator = apCellInfoList.iterator();
-        while (apCellInfoIterator.hasNext()) {
-            CellInfo apCi = apCellInfoIterator.next();
-            if (apCi instanceof CellInfoNr) {
-                CellInfoNr apCellInfoNr = (CellInfoNr) apCi;
-                if (compareCellIdentityNr(chreCellInfo, apCellInfoNr)
+            CellInfoNr apCiNr, List<ChreCrossValidationWwan.WwanCellInfo> chreCellInfoList) {
+        Log.i(TAG, "AP cell info: " + apCiNr.toString());
+        Iterator<ChreCrossValidationWwan.WwanCellInfo> chreCellInfoIterator =
+                chreCellInfoList.iterator();
+        while (chreCellInfoIterator.hasNext()) {
+            ChreCrossValidationWwan.WwanCellInfo chreCi = chreCellInfoIterator.next();
+            if (chreCi.getCellInfoType()
+                    == ChreCrossValidationWwan.WwanCellInfoType.WWAN_CELL_INFO_TYPE_NR) {
+                if (compareCellIdentityNr(chreCi, apCiNr)
                         && compareSignalStrengthNr(
-                                chreCellInfo.getNr().getSignalStrength(),
-                                (CellSignalStrengthNr) apCellInfoNr.getCellSignalStrength())) {
-                    apCellInfoIterator.remove();
+                                chreCi.getNr().getSignalStrength(),
+                                (CellSignalStrengthNr) apCiNr.getCellSignalStrength())) {
+                    chreCellInfoIterator.remove();
                     return true;
                 }
             }
@@ -468,18 +466,19 @@ public class ChreCrossValidatorWwan extends ChreCrossValidatorBase implements Ex
     }
 
     boolean matchAndRemoveCellInfoLte(
-            ChreCrossValidationWwan.WwanCellInfo chreCellInfo, List<CellInfo> apCellInfoList) {
-        Log.i(TAG, "CHRE cell info: " + chreCellInfoLteToString(chreCellInfo));
-        Iterator<CellInfo> apCellInfoIterator = apCellInfoList.iterator();
-        while (apCellInfoIterator.hasNext()) {
-            CellInfo apCi = apCellInfoIterator.next();
-            if (apCi instanceof CellInfoLte) {
-                CellInfoLte apCellInfoLte = (CellInfoLte) apCi;
-                if (compareCellIdentityLte(chreCellInfo, apCellInfoLte)
+            CellInfoLte apCiLte, List<ChreCrossValidationWwan.WwanCellInfo> chreCellInfoList) {
+        Log.i(TAG, "AP cell info: " + apCiLte.toString());
+        Iterator<ChreCrossValidationWwan.WwanCellInfo> chreCellInfoIterator =
+                chreCellInfoList.iterator();
+        while (chreCellInfoIterator.hasNext()) {
+            ChreCrossValidationWwan.WwanCellInfo chreCi = chreCellInfoIterator.next();
+            if (chreCi.getCellInfoType()
+                    == ChreCrossValidationWwan.WwanCellInfoType.WWAN_CELL_INFO_TYPE_LTE) {
+                if (compareCellIdentityLte(chreCi, apCiLte)
                         && compareSignalStrengthLte(
-                                chreCellInfo.getLte().getSignalStrength(),
-                                (CellSignalStrengthLte) apCellInfoLte.getCellSignalStrength())) {
-                    apCellInfoIterator.remove();
+                                chreCi.getLte().getSignalStrength(),
+                                (CellSignalStrengthLte) apCiLte.getCellSignalStrength())) {
+                    chreCellInfoIterator.remove();
                     return true;
                 }
             }
@@ -488,18 +487,19 @@ public class ChreCrossValidatorWwan extends ChreCrossValidatorBase implements Ex
     }
 
     boolean matchAndRemoveCellInfoGsm(
-            ChreCrossValidationWwan.WwanCellInfo chreCellInfo, List<CellInfo> apCellInfoList) {
-        Log.i(TAG, "CHRE cell info: " + chreCellInfoGsmToString(chreCellInfo));
-        Iterator<CellInfo> apCellInfoIterator = apCellInfoList.iterator();
-        while (apCellInfoIterator.hasNext()) {
-            CellInfo apCi = apCellInfoIterator.next();
-            if (apCi instanceof CellInfoGsm) {
-                CellInfoGsm apCellInfoGsm = (CellInfoGsm) apCi;
-                if (compareCellIdentityGsm(chreCellInfo, apCellInfoGsm)
+            CellInfoGsm apCiGsm, List<ChreCrossValidationWwan.WwanCellInfo> chreCellInfoList) {
+        Log.i(TAG, "AP cell info: " + apCiGsm.toString());
+        Iterator<ChreCrossValidationWwan.WwanCellInfo> chreCellInfoIterator =
+                chreCellInfoList.iterator();
+        while (chreCellInfoIterator.hasNext()) {
+            ChreCrossValidationWwan.WwanCellInfo chreCi = chreCellInfoIterator.next();
+            if (chreCi.getCellInfoType()
+                    == ChreCrossValidationWwan.WwanCellInfoType.WWAN_CELL_INFO_TYPE_GSM) {
+                if (compareCellIdentityGsm(chreCi, apCiGsm)
                         && compareSignalStrengthGsm(
-                                chreCellInfo.getGsm().getSignalStrength(),
-                                (CellSignalStrengthGsm) apCellInfoGsm.getCellSignalStrength())) {
-                    apCellInfoIterator.remove();
+                                chreCi.getGsm().getSignalStrength(),
+                                (CellSignalStrengthGsm) apCiGsm.getCellSignalStrength())) {
+                    chreCellInfoIterator.remove();
                     return true;
                 }
             }
@@ -508,19 +508,20 @@ public class ChreCrossValidatorWwan extends ChreCrossValidatorBase implements Ex
     }
 
     boolean matchAndRemoveCellInfoWcdma(
-            ChreCrossValidationWwan.WwanCellInfo chreCellInfo, List<CellInfo> apCellInfoList) {
-        Log.i(TAG, "CHRE cell info: " + chreCellInfoWcdmaToString(chreCellInfo));
-        Iterator<CellInfo> apCellInfoIterator = apCellInfoList.iterator();
-        while (apCellInfoIterator.hasNext()) {
-            CellInfo apCi = apCellInfoIterator.next();
-            if (apCi instanceof CellInfoWcdma) {
-                CellInfoWcdma apCellInfoWcdma = (CellInfoWcdma) apCi;
-                if (compareCellIdentityWcdma(chreCellInfo, apCellInfoWcdma)
+            CellInfoWcdma apCiWcdma, List<ChreCrossValidationWwan.WwanCellInfo> chreCellInfoList) {
+        Log.i(TAG, "AP cell info: " + apCiWcdma.toString());
+        Iterator<ChreCrossValidationWwan.WwanCellInfo> chreCellInfoIterator =
+                chreCellInfoList.iterator();
+        while (chreCellInfoIterator.hasNext()) {
+            ChreCrossValidationWwan.WwanCellInfo chreCi = chreCellInfoIterator.next();
+            if (chreCi.getCellInfoType()
+                    == ChreCrossValidationWwan.WwanCellInfoType.WWAN_CELL_INFO_TYPE_WCDMA) {
+                if (compareCellIdentityWcdma(chreCi, apCiWcdma)
                         && compareSignalStrengthWcdma(
-                                chreCellInfo.getWcdma().getSignalStrength(),
+                                chreCi.getWcdma().getSignalStrength(),
                                 (CellSignalStrengthWcdma)
-                                        apCellInfoWcdma.getCellSignalStrength())) {
-                    apCellInfoIterator.remove();
+                                        apCiWcdma.getCellSignalStrength())) {
+                    chreCellInfoIterator.remove();
                     return true;
                 }
             }
@@ -719,6 +720,7 @@ public class ChreCrossValidatorWwan extends ChreCrossValidatorBase implements Ex
     }
 
     void requestCellInfoRefresh() {
+        Log.i(TAG, "AP invoking requestCellInfoUpdate");
         CellInfoCallback callback =
                 new CellInfoCallback() {
                     @Override

@@ -76,16 +76,6 @@ flag {
 }
 
 flag {
-  name: "optimize_service_transaction_lock"
-  namespace: "context_hub"
-  description: "Flag guarding the optimizing of the ContextHubService transaction lock"
-  bug: "444955194"
-  metadata {
-    purpose: PURPOSE_BUGFIX
-  }
-}
-
-flag {
   name: "fmcq_api"
   namespace: "context_hub"
   description: "Enables ContextHub APIs for fast multiple-consumer queues"

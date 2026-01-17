@@ -19,21 +19,17 @@
 #include "chre_api/chre.h"
 #include "chre_audio_concurrency_test_manager.h"
 
-namespace chre {
-
-extern "C" void nanoappHandleEvent(uint32_t senderInstanceId,
-                                   uint16_t eventType, const void *eventData) {
-  audio_concurrency_test::ManagerSingleton::get()->handleEvent(
+void nanoappHandleEvent(uint32_t senderInstanceId, uint16_t eventType,
+                        const void *eventData) {
+  chre::audio_concurrency_test::ManagerSingleton::get()->handleEvent(
       senderInstanceId, eventType, eventData);
 }
 
-extern "C" bool nanoappStart(void) {
-  audio_concurrency_test::ManagerSingleton::init();
+bool nanoappStart(void) {
+  chre::audio_concurrency_test::ManagerSingleton::init();
   return true;
 }
 
-extern "C" void nanoappEnd(void) {
-  audio_concurrency_test::ManagerSingleton::deinit();
+void nanoappEnd(void) {
+  chre::audio_concurrency_test::ManagerSingleton::deinit();
 }
-
-}  // namespace chre

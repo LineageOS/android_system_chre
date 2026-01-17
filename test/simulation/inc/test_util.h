@@ -210,9 +210,8 @@ void loadNanoapp(
     const char *name, uint64_t appId, uint32_t appVersion, uint32_t appPerms,
     decltype(nanoappStart) *startFunc,
     decltype(nanoappHandleEvent) *handleEventFunc,
-    decltype(nanoappEnd) *endFunc,
-    int8_t requestedThreadPriority = NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL,
-    EventLoop *eventLoop = nullptr);
+    decltype(nanoappEnd) *endFunc, EventLoop *eventLoop,
+    int8_t requestedThreadPriority = NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
 
 /**
  * Create a static nanoapp and load it in CHRE.
@@ -221,7 +220,8 @@ void loadNanoapp(
  *
  * @return The id of the nanoapp.
  */
-uint64_t loadNanoapp(UniquePtr<TestNanoapp> app);
+uint64_t loadNanoappOnEventLoop(UniquePtr<TestNanoapp> app,
+                                EventLoop *eventLoop);
 
 /**
  * Unload nanoapp corresponding to appId.
@@ -230,7 +230,7 @@ uint64_t loadNanoapp(UniquePtr<TestNanoapp> app);
  *
  * @param appId App Id of nanoapp to be unloaded.
  */
-void unloadNanoapp(uint64_t appId);
+void unloadNanoappOnEventLoop(uint64_t appId, EventLoop *eventLoop);
 
 /**
  * A convenience deferred callback function that can be used to start an
