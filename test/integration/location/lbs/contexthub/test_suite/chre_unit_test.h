@@ -136,7 +136,6 @@ class ChreUnitTest : public ::testing::Test {
         lbs::contexthub::ChreUnitTest::kStartNanoappTestEventType, nullptr,   \
         chre::freeEventDataCallback, 1);                                      \
     chre::EventLoopManagerSingleton::get()->getEventLoop().run();             \
-    test_name##deinit_counter.DecrementCount();                               \
   }
 
 // Generates the function definitions for the initializer constructor and
@@ -155,7 +154,7 @@ class ChreUnitTest : public ::testing::Test {
     test_case_name##_##test_name##_TestHook = test_hook;                 \
     test_hook->StartChre();                                              \
     test_hook->ConfigureApi();                                           \
-    std::thread(nanoapp_run##test_name).detach();                        \
+    test_name##thread = std::thread(nanoapp_run##test_name);             \
     test_name##init_counter.Wait();                                      \
   }                                                                      \
                                                                          \
@@ -164,7 +163,9 @@ class ChreUnitTest : public ::testing::Test {
       test_name)::~NANOAPP_TEST_CLASS_INITIALIZER_NAME_(test_case_name,  \
                                                         test_name)() {   \
     chre::EventLoopManagerSingleton::get()->getEventLoop().stop();       \
-    test_name##deinit_counter.Wait();                                    \
+    if (test_name##thread.joinable()) {                                  \
+      test_name##thread.join();                                          \
+    }                                                                    \
     lbs::contexthub::FakeChreApiProvider::ResetInstance();               \
     lbs::contexthub::FakeChrexApiProvider::ResetInstance();              \
     test_case_name##_##test_name##_TestHook->ShutdownChre();             \
@@ -244,8 +245,8 @@ class ChreUnitTest : public ::testing::Test {
     test_fixture::TearDown();                                                 \
   }                                                                           \
                                                                               \
+  std::thread test_name##thread;                                              \
   absl::BlockingCounter test_name##init_counter(1);                           \
-  absl::BlockingCounter test_name##deinit_counter(1);                         \
   absl::BlockingCounter test_name##start_test_counter(1);                     \
   absl::BlockingCounter test_name##end_test_counter(1);                       \
                                                                               \
