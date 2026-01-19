@@ -26,6 +26,7 @@
 
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/static_nanoapps.h"
+#include "chre/platform/condition_variable.h"
 #include "chre/platform/context.h"
 #include "chre/platform/shared/dram_vote_client.h"
 #include "chre/platform/shared/init.h"
@@ -38,6 +39,9 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
+
+#include <array>
+#include <optional>
 
 namespace chre {
 namespace freertos {
@@ -57,7 +61,14 @@ constexpr configSTACK_DEPTH_TYPE kChreTaskStackDepthWords =
 constexpr configSTACK_DEPTH_TYPE kChreTaskStackDepthWords = 0x800;
 #endif  // CHRE_FREERTOS_STACK_DEPTH_IN_WORDS
 
+#if CHRE_MULTI_THREADING_ENABLED
+constexpr size_t kNumEventLoops = 2;
+
+TaskHandle_t gChreTaskHandles[kNumEventLoops];
+std::optional<std::array<EventLoop, kNumEventLoops>> gEventLoops;
+#else
 TaskHandle_t gChreTaskHandle;
+#endif
 
 #ifndef CHRE_HIGH_POWER_BSS_ATTRIBUTE
 #define CHRE_HIGH_POWER_BSS_ATTRIBUTE
@@ -72,20 +83,99 @@ uint8_t gSecondaryLogBufferData[CHRE_LOG_BUFFER_DATA_SIZE];
 uint8_t gPrimaryLogBufferData[CHRE_LOG_BUFFER_DATA_SIZE];
 #endif  // CHRE_USE_BUFFERED_LOGGING
 
+#if CHRE_MULTI_THREADING_ENABLED
+Mutex gInitMutex;
+ConditionVariable gInitCond;
+bool gChreInitializationComplete = false;
+
+Mutex gDeinitMutex;
+ConditionVariable gDeinitCond;
+bool gBackgroundThreadActive = true;
+
+// Foreground
+StackType_t gForegroundChreWorkerStack[kChreTaskStackDepthWords];
+StaticTask_t gForegroundChreWorkerTcb;
+
+// Background
+StackType_t gBackgroundChreWorkerStack[kChreTaskStackDepthWords];
+StaticTask_t gBackgroundChreWorkerTcb;
+
+void chreForegroundThreadEntry(void * /*context*/) {
+  EventLoop *eventLoop = &gEventLoops.value()[0];
+  vTaskSetThreadLocalStoragePointer(/* xTaskToSet= */ nullptr, /* xIndex= */ 0,
+                                    eventLoop);
+
+  chre::DramVoteClientSingleton::get()->incrementDramVoteCount();
+  chre::initCommon(
+      pw::span(gEventLoops.value().data(), gEventLoops.value().size()));
+  chre::EventLoopManagerSingleton::get()->lateInit();
+  chre::DramVoteClientSingleton::get()->decrementDramVoteCount();
+  chre::loadStaticNanoapps();
+
+  {
+    LockGuard<Mutex> lock(gInitMutex);
+    gChreInitializationComplete = true;
+    gInitCond.notify_one();
+  }
+  eventLoop->run();
+
+  {
+    LockGuard<Mutex> lock(gDeinitMutex);
+    while (gBackgroundThreadActive) {
+      gDeinitCond.wait(gDeinitMutex);
+    }
+  }
+
+  chre::DramVoteClientSingleton::get()->incrementDramVoteCount();
+  chre::deinitCommon();
+  chre::DramVoteClientSingleton::get()->decrementDramVoteCount();
+
+  DramVoteClientSingleton::deinit();
+  gEventLoops.reset();
+  vTaskDelete(nullptr);
+  gChreTaskHandles[0] = nullptr;
+}
+
+void chreBackgroundThreadEntry(void * /*context*/) {
+  {
+    LockGuard<Mutex> lock(gDeinitMutex);
+    gBackgroundThreadActive = true;
+  }
+
+  EventLoop *eventLoop = &gEventLoops.value()[1];
+  vTaskSetThreadLocalStoragePointer(/* xTaskToSet= */ nullptr, /* xIndex= */ 0,
+                                    eventLoop);
+
+  {
+    LockGuard<Mutex> lock(gInitMutex);
+    while (!gChreInitializationComplete) {
+      gInitCond.wait(gInitMutex);
+    }
+  }
+
+  eventLoop->run();
+
+  {
+    LockGuard<Mutex> lock(gDeinitMutex);
+    gBackgroundThreadActive = false;
+    gDeinitCond.notify_one();
+  }
+
+  vTaskDelete(nullptr);
+  gChreTaskHandles[1] = nullptr;
+}
+#else
 // This function is intended to be the task action function for FreeRTOS.
 // It Initializes CHRE, runs the event loop, and only exits if it receives
 // a message to shutdown. Note that depending on the hardware platform this
 // runs on, CHRE might create additional threads, which are cleaned up when
 // CHRE exits.
-void chreThreadEntry(void *context) {
-  UNUSED_VAR(context);
-
+void chreThreadEntry(void * /* context */) {
   chre::DramVoteClientSingleton::get()->incrementDramVoteCount();
   chre::initCommon();
   chre::EventLoopManagerSingleton::get()->lateInit();
   chre::DramVoteClientSingleton::get()->decrementDramVoteCount();
   chre::loadStaticNanoapps();
-
   chre::EventLoopManagerSingleton::get()->getEventLoop().run();
 
   // we only get here if the CHRE EventLoop exited
@@ -97,10 +187,10 @@ void chreThreadEntry(void *context) {
 
   vTaskDelete(nullptr);
   gChreTaskHandle = nullptr;
-
   // TODO(b/425748478): Determine if this should crash if the CHRE EventLoop
   // thread exits
 }
+#endif  // CHRE_MULTI_THREADING_ENABLED
 
 #ifdef CHRE_USE_BUFFERED_LOGGING
 void chreFlushLogsToHostThreadEntry(void *context) {
@@ -118,10 +208,27 @@ const char *getChreFlushTaskName();
 #endif  // CHRE_USE_BUFFERED_LOGGING
 
 BaseType_t init() {
+#if CHRE_MULTI_THREADING_ENABLED
+  gEventLoops.emplace();
+  {
+    LockGuard<Mutex> lock(gInitMutex);
+    gChreInitializationComplete = false;
+  }
+  gChreTaskHandles[0] = xTaskCreateStatic(
+      chreForegroundThreadEntry, "CHRE_fg", kChreTaskStackDepthWords,
+      nullptr /* args */, kChreTaskPriority + 1, gForegroundChreWorkerStack,
+      &gForegroundChreWorkerTcb);
+  gChreTaskHandles[1] = xTaskCreateStatic(
+      chreBackgroundThreadEntry, "CHRE", kChreTaskStackDepthWords,
+      nullptr /* args */, kChreTaskPriority, gBackgroundChreWorkerStack,
+      &gBackgroundChreWorkerTcb);
+  BaseType_t rc = pdPASS;
+#else
   BaseType_t rc =
       xTaskCreate(chreThreadEntry, getChreTaskName(), kChreTaskStackDepthWords,
                   nullptr /* args */, kChreTaskPriority, &gChreTaskHandle);
   CHRE_ASSERT(rc == pdPASS);
+#endif
 
 #ifdef CHRE_ENABLE_CHPP
   chpp::init();
@@ -149,9 +256,18 @@ BaseType_t initLogger() {
 void deinit() {
   // On a deinit call, we just stop the CHRE event loop. This causes the 'run'
   // method in the task function exit, and move on to handle task cleanup
+#if CHRE_MULTI_THREADING_ENABLED
+  for (size_t i = 0; i < kNumEventLoops; ++i) {
+    if (gChreTaskHandles[i] != nullptr) {
+      gEventLoops.value()[i].stop();
+      gChreTaskHandles[i] = nullptr;
+    }
+  }
+#else
   if (gChreTaskHandle != nullptr) {
     chre::EventLoopManagerSingleton::get()->getEventLoop().stop();
   }
+#endif
 
 #ifdef CHRE_ENABLE_CHPP
   chpp::deinit();
@@ -177,14 +293,26 @@ BaseType_t getChreTaskPriority() {
 }
 
 bool inEventLoopThread() {
+#if CHRE_MULTI_THREADING_ENABLED
+  for (size_t i = 0; i < freertos::kNumEventLoops; ++i) {
+    if (xTaskGetCurrentTaskHandle() == freertos::gChreTaskHandles[i]) {
+      return true;
+    }
+  }
+  return false;
+#else
   return (xTaskGetCurrentTaskHandle() == freertos::gChreTaskHandle);
+#endif
 }
 
 EventLoop *getCurrentEventLoop() {
-  static_assert(CHRE_MULTI_THREADING_ENABLED == 0,
-                "CHRE multi-threading is not implemented on this platform");
+#if CHRE_MULTI_THREADING_ENABLED
+  return static_cast<EventLoop *>(pvTaskGetThreadLocalStoragePointer(
+      /* xTaskToQuery= */ nullptr, /* xIndex= */ 0));
+#else
   return inEventLoopThread() ? &EventLoopManagerSingleton::get()->getEventLoop()
                              : nullptr;
+#endif
 }
 
 }  // namespace chre
