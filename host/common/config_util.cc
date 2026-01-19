@@ -17,9 +17,10 @@
 #include "chre_host/config_util.h"
 #include "chre_host/log.h"
 
-#include <algorithm>
+#include <android-base/properties.h>
 #include <dirent.h>
 #include <json/json.h>
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <regex>
@@ -49,6 +50,21 @@ bool findAllNanoappsInFolder(const std::string &path,
   return true;
 }
 
+std::string getPreloadedNanoappsDirectory(const std::string &configFilePath) {
+  // Get the directory if set in the system property
+  std::string propertyPath =
+      android::base::GetProperty("vendor.chre.preloaded_nanoapps.path", "");
+  if (!propertyPath.empty()) {
+    LOGI("Preloaded nanoapps path is set from system property: %s",
+         propertyPath.c_str());
+    return propertyPath;
+  }
+
+  // Get the directory from config file path
+  std::filesystem::path path(configFilePath);
+  return path.parent_path().string();
+}
+
 bool getPreloadedNanoappsFromConfigFile(const std::string &configFilePath,
                                         std::string &outDirectory,
                                         std::vector<std::string> &outNanoapps) {
@@ -63,8 +79,7 @@ bool getPreloadedNanoappsFromConfigFile(const std::string &configFilePath,
     // to load all nanoapps in /vendor/etc/chre or where ever the location.
     LOGI("Failed to open config file '%s' load all nanoapps in folder ",
          configFilePath.c_str());
-    std::filesystem::path path(configFilePath);
-    outDirectory = path.parent_path().string();
+    outDirectory = getPreloadedNanoappsDirectory(configFilePath);
     return findAllNanoappsInFolder(outDirectory, outNanoapps);
   } else if (!Json::parseFromStream(builder, configFileStream, &config,
                                     /* errs = */ nullptr)) {

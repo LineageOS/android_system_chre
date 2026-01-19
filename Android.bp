@@ -1363,6 +1363,7 @@ cc_library_static {
         "host/common/config_util.cc",
     ],
     shared_libs: [
+        "libbase",
         "libjsoncpp",
         "liblog",
     ],
