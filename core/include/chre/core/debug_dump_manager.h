@@ -20,10 +20,13 @@
 #include <cstdarg>
 #include <cstdint>
 
+#include "chre/core/multi_threading_api_mutex.h"
 #include "chre/core/nanoapp.h"
+#include "chre/platform/atomic.h"
 #include "chre/platform/platform_debug_dump_manager.h"
 #include "chre/util/optional.h"
 #include "chre/util/system/debug_dump.h"
+#include "chre/util/thread_annotations.h"
 
 namespace chre {
 
@@ -44,12 +47,20 @@ class DebugDumpManager : public PlatformDebugDumpManager {
   void appendNanoappLog(const Nanoapp &nanoapp, const char *formatStr,
                         va_list args);
 
+  /**
+   * @return true if the DebugDumpManager is collecting nanoapp debug dumps.
+   */
+
+  bool isCollectingNanoappDebugDumps() const {
+    return mCollectingNanoappDebugDumps;
+  }
+
  private:
   //! Utility to hold the framework and nanoapp debug dumps.
   DebugDumpWrapper mDebugDump{kDebugDumpStrMaxSize};
 
   //! Whether the DebugDumpManager is collecting nanoapp debug dumps.
-  bool mCollectingNanoappDebugDumps = false;
+  AtomicBool mCollectingNanoappDebugDumps = false;
 
   //! Instance ID of the nanoapp that was last logging debug dumps in this
   //! session.
@@ -62,18 +73,33 @@ class DebugDumpManager : public PlatformDebugDumpManager {
 
   /**
    * Collect CHRE framework debug dumps.
+   *
+   * Should only be called from the main CHRE event loop.
    */
   void collectFrameworkDebugDumps();
 
   /**
    * Send collected framework debug dumps to the host.
+   *
+   * Should only be called from the main CHRE event loop.
    */
   void sendFrameworkDebugDumps();
 
   /**
    * Send collected nanoapp debug dumps to the host.
+   *
+   * Can be called from any event loop.
    */
   void sendNanoappDebugDumps();
+
+  /**
+   * A helper function to recursively go through each event loop to handle
+   * nanoapp debug dumps. When all event loops have processed the nanoapp debug
+   * dump event, sendNanoappDebugDumps will be called.
+   *
+   * This method must be called in an event loop context.
+   */
+  void handleNanoappDebugDumpSync() CHRE_REQUIRES(getMultiThreadingApiMutex());
 };
 
 }  // namespace chre

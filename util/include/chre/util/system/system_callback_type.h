@@ -90,6 +90,7 @@ enum class SystemCallbackType : uint16_t {
   BleSocketClosed,
   SensorOneShotEvent,
   NanoappSendEventFreeCallback,
+  PerformNanoappDebugDump,
 };
 
 //! Deferred/delayed callbacks use the event subsystem but are invariably sent
