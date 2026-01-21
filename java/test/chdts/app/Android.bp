@@ -22,6 +22,7 @@ package {
 
 android_library {
     name: "ChreTestSuiteAppLib",
+    manifest: "LibraryManifest.xml",
     aidl: {
         local_include_dirs: ["aidl"],
     },
