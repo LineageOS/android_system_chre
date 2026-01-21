@@ -306,19 +306,23 @@ class HostMessageHubManager : public NonCopyable {
     /**
      * Creates and registers a new hub.
      *
-     * @param manager The manager instance
-     * @param info Details of the host message hub
+     * @param manager The manager instance.
+     * @param info Details of the host message hub.
      * @param endpoints The list of endpoints to initialize the hub with.
-     * Endpoints must have been allocated using mEndpointAllocator.
-     * @return true on successful registration or reactivation
+     *     Endpoints must have been allocated using mEndpointAllocator.
+     * @param isInternal Whether this is an internal hub used to invoke
+     * hub/endpoint lifecycle callbacks. See mInternal documentation for
+     * details.
+     * @return true on successful registration or reactivation.
      */
     static bool createLocked(HostMessageHubManager *manager,
                              const message::MessageHubInfo &info,
-                             pw::IntrusiveList<Endpoint> &endpoints);
+                             pw::IntrusiveList<Endpoint> &endpoints,
+                             bool isInternal);
 
     /** NOTE: Use createLocked() */
     Hub(HostMessageHubManager *manager, const char *name,
-        pw::IntrusiveList<Endpoint> &endpoints);
+        pw::IntrusiveList<Endpoint> &endpoints, bool isInternal);
     Hub(Hub &&) = delete;
     Hub &operator=(Hub &&) = delete;
     virtual ~Hub();
@@ -382,6 +386,11 @@ class HostMessageHubManager : public NonCopyable {
     // Guards mEndpoints. Must be the innermost lock.
     Mutex mEndpointsLock;
     pw::IntrusiveList<Endpoint> mEndpoints;
+
+    // True if this is an internal hub created by HostMessageHubManager. Iff
+    // true, the hub must handle callbacks that are not targeted to a specific
+    // hub (for example, hub/endpoint registration callbacks).
+    bool mIsInternal = false;
   };
 
   /**
@@ -406,6 +415,10 @@ class HostMessageHubManager : public NonCopyable {
    */
   void clearHubsLocked();
 
+  // The ID of the internal hub used to generate hub/endpoint registration
+  // callbacks.
+  static constexpr uint64_t kInternalHubId = 0xd4a6fb6b22c4cc90;
+
   HostCallback *mCb = nullptr;
   ChreAllocator mMsgAllocator;
 
@@ -420,7 +433,11 @@ class HostMessageHubManager : public NonCopyable {
   // directly, i.e. not through mHubs via the registered MessageHubCallback
   // interface.
   Mutex mHubsLock;
-  pw::Vector<pw::IntrusivePtr<Hub>, CHRE_MESSAGE_ROUTER_MAX_HOST_HUBS> mHubs;
+  // We reserve 1 Hub for internal use.
+  // TODO(b/477985342): Remove this hack once message router can accept
+  // independent lifecycle callback registrations.
+  pw::Vector<pw::IntrusivePtr<Hub>, CHRE_MESSAGE_ROUTER_MAX_HOST_HUBS + 1>
+      mHubs;
 
   // Serializes embedded hub and endpoint state changes being sent to the host
   // with the operations in reset().

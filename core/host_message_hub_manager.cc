@@ -60,9 +60,12 @@ HostMessageHubManager::~HostMessageHubManager() {
 }
 
 void HostMessageHubManager::onHostTransportReady(HostCallback &cb) {
-  CHRE_ASSERT_LOG(mCb == nullptr,
-                  "HostMessageHubManager::init() called more than once");
+  CHRE_ASSERT_LOG(
+      mCb == nullptr,
+      "HostMessageHubManager::onHostTransportReady() called more than once");
   mCb = &cb;
+
+  reset();
 }
 
 void HostMessageHubManager::reset() {
@@ -70,6 +73,20 @@ void HostMessageHubManager::reset() {
   CHRE_ASSERT_NOT_NULL(mCb);
   LockGuard<Mutex> hostLock(mHubsLock);
   clearHubsLocked();
+
+  // Add an internal hub for CHRE to use for hub/endpoint registration
+  // callbacks. This internal hub is required because the message router can
+  // only give callbacks through registered hubs, and there is a possibility
+  // that hubs/endpoints are registered between when this function is called,
+  // and when the first host hub is registered. Adding the internal hub closes
+  // the gap such that the race condition is mitigated.
+  // TODO(b/477985342): Remove this hack once message router can accept
+  // independent lifecycle callback registrations.
+  pw::IntrusiveList<Endpoint> endpoints;
+  MessageHubInfo internalHubInfo;
+  internalHubInfo.id = kInternalHubId;
+  internalHubInfo.name = "chre-internal";
+  Hub::createLocked(this, internalHubInfo, endpoints, /* isInternal= */ true);
 
   // Serialize the following against any other embedded hub or endpoint
   // registration events.
@@ -100,9 +117,15 @@ void HostMessageHubManager::reset() {
 }
 
 void HostMessageHubManager::registerHub(const MessageHubInfo &info) {
+  if (info.id == kInternalHubId) {
+    LOGE("Cannot register internal hub 0x%" PRIx64, info.id);
+    return;
+  }
+
   LockGuard<Mutex> lock(mHubsLock);
   pw::IntrusiveList<Endpoint> endpoints;
-  HostMessageHubManager::Hub::createLocked(this, info, endpoints);
+  HostMessageHubManager::Hub::createLocked(this, info, endpoints,
+                                           /* isInternal= */ false);
 }
 
 void HostMessageHubManager::unregisterHub(MessageHubId id) {
@@ -223,7 +246,7 @@ void HostMessageHubManager::sendMessage(MessageHubId hubId, SessionId sessionId,
 
 bool HostMessageHubManager::Hub::createLocked(
     HostMessageHubManager *manager, const MessageHubInfo &info,
-    pw::IntrusiveList<Endpoint> &endpoints) {
+    pw::IntrusiveList<Endpoint> &endpoints, bool isInternal) {
   CHRE_ASSERT(manager != nullptr);
 
   // If there is an available slot, create a new Hub and try to register it with
@@ -234,7 +257,7 @@ bool HostMessageHubManager::Hub::createLocked(
     return false;
   }
 
-  Hub *hubPtr = memoryAlloc<Hub>(manager, info.name, endpoints);
+  Hub *hubPtr = memoryAlloc<Hub>(manager, info.name, endpoints, isInternal);
   if (hubPtr == nullptr) {
     LOGE("Failed to allocate storage for new host hub %" PRIu64, info.id);
     deallocateEndpoints(endpoints);
@@ -257,8 +280,9 @@ bool HostMessageHubManager::Hub::createLocked(
 
 HostMessageHubManager::Hub::Hub(HostMessageHubManager *manager,
                                 const char *name,
-                                pw::IntrusiveList<Endpoint> &endpoints)
-    : mManager(manager) {
+                                pw::IntrusiveList<Endpoint> &endpoints,
+                                bool isInternal)
+    : mManager(manager), mIsInternal(isInternal) {
   std::strncpy(kName, name, kNameMaxLen);
   kName[kNameMaxLen] = 0;
   mEndpoints.splice_after(mEndpoints.before_begin(), endpoints);
@@ -428,6 +452,7 @@ void HostMessageHubManager::Hub::forEachService(
 }
 
 void HostMessageHubManager::Hub::onHubRegistered(const MessageHubInfo &info) {
+  if (!mIsInternal) return;
   LockGuard<Mutex> managerLock(mManagerLock);
   if (mManager == nullptr) {
     LOGW("The HostMessageHubManager has been destroyed.");
@@ -439,6 +464,7 @@ void HostMessageHubManager::Hub::onHubRegistered(const MessageHubInfo &info) {
 }
 
 void HostMessageHubManager::Hub::onHubUnregistered(MessageHubId id) {
+  if (!mIsInternal) return;
   LockGuard<Mutex> managerLock(mManagerLock);
   if (mManager == nullptr) {
     LOGW("The HostMessageHubManager has been destroyed.");
@@ -451,6 +477,7 @@ void HostMessageHubManager::Hub::onHubUnregistered(MessageHubId id) {
 
 void HostMessageHubManager::Hub::onEndpointRegistered(MessageHubId messageHubId,
                                                       EndpointId endpointId) {
+  if (!mIsInternal) return;
   std::optional<EndpointInfo> endpoint =
       MessageRouterSingleton::get()->getEndpointInfo(messageHubId, endpointId);
   if (!endpoint) return;
@@ -481,6 +508,7 @@ void HostMessageHubManager::Hub::onEndpointRegistered(MessageHubId messageHubId,
 
 void HostMessageHubManager::Hub::onEndpointUnregistered(
     MessageHubId messageHubId, EndpointId endpointId) {
+  if (!mIsInternal) return;
   LockGuard<Mutex> managerLock(mManagerLock);
   if (mManager == nullptr) {
     LOGW("The HostMessageHubManager has been destroyed.");
