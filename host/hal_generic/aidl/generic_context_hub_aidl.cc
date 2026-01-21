@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <chrono>
 #include <limits>
+#include <unordered_map>
 
 namespace aidl::android::hardware::contexthub {
 
@@ -242,7 +243,7 @@ ScopedAStatus ContextHub::queryNanoapps(int32_t contextHubId) {
   }
 
   std::vector<chrePreloadedNanoappInfo> preloadedNanoapps;
-  if (!getPreloadedNanoappIdsFromConfigFile(preloadedNanoapps, nullptr)) {
+  if (!getPreloadedNanoappIdsFromConfigFile(preloadedNanoapps)) {
     return ScopedAStatus::fromExceptionCode(EX_SERVICE_SPECIFIC);
   }
 
@@ -600,7 +601,6 @@ ScopedAStatus ContextHub::disableTestMode() {
 
   bool success = false;
   std::vector<chrePreloadedNanoappInfo> preloadedNanoapps;
-  std::string preloadedNanoappDirectory;
   if (!mIsTestModeEnabled) {
     success = true;
   } else if (mConnection->isLoadTransactionPending()) {
@@ -611,12 +611,11 @@ ScopedAStatus ContextHub::disableTestMode() {
      * multiple at a time.
      */
     LOGE("There exists a pending load transaction. Cannot disable test mode.");
-  } else if (!getPreloadedNanoappIdsFromConfigFile(
-                 preloadedNanoapps, &preloadedNanoappDirectory)) {
+  } else if (!getPreloadedNanoappIdsFromConfigFile(preloadedNanoapps)) {
     LOGE("Unable to get preloaded nanoapp IDs from the config file.");
   } else {
-    std::vector<NanoappBinary> nanoappsToLoad = selectPreloadedNanoappsToLoad(
-        preloadedNanoapps, preloadedNanoappDirectory);
+    std::vector<NanoappBinary> nanoappsToLoad =
+        selectPreloadedNanoappsToLoad(preloadedNanoapps);
 
     if (!loadNanoappsInternal(kDefaultHubId, nanoappsToLoad)) {
       LOGE("Unable to load all preloaded, non-system nanoapps.");
@@ -762,46 +761,44 @@ bool ContextHub::unloadNanoappsInternal(
 }
 
 bool ContextHub::getPreloadedNanoappIdsFromConfigFile(
-    std::vector<chrePreloadedNanoappInfo> &out_preloadedNanoapps,
-    std::string *out_directory) const {
-  std::vector<std::string> nanoappNames;
-  std::string directory;
+    std::vector<chrePreloadedNanoappInfo> &out_preloadedNanoapps) const {
+  std::unordered_map<std::string, std::vector<std::string>> nanoappsByDir;
 
   bool success = getPreloadedNanoappsFromConfigFile(
-      kPreloadedNanoappsConfigPath, directory, nanoappNames);
+      kPreloadedNanoappsConfigPath, nanoappsByDir);
   if (!success) {
     LOGE("Failed to parse preloaded nanoapps config file");
   }
 
-  for (const std::string &nanoappName : nanoappNames) {
-    std::string headerFile = directory + "/" + nanoappName + ".napp_header";
-    std::vector<uint8_t> headerBuffer;
-    if (!readFileContents(headerFile.c_str(), headerBuffer)) {
-      LOGE("Cannot read header file: %s", headerFile.c_str());
-      continue;
+  for (const auto &entry : nanoappsByDir) {
+    const std::string &directory = entry.first;
+    const std::vector<std::string> &nanoappNames = entry.second;
+
+    for (const std::string &nanoappName : nanoappNames) {
+      std::string headerFile = directory + "/" + nanoappName + ".napp_header";
+      std::vector<uint8_t> headerBuffer;
+      if (!readFileContents(headerFile.c_str(), headerBuffer)) {
+        LOGE("Cannot read header file: %s", headerFile.c_str());
+        continue;
+      }
+
+      if (headerBuffer.size() != sizeof(NanoAppBinaryHeader)) {
+        LOGE("Header size mismatch");
+        continue;
+      }
+
+      const auto *appHeader =
+          reinterpret_cast<const NanoAppBinaryHeader *>(headerBuffer.data());
+      out_preloadedNanoapps.emplace_back(static_cast<int64_t>(appHeader->appId),
+                                         directory, nanoappName, *appHeader);
     }
-
-    if (headerBuffer.size() != sizeof(NanoAppBinaryHeader)) {
-      LOGE("Header size mismatch");
-      continue;
-    }
-
-    const auto *appHeader =
-        reinterpret_cast<const NanoAppBinaryHeader *>(headerBuffer.data());
-    out_preloadedNanoapps.emplace_back(static_cast<int64_t>(appHeader->appId),
-                                       nanoappName, *appHeader);
-  }
-
-  if (out_directory != nullptr) {
-    *out_directory = directory;
   }
 
   return true;
 }
 
 std::vector<NanoappBinary> ContextHub::selectPreloadedNanoappsToLoad(
-    std::vector<chrePreloadedNanoappInfo> &preloadedNanoapps,
-    const std::string &preloadedNanoappDirectory) {
+    std::vector<chrePreloadedNanoappInfo> &preloadedNanoapps) {
   std::vector<NanoappBinary> nanoappsToLoad;
 
   for (auto &preloadedNanoapp : preloadedNanoapps) {
@@ -818,7 +815,7 @@ std::vector<NanoappBinary> ContextHub::selectPreloadedNanoappsToLoad(
     if (!isSystemNanoapp) {
       std::vector<uint8_t> nanoappBuffer;
       std::string nanoappFile =
-          preloadedNanoappDirectory + "/" + preloadedNanoapp.name + ".so";
+          preloadedNanoapp.directory + "/" + preloadedNanoapp.name + ".so";
       if (!readFileContents(nanoappFile.c_str(), nanoappBuffer)) {
         LOGE("Cannot read header file: %s", nanoappFile.c_str());
       } else {
