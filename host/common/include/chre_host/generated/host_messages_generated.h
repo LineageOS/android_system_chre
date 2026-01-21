@@ -257,6 +257,26 @@ struct EndpointSessionMessageDeliveryStatus;
 struct EndpointSessionMessageDeliveryStatusBuilder;
 struct EndpointSessionMessageDeliveryStatusT;
 
+struct DataFlowId;
+struct DataFlowIdBuilder;
+struct DataFlowIdT;
+
+struct RegisterDataFlowSink;
+struct RegisterDataFlowSinkBuilder;
+struct RegisterDataFlowSinkT;
+
+struct UnregisterDataFlowSink;
+struct UnregisterDataFlowSinkBuilder;
+struct UnregisterDataFlowSinkT;
+
+struct DataFlowStopped;
+struct DataFlowStoppedBuilder;
+struct DataFlowStoppedT;
+
+struct DataFlowAlert;
+struct DataFlowAlertBuilder;
+struct DataFlowAlertT;
+
 struct HostAddress;
 
 struct MessageContainer;
@@ -865,11 +885,15 @@ enum class ChreMessage : uint8_t {
   BtSocketCapabilitiesResponse = 49,
   AddServiceToEndpoint = 50,
   EndpointReady = 51,
+  RegisterDataFlowSink = 52,
+  UnregisterDataFlowSink = 53,
+  DataFlowStopped = 54,
+  DataFlowAlert = 55,
   MIN = NONE,
-  MAX = EndpointReady
+  MAX = DataFlowAlert
 };
 
-inline const ChreMessage (&EnumValuesChreMessage())[52] {
+inline const ChreMessage (&EnumValuesChreMessage())[56] {
   static const ChreMessage values[] = {
     ChreMessage::NONE,
     ChreMessage::NanoappMessage,
@@ -922,13 +946,17 @@ inline const ChreMessage (&EnumValuesChreMessage())[52] {
     ChreMessage::BtSocketCapabilitiesRequest,
     ChreMessage::BtSocketCapabilitiesResponse,
     ChreMessage::AddServiceToEndpoint,
-    ChreMessage::EndpointReady
+    ChreMessage::EndpointReady,
+    ChreMessage::RegisterDataFlowSink,
+    ChreMessage::UnregisterDataFlowSink,
+    ChreMessage::DataFlowStopped,
+    ChreMessage::DataFlowAlert
   };
   return values;
 }
 
 inline const char * const *EnumNamesChreMessage() {
-  static const char * const names[53] = {
+  static const char * const names[57] = {
     "NONE",
     "NanoappMessage",
     "HubInfoRequest",
@@ -981,13 +1009,17 @@ inline const char * const *EnumNamesChreMessage() {
     "BtSocketCapabilitiesResponse",
     "AddServiceToEndpoint",
     "EndpointReady",
+    "RegisterDataFlowSink",
+    "UnregisterDataFlowSink",
+    "DataFlowStopped",
+    "DataFlowAlert",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameChreMessage(ChreMessage e) {
-  if (flatbuffers::IsOutRange(e, ChreMessage::NONE, ChreMessage::EndpointReady)) return "";
+  if (flatbuffers::IsOutRange(e, ChreMessage::NONE, ChreMessage::DataFlowAlert)) return "";
   const size_t index = static_cast<size_t>(e);
   return EnumNamesChreMessage()[index];
 }
@@ -1198,6 +1230,22 @@ template<> struct ChreMessageTraits<chre::fbs::AddServiceToEndpoint> {
 
 template<> struct ChreMessageTraits<chre::fbs::EndpointReady> {
   static const ChreMessage enum_value = ChreMessage::EndpointReady;
+};
+
+template<> struct ChreMessageTraits<chre::fbs::RegisterDataFlowSink> {
+  static const ChreMessage enum_value = ChreMessage::RegisterDataFlowSink;
+};
+
+template<> struct ChreMessageTraits<chre::fbs::UnregisterDataFlowSink> {
+  static const ChreMessage enum_value = ChreMessage::UnregisterDataFlowSink;
+};
+
+template<> struct ChreMessageTraits<chre::fbs::DataFlowStopped> {
+  static const ChreMessage enum_value = ChreMessage::DataFlowStopped;
+};
+
+template<> struct ChreMessageTraits<chre::fbs::DataFlowAlert> {
+  static const ChreMessage enum_value = ChreMessage::DataFlowAlert;
 };
 
 struct ChreMessageUnion {
@@ -1639,6 +1687,38 @@ struct ChreMessageUnion {
   const chre::fbs::EndpointReadyT *AsEndpointReady() const {
     return type == ChreMessage::EndpointReady ?
       reinterpret_cast<const chre::fbs::EndpointReadyT *>(value) : nullptr;
+  }
+  chre::fbs::RegisterDataFlowSinkT *AsRegisterDataFlowSink() {
+    return type == ChreMessage::RegisterDataFlowSink ?
+      reinterpret_cast<chre::fbs::RegisterDataFlowSinkT *>(value) : nullptr;
+  }
+  const chre::fbs::RegisterDataFlowSinkT *AsRegisterDataFlowSink() const {
+    return type == ChreMessage::RegisterDataFlowSink ?
+      reinterpret_cast<const chre::fbs::RegisterDataFlowSinkT *>(value) : nullptr;
+  }
+  chre::fbs::UnregisterDataFlowSinkT *AsUnregisterDataFlowSink() {
+    return type == ChreMessage::UnregisterDataFlowSink ?
+      reinterpret_cast<chre::fbs::UnregisterDataFlowSinkT *>(value) : nullptr;
+  }
+  const chre::fbs::UnregisterDataFlowSinkT *AsUnregisterDataFlowSink() const {
+    return type == ChreMessage::UnregisterDataFlowSink ?
+      reinterpret_cast<const chre::fbs::UnregisterDataFlowSinkT *>(value) : nullptr;
+  }
+  chre::fbs::DataFlowStoppedT *AsDataFlowStopped() {
+    return type == ChreMessage::DataFlowStopped ?
+      reinterpret_cast<chre::fbs::DataFlowStoppedT *>(value) : nullptr;
+  }
+  const chre::fbs::DataFlowStoppedT *AsDataFlowStopped() const {
+    return type == ChreMessage::DataFlowStopped ?
+      reinterpret_cast<const chre::fbs::DataFlowStoppedT *>(value) : nullptr;
+  }
+  chre::fbs::DataFlowAlertT *AsDataFlowAlert() {
+    return type == ChreMessage::DataFlowAlert ?
+      reinterpret_cast<chre::fbs::DataFlowAlertT *>(value) : nullptr;
+  }
+  const chre::fbs::DataFlowAlertT *AsDataFlowAlert() const {
+    return type == ChreMessage::DataFlowAlert ?
+      reinterpret_cast<const chre::fbs::DataFlowAlertT *>(value) : nullptr;
   }
 };
 
@@ -7344,6 +7424,529 @@ inline flatbuffers::Offset<EndpointSessionMessageDeliveryStatus> CreateEndpointS
 
 flatbuffers::Offset<EndpointSessionMessageDeliveryStatus> CreateEndpointSessionMessageDeliveryStatus(flatbuffers::FlatBufferBuilder &_fbb, const EndpointSessionMessageDeliveryStatusT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
+struct DataFlowIdT : public flatbuffers::NativeTable {
+  typedef DataFlowId TableType;
+  int64_t hubId;
+  int32_t id;
+  DataFlowIdT()
+      : hubId(0),
+        id(0) {
+  }
+};
+
+struct DataFlowId FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef DataFlowIdT NativeTableType;
+  typedef DataFlowIdBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_HUBID = 4,
+    VT_ID = 6
+  };
+  /// Id of the hub the data flow source endpoint is on
+  int64_t hubId() const {
+    return GetField<int64_t>(VT_HUBID, 0);
+  }
+  bool mutate_hubId(int64_t _hubId) {
+    return SetField<int64_t>(VT_HUBID, _hubId, 0);
+  }
+  /// Id of the data flow scoped to hubId
+  int32_t id() const {
+    return GetField<int32_t>(VT_ID, 0);
+  }
+  bool mutate_id(int32_t _id) {
+    return SetField<int32_t>(VT_ID, _id, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int64_t>(verifier, VT_HUBID) &&
+           VerifyField<int32_t>(verifier, VT_ID) &&
+           verifier.EndTable();
+  }
+  DataFlowIdT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(DataFlowIdT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<DataFlowId> Pack(flatbuffers::FlatBufferBuilder &_fbb, const DataFlowIdT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct DataFlowIdBuilder {
+  typedef DataFlowId Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_hubId(int64_t hubId) {
+    fbb_.AddElement<int64_t>(DataFlowId::VT_HUBID, hubId, 0);
+  }
+  void add_id(int32_t id) {
+    fbb_.AddElement<int32_t>(DataFlowId::VT_ID, id, 0);
+  }
+  explicit DataFlowIdBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  DataFlowIdBuilder &operator=(const DataFlowIdBuilder &);
+  flatbuffers::Offset<DataFlowId> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<DataFlowId>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<DataFlowId> CreateDataFlowId(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    int64_t hubId = 0,
+    int32_t id = 0) {
+  DataFlowIdBuilder builder_(_fbb);
+  builder_.add_hubId(hubId);
+  builder_.add_id(id);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<DataFlowId> CreateDataFlowId(flatbuffers::FlatBufferBuilder &_fbb, const DataFlowIdT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct RegisterDataFlowSinkT : public flatbuffers::NativeTable {
+  typedef RegisterDataFlowSink TableType;
+  std::unique_ptr<chre::fbs::DataFlowIdT> dataFlowId;
+  std::unique_ptr<chre::fbs::EndpointIdT> sourceId;
+  std::unique_ptr<chre::fbs::EndpointIdT> sinkId;
+  int32_t primaryRegionId;
+  uint32_t metadataOffset;
+  int32_t sinkMetadataRegionId;
+  uint32_t sinkMetadataOffset;
+  std::unique_ptr<chre::fbs::EndpointSessionMessageT> msg;
+  RegisterDataFlowSinkT()
+      : primaryRegionId(0),
+        metadataOffset(0),
+        sinkMetadataRegionId(0),
+        sinkMetadataOffset(0) {
+  }
+};
+
+struct RegisterDataFlowSink FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef RegisterDataFlowSinkT NativeTableType;
+  typedef RegisterDataFlowSinkBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_DATAFLOWID = 4,
+    VT_SOURCEID = 6,
+    VT_SINKID = 8,
+    VT_PRIMARYREGIONID = 10,
+    VT_METADATAOFFSET = 12,
+    VT_SINKMETADATAREGIONID = 14,
+    VT_SINKMETADATAOFFSET = 16,
+    VT_MSG = 18
+  };
+  /// Id of the data flow
+  const chre::fbs::DataFlowId *dataFlowId() const {
+    return GetPointer<const chre::fbs::DataFlowId *>(VT_DATAFLOWID);
+  }
+  chre::fbs::DataFlowId *mutable_dataFlowId() {
+    return GetPointer<chre::fbs::DataFlowId *>(VT_DATAFLOWID);
+  }
+  /// Id of the data flow source endpoint
+  const chre::fbs::EndpointId *sourceId() const {
+    return GetPointer<const chre::fbs::EndpointId *>(VT_SOURCEID);
+  }
+  chre::fbs::EndpointId *mutable_sourceId() {
+    return GetPointer<chre::fbs::EndpointId *>(VT_SOURCEID);
+  }
+  /// Id of the endpoint being registered as a sink
+  const chre::fbs::EndpointId *sinkId() const {
+    return GetPointer<const chre::fbs::EndpointId *>(VT_SINKID);
+  }
+  chre::fbs::EndpointId *mutable_sinkId() {
+    return GetPointer<chre::fbs::EndpointId *>(VT_SINKID);
+  }
+  /// Id of the primary region (contains the main metadata, data storage, and
+  /// possibly sink metadata)
+  int32_t primaryRegionId() const {
+    return GetField<int32_t>(VT_PRIMARYREGIONID, 0);
+  }
+  bool mutate_primaryRegionId(int32_t _primaryRegionId) {
+    return SetField<int32_t>(VT_PRIMARYREGIONID, _primaryRegionId, 0);
+  }
+  /// Offset of the metadata in the primary region
+  uint32_t metadataOffset() const {
+    return GetField<uint32_t>(VT_METADATAOFFSET, 0);
+  }
+  bool mutate_metadataOffset(uint32_t _metadataOffset) {
+    return SetField<uint32_t>(VT_METADATAOFFSET, _metadataOffset, 0);
+  }
+  /// Optional id of the region containing the metadata of the new sink. Should
+  /// be set to -1 if the sink metadata is in the primary region.
+  int32_t sinkMetadataRegionId() const {
+    return GetField<int32_t>(VT_SINKMETADATAREGIONID, 0);
+  }
+  bool mutate_sinkMetadataRegionId(int32_t _sinkMetadataRegionId) {
+    return SetField<int32_t>(VT_SINKMETADATAREGIONID, _sinkMetadataRegionId, 0);
+  }
+  /// Offset of the sink metadata in either the primary or sink-specific region
+  /// depending on whether sinkMetadataRegionId is provided
+  uint32_t sinkMetadataOffset() const {
+    return GetField<uint32_t>(VT_SINKMETADATAOFFSET, 0);
+  }
+  bool mutate_sinkMetadataOffset(uint32_t _sinkMetadataOffset) {
+    return SetField<uint32_t>(VT_SINKMETADATAOFFSET, _sinkMetadataOffset, 0);
+  }
+  /// Optional message used to pass this registration over an existing
+  /// session
+  const chre::fbs::EndpointSessionMessage *msg() const {
+    return GetPointer<const chre::fbs::EndpointSessionMessage *>(VT_MSG);
+  }
+  chre::fbs::EndpointSessionMessage *mutable_msg() {
+    return GetPointer<chre::fbs::EndpointSessionMessage *>(VT_MSG);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_DATAFLOWID) &&
+           verifier.VerifyTable(dataFlowId()) &&
+           VerifyOffset(verifier, VT_SOURCEID) &&
+           verifier.VerifyTable(sourceId()) &&
+           VerifyOffset(verifier, VT_SINKID) &&
+           verifier.VerifyTable(sinkId()) &&
+           VerifyField<int32_t>(verifier, VT_PRIMARYREGIONID) &&
+           VerifyField<uint32_t>(verifier, VT_METADATAOFFSET) &&
+           VerifyField<int32_t>(verifier, VT_SINKMETADATAREGIONID) &&
+           VerifyField<uint32_t>(verifier, VT_SINKMETADATAOFFSET) &&
+           VerifyOffset(verifier, VT_MSG) &&
+           verifier.VerifyTable(msg()) &&
+           verifier.EndTable();
+  }
+  RegisterDataFlowSinkT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(RegisterDataFlowSinkT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<RegisterDataFlowSink> Pack(flatbuffers::FlatBufferBuilder &_fbb, const RegisterDataFlowSinkT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct RegisterDataFlowSinkBuilder {
+  typedef RegisterDataFlowSink Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_dataFlowId(flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId) {
+    fbb_.AddOffset(RegisterDataFlowSink::VT_DATAFLOWID, dataFlowId);
+  }
+  void add_sourceId(flatbuffers::Offset<chre::fbs::EndpointId> sourceId) {
+    fbb_.AddOffset(RegisterDataFlowSink::VT_SOURCEID, sourceId);
+  }
+  void add_sinkId(flatbuffers::Offset<chre::fbs::EndpointId> sinkId) {
+    fbb_.AddOffset(RegisterDataFlowSink::VT_SINKID, sinkId);
+  }
+  void add_primaryRegionId(int32_t primaryRegionId) {
+    fbb_.AddElement<int32_t>(RegisterDataFlowSink::VT_PRIMARYREGIONID, primaryRegionId, 0);
+  }
+  void add_metadataOffset(uint32_t metadataOffset) {
+    fbb_.AddElement<uint32_t>(RegisterDataFlowSink::VT_METADATAOFFSET, metadataOffset, 0);
+  }
+  void add_sinkMetadataRegionId(int32_t sinkMetadataRegionId) {
+    fbb_.AddElement<int32_t>(RegisterDataFlowSink::VT_SINKMETADATAREGIONID, sinkMetadataRegionId, 0);
+  }
+  void add_sinkMetadataOffset(uint32_t sinkMetadataOffset) {
+    fbb_.AddElement<uint32_t>(RegisterDataFlowSink::VT_SINKMETADATAOFFSET, sinkMetadataOffset, 0);
+  }
+  void add_msg(flatbuffers::Offset<chre::fbs::EndpointSessionMessage> msg) {
+    fbb_.AddOffset(RegisterDataFlowSink::VT_MSG, msg);
+  }
+  explicit RegisterDataFlowSinkBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  RegisterDataFlowSinkBuilder &operator=(const RegisterDataFlowSinkBuilder &);
+  flatbuffers::Offset<RegisterDataFlowSink> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<RegisterDataFlowSink>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<RegisterDataFlowSink> CreateRegisterDataFlowSink(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId = 0,
+    flatbuffers::Offset<chre::fbs::EndpointId> sourceId = 0,
+    flatbuffers::Offset<chre::fbs::EndpointId> sinkId = 0,
+    int32_t primaryRegionId = 0,
+    uint32_t metadataOffset = 0,
+    int32_t sinkMetadataRegionId = 0,
+    uint32_t sinkMetadataOffset = 0,
+    flatbuffers::Offset<chre::fbs::EndpointSessionMessage> msg = 0) {
+  RegisterDataFlowSinkBuilder builder_(_fbb);
+  builder_.add_msg(msg);
+  builder_.add_sinkMetadataOffset(sinkMetadataOffset);
+  builder_.add_sinkMetadataRegionId(sinkMetadataRegionId);
+  builder_.add_metadataOffset(metadataOffset);
+  builder_.add_primaryRegionId(primaryRegionId);
+  builder_.add_sinkId(sinkId);
+  builder_.add_sourceId(sourceId);
+  builder_.add_dataFlowId(dataFlowId);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<RegisterDataFlowSink> CreateRegisterDataFlowSink(flatbuffers::FlatBufferBuilder &_fbb, const RegisterDataFlowSinkT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct UnregisterDataFlowSinkT : public flatbuffers::NativeTable {
+  typedef UnregisterDataFlowSink TableType;
+  std::unique_ptr<chre::fbs::DataFlowIdT> dataFlowId;
+  std::unique_ptr<chre::fbs::EndpointIdT> endpointId;
+  UnregisterDataFlowSinkT() {
+  }
+};
+
+struct UnregisterDataFlowSink FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef UnregisterDataFlowSinkT NativeTableType;
+  typedef UnregisterDataFlowSinkBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_DATAFLOWID = 4,
+    VT_ENDPOINTID = 6
+  };
+  /// Id of the data flow
+  const chre::fbs::DataFlowId *dataFlowId() const {
+    return GetPointer<const chre::fbs::DataFlowId *>(VT_DATAFLOWID);
+  }
+  chre::fbs::DataFlowId *mutable_dataFlowId() {
+    return GetPointer<chre::fbs::DataFlowId *>(VT_DATAFLOWID);
+  }
+  /// Id of the endpoint being removed from the flow
+  const chre::fbs::EndpointId *endpointId() const {
+    return GetPointer<const chre::fbs::EndpointId *>(VT_ENDPOINTID);
+  }
+  chre::fbs::EndpointId *mutable_endpointId() {
+    return GetPointer<chre::fbs::EndpointId *>(VT_ENDPOINTID);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_DATAFLOWID) &&
+           verifier.VerifyTable(dataFlowId()) &&
+           VerifyOffset(verifier, VT_ENDPOINTID) &&
+           verifier.VerifyTable(endpointId()) &&
+           verifier.EndTable();
+  }
+  UnregisterDataFlowSinkT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(UnregisterDataFlowSinkT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<UnregisterDataFlowSink> Pack(flatbuffers::FlatBufferBuilder &_fbb, const UnregisterDataFlowSinkT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct UnregisterDataFlowSinkBuilder {
+  typedef UnregisterDataFlowSink Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_dataFlowId(flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId) {
+    fbb_.AddOffset(UnregisterDataFlowSink::VT_DATAFLOWID, dataFlowId);
+  }
+  void add_endpointId(flatbuffers::Offset<chre::fbs::EndpointId> endpointId) {
+    fbb_.AddOffset(UnregisterDataFlowSink::VT_ENDPOINTID, endpointId);
+  }
+  explicit UnregisterDataFlowSinkBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  UnregisterDataFlowSinkBuilder &operator=(const UnregisterDataFlowSinkBuilder &);
+  flatbuffers::Offset<UnregisterDataFlowSink> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<UnregisterDataFlowSink>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<UnregisterDataFlowSink> CreateUnregisterDataFlowSink(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId = 0,
+    flatbuffers::Offset<chre::fbs::EndpointId> endpointId = 0) {
+  UnregisterDataFlowSinkBuilder builder_(_fbb);
+  builder_.add_endpointId(endpointId);
+  builder_.add_dataFlowId(dataFlowId);
+  return builder_.Finish();
+}
+
+flatbuffers::Offset<UnregisterDataFlowSink> CreateUnregisterDataFlowSink(flatbuffers::FlatBufferBuilder &_fbb, const UnregisterDataFlowSinkT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct DataFlowStoppedT : public flatbuffers::NativeTable {
+  typedef DataFlowStopped TableType;
+  std::unique_ptr<chre::fbs::DataFlowIdT> dataFlowId;
+  std::vector<std::unique_ptr<chre::fbs::EndpointIdT>> destinationIds;
+  DataFlowStoppedT() {
+  }
+};
+
+struct DataFlowStopped FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef DataFlowStoppedT NativeTableType;
+  typedef DataFlowStoppedBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_DATAFLOWID = 4,
+    VT_DESTINATIONIDS = 6
+  };
+  /// Id of the data flow that stopped
+  const chre::fbs::DataFlowId *dataFlowId() const {
+    return GetPointer<const chre::fbs::DataFlowId *>(VT_DATAFLOWID);
+  }
+  chre::fbs::DataFlowId *mutable_dataFlowId() {
+    return GetPointer<chre::fbs::DataFlowId *>(VT_DATAFLOWID);
+  }
+  /// Optional id(s) of the endpoints to notify. This is not necessary when
+  /// sending this message to the HAL as it can look up the relevant endpoints
+  const flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>> *destinationIds() const {
+    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>> *>(VT_DESTINATIONIDS);
+  }
+  flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>> *mutable_destinationIds() {
+    return GetPointer<flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>> *>(VT_DESTINATIONIDS);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_DATAFLOWID) &&
+           verifier.VerifyTable(dataFlowId()) &&
+           VerifyOffset(verifier, VT_DESTINATIONIDS) &&
+           verifier.VerifyVector(destinationIds()) &&
+           verifier.VerifyVectorOfTables(destinationIds()) &&
+           verifier.EndTable();
+  }
+  DataFlowStoppedT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(DataFlowStoppedT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<DataFlowStopped> Pack(flatbuffers::FlatBufferBuilder &_fbb, const DataFlowStoppedT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct DataFlowStoppedBuilder {
+  typedef DataFlowStopped Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_dataFlowId(flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId) {
+    fbb_.AddOffset(DataFlowStopped::VT_DATAFLOWID, dataFlowId);
+  }
+  void add_destinationIds(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>>> destinationIds) {
+    fbb_.AddOffset(DataFlowStopped::VT_DESTINATIONIDS, destinationIds);
+  }
+  explicit DataFlowStoppedBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  DataFlowStoppedBuilder &operator=(const DataFlowStoppedBuilder &);
+  flatbuffers::Offset<DataFlowStopped> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<DataFlowStopped>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<DataFlowStopped> CreateDataFlowStopped(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId = 0,
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>>> destinationIds = 0) {
+  DataFlowStoppedBuilder builder_(_fbb);
+  builder_.add_destinationIds(destinationIds);
+  builder_.add_dataFlowId(dataFlowId);
+  return builder_.Finish();
+}
+
+inline flatbuffers::Offset<DataFlowStopped> CreateDataFlowStoppedDirect(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId = 0,
+    const std::vector<flatbuffers::Offset<chre::fbs::EndpointId>> *destinationIds = nullptr) {
+  auto destinationIds__ = destinationIds ? _fbb.CreateVector<flatbuffers::Offset<chre::fbs::EndpointId>>(*destinationIds) : 0;
+  return chre::fbs::CreateDataFlowStopped(
+      _fbb,
+      dataFlowId,
+      destinationIds__);
+}
+
+flatbuffers::Offset<DataFlowStopped> CreateDataFlowStopped(flatbuffers::FlatBufferBuilder &_fbb, const DataFlowStoppedT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct DataFlowAlertT : public flatbuffers::NativeTable {
+  typedef DataFlowAlert TableType;
+  std::unique_ptr<chre::fbs::DataFlowIdT> dataFlowId;
+  std::unique_ptr<chre::fbs::EndpointIdT> senderId;
+  std::vector<std::unique_ptr<chre::fbs::EndpointIdT>> receiverIds;
+  DataFlowAlertT() {
+  }
+};
+
+struct DataFlowAlert FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef DataFlowAlertT NativeTableType;
+  typedef DataFlowAlertBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_DATAFLOWID = 4,
+    VT_SENDERID = 6,
+    VT_RECEIVERIDS = 8
+  };
+  /// Id of the data flow the alert is associated with
+  const chre::fbs::DataFlowId *dataFlowId() const {
+    return GetPointer<const chre::fbs::DataFlowId *>(VT_DATAFLOWID);
+  }
+  chre::fbs::DataFlowId *mutable_dataFlowId() {
+    return GetPointer<chre::fbs::DataFlowId *>(VT_DATAFLOWID);
+  }
+  /// Id of the sending endpoint
+  const chre::fbs::EndpointId *senderId() const {
+    return GetPointer<const chre::fbs::EndpointId *>(VT_SENDERID);
+  }
+  chre::fbs::EndpointId *mutable_senderId() {
+    return GetPointer<chre::fbs::EndpointId *>(VT_SENDERID);
+  }
+  /// Id(s) of the receiving endpoint(s)
+  const flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>> *receiverIds() const {
+    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>> *>(VT_RECEIVERIDS);
+  }
+  flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>> *mutable_receiverIds() {
+    return GetPointer<flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>> *>(VT_RECEIVERIDS);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_DATAFLOWID) &&
+           verifier.VerifyTable(dataFlowId()) &&
+           VerifyOffset(verifier, VT_SENDERID) &&
+           verifier.VerifyTable(senderId()) &&
+           VerifyOffset(verifier, VT_RECEIVERIDS) &&
+           verifier.VerifyVector(receiverIds()) &&
+           verifier.VerifyVectorOfTables(receiverIds()) &&
+           verifier.EndTable();
+  }
+  DataFlowAlertT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(DataFlowAlertT *_o, const flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static flatbuffers::Offset<DataFlowAlert> Pack(flatbuffers::FlatBufferBuilder &_fbb, const DataFlowAlertT* _o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct DataFlowAlertBuilder {
+  typedef DataFlowAlert Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_dataFlowId(flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId) {
+    fbb_.AddOffset(DataFlowAlert::VT_DATAFLOWID, dataFlowId);
+  }
+  void add_senderId(flatbuffers::Offset<chre::fbs::EndpointId> senderId) {
+    fbb_.AddOffset(DataFlowAlert::VT_SENDERID, senderId);
+  }
+  void add_receiverIds(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>>> receiverIds) {
+    fbb_.AddOffset(DataFlowAlert::VT_RECEIVERIDS, receiverIds);
+  }
+  explicit DataFlowAlertBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  DataFlowAlertBuilder &operator=(const DataFlowAlertBuilder &);
+  flatbuffers::Offset<DataFlowAlert> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<DataFlowAlert>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<DataFlowAlert> CreateDataFlowAlert(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId = 0,
+    flatbuffers::Offset<chre::fbs::EndpointId> senderId = 0,
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>>> receiverIds = 0) {
+  DataFlowAlertBuilder builder_(_fbb);
+  builder_.add_receiverIds(receiverIds);
+  builder_.add_senderId(senderId);
+  builder_.add_dataFlowId(dataFlowId);
+  return builder_.Finish();
+}
+
+inline flatbuffers::Offset<DataFlowAlert> CreateDataFlowAlertDirect(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId = 0,
+    flatbuffers::Offset<chre::fbs::EndpointId> senderId = 0,
+    const std::vector<flatbuffers::Offset<chre::fbs::EndpointId>> *receiverIds = nullptr) {
+  auto receiverIds__ = receiverIds ? _fbb.CreateVector<flatbuffers::Offset<chre::fbs::EndpointId>>(*receiverIds) : 0;
+  return chre::fbs::CreateDataFlowAlert(
+      _fbb,
+      dataFlowId,
+      senderId,
+      receiverIds__);
+}
+
+flatbuffers::Offset<DataFlowAlert> CreateDataFlowAlert(flatbuffers::FlatBufferBuilder &_fbb, const DataFlowAlertT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
 struct MessageContainerT : public flatbuffers::NativeTable {
   typedef MessageContainer TableType;
   chre::fbs::ChreMessageUnion message;
@@ -7522,6 +8125,18 @@ struct MessageContainer FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   }
   const chre::fbs::EndpointReady *message_as_EndpointReady() const {
     return message_type() == chre::fbs::ChreMessage::EndpointReady ? static_cast<const chre::fbs::EndpointReady *>(message()) : nullptr;
+  }
+  const chre::fbs::RegisterDataFlowSink *message_as_RegisterDataFlowSink() const {
+    return message_type() == chre::fbs::ChreMessage::RegisterDataFlowSink ? static_cast<const chre::fbs::RegisterDataFlowSink *>(message()) : nullptr;
+  }
+  const chre::fbs::UnregisterDataFlowSink *message_as_UnregisterDataFlowSink() const {
+    return message_type() == chre::fbs::ChreMessage::UnregisterDataFlowSink ? static_cast<const chre::fbs::UnregisterDataFlowSink *>(message()) : nullptr;
+  }
+  const chre::fbs::DataFlowStopped *message_as_DataFlowStopped() const {
+    return message_type() == chre::fbs::ChreMessage::DataFlowStopped ? static_cast<const chre::fbs::DataFlowStopped *>(message()) : nullptr;
+  }
+  const chre::fbs::DataFlowAlert *message_as_DataFlowAlert() const {
+    return message_type() == chre::fbs::ChreMessage::DataFlowAlert ? static_cast<const chre::fbs::DataFlowAlert *>(message()) : nullptr;
   }
   void *mutable_message() {
     return GetPointer<void *>(VT_MESSAGE);
@@ -7753,6 +8368,22 @@ template<> inline const chre::fbs::AddServiceToEndpoint *MessageContainer::messa
 
 template<> inline const chre::fbs::EndpointReady *MessageContainer::message_as<chre::fbs::EndpointReady>() const {
   return message_as_EndpointReady();
+}
+
+template<> inline const chre::fbs::RegisterDataFlowSink *MessageContainer::message_as<chre::fbs::RegisterDataFlowSink>() const {
+  return message_as_RegisterDataFlowSink();
+}
+
+template<> inline const chre::fbs::UnregisterDataFlowSink *MessageContainer::message_as<chre::fbs::UnregisterDataFlowSink>() const {
+  return message_as_UnregisterDataFlowSink();
+}
+
+template<> inline const chre::fbs::DataFlowStopped *MessageContainer::message_as<chre::fbs::DataFlowStopped>() const {
+  return message_as_DataFlowStopped();
+}
+
+template<> inline const chre::fbs::DataFlowAlert *MessageContainer::message_as<chre::fbs::DataFlowAlert>() const {
+  return message_as_DataFlowAlert();
 }
 
 struct MessageContainerBuilder {
@@ -9702,6 +10333,172 @@ inline flatbuffers::Offset<EndpointSessionMessageDeliveryStatus> CreateEndpointS
       _status);
 }
 
+inline DataFlowIdT *DataFlowId::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  std::unique_ptr<chre::fbs::DataFlowIdT> _o = std::unique_ptr<chre::fbs::DataFlowIdT>(new DataFlowIdT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void DataFlowId::UnPackTo(DataFlowIdT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = hubId(); _o->hubId = _e; }
+  { auto _e = id(); _o->id = _e; }
+}
+
+inline flatbuffers::Offset<DataFlowId> DataFlowId::Pack(flatbuffers::FlatBufferBuilder &_fbb, const DataFlowIdT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateDataFlowId(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<DataFlowId> CreateDataFlowId(flatbuffers::FlatBufferBuilder &_fbb, const DataFlowIdT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const DataFlowIdT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _hubId = _o->hubId;
+  auto _id = _o->id;
+  return chre::fbs::CreateDataFlowId(
+      _fbb,
+      _hubId,
+      _id);
+}
+
+inline RegisterDataFlowSinkT *RegisterDataFlowSink::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  std::unique_ptr<chre::fbs::RegisterDataFlowSinkT> _o = std::unique_ptr<chre::fbs::RegisterDataFlowSinkT>(new RegisterDataFlowSinkT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void RegisterDataFlowSink::UnPackTo(RegisterDataFlowSinkT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = dataFlowId(); if (_e) _o->dataFlowId = std::unique_ptr<chre::fbs::DataFlowIdT>(_e->UnPack(_resolver)); }
+  { auto _e = sourceId(); if (_e) _o->sourceId = std::unique_ptr<chre::fbs::EndpointIdT>(_e->UnPack(_resolver)); }
+  { auto _e = sinkId(); if (_e) _o->sinkId = std::unique_ptr<chre::fbs::EndpointIdT>(_e->UnPack(_resolver)); }
+  { auto _e = primaryRegionId(); _o->primaryRegionId = _e; }
+  { auto _e = metadataOffset(); _o->metadataOffset = _e; }
+  { auto _e = sinkMetadataRegionId(); _o->sinkMetadataRegionId = _e; }
+  { auto _e = sinkMetadataOffset(); _o->sinkMetadataOffset = _e; }
+  { auto _e = msg(); if (_e) _o->msg = std::unique_ptr<chre::fbs::EndpointSessionMessageT>(_e->UnPack(_resolver)); }
+}
+
+inline flatbuffers::Offset<RegisterDataFlowSink> RegisterDataFlowSink::Pack(flatbuffers::FlatBufferBuilder &_fbb, const RegisterDataFlowSinkT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateRegisterDataFlowSink(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<RegisterDataFlowSink> CreateRegisterDataFlowSink(flatbuffers::FlatBufferBuilder &_fbb, const RegisterDataFlowSinkT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const RegisterDataFlowSinkT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _dataFlowId = _o->dataFlowId ? CreateDataFlowId(_fbb, _o->dataFlowId.get(), _rehasher) : 0;
+  auto _sourceId = _o->sourceId ? CreateEndpointId(_fbb, _o->sourceId.get(), _rehasher) : 0;
+  auto _sinkId = _o->sinkId ? CreateEndpointId(_fbb, _o->sinkId.get(), _rehasher) : 0;
+  auto _primaryRegionId = _o->primaryRegionId;
+  auto _metadataOffset = _o->metadataOffset;
+  auto _sinkMetadataRegionId = _o->sinkMetadataRegionId;
+  auto _sinkMetadataOffset = _o->sinkMetadataOffset;
+  auto _msg = _o->msg ? CreateEndpointSessionMessage(_fbb, _o->msg.get(), _rehasher) : 0;
+  return chre::fbs::CreateRegisterDataFlowSink(
+      _fbb,
+      _dataFlowId,
+      _sourceId,
+      _sinkId,
+      _primaryRegionId,
+      _metadataOffset,
+      _sinkMetadataRegionId,
+      _sinkMetadataOffset,
+      _msg);
+}
+
+inline UnregisterDataFlowSinkT *UnregisterDataFlowSink::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  std::unique_ptr<chre::fbs::UnregisterDataFlowSinkT> _o = std::unique_ptr<chre::fbs::UnregisterDataFlowSinkT>(new UnregisterDataFlowSinkT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void UnregisterDataFlowSink::UnPackTo(UnregisterDataFlowSinkT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = dataFlowId(); if (_e) _o->dataFlowId = std::unique_ptr<chre::fbs::DataFlowIdT>(_e->UnPack(_resolver)); }
+  { auto _e = endpointId(); if (_e) _o->endpointId = std::unique_ptr<chre::fbs::EndpointIdT>(_e->UnPack(_resolver)); }
+}
+
+inline flatbuffers::Offset<UnregisterDataFlowSink> UnregisterDataFlowSink::Pack(flatbuffers::FlatBufferBuilder &_fbb, const UnregisterDataFlowSinkT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateUnregisterDataFlowSink(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<UnregisterDataFlowSink> CreateUnregisterDataFlowSink(flatbuffers::FlatBufferBuilder &_fbb, const UnregisterDataFlowSinkT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const UnregisterDataFlowSinkT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _dataFlowId = _o->dataFlowId ? CreateDataFlowId(_fbb, _o->dataFlowId.get(), _rehasher) : 0;
+  auto _endpointId = _o->endpointId ? CreateEndpointId(_fbb, _o->endpointId.get(), _rehasher) : 0;
+  return chre::fbs::CreateUnregisterDataFlowSink(
+      _fbb,
+      _dataFlowId,
+      _endpointId);
+}
+
+inline DataFlowStoppedT *DataFlowStopped::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  std::unique_ptr<chre::fbs::DataFlowStoppedT> _o = std::unique_ptr<chre::fbs::DataFlowStoppedT>(new DataFlowStoppedT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void DataFlowStopped::UnPackTo(DataFlowStoppedT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = dataFlowId(); if (_e) _o->dataFlowId = std::unique_ptr<chre::fbs::DataFlowIdT>(_e->UnPack(_resolver)); }
+  { auto _e = destinationIds(); if (_e) { _o->destinationIds.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->destinationIds[_i] = std::unique_ptr<chre::fbs::EndpointIdT>(_e->Get(_i)->UnPack(_resolver)); } } }
+}
+
+inline flatbuffers::Offset<DataFlowStopped> DataFlowStopped::Pack(flatbuffers::FlatBufferBuilder &_fbb, const DataFlowStoppedT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateDataFlowStopped(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<DataFlowStopped> CreateDataFlowStopped(flatbuffers::FlatBufferBuilder &_fbb, const DataFlowStoppedT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const DataFlowStoppedT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _dataFlowId = _o->dataFlowId ? CreateDataFlowId(_fbb, _o->dataFlowId.get(), _rehasher) : 0;
+  auto _destinationIds = _o->destinationIds.size() ? _fbb.CreateVector<flatbuffers::Offset<chre::fbs::EndpointId>> (_o->destinationIds.size(), [](size_t i, _VectorArgs *__va) { return CreateEndpointId(*__va->__fbb, __va->__o->destinationIds[i].get(), __va->__rehasher); }, &_va ) : 0;
+  return chre::fbs::CreateDataFlowStopped(
+      _fbb,
+      _dataFlowId,
+      _destinationIds);
+}
+
+inline DataFlowAlertT *DataFlowAlert::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
+  std::unique_ptr<chre::fbs::DataFlowAlertT> _o = std::unique_ptr<chre::fbs::DataFlowAlertT>(new DataFlowAlertT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void DataFlowAlert::UnPackTo(DataFlowAlertT *_o, const flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = dataFlowId(); if (_e) _o->dataFlowId = std::unique_ptr<chre::fbs::DataFlowIdT>(_e->UnPack(_resolver)); }
+  { auto _e = senderId(); if (_e) _o->senderId = std::unique_ptr<chre::fbs::EndpointIdT>(_e->UnPack(_resolver)); }
+  { auto _e = receiverIds(); if (_e) { _o->receiverIds.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->receiverIds[_i] = std::unique_ptr<chre::fbs::EndpointIdT>(_e->Get(_i)->UnPack(_resolver)); } } }
+}
+
+inline flatbuffers::Offset<DataFlowAlert> DataFlowAlert::Pack(flatbuffers::FlatBufferBuilder &_fbb, const DataFlowAlertT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateDataFlowAlert(_fbb, _o, _rehasher);
+}
+
+inline flatbuffers::Offset<DataFlowAlert> CreateDataFlowAlert(flatbuffers::FlatBufferBuilder &_fbb, const DataFlowAlertT *_o, const flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const DataFlowAlertT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _dataFlowId = _o->dataFlowId ? CreateDataFlowId(_fbb, _o->dataFlowId.get(), _rehasher) : 0;
+  auto _senderId = _o->senderId ? CreateEndpointId(_fbb, _o->senderId.get(), _rehasher) : 0;
+  auto _receiverIds = _o->receiverIds.size() ? _fbb.CreateVector<flatbuffers::Offset<chre::fbs::EndpointId>> (_o->receiverIds.size(), [](size_t i, _VectorArgs *__va) { return CreateEndpointId(*__va->__fbb, __va->__o->receiverIds[i].get(), __va->__rehasher); }, &_va ) : 0;
+  return chre::fbs::CreateDataFlowAlert(
+      _fbb,
+      _dataFlowId,
+      _senderId,
+      _receiverIds);
+}
+
 inline MessageContainerT *MessageContainer::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
   std::unique_ptr<chre::fbs::MessageContainerT> _o = std::unique_ptr<chre::fbs::MessageContainerT>(new MessageContainerT());
   UnPackTo(_o.get(), _resolver);
@@ -10123,6 +10920,22 @@ inline bool VerifyChreMessage(flatbuffers::Verifier &verifier, const void *obj, 
       auto ptr = reinterpret_cast<const chre::fbs::EndpointReady *>(obj);
       return verifier.VerifyTable(ptr);
     }
+    case ChreMessage::RegisterDataFlowSink: {
+      auto ptr = reinterpret_cast<const chre::fbs::RegisterDataFlowSink *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case ChreMessage::UnregisterDataFlowSink: {
+      auto ptr = reinterpret_cast<const chre::fbs::UnregisterDataFlowSink *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case ChreMessage::DataFlowStopped: {
+      auto ptr = reinterpret_cast<const chre::fbs::DataFlowStopped *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case ChreMessage::DataFlowAlert: {
+      auto ptr = reinterpret_cast<const chre::fbs::DataFlowAlert *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
     default: return true;
   }
 }
@@ -10345,6 +11158,22 @@ inline void *ChreMessageUnion::UnPack(const void *obj, ChreMessage type, const f
       auto ptr = reinterpret_cast<const chre::fbs::EndpointReady *>(obj);
       return ptr->UnPack(resolver);
     }
+    case ChreMessage::RegisterDataFlowSink: {
+      auto ptr = reinterpret_cast<const chre::fbs::RegisterDataFlowSink *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case ChreMessage::UnregisterDataFlowSink: {
+      auto ptr = reinterpret_cast<const chre::fbs::UnregisterDataFlowSink *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case ChreMessage::DataFlowStopped: {
+      auto ptr = reinterpret_cast<const chre::fbs::DataFlowStopped *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case ChreMessage::DataFlowAlert: {
+      auto ptr = reinterpret_cast<const chre::fbs::DataFlowAlert *>(obj);
+      return ptr->UnPack(resolver);
+    }
     default: return nullptr;
   }
 }
@@ -10555,6 +11384,22 @@ inline flatbuffers::Offset<void> ChreMessageUnion::Pack(flatbuffers::FlatBufferB
       auto ptr = reinterpret_cast<const chre::fbs::EndpointReadyT *>(value);
       return CreateEndpointReady(_fbb, ptr, _rehasher).Union();
     }
+    case ChreMessage::RegisterDataFlowSink: {
+      auto ptr = reinterpret_cast<const chre::fbs::RegisterDataFlowSinkT *>(value);
+      return CreateRegisterDataFlowSink(_fbb, ptr, _rehasher).Union();
+    }
+    case ChreMessage::UnregisterDataFlowSink: {
+      auto ptr = reinterpret_cast<const chre::fbs::UnregisterDataFlowSinkT *>(value);
+      return CreateUnregisterDataFlowSink(_fbb, ptr, _rehasher).Union();
+    }
+    case ChreMessage::DataFlowStopped: {
+      auto ptr = reinterpret_cast<const chre::fbs::DataFlowStoppedT *>(value);
+      return CreateDataFlowStopped(_fbb, ptr, _rehasher).Union();
+    }
+    case ChreMessage::DataFlowAlert: {
+      auto ptr = reinterpret_cast<const chre::fbs::DataFlowAlertT *>(value);
+      return CreateDataFlowAlert(_fbb, ptr, _rehasher).Union();
+    }
     default: return 0;
   }
 }
@@ -10763,6 +11608,22 @@ inline ChreMessageUnion::ChreMessageUnion(const ChreMessageUnion &u) : type(u.ty
     }
     case ChreMessage::EndpointReady: {
       FLATBUFFERS_ASSERT(false);  // chre::fbs::EndpointReadyT not copyable.
+      break;
+    }
+    case ChreMessage::RegisterDataFlowSink: {
+      FLATBUFFERS_ASSERT(false);  // chre::fbs::RegisterDataFlowSinkT not copyable.
+      break;
+    }
+    case ChreMessage::UnregisterDataFlowSink: {
+      FLATBUFFERS_ASSERT(false);  // chre::fbs::UnregisterDataFlowSinkT not copyable.
+      break;
+    }
+    case ChreMessage::DataFlowStopped: {
+      FLATBUFFERS_ASSERT(false);  // chre::fbs::DataFlowStoppedT not copyable.
+      break;
+    }
+    case ChreMessage::DataFlowAlert: {
+      FLATBUFFERS_ASSERT(false);  // chre::fbs::DataFlowAlertT not copyable.
       break;
     }
     default:
@@ -11024,6 +11885,26 @@ inline void ChreMessageUnion::Reset() {
     }
     case ChreMessage::EndpointReady: {
       auto ptr = reinterpret_cast<chre::fbs::EndpointReadyT *>(value);
+      delete ptr;
+      break;
+    }
+    case ChreMessage::RegisterDataFlowSink: {
+      auto ptr = reinterpret_cast<chre::fbs::RegisterDataFlowSinkT *>(value);
+      delete ptr;
+      break;
+    }
+    case ChreMessage::UnregisterDataFlowSink: {
+      auto ptr = reinterpret_cast<chre::fbs::UnregisterDataFlowSinkT *>(value);
+      delete ptr;
+      break;
+    }
+    case ChreMessage::DataFlowStopped: {
+      auto ptr = reinterpret_cast<chre::fbs::DataFlowStoppedT *>(value);
+      delete ptr;
+      break;
+    }
+    case ChreMessage::DataFlowAlert: {
+      auto ptr = reinterpret_cast<chre::fbs::DataFlowAlertT *>(value);
       delete ptr;
       break;
     }
