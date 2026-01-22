@@ -52,7 +52,7 @@ void chppDeregisterMessageClient(struct ChppAppState *appContext);
 /**
  * @return The ChppEndpointState pointer to the Message client.
  */
-struct ChppEndpointState *getChppMessageClientState(void);
+struct ChppEndpointState *getChppMsgClientState(void);
 
 /**
  * Called by the FW to get the client API
