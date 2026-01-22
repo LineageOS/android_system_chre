@@ -30,23 +30,30 @@ cc_defaults {
         "-DCHPP_CHECKSUM_ENABLED",
         "-DCHPP_DEBUG_ASSERT_ENABLED",
         "-DCHPP_ENABLE_WORK_MONITOR",
-        "-DCHPP_EXPECTED_SERVICE_COUNT=3",
+        "-DCHPP_EXPECTED_SERVICE_COUNT=4",
         "-DCHPP_MAX_REGISTERED_CLIENTS=16",
         "-DCHPP_MAX_REGISTERED_SERVICES=16",
+        "-DCHRE_ASSERTIONS_ENABLED=true",
+        "-DCHRE_MESSAGE_TO_HOST_MAX_SIZE=2048",
+        "-DCHRE_MINIMUM_LOG_LEVEL=CHRE_LOG_LEVEL_DEBUG",
+        "-DCHRE_FILENAME=__FILE__",
 
         "-DCHPP_CLIENT_ENABLED_DISCOVERY",
         "-DCHPP_CLIENT_ENABLED_GNSS",
         "-DCHPP_CLIENT_ENABLED_LOOPBACK",
+        "-DCHPP_CLIENT_ENABLED_MESSAGE",
         "-DCHPP_CLIENT_ENABLED_TIMESYNC",
         "-DCHPP_CLIENT_ENABLED_TRANSPORT_LOOPBACK",
         "-DCHPP_CLIENT_ENABLED_WIFI",
         "-DCHPP_CLIENT_ENABLED_WWAN",
         "-DCHPP_SERVICE_ENABLED_GNSS",
+        "-DCHPP_SERVICE_ENABLED_MESSAGE",
         "-DCHPP_SERVICE_ENABLED_TRANSPORT_LOOPBACK",
         "-DCHPP_SERVICE_ENABLED_WIFI",
         "-DCHPP_SERVICE_ENABLED_WWAN",
 
         "-DCHPP_GNSS_DEFAULT_CAPABILITIES=0x7",
+        "-DCHPP_MESSAGE_DEFAULT_CAPABILITIES=0x1",
         "-DCHPP_WIFI_DEFAULT_CAPABILITIES=0xf",
         "-DCHPP_WWAN_DEFAULT_CAPABILITIES=0x1",
     ],
@@ -123,6 +130,7 @@ filegroup {
         "clients/discovery.c",
         "clients/gnss.c",
         "clients/loopback.c",
+        "clients/message.cc",
         "clients/timesync.c",
         "clients/wifi.c",
         "clients/wwan.c",
@@ -133,6 +141,7 @@ filegroup {
         "common/wwan_convert.c",
         "platform/linux/services/platform_gnss.c",
         "services/gnss.c",
+        "services/message.cc",
         "services/wifi.c",
         "services/wwan.c",
     ],
@@ -144,6 +153,9 @@ cc_defaults {
     name: "chre_chpp_clients_and_services",
     srcs: [
         ":chre_chpp_clients_and_services_files",
+    ],
+    static_libs: [
+        "pw_allocator",
     ],
 }
 
@@ -166,6 +178,7 @@ cc_library_static {
     ],
     export_include_dirs: [
         "include",
+        "include_public",
         "platform/linux/include",
     ],
 }
@@ -188,6 +201,8 @@ filegroup {
         "test/app_timeout_test.cpp",
         "test/event_log_test.cpp",
         "test/gnss_test.cpp",
+        "test/message_client_test.cc",
+        "test/message_service_test.cc",
         "test/transport_test.cpp",
     ],
 }
@@ -206,6 +221,8 @@ cc_test_host {
     static_libs: [
         "chre_chpp_linux",
         "chre_pal_linux",
+        "liblog",
+        "pw_allocator",
     ],
     sanitize: {
         address: true,
@@ -249,6 +266,7 @@ cc_test_host {
     ],
     local_include_dirs: [
         "include",
+        "include_public",
 
         // Note: this needs to come before platform/linux/include
         "test/include/fake_link",

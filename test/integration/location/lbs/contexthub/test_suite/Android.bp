@@ -101,4 +101,7 @@ cc_test_host {
         "libutils",
     ],
     test_suites: ["general-tests"],
+    sanitize: {
+        address: true,
+    },
 }

@@ -31,10 +31,11 @@ extern "C" {
 /************************************************
  *  Public Definitions
  ***********************************************/
-
-#if defined(CHPP_SERVICE_ENABLED_WWAN) || \
-    defined(CHPP_SERVICE_ENABLED_WIFI) || \
-    defined(CHPP_SERVICE_ENABLED_GNSS) || defined(CHPP_SERVICE_ENABLED_VENDOR)
+#if defined(CHPP_SERVICE_ENABLED_WWAN) ||    \
+    defined(CHPP_SERVICE_ENABLED_WIFI) ||    \
+    defined(CHPP_SERVICE_ENABLED_GNSS) ||    \
+    defined(CHPP_SERVICE_ENABLED_MESSAGE) || \
+    defined(CHPP_SERVICE_ENABLED_VENDOR)
 #define CHPP_SERVICE_ENABLED
 #endif
 

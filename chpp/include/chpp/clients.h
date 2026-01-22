@@ -95,9 +95,14 @@ extern "C" {
 #define CHPP_CLIENT_ENABLED_GNSS
 #endif
 
+#ifdef CHPP_CLIENT_ENABLED_CHRE_MESSAGE
+#define CHPP_CLIENT_ENABLED_MESSAGE
+#endif
+
 #if defined(CHPP_CLIENT_ENABLED_LOOPBACK) ||                                  \
     defined(CHPP_CLIENT_ENABLED_TIMESYNC) ||                                  \
     defined(CHPP_CLIENT_ENABLED_DISCOVERY) ||                                 \
+    defined(CHPP_CLIENT_ENABLED_MESSAGE) ||                                   \
     defined(CHPP_CLIENT_ENABLED_WWAN) || defined(CHPP_CLIENT_ENABLED_WIFI) || \
     defined(CHPP_CLIENT_ENABLED_GNSS)
 #define CHPP_CLIENT_ENABLED
