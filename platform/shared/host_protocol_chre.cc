@@ -34,6 +34,8 @@ using flatbuffers::Vector;
 
 namespace chre {
 
+using message::DataFlowId;
+using message::Endpoint;
 using message::EndpointId;
 using message::EndpointInfo;
 using message::EndpointType;
@@ -786,6 +788,94 @@ void HostProtocolChre::encodeEndpointSessionMessageDeliveryStatus(
       builder, static_cast<int64_t>(hub), session, messageDeliveryStatus);
   finalize(builder, fbs::ChreMessage::EndpointSessionMessageDeliveryStatus,
            msg.Union());
+}
+
+void HostProtocolChre::encodeRegisterDataFlowSink(
+    ChreFlatBufferBuilder &builder, const DataFlowId &dataFlowId,
+    const Endpoint &source, const Endpoint &sink, int32_t primaryRegionId,
+    uint32_t metadataOffset, int32_t sinkMetadataRegionId,
+    uint32_t sinkMetadataOffset) {
+  auto fbsDataFlowId = fbs::CreateDataFlowId(
+      builder, static_cast<int64_t>(dataFlowId.hubId), dataFlowId.id);
+  auto fbsSourceId =
+      fbs::CreateEndpointId(builder, static_cast<int64_t>(source.messageHubId),
+                            static_cast<int64_t>(source.endpointId));
+  auto fbsSinkId =
+      fbs::CreateEndpointId(builder, static_cast<int64_t>(sink.messageHubId),
+                            static_cast<int64_t>(sink.endpointId));
+  auto msg = fbs::CreateRegisterDataFlowSink(
+      builder, fbsDataFlowId, fbsSourceId, fbsSinkId, primaryRegionId,
+      metadataOffset, sinkMetadataRegionId, sinkMetadataOffset);
+  finalize(builder, fbs::ChreMessage::RegisterDataFlowSink, msg.Union());
+}
+
+void HostProtocolChre::encodeUnregisterDataFlowSink(
+    ChreFlatBufferBuilder &builder, const DataFlowId &dataFlowId,
+    const Endpoint &endpoint) {
+  auto fbsDataFlowId = fbs::CreateDataFlowId(
+      builder, static_cast<int64_t>(dataFlowId.hubId), dataFlowId.id);
+  auto fbsEndpointId = fbs::CreateEndpointId(
+      builder, static_cast<int64_t>(endpoint.messageHubId),
+      static_cast<int64_t>(endpoint.endpointId));
+  auto msg =
+      fbs::CreateUnregisterDataFlowSink(builder, fbsDataFlowId, fbsEndpointId);
+  finalize(builder, fbs::ChreMessage::UnregisterDataFlowSink, msg.Union());
+}
+
+void HostProtocolChre::encodeDataFlowStopped(
+    ChreFlatBufferBuilder &builder, const DataFlowId &dataFlowId,
+    const std::optional<DynamicVector<Endpoint>> &destinationEndpoints) {
+  auto fbsDataFlowId = fbs::CreateDataFlowId(
+      builder, static_cast<int64_t>(dataFlowId.hubId), dataFlowId.id);
+
+  flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<fbs::EndpointId>>>
+      destinationIdsVec;
+  if (destinationEndpoints.has_value()) {
+    DynamicVector<Offset<fbs::EndpointId>> fbsDestinationIds;
+    if (!fbsDestinationIds.reserve(destinationEndpoints->size())) {
+      LOG_OOM();
+    } else {
+      for (const auto &id : *destinationEndpoints) {
+        fbsDestinationIds.push_back(fbs::CreateEndpointId(
+            builder, static_cast<int64_t>(id.messageHubId),
+            static_cast<int64_t>(id.endpointId)));
+      }
+    }
+    destinationIdsVec =
+        builder.CreateVector<Offset<fbs::EndpointId>>(fbsDestinationIds);
+  }
+
+  auto msg =
+      fbs::CreateDataFlowStopped(builder, fbsDataFlowId, destinationIdsVec);
+  finalize(builder, fbs::ChreMessage::DataFlowStopped, msg.Union());
+}
+
+void HostProtocolChre::encodeDataFlowAlert(
+    ChreFlatBufferBuilder &builder, const DataFlowId &dataFlowId,
+    const Endpoint &senderEndpoint,
+    const DynamicVector<Endpoint> &receiverEndpoints) {
+  auto fbsDataFlowId = fbs::CreateDataFlowId(
+      builder, static_cast<int64_t>(dataFlowId.hubId), dataFlowId.id);
+  auto fbsSenderId = fbs::CreateEndpointId(
+      builder, static_cast<int64_t>(senderEndpoint.messageHubId),
+      static_cast<int64_t>(senderEndpoint.endpointId));
+
+  DynamicVector<Offset<fbs::EndpointId>> fbsReceiverIds;
+  if (!fbsReceiverIds.reserve(receiverEndpoints.size())) {
+    LOG_OOM();
+  } else {
+    for (const auto &endpoint : receiverEndpoints) {
+      fbsReceiverIds.push_back(fbs::CreateEndpointId(
+          builder, static_cast<int64_t>(endpoint.messageHubId),
+          static_cast<int64_t>(endpoint.endpointId)));
+    }
+  }
+  auto receiverIdsVec =
+      builder.CreateVector<Offset<fbs::EndpointId>>(fbsReceiverIds);
+
+  auto msg = fbs::CreateDataFlowAlert(builder, fbsDataFlowId, fbsSenderId,
+                                      receiverIdsVec);
+  finalize(builder, fbs::ChreMessage::DataFlowAlert, msg.Union());
 }
 
 }  // namespace chre
