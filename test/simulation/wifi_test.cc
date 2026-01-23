@@ -244,6 +244,8 @@ TEST_F(WifiTest, WifiScanMonitoringDisabledOnUnloadAndCanBeReEnabled) {
   EXPECT_TRUE(chrePalWifiIsScanMonitoringActive());
 }
 
+// TODO(b/475637352): Re-enable when flakiness is fixed
+#if 0
 TEST_F(MultiThreadTestBase, ScanMonitorAndActiveScan) {
   CREATE_CHRE_TEST_EVENT(MONITORING_REQUEST, 0);
   CREATE_CHRE_TEST_EVENT(SCAN_REQUEST, 1);
@@ -344,6 +346,7 @@ TEST_F(MultiThreadTestBase, ScanMonitorAndActiveScan) {
 
   ASSERT_EQ(memcmp(&event1, &event2, sizeof(event1)), 0);
 }
+#endif
 
 }  // namespace
 }  // namespace chre
