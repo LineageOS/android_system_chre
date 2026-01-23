@@ -104,7 +104,7 @@ class MultiClientContextHubBase
   // Functions implementing ChreConnectionCallback.
   void handleMessageFromChre(const unsigned char *messageBuffer,
                              size_t messageLen) override;
-  void onChreRestarted() override;
+  void onChreReconnected(bool chreRestarted = true) override;
   void onChreDisconnected() override;
 
   // Functions for dumping debug information.

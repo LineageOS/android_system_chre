@@ -828,6 +828,72 @@ table EndpointSessionMessageDeliveryStatus {
   status:MessageDeliveryStatus;
 }
 
+table DataFlowId {
+  /// Id of the hub the data flow source endpoint is on
+  hubId:long;
+
+  /// Id of the data flow scoped to hubId
+  id:int;
+}
+
+table RegisterDataFlowSink {
+  /// Id of the data flow
+  dataFlowId:DataFlowId;
+
+  /// Id of the data flow source endpoint
+  sourceId:EndpointId;
+
+  /// Id of the endpoint being registered as a sink
+  sinkId:EndpointId;
+
+  /// Id of the primary region (contains the main metadata, data storage, and
+  /// possibly sink metadata)
+  primaryRegionId:int;
+
+  /// Offset of the metadata in the primary region
+  metadataOffset:uint;
+
+  /// Optional id of the region containing the metadata of the new sink. Should
+  /// be set to -1 if the sink metadata is in the primary region.
+  sinkMetadataRegionId:int;
+
+  /// Offset of the sink metadata in either the primary or sink-specific region
+  /// depending on whether sinkMetadataRegionId is provided
+  sinkMetadataOffset:uint;
+
+  /// Optional message used to pass this registration over an existing
+  /// session
+  msg:EndpointSessionMessage;
+}
+
+table UnregisterDataFlowSink {
+  /// Id of the data flow
+  dataFlowId:DataFlowId;
+
+  /// Id of the endpoint being removed from the flow
+  endpointId:EndpointId;
+}
+
+table DataFlowStopped {
+  /// Id of the data flow that stopped
+  dataFlowId:DataFlowId;
+
+  /// Optional id(s) of the endpoints to notify. This is not necessary when
+  /// sending this message to the HAL as it can look up the relevant endpoints
+  destinationIds:[EndpointId];
+}
+
+table DataFlowAlert {
+  /// Id of the data flow the alert is associated with
+  dataFlowId:DataFlowId;
+
+  /// Id of the sending endpoint
+  senderId:EndpointId;
+
+  /// Id(s) of the receiving endpoint(s)
+  receiverIds:[EndpointId];
+}
+
 /// A union that joins together all possible messages. Note that in FlatBuffers,
 /// unions have an implicit type
 union ChreMessage {
@@ -909,6 +975,11 @@ union ChreMessage {
 
   AddServiceToEndpoint,
   EndpointReady,
+
+  RegisterDataFlowSink,
+  UnregisterDataFlowSink,
+  DataFlowStopped,
+  DataFlowAlert,
 }
 
 struct HostAddress {

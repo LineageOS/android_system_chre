@@ -32,9 +32,11 @@ TinysysContextHub::TinysysContextHub() {
   }
 }
 
-void TinysysContextHub::onChreRestarted() {
-  mLogger.resetNanoappDetokenizerState();
+void TinysysContextHub::onChreReconnected(bool chreRestarted) {
+  if (chreRestarted) {
+    mLogger.resetNanoappDetokenizerState();
+  }
   mPreloadedNanoappLoader->loadPreloadedNanoapps();
-  MultiClientContextHubBase::onChreRestarted();
+  MultiClientContextHubBase::onChreReconnected();
 }
 }  // namespace aidl::android::hardware::contexthub

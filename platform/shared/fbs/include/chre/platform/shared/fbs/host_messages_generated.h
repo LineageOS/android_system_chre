@@ -195,6 +195,21 @@ struct EndpointSessionMessageBuilder;
 struct EndpointSessionMessageDeliveryStatus;
 struct EndpointSessionMessageDeliveryStatusBuilder;
 
+struct DataFlowId;
+struct DataFlowIdBuilder;
+
+struct RegisterDataFlowSink;
+struct RegisterDataFlowSinkBuilder;
+
+struct UnregisterDataFlowSink;
+struct UnregisterDataFlowSinkBuilder;
+
+struct DataFlowStopped;
+struct DataFlowStoppedBuilder;
+
+struct DataFlowAlert;
+struct DataFlowAlertBuilder;
+
 struct HostAddress;
 
 struct MessageContainer;
@@ -699,129 +714,139 @@ enum class ChreMessage : uint8_t {
   BtSocketCapabilitiesResponse = 49,
   AddServiceToEndpoint = 50,
   EndpointReady = 51,
+  RegisterDataFlowSink = 52,
+  UnregisterDataFlowSink = 53,
+  DataFlowStopped = 54,
+  DataFlowAlert = 55,
   MIN = NONE,
-  MAX = EndpointReady
+  MAX = DataFlowAlert
 };
 
-inline const ChreMessage (&EnumValuesChreMessage())[52] {
+inline const ChreMessage (&EnumValuesChreMessage())[56] {
   static const ChreMessage values[] = {
-    ChreMessage::NONE,
-    ChreMessage::NanoappMessage,
-    ChreMessage::HubInfoRequest,
-    ChreMessage::HubInfoResponse,
-    ChreMessage::NanoappListRequest,
-    ChreMessage::NanoappListResponse,
-    ChreMessage::LoadNanoappRequest,
-    ChreMessage::LoadNanoappResponse,
-    ChreMessage::UnloadNanoappRequest,
-    ChreMessage::UnloadNanoappResponse,
-    ChreMessage::LogMessage,
-    ChreMessage::TimeSyncMessage,
-    ChreMessage::DebugDumpRequest,
-    ChreMessage::DebugDumpData,
-    ChreMessage::DebugDumpResponse,
-    ChreMessage::TimeSyncRequest,
-    ChreMessage::LowPowerMicAccessRequest,
-    ChreMessage::LowPowerMicAccessRelease,
-    ChreMessage::SettingChangeMessage,
-    ChreMessage::LogMessageV2,
-    ChreMessage::SelfTestRequest,
-    ChreMessage::SelfTestResponse,
-    ChreMessage::HostEndpointConnected,
-    ChreMessage::HostEndpointDisconnected,
-    ChreMessage::MetricLog,
-    ChreMessage::BatchedMetricLog,
-    ChreMessage::NanConfigurationRequest,
-    ChreMessage::NanConfigurationUpdate,
-    ChreMessage::DebugConfiguration,
-    ChreMessage::PulseRequest,
-    ChreMessage::PulseResponse,
-    ChreMessage::NanoappTokenDatabaseInfo,
-    ChreMessage::MessageDeliveryStatus,
-    ChreMessage::BtSocketOpen,
-    ChreMessage::BtSocketOpenResponse,
-    ChreMessage::BtSocketClose,
-    ChreMessage::BtSocketCloseResponse,
-    ChreMessage::GetMessageHubsAndEndpointsRequest,
-    ChreMessage::GetMessageHubsAndEndpointsResponse,
-    ChreMessage::RegisterMessageHub,
-    ChreMessage::UnregisterMessageHub,
-    ChreMessage::RegisterEndpoint,
-    ChreMessage::UnregisterEndpoint,
-    ChreMessage::OpenEndpointSessionRequest,
-    ChreMessage::EndpointSessionOpened,
-    ChreMessage::EndpointSessionClosed,
-    ChreMessage::EndpointSessionMessage,
-    ChreMessage::EndpointSessionMessageDeliveryStatus,
-    ChreMessage::BtSocketCapabilitiesRequest,
-    ChreMessage::BtSocketCapabilitiesResponse,
-    ChreMessage::AddServiceToEndpoint,
-    ChreMessage::EndpointReady
-  };
+      ChreMessage::NONE,
+      ChreMessage::NanoappMessage,
+      ChreMessage::HubInfoRequest,
+      ChreMessage::HubInfoResponse,
+      ChreMessage::NanoappListRequest,
+      ChreMessage::NanoappListResponse,
+      ChreMessage::LoadNanoappRequest,
+      ChreMessage::LoadNanoappResponse,
+      ChreMessage::UnloadNanoappRequest,
+      ChreMessage::UnloadNanoappResponse,
+      ChreMessage::LogMessage,
+      ChreMessage::TimeSyncMessage,
+      ChreMessage::DebugDumpRequest,
+      ChreMessage::DebugDumpData,
+      ChreMessage::DebugDumpResponse,
+      ChreMessage::TimeSyncRequest,
+      ChreMessage::LowPowerMicAccessRequest,
+      ChreMessage::LowPowerMicAccessRelease,
+      ChreMessage::SettingChangeMessage,
+      ChreMessage::LogMessageV2,
+      ChreMessage::SelfTestRequest,
+      ChreMessage::SelfTestResponse,
+      ChreMessage::HostEndpointConnected,
+      ChreMessage::HostEndpointDisconnected,
+      ChreMessage::MetricLog,
+      ChreMessage::BatchedMetricLog,
+      ChreMessage::NanConfigurationRequest,
+      ChreMessage::NanConfigurationUpdate,
+      ChreMessage::DebugConfiguration,
+      ChreMessage::PulseRequest,
+      ChreMessage::PulseResponse,
+      ChreMessage::NanoappTokenDatabaseInfo,
+      ChreMessage::MessageDeliveryStatus,
+      ChreMessage::BtSocketOpen,
+      ChreMessage::BtSocketOpenResponse,
+      ChreMessage::BtSocketClose,
+      ChreMessage::BtSocketCloseResponse,
+      ChreMessage::GetMessageHubsAndEndpointsRequest,
+      ChreMessage::GetMessageHubsAndEndpointsResponse,
+      ChreMessage::RegisterMessageHub,
+      ChreMessage::UnregisterMessageHub,
+      ChreMessage::RegisterEndpoint,
+      ChreMessage::UnregisterEndpoint,
+      ChreMessage::OpenEndpointSessionRequest,
+      ChreMessage::EndpointSessionOpened,
+      ChreMessage::EndpointSessionClosed,
+      ChreMessage::EndpointSessionMessage,
+      ChreMessage::EndpointSessionMessageDeliveryStatus,
+      ChreMessage::BtSocketCapabilitiesRequest,
+      ChreMessage::BtSocketCapabilitiesResponse,
+      ChreMessage::AddServiceToEndpoint,
+      ChreMessage::EndpointReady,
+      ChreMessage::RegisterDataFlowSink,
+      ChreMessage::UnregisterDataFlowSink,
+      ChreMessage::DataFlowStopped,
+      ChreMessage::DataFlowAlert};
   return values;
 }
 
 inline const char * const *EnumNamesChreMessage() {
-  static const char * const names[53] = {
-    "NONE",
-    "NanoappMessage",
-    "HubInfoRequest",
-    "HubInfoResponse",
-    "NanoappListRequest",
-    "NanoappListResponse",
-    "LoadNanoappRequest",
-    "LoadNanoappResponse",
-    "UnloadNanoappRequest",
-    "UnloadNanoappResponse",
-    "LogMessage",
-    "TimeSyncMessage",
-    "DebugDumpRequest",
-    "DebugDumpData",
-    "DebugDumpResponse",
-    "TimeSyncRequest",
-    "LowPowerMicAccessRequest",
-    "LowPowerMicAccessRelease",
-    "SettingChangeMessage",
-    "LogMessageV2",
-    "SelfTestRequest",
-    "SelfTestResponse",
-    "HostEndpointConnected",
-    "HostEndpointDisconnected",
-    "MetricLog",
-    "BatchedMetricLog",
-    "NanConfigurationRequest",
-    "NanConfigurationUpdate",
-    "DebugConfiguration",
-    "PulseRequest",
-    "PulseResponse",
-    "NanoappTokenDatabaseInfo",
-    "MessageDeliveryStatus",
-    "BtSocketOpen",
-    "BtSocketOpenResponse",
-    "BtSocketClose",
-    "BtSocketCloseResponse",
-    "GetMessageHubsAndEndpointsRequest",
-    "GetMessageHubsAndEndpointsResponse",
-    "RegisterMessageHub",
-    "UnregisterMessageHub",
-    "RegisterEndpoint",
-    "UnregisterEndpoint",
-    "OpenEndpointSessionRequest",
-    "EndpointSessionOpened",
-    "EndpointSessionClosed",
-    "EndpointSessionMessage",
-    "EndpointSessionMessageDeliveryStatus",
-    "BtSocketCapabilitiesRequest",
-    "BtSocketCapabilitiesResponse",
-    "AddServiceToEndpoint",
-    "EndpointReady",
-    nullptr
-  };
+  static const char *const names[57] = {"NONE",
+                                        "NanoappMessage",
+                                        "HubInfoRequest",
+                                        "HubInfoResponse",
+                                        "NanoappListRequest",
+                                        "NanoappListResponse",
+                                        "LoadNanoappRequest",
+                                        "LoadNanoappResponse",
+                                        "UnloadNanoappRequest",
+                                        "UnloadNanoappResponse",
+                                        "LogMessage",
+                                        "TimeSyncMessage",
+                                        "DebugDumpRequest",
+                                        "DebugDumpData",
+                                        "DebugDumpResponse",
+                                        "TimeSyncRequest",
+                                        "LowPowerMicAccessRequest",
+                                        "LowPowerMicAccessRelease",
+                                        "SettingChangeMessage",
+                                        "LogMessageV2",
+                                        "SelfTestRequest",
+                                        "SelfTestResponse",
+                                        "HostEndpointConnected",
+                                        "HostEndpointDisconnected",
+                                        "MetricLog",
+                                        "BatchedMetricLog",
+                                        "NanConfigurationRequest",
+                                        "NanConfigurationUpdate",
+                                        "DebugConfiguration",
+                                        "PulseRequest",
+                                        "PulseResponse",
+                                        "NanoappTokenDatabaseInfo",
+                                        "MessageDeliveryStatus",
+                                        "BtSocketOpen",
+                                        "BtSocketOpenResponse",
+                                        "BtSocketClose",
+                                        "BtSocketCloseResponse",
+                                        "GetMessageHubsAndEndpointsRequest",
+                                        "GetMessageHubsAndEndpointsResponse",
+                                        "RegisterMessageHub",
+                                        "UnregisterMessageHub",
+                                        "RegisterEndpoint",
+                                        "UnregisterEndpoint",
+                                        "OpenEndpointSessionRequest",
+                                        "EndpointSessionOpened",
+                                        "EndpointSessionClosed",
+                                        "EndpointSessionMessage",
+                                        "EndpointSessionMessageDeliveryStatus",
+                                        "BtSocketCapabilitiesRequest",
+                                        "BtSocketCapabilitiesResponse",
+                                        "AddServiceToEndpoint",
+                                        "EndpointReady",
+                                        "RegisterDataFlowSink",
+                                        "UnregisterDataFlowSink",
+                                        "DataFlowStopped",
+                                        "DataFlowAlert",
+                                        nullptr};
   return names;
 }
 
 inline const char *EnumNameChreMessage(ChreMessage e) {
-  if (flatbuffers::IsOutRange(e, ChreMessage::NONE, ChreMessage::EndpointReady)) return "";
+  if (flatbuffers::IsOutRange(e, ChreMessage::NONE, ChreMessage::DataFlowAlert))
+    return "";
   const size_t index = static_cast<size_t>(e);
   return EnumNamesChreMessage()[index];
 }
@@ -1032,6 +1057,26 @@ template<> struct ChreMessageTraits<chre::fbs::AddServiceToEndpoint> {
 
 template<> struct ChreMessageTraits<chre::fbs::EndpointReady> {
   static const ChreMessage enum_value = ChreMessage::EndpointReady;
+};
+
+template <>
+struct ChreMessageTraits<chre::fbs::RegisterDataFlowSink> {
+  static const ChreMessage enum_value = ChreMessage::RegisterDataFlowSink;
+};
+
+template <>
+struct ChreMessageTraits<chre::fbs::UnregisterDataFlowSink> {
+  static const ChreMessage enum_value = ChreMessage::UnregisterDataFlowSink;
+};
+
+template <>
+struct ChreMessageTraits<chre::fbs::DataFlowStopped> {
+  static const ChreMessage enum_value = ChreMessage::DataFlowStopped;
+};
+
+template <>
+struct ChreMessageTraits<chre::fbs::DataFlowAlert> {
+  static const ChreMessage enum_value = ChreMessage::DataFlowAlert;
 };
 
 bool VerifyChreMessage(flatbuffers::Verifier &verifier, const void *obj, ChreMessage type);
@@ -5243,6 +5288,412 @@ inline flatbuffers::Offset<EndpointSessionMessageDeliveryStatus> CreateEndpointS
   return builder_.Finish();
 }
 
+struct DataFlowId FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef DataFlowIdBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_HUBID = 4,
+    VT_ID = 6
+  };
+  /// Id of the hub the data flow source endpoint is on
+  int64_t hubId() const {
+    return GetField<int64_t>(VT_HUBID, 0);
+  }
+  /// Id of the data flow scoped to hubId
+  int32_t id() const {
+    return GetField<int32_t>(VT_ID, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int64_t>(verifier, VT_HUBID) &&
+           VerifyField<int32_t>(verifier, VT_ID) && verifier.EndTable();
+  }
+};
+
+struct DataFlowIdBuilder {
+  typedef DataFlowId Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_hubId(int64_t hubId) {
+    fbb_.AddElement<int64_t>(DataFlowId::VT_HUBID, hubId, 0);
+  }
+  void add_id(int32_t id) {
+    fbb_.AddElement<int32_t>(DataFlowId::VT_ID, id, 0);
+  }
+  explicit DataFlowIdBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+      : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  DataFlowIdBuilder &operator=(const DataFlowIdBuilder &);
+  flatbuffers::Offset<DataFlowId> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<DataFlowId>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<DataFlowId> CreateDataFlowId(
+    flatbuffers::FlatBufferBuilder &_fbb, int64_t hubId = 0, int32_t id = 0) {
+  DataFlowIdBuilder builder_(_fbb);
+  builder_.add_hubId(hubId);
+  builder_.add_id(id);
+  return builder_.Finish();
+}
+
+struct RegisterDataFlowSink FLATBUFFERS_FINAL_CLASS
+    : private flatbuffers::Table {
+  typedef RegisterDataFlowSinkBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_DATAFLOWID = 4,
+    VT_SOURCEID = 6,
+    VT_SINKID = 8,
+    VT_PRIMARYREGIONID = 10,
+    VT_METADATAOFFSET = 12,
+    VT_SINKMETADATAREGIONID = 14,
+    VT_SINKMETADATAOFFSET = 16,
+    VT_MSG = 18
+  };
+  /// Id of the data flow
+  const chre::fbs::DataFlowId *dataFlowId() const {
+    return GetPointer<const chre::fbs::DataFlowId *>(VT_DATAFLOWID);
+  }
+  /// Id of the data flow source endpoint
+  const chre::fbs::EndpointId *sourceId() const {
+    return GetPointer<const chre::fbs::EndpointId *>(VT_SOURCEID);
+  }
+  /// Id of the endpoint being registered as a sink
+  const chre::fbs::EndpointId *sinkId() const {
+    return GetPointer<const chre::fbs::EndpointId *>(VT_SINKID);
+  }
+  /// Id of the primary region (contains the main metadata, data storage, and
+  /// possibly sink metadata)
+  int32_t primaryRegionId() const {
+    return GetField<int32_t>(VT_PRIMARYREGIONID, 0);
+  }
+  /// Offset of the metadata in the primary region
+  uint32_t metadataOffset() const {
+    return GetField<uint32_t>(VT_METADATAOFFSET, 0);
+  }
+  /// Optional id of the region containing the metadata of the new sink. Should
+  /// be set to -1 if the sink metadata is in the primary region.
+  int32_t sinkMetadataRegionId() const {
+    return GetField<int32_t>(VT_SINKMETADATAREGIONID, 0);
+  }
+  /// Offset of the sink metadata in either the primary or sink-specific region
+  /// depending on whether sinkMetadataRegionId is provided
+  uint32_t sinkMetadataOffset() const {
+    return GetField<uint32_t>(VT_SINKMETADATAOFFSET, 0);
+  }
+  /// Optional message used to pass this registration over an existing
+  /// session
+  const chre::fbs::EndpointSessionMessage *msg() const {
+    return GetPointer<const chre::fbs::EndpointSessionMessage *>(VT_MSG);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_DATAFLOWID) &&
+           verifier.VerifyTable(dataFlowId()) &&
+           VerifyOffset(verifier, VT_SOURCEID) &&
+           verifier.VerifyTable(sourceId()) &&
+           VerifyOffset(verifier, VT_SINKID) &&
+           verifier.VerifyTable(sinkId()) &&
+           VerifyField<int32_t>(verifier, VT_PRIMARYREGIONID) &&
+           VerifyField<uint32_t>(verifier, VT_METADATAOFFSET) &&
+           VerifyField<int32_t>(verifier, VT_SINKMETADATAREGIONID) &&
+           VerifyField<uint32_t>(verifier, VT_SINKMETADATAOFFSET) &&
+           VerifyOffset(verifier, VT_MSG) && verifier.VerifyTable(msg()) &&
+           verifier.EndTable();
+  }
+};
+
+struct RegisterDataFlowSinkBuilder {
+  typedef RegisterDataFlowSink Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_dataFlowId(flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId) {
+    fbb_.AddOffset(RegisterDataFlowSink::VT_DATAFLOWID, dataFlowId);
+  }
+  void add_sourceId(flatbuffers::Offset<chre::fbs::EndpointId> sourceId) {
+    fbb_.AddOffset(RegisterDataFlowSink::VT_SOURCEID, sourceId);
+  }
+  void add_sinkId(flatbuffers::Offset<chre::fbs::EndpointId> sinkId) {
+    fbb_.AddOffset(RegisterDataFlowSink::VT_SINKID, sinkId);
+  }
+  void add_primaryRegionId(int32_t primaryRegionId) {
+    fbb_.AddElement<int32_t>(RegisterDataFlowSink::VT_PRIMARYREGIONID,
+                             primaryRegionId, 0);
+  }
+  void add_metadataOffset(uint32_t metadataOffset) {
+    fbb_.AddElement<uint32_t>(RegisterDataFlowSink::VT_METADATAOFFSET,
+                              metadataOffset, 0);
+  }
+  void add_sinkMetadataRegionId(int32_t sinkMetadataRegionId) {
+    fbb_.AddElement<int32_t>(RegisterDataFlowSink::VT_SINKMETADATAREGIONID,
+                             sinkMetadataRegionId, 0);
+  }
+  void add_sinkMetadataOffset(uint32_t sinkMetadataOffset) {
+    fbb_.AddElement<uint32_t>(RegisterDataFlowSink::VT_SINKMETADATAOFFSET,
+                              sinkMetadataOffset, 0);
+  }
+  void add_msg(flatbuffers::Offset<chre::fbs::EndpointSessionMessage> msg) {
+    fbb_.AddOffset(RegisterDataFlowSink::VT_MSG, msg);
+  }
+  explicit RegisterDataFlowSinkBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+      : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  RegisterDataFlowSinkBuilder &operator=(const RegisterDataFlowSinkBuilder &);
+  flatbuffers::Offset<RegisterDataFlowSink> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<RegisterDataFlowSink>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<RegisterDataFlowSink> CreateRegisterDataFlowSink(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId = 0,
+    flatbuffers::Offset<chre::fbs::EndpointId> sourceId = 0,
+    flatbuffers::Offset<chre::fbs::EndpointId> sinkId = 0,
+    int32_t primaryRegionId = 0, uint32_t metadataOffset = 0,
+    int32_t sinkMetadataRegionId = 0, uint32_t sinkMetadataOffset = 0,
+    flatbuffers::Offset<chre::fbs::EndpointSessionMessage> msg = 0) {
+  RegisterDataFlowSinkBuilder builder_(_fbb);
+  builder_.add_msg(msg);
+  builder_.add_sinkMetadataOffset(sinkMetadataOffset);
+  builder_.add_sinkMetadataRegionId(sinkMetadataRegionId);
+  builder_.add_metadataOffset(metadataOffset);
+  builder_.add_primaryRegionId(primaryRegionId);
+  builder_.add_sinkId(sinkId);
+  builder_.add_sourceId(sourceId);
+  builder_.add_dataFlowId(dataFlowId);
+  return builder_.Finish();
+}
+
+struct UnregisterDataFlowSink FLATBUFFERS_FINAL_CLASS
+    : private flatbuffers::Table {
+  typedef UnregisterDataFlowSinkBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_DATAFLOWID = 4,
+    VT_ENDPOINTID = 6
+  };
+  /// Id of the data flow
+  const chre::fbs::DataFlowId *dataFlowId() const {
+    return GetPointer<const chre::fbs::DataFlowId *>(VT_DATAFLOWID);
+  }
+  /// Id of the endpoint being removed from the flow
+  const chre::fbs::EndpointId *endpointId() const {
+    return GetPointer<const chre::fbs::EndpointId *>(VT_ENDPOINTID);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_DATAFLOWID) &&
+           verifier.VerifyTable(dataFlowId()) &&
+           VerifyOffset(verifier, VT_ENDPOINTID) &&
+           verifier.VerifyTable(endpointId()) && verifier.EndTable();
+  }
+};
+
+struct UnregisterDataFlowSinkBuilder {
+  typedef UnregisterDataFlowSink Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_dataFlowId(flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId) {
+    fbb_.AddOffset(UnregisterDataFlowSink::VT_DATAFLOWID, dataFlowId);
+  }
+  void add_endpointId(flatbuffers::Offset<chre::fbs::EndpointId> endpointId) {
+    fbb_.AddOffset(UnregisterDataFlowSink::VT_ENDPOINTID, endpointId);
+  }
+  explicit UnregisterDataFlowSinkBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+      : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  UnregisterDataFlowSinkBuilder &operator=(
+      const UnregisterDataFlowSinkBuilder &);
+  flatbuffers::Offset<UnregisterDataFlowSink> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<UnregisterDataFlowSink>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<UnregisterDataFlowSink> CreateUnregisterDataFlowSink(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId = 0,
+    flatbuffers::Offset<chre::fbs::EndpointId> endpointId = 0) {
+  UnregisterDataFlowSinkBuilder builder_(_fbb);
+  builder_.add_endpointId(endpointId);
+  builder_.add_dataFlowId(dataFlowId);
+  return builder_.Finish();
+}
+
+struct DataFlowStopped FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef DataFlowStoppedBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_DATAFLOWID = 4,
+    VT_DESTINATIONIDS = 6
+  };
+  /// Id of the data flow that stopped
+  const chre::fbs::DataFlowId *dataFlowId() const {
+    return GetPointer<const chre::fbs::DataFlowId *>(VT_DATAFLOWID);
+  }
+  /// Optional id(s) of the endpoints to notify. This is not necessary when
+  /// sending this message to the HAL as it can look up the relevant endpoints
+  const flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>> *
+  destinationIds() const {
+    return GetPointer<const flatbuffers::Vector<
+        flatbuffers::Offset<chre::fbs::EndpointId>> *>(VT_DESTINATIONIDS);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_DATAFLOWID) &&
+           verifier.VerifyTable(dataFlowId()) &&
+           VerifyOffset(verifier, VT_DESTINATIONIDS) &&
+           verifier.VerifyVector(destinationIds()) &&
+           verifier.VerifyVectorOfTables(destinationIds()) &&
+           verifier.EndTable();
+  }
+};
+
+struct DataFlowStoppedBuilder {
+  typedef DataFlowStopped Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_dataFlowId(flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId) {
+    fbb_.AddOffset(DataFlowStopped::VT_DATAFLOWID, dataFlowId);
+  }
+  void add_destinationIds(
+      flatbuffers::Offset<
+          flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>>>
+          destinationIds) {
+    fbb_.AddOffset(DataFlowStopped::VT_DESTINATIONIDS, destinationIds);
+  }
+  explicit DataFlowStoppedBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+      : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  DataFlowStoppedBuilder &operator=(const DataFlowStoppedBuilder &);
+  flatbuffers::Offset<DataFlowStopped> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<DataFlowStopped>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<DataFlowStopped> CreateDataFlowStopped(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId = 0,
+    flatbuffers::Offset<
+        flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>>>
+        destinationIds = 0) {
+  DataFlowStoppedBuilder builder_(_fbb);
+  builder_.add_destinationIds(destinationIds);
+  builder_.add_dataFlowId(dataFlowId);
+  return builder_.Finish();
+}
+
+inline flatbuffers::Offset<DataFlowStopped> CreateDataFlowStoppedDirect(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId = 0,
+    const std::vector<flatbuffers::Offset<chre::fbs::EndpointId>>
+        *destinationIds = nullptr) {
+  auto destinationIds__ =
+      destinationIds
+          ? _fbb.CreateVector<flatbuffers::Offset<chre::fbs::EndpointId>>(
+                *destinationIds)
+          : 0;
+  return chre::fbs::CreateDataFlowStopped(_fbb, dataFlowId, destinationIds__);
+}
+
+struct DataFlowAlert FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef DataFlowAlertBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_DATAFLOWID = 4,
+    VT_SENDERID = 6,
+    VT_RECEIVERIDS = 8
+  };
+  /// Id of the data flow the alert is associated with
+  const chre::fbs::DataFlowId *dataFlowId() const {
+    return GetPointer<const chre::fbs::DataFlowId *>(VT_DATAFLOWID);
+  }
+  /// Id of the sending endpoint
+  const chre::fbs::EndpointId *senderId() const {
+    return GetPointer<const chre::fbs::EndpointId *>(VT_SENDERID);
+  }
+  /// Id(s) of the receiving endpoint(s)
+  const flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>> *
+  receiverIds() const {
+    return GetPointer<const flatbuffers::Vector<
+        flatbuffers::Offset<chre::fbs::EndpointId>> *>(VT_RECEIVERIDS);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_DATAFLOWID) &&
+           verifier.VerifyTable(dataFlowId()) &&
+           VerifyOffset(verifier, VT_SENDERID) &&
+           verifier.VerifyTable(senderId()) &&
+           VerifyOffset(verifier, VT_RECEIVERIDS) &&
+           verifier.VerifyVector(receiverIds()) &&
+           verifier.VerifyVectorOfTables(receiverIds()) && verifier.EndTable();
+  }
+};
+
+struct DataFlowAlertBuilder {
+  typedef DataFlowAlert Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_dataFlowId(flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId) {
+    fbb_.AddOffset(DataFlowAlert::VT_DATAFLOWID, dataFlowId);
+  }
+  void add_senderId(flatbuffers::Offset<chre::fbs::EndpointId> senderId) {
+    fbb_.AddOffset(DataFlowAlert::VT_SENDERID, senderId);
+  }
+  void add_receiverIds(
+      flatbuffers::Offset<
+          flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>>>
+          receiverIds) {
+    fbb_.AddOffset(DataFlowAlert::VT_RECEIVERIDS, receiverIds);
+  }
+  explicit DataFlowAlertBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+      : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  DataFlowAlertBuilder &operator=(const DataFlowAlertBuilder &);
+  flatbuffers::Offset<DataFlowAlert> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<DataFlowAlert>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<DataFlowAlert> CreateDataFlowAlert(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId = 0,
+    flatbuffers::Offset<chre::fbs::EndpointId> senderId = 0,
+    flatbuffers::Offset<
+        flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>>>
+        receiverIds = 0) {
+  DataFlowAlertBuilder builder_(_fbb);
+  builder_.add_receiverIds(receiverIds);
+  builder_.add_senderId(senderId);
+  builder_.add_dataFlowId(dataFlowId);
+  return builder_.Finish();
+}
+
+inline flatbuffers::Offset<DataFlowAlert> CreateDataFlowAlertDirect(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId = 0,
+    flatbuffers::Offset<chre::fbs::EndpointId> senderId = 0,
+    const std::vector<flatbuffers::Offset<chre::fbs::EndpointId>> *receiverIds =
+        nullptr) {
+  auto receiverIds__ =
+      receiverIds
+          ? _fbb.CreateVector<flatbuffers::Offset<chre::fbs::EndpointId>>(
+                *receiverIds)
+          : 0;
+  return chre::fbs::CreateDataFlowAlert(_fbb, dataFlowId, senderId,
+                                        receiverIds__);
+}
+
 /// The top-level container that encapsulates all possible messages. Note that
 /// per FlatBuffers requirements, we can't use a union as the top-level
 /// structure (root type), so we must wrap it in a table.
@@ -5412,6 +5863,29 @@ struct MessageContainer FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   }
   const chre::fbs::EndpointReady *message_as_EndpointReady() const {
     return message_type() == chre::fbs::ChreMessage::EndpointReady ? static_cast<const chre::fbs::EndpointReady *>(message()) : nullptr;
+  }
+  const chre::fbs::RegisterDataFlowSink *message_as_RegisterDataFlowSink()
+      const {
+    return message_type() == chre::fbs::ChreMessage::RegisterDataFlowSink
+               ? static_cast<const chre::fbs::RegisterDataFlowSink *>(message())
+               : nullptr;
+  }
+  const chre::fbs::UnregisterDataFlowSink *message_as_UnregisterDataFlowSink()
+      const {
+    return message_type() == chre::fbs::ChreMessage::UnregisterDataFlowSink
+               ? static_cast<const chre::fbs::UnregisterDataFlowSink *>(
+                     message())
+               : nullptr;
+  }
+  const chre::fbs::DataFlowStopped *message_as_DataFlowStopped() const {
+    return message_type() == chre::fbs::ChreMessage::DataFlowStopped
+               ? static_cast<const chre::fbs::DataFlowStopped *>(message())
+               : nullptr;
+  }
+  const chre::fbs::DataFlowAlert *message_as_DataFlowAlert() const {
+    return message_type() == chre::fbs::ChreMessage::DataFlowAlert
+               ? static_cast<const chre::fbs::DataFlowAlert *>(message())
+               : nullptr;
   }
   /// The originating or destination client ID on the host side, used to direct
   /// responses only to the client that sent the request. Although initially
@@ -5634,6 +6108,30 @@ template<> inline const chre::fbs::AddServiceToEndpoint *MessageContainer::messa
 
 template<> inline const chre::fbs::EndpointReady *MessageContainer::message_as<chre::fbs::EndpointReady>() const {
   return message_as_EndpointReady();
+}
+
+template <>
+inline const chre::fbs::RegisterDataFlowSink *
+MessageContainer::message_as<chre::fbs::RegisterDataFlowSink>() const {
+  return message_as_RegisterDataFlowSink();
+}
+
+template <>
+inline const chre::fbs::UnregisterDataFlowSink *
+MessageContainer::message_as<chre::fbs::UnregisterDataFlowSink>() const {
+  return message_as_UnregisterDataFlowSink();
+}
+
+template <>
+inline const chre::fbs::DataFlowStopped *
+MessageContainer::message_as<chre::fbs::DataFlowStopped>() const {
+  return message_as_DataFlowStopped();
+}
+
+template <>
+inline const chre::fbs::DataFlowAlert *
+MessageContainer::message_as<chre::fbs::DataFlowAlert>() const {
+  return message_as_DataFlowAlert();
 }
 
 struct MessageContainerBuilder {
@@ -5940,6 +6438,23 @@ inline bool VerifyChreMessage(flatbuffers::Verifier &verifier, const void *obj, 
     }
     case ChreMessage::EndpointReady: {
       auto ptr = reinterpret_cast<const chre::fbs::EndpointReady *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case ChreMessage::RegisterDataFlowSink: {
+      auto ptr = reinterpret_cast<const chre::fbs::RegisterDataFlowSink *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case ChreMessage::UnregisterDataFlowSink: {
+      auto ptr =
+          reinterpret_cast<const chre::fbs::UnregisterDataFlowSink *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case ChreMessage::DataFlowStopped: {
+      auto ptr = reinterpret_cast<const chre::fbs::DataFlowStopped *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case ChreMessage::DataFlowAlert: {
+      auto ptr = reinterpret_cast<const chre::fbs::DataFlowAlert *>(obj);
       return verifier.VerifyTable(ptr);
     }
     default: return true;

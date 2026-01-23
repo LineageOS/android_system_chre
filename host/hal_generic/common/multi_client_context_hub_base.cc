@@ -1065,7 +1065,8 @@ void MultiClientContextHubBase::onChreDisconnected() {
   }
 }
 
-void MultiClientContextHubBase::onChreRestarted() {
+void MultiClientContextHubBase::onChreReconnected(bool /*chreRestarted*/) {
+  // TODO(b/474149600): Handle cases that CHRE reconnected but not restarted.
   mIsWifiAvailable.reset();
   mEventLogger.logContextHubRestart();
   mHalClientManager->handleChreRestart();

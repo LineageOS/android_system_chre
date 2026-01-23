@@ -89,6 +89,11 @@ public class ChdtsHostTestCases extends BaseHostJUnit4Test {
             + "for ContextHubHostTest")
     private String mExternalNanoAppPath = null;
 
+    @Option(name = "stressTestDurationSeconds",
+            description = "The duration of stress test (in seconds) "
+            + "for ContextHubHostTest")
+    private String mStressTestDurationSeconds = null;
+
     @Before
     public void setUp() throws Exception {
         mDevice = getDevice();
@@ -159,6 +164,23 @@ public class ChdtsHostTestCases extends BaseHostJUnit4Test {
 
         if (mExternalNanoAppPath != null) {
             deviceTestRunOptions.addInstrumentationArg("externalNanoAppPath", mExternalNanoAppPath);
+        }
+
+        if (mStressTestDurationSeconds != null) {
+            deviceTestRunOptions.addInstrumentationArg(
+                    "stressTestDurationSeconds", mStressTestDurationSeconds);
+            if (className.equals("GtsContextHubStressTest")) {
+                try {
+                    // Set the stress test timeout to mStressTestDurationSeconds + 60s to make
+                    // sure the stress test is not interrupted by the test timeout.
+                    long stressTestTimeoutMs =
+                            (Long.parseLong(mStressTestDurationSeconds) + 60) * 1000L;
+                    if (stressTestTimeoutMs > 0) {
+                        deviceTestRunOptions.setTestTimeoutMs(stressTestTimeoutMs);
+                        deviceTestRunOptions.setMaxTimeToOutputMs(stressTestTimeoutMs);
+                    }
+                } catch (NumberFormatException e) { }
+            }
         }
 
         Assert.assertTrue(fullClassName + " failed.", runDeviceTests(deviceTestRunOptions));
@@ -522,5 +544,10 @@ public class ChdtsHostTestCases extends BaseHostJUnit4Test {
     @Test
     public void testContextHubEndpointEcho() throws Exception {
         if (mRunEndpointTests) runTest("GtsContextHubEndpointEchoTest");
+    }
+
+    @Test
+    public void testContextHubStress() throws Exception {
+        if (mHasFeature) runTest("GtsContextHubStressTest");
     }
 }
