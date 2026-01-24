@@ -97,8 +97,7 @@ Milliseconds DramVoteClient::checkDramDuration() {
   if (duration > kMaxDramDuration) {
     if (EventLoopManagerSingleton::isInitialized() &&
         !EventLoopManagerSingleton::get()
-             ->getEventLoop()
-             .getPowerControlManager()
+             ->getPowerControlManager()
              .hostIsAwake()) {
       // AP is asleep
       FATAL_ERROR("Forced into DRAM for %" PRIu64 " msec",

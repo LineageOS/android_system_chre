@@ -32,8 +32,7 @@ void LogBufferManager::onLogsReady() {
   if (!mLogFlushToHostPending) {
     if (EventLoopManagerSingleton::isInitialized() &&
         EventLoopManagerSingleton::get()
-            ->getEventLoop()
-            .getPowerControlManager()
+            ->getPowerControlManager()
             .hostIsAwake()) {
       mLogFlushToHostPending = true;
       mSendLogsToHostCondition.notify_one();
@@ -61,8 +60,7 @@ void LogBufferManager::startSendLogsToHostLoop() {
     }
     bool logWasSent = false;
     if (EventLoopManagerSingleton::get()
-            ->getEventLoop()
-            .getPowerControlManager()
+            ->getPowerControlManager()
             .hostIsAwake()) {
       auto &hostCommsMgr =
           EventLoopManagerSingleton::get()->getHostCommsManager();

@@ -93,8 +93,7 @@ void PlatformAudio::setHandleEnabled(uint32_t handle, bool enabled) {
   } else if (lastNumAudioClients > 0 && mNumAudioClients == 0) {
     mTargetAudioEnabled = false;
     if (EventLoopManagerSingleton::get()
-            ->getEventLoop()
-            .getPowerControlManager()
+            ->getPowerControlManager()
             .hostIsAwake()) {
       onHostAwake();
     } else {

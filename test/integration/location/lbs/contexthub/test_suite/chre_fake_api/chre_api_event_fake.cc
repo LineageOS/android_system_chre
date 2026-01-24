@@ -283,8 +283,7 @@ void ChreApiEventFunctionsImpl::ConfigureHostSleepStateEvents(bool enable) {
 // static
 bool ChreApiEventFunctionsImpl::IsHostAwake() {
   return EventLoopManagerSingleton::get()
-      ->getEventLoop()
-      .getPowerControlManager()
+      ->getPowerControlManager()
       .hostIsAwake();
 }
 

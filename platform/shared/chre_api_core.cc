@@ -210,8 +210,7 @@ DLL_EXPORT void chreConfigureHostSleepStateEvents(bool enable) {
 DLL_EXPORT bool chreIsHostAwake() {
   GlobalApiLockGuard lock;
   return EventLoopManagerSingleton::get()
-      ->getEventLoop()
-      .getPowerControlManager()
+      ->getPowerControlManager()
       .hostIsAwake();
 }
 

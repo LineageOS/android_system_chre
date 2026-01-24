@@ -899,8 +899,7 @@ void PlatformSensorManagerBase::onHostWakeSuspendEvent(bool awake) {
   // up before attempting to post the event to avoid a crash.
   if (EventLoopManagerSingleton::isInitialized()) {
     EventLoopManagerSingleton::get()
-        ->getEventLoop()
-        .getPowerControlManager()
+        ->getPowerControlManager()
         .onHostWakeSuspendEvent(awake);
   }
 }
