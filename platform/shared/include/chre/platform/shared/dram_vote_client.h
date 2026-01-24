@@ -20,6 +20,7 @@
 #include "chre/platform/mutex.h"
 #include "chre/util/lock_guard.h"
 #include "chre/util/singleton.h"
+#include "chre/util/thread_annotations.h"
 #include "chre/util/time.h"
 
 namespace chre {
@@ -45,6 +46,14 @@ class DramVoteClient : public NonCopyable {
    * @param enabled Whether to request DRAM access.
    */
   void voteDramAccess(bool enabled);
+
+  /**
+   * Conditionally makes a DRAM access request. See voteDramAccess(bool).
+   *
+   * @param condition The condition to check before making the request.
+   * @param enabled Whether to request DRAM access.
+   */
+  void voteDramAccess(bool (*condition)(), bool enabled);
 
   /**
    * Increment the DRAM vote count when a client needs to perform some DRAM
@@ -85,6 +94,14 @@ class DramVoteClient : public NonCopyable {
 
   //! Used to protect access to member variables from other threads.
   Mutex mMutex;
+
+  /**
+   * Makes a DRAM access request. An actual vote to the memory manager may not
+   * be cast depending on the current mode and mDramVoteCount.
+   *
+   * @param enabled Whether to request DRAM access.
+   */
+  void voteDramAccessLocked(bool enabled) CHRE_REQUIRES(mMutex);
 
   /**
    * Issue a vote to the underlying system. This must be implemented by each

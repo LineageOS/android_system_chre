@@ -179,6 +179,19 @@ pw_add_facade(chre.platform.platform_debug_dump_manager INTERFACE
     chre.variant.config
 )
 
+pw_add_facade(chre.platform.platform_event_loop INTERFACE
+  BACKEND
+    chre.platform.platform_event_loop_BACKEND
+  HEADERS
+    include/chre/platform/platform_event_loop.h
+  PUBLIC_INCLUDES
+    include
+  PUBLIC_DEPS
+    chre.core
+    chre.util
+    chre.variant.config
+)
+
 pw_add_facade(chre.platform.platform_gnss INTERFACE
   BACKEND
     chre.platform.platform_gnss_BACKEND

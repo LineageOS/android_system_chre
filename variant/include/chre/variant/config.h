@@ -43,11 +43,11 @@
 #endif  // CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
 #endif  // CHRE_BT_RFCOMM_MAX_SOCKETS
 
-// TODO(b/430672746): The metadata needed for multibufs (10 for the RFCOMM channel tx queue + 5
-// for the L2capChannel tx queue) based on the hard coded tx queue sizes for a
-// pigweed L2capChannel and RFCOMM channel. When the queue size becomes
-// configurable (or multibuf metadata size is reduced), consider making this
-// value smaller.
+// TODO(b/430672746): The metadata needed for multibufs (10 for the RFCOMM
+// channel tx queue + 5 for the L2capChannel tx queue) based on the hard coded
+// tx queue sizes for a pigweed L2capChannel and RFCOMM channel. When the queue
+// size becomes configurable (or multibuf metadata size is reduced), consider
+// making this value smaller.
 #ifndef CHRE_BLE_SOCKET_TX_MULTIBUF_METADATA_SIZE
 #ifdef CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
 #define CHRE_BLE_SOCKET_TX_MULTIBUF_METADATA_SIZE (15 * 256)
@@ -76,6 +76,19 @@
 #define CHRE_MAX_FREEING_EVENT_STACK_SIZE 4
 #endif  // CHRE_MAX_FREEING_EVENT_STACK_SIZE
 
+// Temporary flag to enable PlatformEventLoop to allow EventLoop-specific
+// pre/postEventLoopProcess logic for multi-threading. This also removes the
+// pre/postEventLoopProcess APIs from PowerControlManager.
+#ifndef CHRE_PLATFORM_EVENT_LOOP_ENABLED
+#define CHRE_PLATFORM_EVENT_LOOP_ENABLED 0
+#endif  // CHRE_PLATFORM_EVENT_LOOP_ENABLED
+
+// CHRE_ATOMIC_UINT8_ENABLED and CHRE_PLATFORM_EVENT_LOOP_ENABLED must be
+// enabled for multi-threading.
+#if CHRE_MULTI_THREADING_ENABLED && \
+    (!CHRE_ATOMIC_UINT8_ENABLED || !CHRE_PLATFORM_EVENT_LOOP_ENABLED)
+#error "Multi-threading requires atomic uint8 and platform event loop"
+#endif
 // Temporary flag to disable PlatformNanoapp::openNanoapp as a platform
 // interface until all platforms implement it
 #ifndef CHRE_PLATFORM_OPEN_NANOAPP_ENABLED

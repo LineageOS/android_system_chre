@@ -49,6 +49,7 @@ pw_add_library(chre.core STATIC
     chre.platform.platform_audio
     chre.platform.platform_ble
     chre.platform.platform_debug_dump_manager
+    chre.platform.platform_event_loop
     chre.platform.platform_gnss
     chre.platform.platform_nanoapp
     chre.platform.platform_sensor

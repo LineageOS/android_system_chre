@@ -22,6 +22,8 @@
 #include "chre/target_platform/power_control_manager_base.h"
 #include "chre/util/non_copyable.h"
 
+#include "chre/variant/config.h"
+
 namespace chre {
 
 /**
@@ -30,6 +32,7 @@ namespace chre {
  */
 class PowerControlManager : public PowerControlManagerBase, public NonCopyable {
  public:
+#if !(CHRE_PLATFORM_EVENT_LOOP_ENABLED)
   /**
    * Perform power-related control before a single process of the event loop.
    *
@@ -43,6 +46,7 @@ class PowerControlManager : public PowerControlManagerBase, public NonCopyable {
    * @param numPendingEvents The current size of the event queue.
    */
   void postEventLoopProcess(size_t numPendingEvents);
+#endif  // CHRE_PLATFORM_EVENT_LOOP_ENABLED
 
   /**
    * @return true if the host is awake, false otherwise.

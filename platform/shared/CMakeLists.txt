@@ -693,6 +693,18 @@ pw_add_library(chre.platform.shared.platform_debug_dump_manager STATIC
     chre.util
 )
 
+pw_add_library(chre.platform.shared.platform_event_loop_unspecialized STATIC
+  HEADERS
+    platform_event_loop_unspecialized/include/chre/target_platform/platform_event_loop_base.h
+  SOURCES
+    platform_event_loop_unspecialized/platform_event_loop.cc
+  PUBLIC_INCLUDES
+    platform_event_loop_unspecialized/include
+  PRIVATE_DEPS
+    chre.core
+    chre.platform.platform_event_loop.facade
+)
+
 pw_add_library(chre.platform.shared.platform_gnss_pal STATIC
   HEADERS
     public_platform_gnss_pal/chre/target_platform/platform_gnss_base.h

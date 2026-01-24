@@ -37,6 +37,7 @@
 #include "chre/util/system/stats_container.h"
 #include "chre/util/throttle.h"
 #include "chre/util/time.h"
+#include "chre/variant/config.h"
 #include "chre_api/chre/version.h"
 #include "pw_span/span.h"
 
@@ -176,6 +177,9 @@ void EventLoop::run() {
 
     // mEvents.pop() will be a blocking call if mEvents.empty()
     Event *event = mEvents.pop();
+#if CHRE_PLATFORM_EVENT_LOOP_ENABLED
+    distributeEvent(this, event);
+#else
     // Need size() + 1 since the to-be-processed event has already been removed.
     EventLoopManagerSingleton::get()
         ->getPowerControlManager()
@@ -184,6 +188,7 @@ void EventLoop::run() {
     EventLoopManagerSingleton::get()
         ->getPowerControlManager()
         .postEventLoopProcess(mEvents.size());
+#endif  // CHRE_PLATFORM_EVENT_LOOP_ENABLED
   }
 
   // Purge the main queue of events pending distribution. All nanoapps should be
@@ -630,10 +635,12 @@ void EventLoop::deliverNextEvent(const UniquePtr<Nanoapp> &app, Event *event) {
   mCurrentApp = nullptr;
 }
 
+#if !CHRE_PLATFORM_EVENT_LOOP_ENABLED
 void EventLoop::distributeEvent(Event *event) {
   distributeEventCommon(event);
   freeEvent(event);
 }
+#endif  // CHRE_PLATFORM_EVENT_LOOP_ENABLED
 
 bool EventLoop::distributeEventCommon(Event *event) {
   bool eventDelivered = false;
@@ -669,7 +676,11 @@ bool EventLoop::distributeEventCommon(Event *event) {
 
 void EventLoop::flushInboundEventQueue() {
   while (!mEvents.empty()) {
+#if CHRE_PLATFORM_EVENT_LOOP_ENABLED
+    distributeEvent(this, mEvents.pop());
+#else
     distributeEvent(mEvents.pop());
+#endif  // CHRE_PLATFORM_EVENT_LOOP_ENABLED
   }
 }
 

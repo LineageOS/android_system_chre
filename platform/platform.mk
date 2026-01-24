@@ -296,6 +296,7 @@ GOOGLE_X86_LINUX_CFLAGS += -Iplatform/linux/public_host_link
 GOOGLE_X86_LINUX_CFLAGS += -Iplatform/linux/public_platform_nanoapp
 GOOGLE_X86_LINUX_CFLAGS += -Iplatform/linux/public_power_control_manager
 GOOGLE_X86_LINUX_CFLAGS += -Iplatform/linux/public_system_timer
+GOOGLE_X86_LINUX_CFLAGS += -Iplatform/shared/platform_event_loop_unspecialized/include
 
 # Linux-specific Source Files ##################################################
 
@@ -304,6 +305,7 @@ GOOGLE_X86_LINUX_SRCS += platform/linux/assert.cc
 GOOGLE_X86_LINUX_SRCS += platform/linux/task_util/task.cc
 GOOGLE_X86_LINUX_SRCS += platform/linux/task_util/task_manager.cc
 GOOGLE_X86_LINUX_SRCS += platform/shared/nanoapp_abort.cc
+GOOGLE_X86_LINUX_SRCS += platform/shared/platform_event_loop_unspecialized/platform_event_loop.cc
 
 # Optional audio support.
 ifeq ($(CHRE_AUDIO_SUPPORT_ENABLED), true)
@@ -443,6 +445,7 @@ EXYNOS_CFLAGS += -I$(CHRE_PREFIX)/platform/exynos/include
 EXYNOS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/audio_pal/include
 EXYNOS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/fbs/include
 EXYNOS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/nanoapp_memory_guard_no_op/include
+EXYNOS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/platform_event_loop_unspecialized/include
 
 EXYNOS_SRCS += $(CHRE_PREFIX)/platform/exynos/chre_api_re.cc
 EXYNOS_SRCS += $(CHRE_PREFIX)/platform/shared/init.cc
@@ -456,6 +459,7 @@ EXYNOS_SRCS += $(CHRE_PREFIX)/platform/exynos/power_control_manager.cc
 EXYNOS_SRCS += $(CHRE_PREFIX)/platform/exynos/system_time.cc
 EXYNOS_SRCS += $(CHRE_PREFIX)/platform/shared/nanoapp_abort.cc
 EXYNOS_SRCS += $(CHRE_PREFIX)/platform/shared/nanoapp_load_manager.cc
+EXYNOS_SRCS += $(CHRE_PREFIX)/platform/shared/platform_event_loop_unspecialized/platform_event_loop.cc
 
 EXYNOS_SRCS += $(FLATBUFFERS_SRCS)
 
@@ -531,6 +535,7 @@ TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/nanoapp_abort.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/nanoapp_load_manager.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/nanoapp_loader.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/pal_system_api.cc
+TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/platform_event_loop_unspecialized/platform_event_loop.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/platform_debug_dump_manager.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/system_time.cc
 TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/tokenized_log.cc
@@ -576,6 +581,7 @@ TINYSYS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/aligned_alloc_unsupported/inc
 TINYSYS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/include
 TINYSYS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/fbs/include
 TINYSYS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/nanoapp/include
+TINYSYS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/platform_event_loop_unspecialized/include
 TINYSYS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/public_platform_ble_pal
 TINYSYS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/public_platform_debug_dump_manager
 TINYSYS_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/public_platform_gnss_pal
