@@ -216,36 +216,37 @@ bool WifiRequestManager::configureScanMonitor(Nanoapp *nanoapp, bool enable,
                                               const void *cookie) {
   CHRE_ASSERT(nanoapp);
 
-  bool success = false;
   uint16_t instanceId = nanoapp->getInstanceId();
   bool hasScanMonitorRequest = nanoappHasScanMonitorRequest(instanceId);
   if (!mPendingScanMonitorRequests.empty()) {
-    success = addScanMonitorRequestToQueue(nanoapp, enable, cookie);
-  } else if (scanMonitorIsInRequestedState(enable, hasScanMonitorRequest)) {
+    return addScanMonitorRequestToQueue(nanoapp, enable, cookie);
+  }
+  if (scanMonitorIsInRequestedState(enable, hasScanMonitorRequest)) {
     // The scan monitor is already in the requested state. A success event can
     // be posted immediately.
-    success = postScanMonitorAsyncResultEvent(instanceId, true /* success */,
-                                              enable, CHRE_ERROR_NONE, cookie);
-  } else if (scanMonitorStateTransitionIsRequired(enable,
-                                                  hasScanMonitorRequest)) {
-    success = addScanMonitorRequestToQueue(nanoapp, enable, cookie);
-    if (success) {
-      success = mPlatformWifi.configureScanMonitor(enable);
-      addDebugLog(
-          DebugLogEntry::forScanMonitorRequest(instanceId, enable, success));
-      if (!success) {
-        mPendingScanMonitorRequests.pop_back();
-        LOGE("Failed to enable the scan monitor for nanoapp instance %" PRIu16,
-             instanceId);
-      } else {
-        mConfigureScanMonitorTimeoutHandle = setConfigureScanMonitorTimer();
-      }
-    }
-  } else {
-    CHRE_ASSERT_LOG(false, "Invalid scan monitor configuration");
+    return postScanMonitorAsyncResultEvent(instanceId, /*success=*/true,
+                                           enable, CHRE_ERROR_NONE, cookie);
+  }
+  if (!scanMonitorStateTransitionIsRequired(enable, hasScanMonitorRequest)) {
+    CHRE_ASSERT_LOG(false, "Inconsistent scan monitor state");
+    return false;
+  }
+  if (!addScanMonitorRequestToQueue(nanoapp, enable, cookie)) {
+    return false;
   }
 
-  return success;
+  bool success = mPlatformWifi.configureScanMonitor(enable);
+  addDebugLog(
+      DebugLogEntry::forScanMonitorRequest(instanceId, enable, success));
+  if (!success) {
+    mPendingScanMonitorRequests.pop_back();
+    LOGE("Failed to enable the scan monitor for nanoapp instance %" PRIu16,
+          instanceId);
+    return false;
+  }
+
+  mConfigureScanMonitorTimeoutHandle = setConfigureScanMonitorTimer();
+  return true;
 }
 
 uint32_t WifiRequestManager::disableAllSubscriptions(Nanoapp *nanoapp) {
@@ -903,7 +904,7 @@ bool WifiRequestManager::addScanMonitorRequestToQueue(Nanoapp *nanoapp,
 
   bool success = mPendingScanMonitorRequests.push(scanMonitorStateTransition);
   if (!success) {
-    LOGW("Too many scan monitor state transitions");
+    LOGE("Too many scan monitor state transitions");
   }
 
   return success;
@@ -983,8 +984,11 @@ bool WifiRequestManager::postScanMonitorAsyncResultEvent(
   // may have been handled but delivering the result ran into an error).
   if (event == nullptr) {
     LOG_OOM();
-  } else if ((!success && enable) ||
-             updateNanoappScanMonitoringList(enable, nanoappInstanceId)) {
+    return false;
+  }
+
+  if ((!success && enable) ||
+        updateNanoappScanMonitoringList(enable, nanoappInstanceId)) {
     event->requestType = CHRE_WIFI_REQUEST_TYPE_CONFIGURE_SCAN_MONITOR;
     event->success = success;
     event->errorCode = errorCode;
@@ -1002,6 +1006,7 @@ bool WifiRequestManager::postScanMonitorAsyncResultEvent(
         nanoappInstanceId);
     eventPosted = true;
   } else {
+    LOGE("Failed to post scan monitor async result event. success=%d, enable=%d", success, enable);
     memoryFree(event);
   }
 
