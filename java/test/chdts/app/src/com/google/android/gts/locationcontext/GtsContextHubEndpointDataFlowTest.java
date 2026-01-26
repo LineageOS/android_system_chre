@@ -58,7 +58,16 @@ public class GtsContextHubEndpointDataFlowTest extends GtsContextHubServiceTestB
     @GmsTest(requirement = "GMS-6.17-001")
     @RequiresFlagsEnabled(Flags.FLAG_FMCQ_API)
     public void testDataFlow() throws Exception {
-        mExecutor.testDataFlow();
+        mExecutor.testDataFlow(/* overSession= */ false);
+    }
+
+    @Test
+    @GmsTest(requirement = "GMS-6.17-001")
+    @RequiresFlagsEnabled({Flags.FLAG_FMCQ_API})
+    public void testDataFlowOverSession() throws Exception {
+        if (Flags.fmcqShareDataFlowMessageFix()) {
+            mExecutor.testDataFlow(/* overSession= */ true);
+        }
     }
 
     @After

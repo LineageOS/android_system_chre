@@ -32,13 +32,16 @@ import android.hardware.contexthub.HubEndpointInfo.HubEndpointIdentifier;
 import android.hardware.contexthub.HubEndpointLifecycleCallback;
 import android.hardware.contexthub.HubEndpointMessageCallback;
 import android.hardware.contexthub.HubEndpointSession;
+import android.hardware.contexthub.HubEndpointSessionResult;
 import android.hardware.contexthub.HubMessage;
 import android.hardware.contexthub.HubServiceInfo;
 import android.hardware.location.ContextHubInfo;
 import android.hardware.location.ContextHubManager;
+import android.hardware.location.ContextHubTransaction;
 import android.hardware.location.HubInfo;
 import android.hardware.location.NanoAppBinary;
 import android.util.Log;
+import android.util.Pair;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -55,6 +58,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -82,10 +86,84 @@ public class ContextHubEndpointDataFlowExecutor {
     @Nullable private final ContextHubInfo mContextHubInfo;
     @Nullable private final NanoAppBinary mNanoAppBinary;
 
+    static class TestLifecycleCallback implements HubEndpointLifecycleCallback {
+        private static final int TIMEOUT_SESSION_OPEN_SECONDS = 5;
+
+        TestLifecycleCallback() {
+            this(/* acceptSession= */ false);
+        }
+
+        TestLifecycleCallback(boolean acceptSession) {
+            mAcceptSession = acceptSession;
+        }
+
+        @Override
+        public HubEndpointSessionResult onSessionOpenRequest(
+                HubEndpointInfo requester, String serviceDescriptor) {
+            Log.d(TAG, "onSessionOpenRequest");
+            HubEndpointSessionResult result =
+                    mAcceptSession
+                            ? HubEndpointSessionResult.accept()
+                            : HubEndpointSessionResult.reject("Unexpected request");
+            mSessionRequestQueue.add(result);
+            return result;
+        }
+
+        @Override
+        public void onSessionOpened(HubEndpointSession session) {
+            Log.d(TAG, "onSessionOpened: session=" + session);
+            mSessionQueue.add(session);
+        }
+
+        @Override
+        public void onSessionClosed(HubEndpointSession session, int reason) {
+            Log.d(TAG, "onSessionClosed: session=" + session);
+            mSessionCloseQueue.add(Pair.create(session, reason));
+        }
+
+        public HubEndpointSession waitForEndpointSession() {
+            try {
+                return mSessionQueue.poll(TIMEOUT_SESSION_OPEN_SECONDS, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Assert.fail("InterruptedException in waitForEndpointSession: " + e.getMessage());
+                return null;
+            }
+        }
+
+        public HubEndpointSessionResult waitForOpenSessionRequest() {
+            try {
+                return mSessionRequestQueue.poll(TIMEOUT_SESSION_OPEN_SECONDS, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Assert.fail("InterruptedException in waitForOpenSessionRequest: " + e.getMessage());
+                return null;
+            }
+        }
+
+        public Pair<HubEndpointSession, Integer> waitForCloseSession() {
+            try {
+                return mSessionCloseQueue.poll(TIMEOUT_SESSION_OPEN_SECONDS, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Assert.fail("InterruptedException in waitForCloseSession: " + e.getMessage());
+                return null;
+            }
+        }
+
+        /** If true, accepts incoming sessions */
+        private final boolean mAcceptSession;
+
+        private final BlockingQueue<HubEndpointSession> mSessionQueue = new ArrayBlockingQueue<>(1);
+        private final BlockingQueue<HubEndpointSessionResult> mSessionRequestQueue =
+                new ArrayBlockingQueue<>(1);
+        private final BlockingQueue<Pair<HubEndpointSession, Integer>> mSessionCloseQueue =
+                new ArrayBlockingQueue<>(1);
+    }
+
     static class TestDataFlowCallback implements DataFlowCallback {
         private final ArrayBlockingQueue<DataFlowData> mData = new ArrayBlockingQueue<>(1);
         private final ArrayBlockingQueue<DataFlowSink> mSinkQueue = new ArrayBlockingQueue<>(1);
         private HubEndpointInfo mSourceInfo = null;
+        private HubEndpointSession mSession = null;
+        private HubMessage mMessage = null;
 
         @Override
         public void onReceivedDataFlowSink(
@@ -94,6 +172,10 @@ public class ContextHubEndpointDataFlowExecutor {
                 HubEndpointSession session,
                 HubMessage msg) {
             Log.i(TAG, "onReceivedDataFlowSink");
+            assertThat(session == null).isEqualTo(msg == null);
+            assertThat(session).isEqualTo(mSession);
+            assertThat(msg).isEqualTo(mMessage);
+
             if (mSourceInfo != null && mSourceInfo.getIdentifier().equals(source.getIdentifier())) {
                 mSinkQueue.add(sink);
             } else {
@@ -157,6 +239,14 @@ public class ContextHubEndpointDataFlowExecutor {
         void setSourceInfo(HubEndpointInfo sourceInfo) {
             mSourceInfo = sourceInfo;
         }
+
+        void setSession(HubEndpointSession session) {
+            mSession = session;
+        }
+
+        void setMessage(HubMessage message) {
+            mMessage = message;
+        }
     }
 
     public ContextHubEndpointDataFlowExecutor(ContextHubManager manager) {
@@ -199,10 +289,14 @@ public class ContextHubEndpointDataFlowExecutor {
      *   <li>The test pushes binary data to the source, and waits for equivalent data to arrive at
      *       the sink.
      * </ol>
+     *
+     * @param overSession Whether to send a message to the offload endpoint when sharing the data
+     *     flow.
      */
-    public void testDataFlow() {
+    public void testDataFlow(boolean overSession) {
         // Register the endpoint
-        TestDataFlowCallback callback = new TestDataFlowCallback();
+        TestLifecycleCallback lifecycleCallback = new TestLifecycleCallback();
+        TestDataFlowCallback dataFlowCallback = new TestDataFlowCallback();
 
         // For this test, we use a non-default executor, since the TestDataFlowCallback
         // will perform a blocking read on callback execution, which can block the dataflow Looper
@@ -211,9 +305,9 @@ public class ContextHubEndpointDataFlowExecutor {
                 new ScheduledThreadPoolExecutor(/* corePoolSize= */ 1);
         HubEndpoint endpoint =
                 registerDefaultEndpoint(
-                        /* callback= */ null,
+                        lifecycleCallback,
                         /* messageCallback= */ null,
-                        callback,
+                        dataFlowCallback,
                         /* executor= */ executor,
                         Collections.emptyList());
         assertThat(endpoint).isNotNull();
@@ -222,12 +316,16 @@ public class ContextHubEndpointDataFlowExecutor {
         checkApiSupport(
                 (manager) -> infoList.addAll(manager.findEndpoints(ECHO_SERVICE_DESCRIPTOR)));
         for (HubDiscoveryInfo info : infoList) {
-            doTestDataFlow(info, endpoint, callback);
+            doTestDataFlow(info, endpoint, lifecycleCallback, dataFlowCallback, overSession);
         }
+
+        // Unregister the endpoint
+        checkApiSupport((manager) -> manager.unregisterEndpoint(endpoint));
     }
 
     private void doTestDataFlow(HubDiscoveryInfo info, HubEndpoint endpoint,
-                                TestDataFlowCallback callback) {
+                                TestLifecycleCallback lifecycleCallback,
+                                TestDataFlowCallback dataFlowCallback, boolean overSession) {
         printHubDiscoveryInfo(info);
 
         // Only run this test if we find an Echo service hosted on a hub that supports
@@ -252,7 +350,15 @@ public class ContextHubEndpointDataFlowExecutor {
 
         HubEndpointInfo offloadEndpointInfo = info.getHubEndpointInfo();
         assertThat(offloadEndpointInfo).isNotNull();
-        callback.setSourceInfo(offloadEndpointInfo);
+        dataFlowCallback.setSourceInfo(offloadEndpointInfo);
+
+        HubEndpointSession session = null;
+        if (overSession) {
+            checkApiSupport(
+                (manager) -> manager.openSession(endpoint, offloadEndpointInfo));
+            session = lifecycleCallback.waitForEndpointSession();
+            dataFlowCallback.setSession(session);
+        }
 
         // Create the data flow and add the offload endpoint as a sink
         DataFlowDataConfig dataConfig =
@@ -265,13 +371,38 @@ public class ContextHubEndpointDataFlowExecutor {
                         MIN_CAPACITY_BYTES,
                         MAX_CAPACITY_BYTES);
         assertThat(source).isNotNull();
-        source.shareDataFlow(
-                offloadEndpointInfo,
-                DataFlowNewDataAlertPolicy.createStreamingPolicy(),
-                /* canOverwrite= */ false);
+
+        if (overSession) {
+            HubMessage message = new HubMessage.Builder(1234, new byte[] {1, 2, 3, 4, 5})
+                    .setResponseRequired(true)
+                    .build();
+            dataFlowCallback.setMessage(message);
+
+            ContextHubTransaction<Void> txn = source.shareDataFlowOverSession(
+                    offloadEndpointInfo,
+                    DataFlowNewDataAlertPolicy.createStreamingPolicy(),
+                    /* canOverwrite= */ false, session, message);
+            Assert.assertNotNull(txn);
+
+            try {
+                ContextHubTransaction.Response<Void> txnResponse =
+                        txn.waitForResponse(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                assertThat(txnResponse).isNotNull();
+                assertThat(txnResponse.getResult()).isEqualTo(ContextHubTransaction.RESULT_SUCCESS);
+            } catch (InterruptedException | TimeoutException e) {
+                Assert.fail("InterruptedException or TimeoutException in waitForResponse: "
+                            + e.getMessage());
+                return;
+            }
+        } else {
+            source.shareDataFlow(
+                    offloadEndpointInfo,
+                    DataFlowNewDataAlertPolicy.createStreamingPolicy(),
+                    /* canOverwrite= */ false);
+        }
 
         // Wait for the sink to be created for us
-        DataFlowSink sink = callback.waitForNewSink(offloadEndpointInfo);
+        DataFlowSink sink = dataFlowCallback.waitForNewSink(offloadEndpointInfo);
         assertThat(sink).isNotNull();
 
         // Send data to the sink and confirm it echos back to us
@@ -285,7 +416,7 @@ public class ContextHubEndpointDataFlowExecutor {
         for (int i = 0; i < ECHO_DATA_SIZE_BYTES; ++i) {
             source.push(data, /* canOverwrite= */ false);
 
-            DataFlowData echo = callback.waitForNewData(sink);
+            DataFlowData echo = dataFlowCallback.waitForNewData(sink);
             assertThat(echo).isNotNull();
             List<ByteBuffer> buffers = echo.getBuffers();
             assertThat(buffers).isNotEmpty();
@@ -293,6 +424,12 @@ public class ContextHubEndpointDataFlowExecutor {
             assertThat(echoBuffer).isNotNull();
             assertThat(echoBuffer.capacity()).isEqualTo(dataBuffer.capacity());
             assertThat(echoBuffer).isEqualTo(dataBuffer);
+        }
+
+        if (overSession) {
+            assertThat(session).isNotNull();
+            session.close();
+            lifecycleCallback.waitForCloseSession();
         }
     }
 
