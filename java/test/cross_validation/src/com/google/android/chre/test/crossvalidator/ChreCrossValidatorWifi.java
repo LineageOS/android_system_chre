@@ -35,6 +35,7 @@ import androidx.test.InstrumentationRegistry;
 import com.google.android.chre.nanoapp.proto.ChreCrossValidationWifi;
 import com.google.android.chre.nanoapp.proto.ChreCrossValidationWifi.Step;
 import com.google.android.chre.nanoapp.proto.ChreTestCommon;
+import com.google.android.utils.chre.ChreTestUtil;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 
@@ -113,6 +114,22 @@ public class ChreCrossValidatorWifi extends ChreCrossValidatorBase {
         IntentFilter intentFilter = new IntentFilter();
         intentFilter.addAction(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION);
         context.registerReceiver(mWifiScanReceiver, intentFilter);
+    }
+
+    @Override
+    public void init() throws AssertionError {
+        super.init();
+        ChreTestUtil.executeShellCommand(
+                InstrumentationRegistry.getInstrumentation(),
+                "cmd wifi set-verbose-logging enabled");
+    }
+
+    @Override
+    public void deinit() throws AssertionError {
+        super.deinit();
+        ChreTestUtil.executeShellCommand(
+                InstrumentationRegistry.getInstrumentation(),
+                "cmd wifi set-verbose-logging disabled");
     }
 
     @Override
