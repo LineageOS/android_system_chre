@@ -13,8 +13,8 @@
      See the License for the specific language governing permissions and
      limitations under the License.
 -->
-<configuration description="Config for ChdtsHostTestCases">
-    <option name="test-suite-tag" value="chdts" />
+<configuration description="The setup step for CHDTS test">
+    <option name="test-suite-tag" value="chdts-setup" />
     <option name="config-descriptor:metadata" key="component" value="location" />
     <option name="config-descriptor:metadata" key="parameter" value="all_foldable_states" />
 
@@ -25,21 +25,14 @@
         <option name="push-file" key="ChdtsTestApp.apk" value="/system/priv-app/ChdtsTestApp.apk" />
         <option name="push-file" key="chre-priv-permissions.xml" value="/etc/permissions/chre-priv-permissions.xml" />
         <option name="abort-on-push-failure" value="true" />
-        <option name="cleanup" value="true" />
+        <option name="cleanup" value="false" />
         <option name="remount-system" value="true" />
     </target_preparer>
     <target_preparer class="com.android.tradefed.targetprep.RebootTargetPreparer" >
     </target_preparer>
 
-    <include name="BaseConfig.xml" />
-
-    <!-- Wait 15 seconds for boot completion, to avoid probabilistic failure of testContextHubEstimatedHostTimeTest -->
-    <target_preparer class="com.android.tradefed.targetprep.RunCommandTargetPreparer">
-        <option name="run-command" value="sleep 15" />
-    </target_preparer>
-
+    <!-- A stub empty test for placeholder -->
     <test class="com.android.tradefed.testtype.HostTest" >
-        <option name="jar" value="chdts-tradefed-tests.jar" />
+        <option name="class" value="com.android.tradefed.testtype.StubTest" />
     </test>
-    <logger class="com.android.tradefed.log.FileLogger" />
 </configuration>
