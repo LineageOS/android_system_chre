@@ -522,20 +522,16 @@ void SensorRequestManager::handleSensorDataEvent(uint32_t sensorHandle,
           eventType, event, sensorDataEventFree, kSystemInstanceId,
           kBroadcastInstanceId, sensor.getTargetGroupMask());
     } else if (sensor.isOneShot()) {
-      LockGuard<MultiThreadingApiMutex> lock(
-          *EventLoopManagerSingleton::get()->getGlobalApiMutex());
-      const DynamicVector<SensorRequest> &requests =
-          EventLoopManagerSingleton::get()
-              ->getSensorRequestManager()
-              .getRequests(sensorHandle);
-      mPendingOneShotSensorEvents.emplace_back(
-          event, static_cast<uint32_t>(requests.size()));
-      for (const auto &req : requests) {
-        EventLoopManagerSingleton::get()->postEventOrDie(
-            eventType, event, sensorOneShotDataEventFree, req.getInstanceId(),
-            sensor.getTargetGroupMask());
-      }
-      removeAllRequests(sensorHandle);
+      auto callback = [](uint16_t /*type*/, void *data, void *extraData) {
+        uint32_t sensorHandle = NestedDataPtr<uint32_t>(data);
+        EventLoopManagerSingleton::get()
+            ->getSensorRequestManager()
+            .handleOneShotSensorEventSync(sensorHandle, extraData);
+      };
+
+      EventLoopManagerSingleton::get()->deferCallback(
+          SystemCallbackType::SensorOneShotEvent,
+          NestedDataPtr<uint32_t>(sensorHandle), callback, event);
     } else {
       EventLoopManagerSingleton::get()->postEventOrDie(
           eventType, event, sensorDataEventFree, kBroadcastInstanceId,
@@ -763,6 +759,28 @@ void SensorRequestManager::handleFlushCompleteEventSync(uint8_t errorCode,
       dispatchNextFlushRequest(sensorHandle);
       break;
     }
+  }
+}
+
+void SensorRequestManager::handleOneShotSensorEventSync(uint32_t sensorHandle,
+                                                        void *event) {
+  if (sensorHandle >= mSensors.size()) {
+    LOG_INVALID_HANDLE(sensorHandle);
+  } else {
+    Sensor &sensor = mSensors[sensorHandle];
+    uint16_t eventType =
+        getSampleEventTypeForSensorType(sensor.getSensorType());
+    const DynamicVector<SensorRequest> &requests =
+        EventLoopManagerSingleton::get()->getSensorRequestManager().getRequests(
+            sensorHandle);
+    mPendingOneShotSensorEvents.emplace_back(
+        event, static_cast<uint32_t>(requests.size()));
+    for (const auto &req : requests) {
+      EventLoopManagerSingleton::get()->postEventOrDie(
+          eventType, event, sensorOneShotDataEventFree, req.getInstanceId(),
+          sensor.getTargetGroupMask());
+    }
+    removeAllRequests(sensorHandle);
   }
 }
 
