@@ -224,8 +224,8 @@ bool WifiRequestManager::configureScanMonitor(Nanoapp *nanoapp, bool enable,
   if (scanMonitorIsInRequestedState(enable, hasScanMonitorRequest)) {
     // The scan monitor is already in the requested state. A success event can
     // be posted immediately.
-    return postScanMonitorAsyncResultEvent(instanceId, /*success=*/true,
-                                           enable, CHRE_ERROR_NONE, cookie);
+    return postScanMonitorAsyncResultEvent(instanceId, /*success=*/true, enable,
+                                           CHRE_ERROR_NONE, cookie);
   }
   if (!scanMonitorStateTransitionIsRequired(enable, hasScanMonitorRequest)) {
     CHRE_ASSERT_LOG(false, "Inconsistent scan monitor state");
@@ -241,7 +241,7 @@ bool WifiRequestManager::configureScanMonitor(Nanoapp *nanoapp, bool enable,
   if (!success) {
     mPendingScanMonitorRequests.pop_back();
     LOGE("Failed to enable the scan monitor for nanoapp instance %" PRIu16,
-          instanceId);
+         instanceId);
     return false;
   }
 
@@ -988,7 +988,7 @@ bool WifiRequestManager::postScanMonitorAsyncResultEvent(
   }
 
   if ((!success && enable) ||
-        updateNanoappScanMonitoringList(enable, nanoappInstanceId)) {
+      updateNanoappScanMonitoringList(enable, nanoappInstanceId)) {
     event->requestType = CHRE_WIFI_REQUEST_TYPE_CONFIGURE_SCAN_MONITOR;
     event->success = success;
     event->errorCode = errorCode;
@@ -1006,7 +1006,9 @@ bool WifiRequestManager::postScanMonitorAsyncResultEvent(
         nanoappInstanceId);
     eventPosted = true;
   } else {
-    LOGE("Failed to post scan monitor async result event. success=%d, enable=%d", success, enable);
+    LOGE(
+        "Failed to post scan monitor async result event. success=%d, enable=%d",
+        success, enable);
     memoryFree(event);
   }
 
@@ -1069,13 +1071,6 @@ void WifiRequestManager::handleScanEventSync(chreWifiScanEvent *event) {
           requesterId);
     }
   }
-  auto freeCallback = [](uint16_t /* eventType*/, void *eventData) {
-    EventLoopManagerSingleton::get()
-        ->getWifiRequestManager()
-        .releaseWifiScanEvent(static_cast<chreWifiScanEvent *>(eventData));
-  };
-  EventLoopManagerSingleton::get()->postEventOrDie(
-      CHRE_EVENT_WIFI_SCAN_RESULT, event, freeCallback, kBroadcastInstanceId);
 
   bool resultsComplete = false;
   if (mScanRequestResultsArePending) {
@@ -1102,6 +1097,14 @@ void WifiRequestManager::handleScanEventSync(chreWifiScanEvent *event) {
   if (!mScanRequestResultsArePending) {
     dispatchQueuedScanRequests();
   }
+
+  auto freeCallback = [](uint16_t /* eventType*/, void *eventData) {
+    EventLoopManagerSingleton::get()
+        ->getWifiRequestManager()
+        .releaseWifiScanEvent(static_cast<chreWifiScanEvent *>(eventData));
+  };
+  EventLoopManagerSingleton::get()->postEventOrDie(
+      CHRE_EVENT_WIFI_SCAN_RESULT, event, freeCallback, kBroadcastInstanceId);
 }
 
 void WifiRequestManager::handleScanMonitorStateChangeSync(bool enabled,
