@@ -109,3 +109,13 @@ flag {
     purpose: PURPOSE_BUGFIX
   }
 }
+
+flag {
+  name: "fmcq_support_variable_sized_data_flow_fix"
+  namespace: "context_hub"
+  description: "Flag guarding the fix for supporting variable sized data flows"
+  bug: "473872044"
+  metadata {
+    purpose: PURPOSE_BUGFIX
+  }
+}
