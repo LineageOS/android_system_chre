@@ -168,12 +168,12 @@ DLL_EXPORT bool chreMsgSend(
       .sendMessage(message, messageSize, messageType, sessionId,
                    messagePermissions, freeCallback, nanoapp->getAppId());
 #else
-  UNUSED_VAR(message);
-  UNUSED_VAR(messageSize);
   UNUSED_VAR(messageType);
   UNUSED_VAR(sessionId);
   UNUSED_VAR(messagePermissions);
-  UNUSED_VAR(freeCallback);
+  if (freeCallback != nullptr) {
+    freeCallback(message, messageSize);
+  }
   return false;
 #endif  // CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
 }
