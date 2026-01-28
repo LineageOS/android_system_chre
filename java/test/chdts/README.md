@@ -44,6 +44,26 @@ devices could also benefit from it.
     chdts-tradefed run chdts --skip-system-status-check com.android.compatibility.common.tradefed.targetprep.NetworkConnectivityChecker --module chdts-tradefed-tests --primary-abi-only --test com.android.chre.chdts.ChdtsHostTestCases#testContextHubBusyStartupNanoAppTest
     ```
 
+## Running CHDTS in No-Reboot Mode
+
+Standard CHDTS execution requires pushing test artifacts (APKs) and configuration files to the device, followed by a cleanup phase. These setup operations necessitate a device reboot to apply permissions and changes effectively.
+
+To reduce iteration time and help troubleshoot flaky tests, we provide a "No-Reboot" mode. This decouples the setup phase from the execution phase:
+
+1.  **One-time Environment Setup:** Run this command to push the necessary files and permissions. This step requires a reboot but only needs to be performed once.
+
+    ```
+    chdts-tradefed run chdts --module chdts-setup
+    ```
+
+2.  **Test Execution:** Once the environment is set up, you can run the tests repeatedly without rebooting
+
+    ```
+    chdts-tradefed run chdts --skip-system-status-check com.android.compatibility.common.tradefed.targetprep.NetworkConnectivityChecker --module chdts-test-only --primary-abi-only
+    ```
+
+Note that some test files are not cleaned up after the test, and you need to re-run the setup phase again if you switch to a newer version of CHDTS package.
+
 ## Using external nanoapps
 
 You can also use external nanoapps not bundled into the test APK. This allows

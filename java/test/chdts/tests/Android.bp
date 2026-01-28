@@ -32,5 +32,49 @@ java_test_host {
     ],
     data: [
         "permissions/**/*.xml",
+        "BaseConfig.xml",
     ],
+    test_config: "AndroidTest.xml",
+}
+
+java_test_host {
+    name: "chdts-setup",
+    srcs: ["src/**/*.java"],
+    libs: [
+        "tradefed",
+        "chdts-tradefed-host",
+        "compatibility-host-util",
+    ],
+    test_suites: [
+        "chdts",
+    ],
+    device_common_data: [
+        ":ChdtsTestApp",
+    ],
+    data: [
+        "permissions/**/*.xml",
+        "BaseConfig.xml",
+    ],
+    test_config: "AndroidTest_Setup.xml",
+}
+
+java_test_host {
+    name: "chdts-test-only",
+    srcs: ["src/**/*.java"],
+    libs: [
+        "tradefed",
+        "chdts-tradefed-host",
+        "compatibility-host-util",
+    ],
+    test_suites: [
+        "chdts",
+    ],
+    device_common_data: [
+        ":ChdtsTestApp",
+    ],
+    data: [
+        "permissions/**/*.xml",
+        "BaseConfig.xml",
+    ],
+    test_config: "AndroidTest_TestOnly.xml",
 }
