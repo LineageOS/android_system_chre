@@ -65,7 +65,6 @@ public class ChdtsHostTestCases extends BaseHostJUnit4Test {
     private static final int BAKLAVA = 36; // Android 16 (Planned)
 
     private ITestDevice mDevice;
-    private boolean mHasFeature;
     private boolean mHasServiceFeature;
     private boolean mHasPendingIntentFeature;
     private boolean mRunSettingsTest;
@@ -98,30 +97,26 @@ public class ChdtsHostTestCases extends BaseHostJUnit4Test {
     public void setUp() throws Exception {
         mDevice = getDevice();
 
-        boolean hasContextHub = mDevice.hasFeature(FEATURE_CONTEXT_HUB);
+        mHasServiceFeature = ApiLevelUtil.isAtLeast(mDevice, PI);
 
-        mHasFeature = ApiLevelUtil.isAtLeast(mDevice, NYC) && hasContextHub;
+        mHasPendingIntentFeature = ApiLevelUtil.isAtLeast(mDevice, QT);
 
-        mHasServiceFeature = ApiLevelUtil.isAtLeast(mDevice, PI) && hasContextHub;
+        mRunSettingsTest = ApiLevelUtil.isAtLeast(mDevice, RVC);
 
-        mHasPendingIntentFeature = ApiLevelUtil.isAtLeast(mDevice, QT) && hasContextHub;
+        mRunMicDisableSettingsTest = ApiLevelUtil.isAtLeast(mDevice, SC);
 
-        mRunSettingsTest = ApiLevelUtil.isAtLeast(mDevice, RVC) && hasContextHub;
-
-        mRunMicDisableSettingsTest = ApiLevelUtil.isAtLeast(mDevice, SC) && hasContextHub;
-
-        mRunCrossValidationTest = ApiLevelUtil.isAtLeast(mDevice, RVC) && hasContextHub
+        mRunCrossValidationTest = ApiLevelUtil.isAtLeast(mDevice, RVC)
                 && PropertyUtil.getFirstApiLevel(mDevice) >= RVC;
 
-        mRunCrossValidationWifiTest = ApiLevelUtil.isAtLeast(mDevice, RVC) && hasContextHub
+        mRunCrossValidationWifiTest = ApiLevelUtil.isAtLeast(mDevice, RVC)
                 && PropertyUtil.getFirstApiLevel(mDevice) >= SC;
 
-        mRunAudioConcurrencyTest = ApiLevelUtil.isAtLeast(mDevice, RVC) && hasContextHub;
+        mRunAudioConcurrencyTest = ApiLevelUtil.isAtLeast(mDevice, RVC);
 
-        mRunPermissionTest = ApiLevelUtil.isAtLeast(mDevice, SC) && hasContextHub
+        mRunPermissionTest = ApiLevelUtil.isAtLeast(mDevice, SC)
                 && PropertyUtil.getFirstApiLevel(mDevice) >= SC;
 
-        boolean runUdcTests = ApiLevelUtil.isAtLeast(mDevice, UDC) && hasContextHub
+        boolean runUdcTests = ApiLevelUtil.isAtLeast(mDevice, UDC)
                 && PropertyUtil.getFirstApiLevel(mDevice) >= UDC
                 && PropertyUtil.getVendorApiLevel(mDevice) >= UDC;
 
@@ -132,13 +127,12 @@ public class ChdtsHostTestCases extends BaseHostJUnit4Test {
         mRunHostEndpointTest = runUdcTests;
         mRunChreConcurrencyTest = runUdcTests;
 
-        boolean runVicTests = ApiLevelUtil.isAtLeast(mDevice, VIC) && hasContextHub
+        boolean runVicTests = ApiLevelUtil.isAtLeast(mDevice, VIC)
                 && PropertyUtil.getFirstApiLevel(mDevice) >= VIC
                 && PropertyUtil.getVendorApiLevel(mDevice) >= VIC;
         mRunReliableMessageTest = runVicTests;
 
         boolean runBaklavaTests = ApiLevelUtil.isAtLeast(mDevice, BAKLAVA)
-                && hasContextHub
                 && PropertyUtil.getFirstApiLevel(mDevice) >= BAKLAVA
                 && PropertyUtil.getVendorApiLevel(mDevice) >= BAKLAVA;
         mRunEndpointTests = runBaklavaTests;
@@ -191,200 +185,204 @@ public class ChdtsHostTestCases extends BaseHostJUnit4Test {
     }
 
     // --- Tests below ---
+    @Test
+    public void testContextHubEnabled() throws Exception {
+        Assert.assertTrue("ContextHub feature not found.", mDevice.hasFeature(FEATURE_CONTEXT_HUB));
+    }
 
     @Test
     public void testContextHubBusyStartupNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubBusyStartupNanoAppTest");
+        runTest("GtsContextHubBusyStartupNanoAppTest");
     }
 
     @Test
     public void testContextHubEstimatedHostTimeTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubEstimatedHostTimeTest");
+        runTest("GtsContextHubEstimatedHostTimeTest");
     }
 
     @Test
     public void testContextHubEventBetweenAppsNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubEventBetweenAppsNanoAppTest");
+        runTest("GtsContextHubEventBetweenAppsNanoAppTest");
     }
 
     @Test
     public void testContextHubGetTimeNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubGetTimeNanoAppTest");
+        runTest("GtsContextHubGetTimeNanoAppTest");
     }
 
     @Test
     public void testContextHubLoadBadNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubLoadBadNanoAppTest");
+        runTest("GtsContextHubLoadBadNanoAppTest");
     }
 
     @Test
     public void testContextHubSendMessageToHostNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSendMessageToHostNanoAppTest");
+        runTest("GtsContextHubSendMessageToHostNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleHelloWorldNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleHelloWorldNanoAppTest");
+        runTest("GtsContextHubSimpleHelloWorldNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleHeapAllocStressNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleHeapAllocStressNanoAppTest");
+        runTest("GtsContextHubSimpleHeapAllocStressNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleSendEventNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleSendEventNanoAppTest");
+        runTest("GtsContextHubSimpleSendEventNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleBasicAccelerometerNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleBasicAccelerometerNanoAppTest");
+        runTest("GtsContextHubSimpleBasicAccelerometerNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleBasicInstantMotionDetectNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleBasicInstantMotionDetectNanoAppTest");
+        runTest("GtsContextHubSimpleBasicInstantMotionDetectNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleBasicStationaryDetectNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleBasicStationaryDetectNanoAppTest");
+        runTest("GtsContextHubSimpleBasicStationaryDetectNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleBasicGyroscopeNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleBasicGyroscopeNanoAppTest");
+        runTest("GtsContextHubSimpleBasicGyroscopeNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleBasicMagnetometerNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleBasicMagnetometerNanoAppTest");
+        runTest("GtsContextHubSimpleBasicMagnetometerNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleBasicBarometerNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleBasicBarometerNanoAppTest");
+        runTest("GtsContextHubSimpleBasicBarometerNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleBasicLightSensorNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleBasicLightSensorNanoAppTest");
+        runTest("GtsContextHubSimpleBasicLightSensorNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleBasicProximityNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleBasicProximityNanoAppTest");
+        runTest("GtsContextHubSimpleBasicProximityNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleVersionConsistencyNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleVersionConsistencyNanoAppTest");
+        runTest("GtsContextHubSimpleVersionConsistencyNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleLoggingConsistencyNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleLoggingConsistencyNanoAppTest");
+        runTest("GtsContextHubSimpleLoggingConsistencyNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleTimerSetNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleTimerSetNanoAppTest");
+        runTest("GtsContextHubSimpleTimerSetNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleTimerCancelNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleTimerCancelNanoAppTest");
+        runTest("GtsContextHubSimpleTimerCancelNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleTimerStressNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleTimerStressNanoAppTest");
+        runTest("GtsContextHubSimpleTimerStressNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleSendEventStressNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleSendEventStressNanoAppTest");
+        runTest("GtsContextHubSimpleSendEventStressNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleHeapExhaustionStabilityNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleHeapExhaustionStabilityNanoAppTest");
+        runTest("GtsContextHubSimpleHeapExhaustionStabilityNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleGnnsCapabilitiesNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleGnnsCapabilitiesNanoAppTest");
+        runTest("GtsContextHubSimpleGnnsCapabilitiesNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleWifiCapabilitiesNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleWifiCapabilitiesNanoAppTest");
+        runTest("GtsContextHubSimpleWifiCapabilitiesNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleWwanCapabilitiesNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleWwanCapabilitiesNanoAppTest");
+        runTest("GtsContextHubSimpleWwanCapabilitiesNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleSensorInfoNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleSensorInfoNanoAppTest");
+        runTest("GtsContextHubSimpleSensorInfoNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleWwanCellInfoNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleWwanCellInfoNanoAppTest");
+        runTest("GtsContextHubSimpleWwanCellInfoNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleBasicAudioTestNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleBasicAudioTestNanoAppTest");
+        runTest("GtsContextHubSimpleBasicAudioTestNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleHostAwakeSuspendNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleHostAwakeSuspendNanoAppTest");
+        runTest("GtsContextHubSimpleHostAwakeSuspendNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleBasicGnssTestNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleBasicGnssTestNanoAppTest");
+        runTest("GtsContextHubSimpleBasicGnssTestNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleBasicWifiTestNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleBasicWifiTestNanoAppTest");
+        runTest("GtsContextHubSimpleBasicWifiTestNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleBasicSensorFlushAsyncTestNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleBasicSensorFlushAsyncTestNanoAppTest");
+        runTest("GtsContextHubSimpleBasicSensorFlushAsyncTestNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleBasicBleTestNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleBasicBleTestNanoAppTest");
+        runTest("GtsContextHubSimpleBasicBleTestNanoAppTest");
     }
 
     @Test
     public void testContextHubSimpleHeapAllocNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubSimpleHeapAllocNanoAppTest");
+        runTest("GtsContextHubSimpleHeapAllocNanoAppTest");
     }
 
     @Test
     public void testContextHubTrivialNanoAppsTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubTrivialNanoAppsTest");
+        runTest("GtsContextHubTrivialNanoAppsTest");
     }
 
     @Test
     public void testContextHubNanoAppInfoByIdTests() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubNanoAppInfoByIdTests");
+        runTest("GtsContextHubNanoAppInfoByIdTests");
     }
 
     @Test
     public void testContextHubNanoAppInfoEventsNanoAppTest() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubNanoAppInfoEventsNanoAppTest");
+        runTest("GtsContextHubNanoAppInfoEventsNanoAppTest");
     }
 
     @Test
@@ -548,6 +546,6 @@ public class ChdtsHostTestCases extends BaseHostJUnit4Test {
 
     @Test
     public void testContextHubStress() throws Exception {
-        if (mHasFeature) runTest("GtsContextHubStressTest");
+        runTest("GtsContextHubStressTest");
     }
 }
