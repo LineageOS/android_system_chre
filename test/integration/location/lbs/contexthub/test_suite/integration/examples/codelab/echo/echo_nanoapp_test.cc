@@ -15,29 +15,28 @@
  */
 
 #include <cstdint>
+#include <cstdlib>
+#include <vector>
 
 #include <gtest/gtest.h>
 #include "absl/flags/flag.h"
 #include "chre_api/chre.h"
 #include "location/lbs/contexthub/test_suite/integration/chre_integration_lib.h"
 #include "location/lbs/contexthub/test_suite/integration/data_feed/data_feed_base.h"
+#include "location/lbs/contexthub/test_suite/integration/data_feed/safe_chre_structs.h"
 #include "location/lbs/contexthub/test_suite/integration/verify/verification_data.h"
 
-using lbs::contexthub::testing::kSecsToNano;
 using lbs::contexthub::testing::verify::GetHostMessages;
 
 namespace {
 
-class ScenarioThree : public lbs::contexthub::testing::DataFeedBase {
+const int kMessageType = 73;
+const int kMessageValue = 42;
+const int kMessageTime = 123;
+
+class ScenarioOne : public lbs::contexthub::testing::DataFeedBase {
  public:
-  explicit ScenarioThree() {
-    skip_initial_message_from_host_ = true;
-    AddPassiveWifiScanAtTime(2 * kSecsToNano, 3);
-    AddPassiveWifiScanAtTime(4 * kSecsToNano, 4);
-    AddPassiveWifiScanAtTime(7 * kSecsToNano, 5);
-    AddPassiveWifiScanAtTime(9 * kSecsToNano, 6);
-    AddPassiveWifiScanAtTime(12 * kSecsToNano, 7);
-  }
+  explicit ScenarioOne();
 
   uint32_t GetCapabilitiesBle() override { return CHRE_BLE_CAPABILITIES_NONE; }
 
@@ -54,34 +53,43 @@ class ScenarioThree : public lbs::contexthub::testing::DataFeedBase {
   }
 
   uint32_t GetCapabilitiesWifi() override {
-    return CHRE_WIFI_CAPABILITIES_SCAN_MONITORING;
+    return CHRE_WIFI_CAPABILITIES_NONE;
   }
 
   const std::vector<chreSensorInfo> GetSensors() override { return {}; }
-
- private:
-  void AddPassiveWifiScanAtTime(uint64_t t_ns, int nb_of_aps);
 };
 
-void ScenarioThree::AddPassiveWifiScanAtTime(uint64_t t_ns, int nb_of_aps) {
-  auto scan_event = EmptyChreWifiScanEvent(t_ns);
-  scan_event->resultTotal = nb_of_aps;
-  auto results = new chreWifiScanResult[nb_of_aps];
-  scan_event->results = results;
-  wifi_scan_events_[t_ns] = scan_event;
+ScenarioOne::ScenarioOne() {
+  SafeChreMessageFromHostData host_msg;
+  host_msg.appId = 0x12345600000;
+  host_msg.messageType = kMessageType;
+  host_msg.messageSize = sizeof(int);
+  host_msg.hostEndpoint = 1234;
+
+  // TODO: malloc a new int* and set its value to kMsesageValue. // NOLINT
+  auto contents = static_cast<int*>(malloc(sizeof(int)));
+  *contents = kMessageValue;
+  host_msg.message = contents;
+
+  // TODO: Add the host_msg at t = kMessageTime. // NOLINT
+  messages_to_chre_[kMessageTime] = host_msg;
 }
 
-INTEGRATION_TEST(NanoappTest, ScenarioThree, ScenarioTwoTest) {
-  // Returns the messages received by the test framework (which is from the
-  // nanoapps), indexed by time.
+INTEGRATION_TEST(NanoappTest, ScenarioOne, ScenarioOneTest) {
+  // all received host messages can be retrieved by calling GetHostMessages().
+  // it returns a vector of pairs, with the first element of the pair being
+  // the time the message is received, and the second being a
+  // SafeChreMessageToHostData object.
+
   auto msgs = GetHostMessages();
 
-  // Ensure that we received at least one message.
   ASSERT_GT(msgs.size(), 0);
-
-  // simply verify that the message first arrives when we send 6 APs.
-  EXPECT_EQ(msgs[0].first, 9 * kSecsToNano);
+  EXPECT_EQ(msgs[0].first, kMessageTime);
+  auto msg = msgs[0].second;
+  ASSERT_EQ(msg.messageSize, sizeof(int));
+  EXPECT_EQ(msg.messageType, kMessageType);
+  auto msg_val = static_cast<const int*>(msg.message);
+  EXPECT_EQ(*msg_val, kMessageValue);
 }
 
 }  // namespace
-
