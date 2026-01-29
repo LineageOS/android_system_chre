@@ -531,6 +531,16 @@ class SensorRequestManager : public NonCopyable {
   void handleFlushCompleteEventSync(uint8_t errorCode, uint32_t sensorHandle);
 
   /**
+   * Handles a one-shot sensor event. See handleSensorDataEvent which may be
+   * called from any thread. This method is intended to be invoked on the CHRE
+   * event loop thread.
+   *
+   * @param sensorHandle The handle of the sensor that has generated the event.
+   * @param event The event data.
+   */
+  void handleOneShotSensorEventSync(uint32_t sensorHandle, void *event);
+
+  /**
    * Cancels all pending flush requests for a given sensor and nanoapp.
    *
    * @param sensorHandle The sensor handle indicating the sensor to cancel flush

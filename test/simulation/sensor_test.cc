@@ -124,7 +124,7 @@ TEST_F(SensorTest, SensorCanSubscribeAndUnsubscribeToDataEvents) {
 
   bool success;
 
-  EXPECT_FALSE(chrePalSensorIsSensor0Enabled());
+  EXPECT_FALSE(chrePalSensorIsEnabled(/* sensorHandle= */ 0));
 
   Configuration config{.sensorHandle = 0,
                        .interval = CHRE_NSEC_PER_SEC,
@@ -137,7 +137,7 @@ TEST_F(SensorTest, SensorCanSubscribeAndUnsubscribeToDataEvents) {
   EXPECT_EQ(event.sensorHandle, config.sensorHandle);
   EXPECT_EQ(event.status.interval, config.interval);
   EXPECT_TRUE(event.status.enabled);
-  EXPECT_TRUE(chrePalSensorIsSensor0Enabled());
+  EXPECT_TRUE(chrePalSensorIsEnabled(/* sensorHandle= */ 0));
 
   config = {.sensorHandle = 0,
             .interval = 50,
@@ -145,7 +145,69 @@ TEST_F(SensorTest, SensorCanSubscribeAndUnsubscribeToDataEvents) {
   sendEventToNanoapp(appId, CONFIGURE, config);
   waitForEvent(CONFIGURE, &success);
   EXPECT_TRUE(success);
-  EXPECT_FALSE(chrePalSensorIsSensor0Enabled());
+  EXPECT_FALSE(chrePalSensorIsEnabled(/* sensorHandle= */ 0));
+}
+
+TEST_F(SensorTest, SensorOneShot) {
+  CREATE_CHRE_TEST_EVENT(CONFIGURE, 0);
+
+  struct Configuration {
+    uint64_t interval;
+    enum chreSensorConfigureMode mode;
+  };
+
+  class App : public TestNanoapp {
+   public:
+    bool start() override {
+      bool success = chreSensorFindDefault(CHRE_SENSOR_TYPE_SIGNIFICANT_MOTION,
+                                           &mSignificantMotionHandle);
+      if (!success) {
+        LOGE("Failed to find significant motion sensor");
+      }
+      return success;
+    }
+
+    void handleEvent(uint32_t, uint16_t eventType,
+                     const void *eventData) override {
+      switch (eventType) {
+        case CHRE_EVENT_SENSOR_SIGNIFICANT_MOTION_DATA: {
+          TestEventQueueSingleton::get()->pushEvent(eventType);
+          break;
+        }
+
+        case CHRE_EVENT_TEST_EVENT: {
+          auto event = static_cast<const TestEvent *>(eventData);
+          switch (event->type) {
+            case CONFIGURE: {
+              const auto *config =
+                  static_cast<const Configuration *>(event->data);
+              const bool success = chreSensorConfigure(
+                  mSignificantMotionHandle, config->mode, config->interval, 0);
+              TestEventQueueSingleton::get()->pushEvent(CONFIGURE, success);
+              break;
+            }
+          }
+        }
+      }
+    }
+
+   private:
+    uint32_t mSignificantMotionHandle;
+  };
+
+  uint64_t appId = loadNanoapp(MakeUnique<App>());
+
+  bool success;
+  EXPECT_FALSE(chrePalSensorIsEnabled(/* sensorHandle= */ 1));
+  Configuration config{.interval = CHRE_SENSOR_INTERVAL_DEFAULT,
+                       .mode = CHRE_SENSOR_CONFIGURE_MODE_ONE_SHOT};
+  sendEventToNanoapp(appId, CONFIGURE, config);
+  waitForEvent(CONFIGURE, &success);
+  EXPECT_TRUE(success);
+  EXPECT_TRUE(chrePalSensorIsEnabled(/* sensorHandle= */ 1));
+
+  waitForEvent(CHRE_EVENT_SENSOR_SIGNIFICANT_MOTION_DATA);
+  EXPECT_FALSE(chrePalSensorIsEnabled(/* sensorHandle= */ 1));
 }
 
 TEST_F(SensorTest, SensorUnsubscribeToDataEventsOnUnload) {
@@ -189,7 +251,7 @@ TEST_F(SensorTest, SensorUnsubscribeToDataEventsOnUnload) {
 
   uint64_t appId = loadNanoapp(MakeUnique<App>());
 
-  EXPECT_FALSE(chrePalSensorIsSensor0Enabled());
+  EXPECT_FALSE(chrePalSensorIsEnabled(/* sensorHandle= */ 0));
 
   Configuration config{.sensorHandle = 0,
                        .interval = 10 * 1000 * 1000,  // 10 ms aka 100 Hz
@@ -203,10 +265,10 @@ TEST_F(SensorTest, SensorUnsubscribeToDataEventsOnUnload) {
   EXPECT_EQ(event.sensorHandle, config.sensorHandle);
   EXPECT_EQ(event.status.interval, config.interval);
   EXPECT_TRUE(event.status.enabled);
-  EXPECT_TRUE(chrePalSensorIsSensor0Enabled());
+  EXPECT_TRUE(chrePalSensorIsEnabled(/* sensorHandle= */ 0));
 
   unloadNanoapp(appId);
-  EXPECT_FALSE(chrePalSensorIsSensor0Enabled());
+  EXPECT_FALSE(chrePalSensorIsEnabled(/* sensorHandle= */ 0));
 }
 
 TEST_F(MultiThreadTestBase, MultiThreadedSensorTest) {
@@ -275,7 +337,7 @@ TEST_F(MultiThreadTestBase, MultiThreadedSensorTest) {
   info.requestedThreadPriority = NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND;
   uint64_t appId2 = loadNanoapp(MakeUnique<App>(info));
 
-  EXPECT_FALSE(chrePalSensorIsSensor0Enabled());
+  EXPECT_FALSE(chrePalSensorIsEnabled(/* sensorHandle= */ 0));
 
   bool success;
   Configuration config{.sensorHandle = 0,
@@ -289,7 +351,7 @@ TEST_F(MultiThreadTestBase, MultiThreadedSensorTest) {
   EXPECT_EQ(event.sensorHandle, config.sensorHandle);
   EXPECT_EQ(event.status.interval, config.interval);
   EXPECT_TRUE(event.status.enabled);
-  EXPECT_TRUE(chrePalSensorIsSensor0Enabled());
+  EXPECT_TRUE(chrePalSensorIsEnabled(/* sensorHandle= */ 0));
 
   Configuration config2{.sensorHandle = 0,
                         .interval = 100 * chre::kOneMillisecondInNanoseconds,
@@ -301,7 +363,7 @@ TEST_F(MultiThreadTestBase, MultiThreadedSensorTest) {
   EXPECT_EQ(event.sensorHandle, config2.sensorHandle);
   EXPECT_EQ(event.status.interval, config2.interval);
   EXPECT_TRUE(event.status.enabled);
-  EXPECT_TRUE(chrePalSensorIsSensor0Enabled());
+  EXPECT_TRUE(chrePalSensorIsEnabled(/* sensorHandle= */ 0));
 
   config = {.sensorHandle = 0,
             .interval = 50,
@@ -312,7 +374,7 @@ TEST_F(MultiThreadTestBase, MultiThreadedSensorTest) {
   sendEventToNanoapp(appId2, CONFIGURE, config);
   waitForEvent(CONFIGURE, &success);
   EXPECT_TRUE(success);
-  EXPECT_FALSE(chrePalSensorIsSensor0Enabled());
+  EXPECT_FALSE(chrePalSensorIsEnabled(/* sensorHandle= */ 0));
 }
 
 }  // namespace

@@ -161,7 +161,7 @@ TEST_F(PalSensorTest, GetTheListOfSensors) {
   uint32_t arraySize;
 
   EXPECT_TRUE(gApi->getSensors(&sensors, &arraySize));
-  EXPECT_EQ(arraySize, 1);
+  EXPECT_GT(arraySize, 0);
   EXPECT_STREQ(sensors[0].sensorName, "Test Accelerometer");
 }
 

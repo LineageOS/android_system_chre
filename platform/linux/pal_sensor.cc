@@ -49,21 +49,41 @@ struct chreSensorInfo gSensors[] = {
         .minInterval = 0,
         .sensorIndex = CHRE_SENSOR_INDEX_DEFAULT,
     },
+    // Sensor 1 - SMD.
+    {
+        .sensorName = "Test SMD",
+        .sensorType = CHRE_SENSOR_TYPE_SIGNIFICANT_MOTION,
+        .isOnChange = 0,
+        .isOneShot = 1,
+        .reportsBiasEvents = 0,
+        .supportsPassiveMode = 0,
+        .unusedFlags = 0,
+        .minInterval = 0,
+        .sensorIndex = CHRE_SENSOR_INDEX_DEFAULT,
+    },
 };
 
 //! Task to deliver asynchronous sensor data after a CHRE request.
-std::optional<uint32_t> gSensor0TaskId;
-bool gIsSensor0Enabled = false;
+std::optional<uint32_t> gSensorTaskIds[ARRAY_SIZE(gSensors)];
+bool gIsSensorEnabled[ARRAY_SIZE(gSensors)];
 
 void stopSensor0Task() {
-  if (gSensor0TaskId.has_value()) {
-    TaskManagerSingleton::get()->cancelTask(gSensor0TaskId.value());
-    gSensor0TaskId.reset();
+  if (gSensorTaskIds[0].has_value()) {
+    TaskManagerSingleton::get()->cancelTask(gSensorTaskIds[0].value());
+    gSensorTaskIds[0].reset();
+  }
+}
+
+void stopSensor1Task() {
+  if (gSensorTaskIds[1].has_value()) {
+    TaskManagerSingleton::get()->cancelTask(gSensorTaskIds[1].value());
+    gSensorTaskIds[1].reset();
   }
 }
 
 void chrePalSensorApiClose() {
   stopSensor0Task();
+  stopSensor1Task();
 }
 
 bool chrePalSensorApiOpen(const struct chrePalSystemApi *systemApi,
@@ -112,7 +132,19 @@ void sendSensor0Events() {
   data->header.accuracy = CHRE_SENSOR_ACCURACY_UNRELIABLE;
   data->header.reserved = 0;
 
-  gCallbacks->dataEventCallback(0, data.release());
+  gCallbacks->dataEventCallback(/* sensorInfoIndex= */ 0, data.release());
+}
+
+void sendSensor1Events() {
+  auto data = chre::MakeUniqueZeroFill<struct chreSensorOccurrenceData>();
+
+  data->header.baseTimestamp = gSystemApi->getCurrentTime();
+  data->header.sensorHandle = 1;
+  data->header.readingCount = 1;
+  data->header.accuracy = CHRE_SENSOR_ACCURACY_UNRELIABLE;
+  data->header.reserved = 0;
+
+  gCallbacks->dataEventCallback(/* sensorInfoIndex= */ 1, data.release());
 }
 
 bool chrePalSensorApiConfigureSensor(uint32_t sensorInfoIndex,
@@ -123,25 +155,36 @@ bool chrePalSensorApiConfigureSensor(uint32_t sensorInfoIndex,
     return false;
   }
 
-  if (sensorInfoIndex != 0) {
-    // Only sensor 0 is supported for now.
+  if (sensorInfoIndex == 0) {
+    if (mode == CHRE_SENSOR_CONFIGURE_MODE_CONTINUOUS) {
+      stopSensor0Task();
+      gIsSensorEnabled[0] = true;
+      sendSensor0StatusUpdate(intervalNs, true /*enabled*/);
+      gSensorTaskIds[0] = TaskManagerSingleton::get()->addTask(
+          sendSensor0Events, std::chrono::nanoseconds(intervalNs));
+      return gSensorTaskIds[0].has_value();
+    } else if (mode == CHRE_SENSOR_CONFIGURE_MODE_DONE) {
+      stopSensor0Task();
+      gIsSensorEnabled[0] = false;
+      sendSensor0StatusUpdate(intervalNs, false /*enabled*/);
+      return true;
+    }
+  } else if (sensorInfoIndex == 1) {
+    if (mode == CHRE_SENSOR_CONFIGURE_MODE_ONE_SHOT) {
+      stopSensor1Task();
+      gIsSensorEnabled[1] = true;
+      gSensorTaskIds[1] =
+          TaskManagerSingleton::get()->addTask(sendSensor1Events);
+      return gSensorTaskIds[1].has_value();
+    } else if (mode == CHRE_SENSOR_CONFIGURE_MODE_DONE) {
+      stopSensor1Task();
+      gIsSensorEnabled[1] = false;
+      return true;
+    }
+  } else {
+    LOGE("Failed to configure sensor: invalid sensor info index %" PRIu32,
+         sensorInfoIndex);
     return false;
-  }
-
-  if (mode == CHRE_SENSOR_CONFIGURE_MODE_CONTINUOUS) {
-    stopSensor0Task();
-    gIsSensor0Enabled = true;
-    sendSensor0StatusUpdate(intervalNs, true /*enabled*/);
-    gSensor0TaskId = TaskManagerSingleton::get()->addTask(
-        sendSensor0Events, std::chrono::nanoseconds(intervalNs));
-    return gSensor0TaskId.has_value();
-  }
-
-  if (mode == CHRE_SENSOR_CONFIGURE_MODE_DONE) {
-    stopSensor0Task();
-    gIsSensor0Enabled = false;
-    sendSensor0StatusUpdate(intervalNs, false /*enabled*/);
-    return true;
   }
 
   return false;
@@ -183,8 +226,11 @@ void chrePalSensorApiReleaseBiasEvent(void *bias) {
 
 }  // namespace
 
-bool chrePalSensorIsSensor0Enabled() {
-  return gIsSensor0Enabled;
+bool chrePalSensorIsEnabled(uint32_t sensorHandle) {
+  if (sensorHandle >= ARRAY_SIZE(gSensors)) {
+    return false;
+  }
+  return gIsSensorEnabled[sensorHandle];
 }
 
 const chrePalSensorApi *chrePalSensorGetApi(uint32_t requestedApiVersion) {

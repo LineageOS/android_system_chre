@@ -128,13 +128,13 @@ DLL_EXPORT bool chreSendReliableMessageAsync(
                            hostEndpoint, messagePermissions, freeCallback,
                            /*isReliable=*/true, cookie);
 #else
-  UNUSED_VAR(message);
-  UNUSED_VAR(messageSize);
   UNUSED_VAR(messageType);
   UNUSED_VAR(hostEndpoint);
   UNUSED_VAR(messagePermissions);
-  UNUSED_VAR(freeCallback);
   UNUSED_VAR(cookie);
+  if (freeCallback != nullptr) {
+    freeCallback(message, messageSize);
+  }
   return false;
 #endif  // CHRE_RELIABLE_MESSAGE_SUPPORT_ENABLED
 }

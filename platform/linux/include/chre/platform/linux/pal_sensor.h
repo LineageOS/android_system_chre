@@ -18,8 +18,9 @@
 #define CHRE_PLATFORM_LINUX_PAL_SENSOR_H_
 
 /**
- * @return whether sensor 0 is active.
+ * @param sensorHandle The handle of the sensor to check.
+ * @return whether the sensor with the given handle is active.
  */
-bool chrePalSensorIsSensor0Enabled();
+bool chrePalSensorIsEnabled(uint32_t sensorHandle);
 
 #endif  // CHRE_PLATFORM_LINUX_PAL_SENSOR_H_
