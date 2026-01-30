@@ -18,10 +18,12 @@
 #define CHRE_UTIL_SYSTEM_MESSAGE_COMMON_TYPES_H_
 
 #include "pw_allocator/unique_ptr.h"
+#include "pw_span/span.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 
 namespace chre::message {
 
@@ -188,8 +190,10 @@ struct Message {
   Message(pw::UniquePtr<std::byte[]> &&ourData, uint32_t initMessageType,
           uint32_t initMessagePermissions, Session initSession,
           bool initSentBySessionInitiator)
-      : sender(initSentBySessionInitiator ? initSession.initiator : initSession.peer),
-        recipient(initSentBySessionInitiator ? initSession.peer : initSession.initiator),
+      : sender(initSentBySessionInitiator ? initSession.initiator
+                                          : initSession.peer),
+        recipient(initSentBySessionInitiator ? initSession.peer
+                                             : initSession.initiator),
         sessionId(initSession.sessionId),
         data(std::move(ourData)),
         messageType(initMessageType),
@@ -224,6 +228,63 @@ struct DataFlowId {
 
   //! The ID of the data flow scoped to hubId.
   uint32_t id;
+};
+
+//! Represents a data flow sink registration.
+struct DataFlowSinkRegistration {
+  //! Id of the data flow.
+  DataFlowId dataFlowId;
+
+  //! The data flow source endpoint.
+  Endpoint sourceId;
+
+  //! The endpoint being registered as a sink.
+  Endpoint sinkId;
+
+  //! Id of the primary region.
+  int32_t primaryRegionId;
+
+  //! Offset of the metadata in the primary region.
+  uint32_t metadataOffset;
+
+  //! Optional ID of the region containing the metadata of the new sink.
+  int32_t sinkMetadataRegionId;
+
+  //! Offset of the sink metadata.
+  uint32_t sinkMetadataOffset;
+
+  //! Optional message used to pass this registration over an existing session.
+  std::optional<Message> sessionMessage;
+};
+
+//! @brief Represents a data flow sink unregistration.
+struct DataFlowSinkUnregistration {
+  //! Id of the data flow.
+  DataFlowId dataFlowId;
+
+  //! The endpoint being removed from the flow.
+  Endpoint endpoint;
+};
+
+//! Represents a data flow stopped event.
+struct DataFlowStopped {
+  //! Id of the data flow that stopped.
+  DataFlowId dataFlowId;
+
+  //! Optional list of endpoints to notify.
+  std::optional<pw::span<Endpoint>> destinationEndpoints;
+};
+
+//! Represents a data flow alert.
+struct DataFlowAlert {
+  //! Id of the data flow the alert is associated with.
+  DataFlowId dataFlowId;
+
+  //! The sending endpoint.
+  Endpoint sender;
+
+  //! The list of receiving endpoints.
+  pw::span<Endpoint> receiverEndpoints;
 };
 
 }  // namespace chre::message

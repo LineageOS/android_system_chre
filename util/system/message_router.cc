@@ -739,4 +739,23 @@ SessionId MessageRouter::getNextSessionIdLocked() {
   return foundSessionIdConflict ? SESSION_ID_INVALID : mNextSessionId++;
 }
 
+bool MessageRouter::registerDataFlowSink(
+    const DataFlowSinkRegistration & /*registration*/) {
+  // TODO(b/452707307): Implement data flow sink registration.
+  return false;
+}
+
+void MessageRouter::reportDataFlowSinkUnregistered(
+    const DataFlowSinkUnregistration & /*unregistration*/) {
+  // TODO(b/452707307): Implement data flow sink unregistration.
+}
+
+void MessageRouter::reportDataFlowStopped(const DataFlowStopped & /*stopped*/) {
+  // TODO(b/452707307): Implement data flow stop.
+}
+
+void MessageRouter::reportDataFlowAlert(const DataFlowAlert & /*alert*/) {
+  // TODO(b/452707307): Implement data flow alert.
+}
+
 }  // namespace chre::message

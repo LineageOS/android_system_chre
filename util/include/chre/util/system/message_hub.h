@@ -101,6 +101,20 @@ class MessageHub {
   //! @return true if the endpoint was unregistered, otherwise false.
   bool unregisterEndpoint(EndpointId endpointId);
 
+  //! Registers a data flow sink.
+  //! @return true if the sink was registered, false otherwise.
+  bool registerDataFlowSink(const DataFlowSinkRegistration &registration);
+
+  //! Reports that a data flow sink has been unregistered.
+  void reportDataFlowSinkUnregistered(
+      const DataFlowSinkUnregistration &unregistration);
+
+  //! Reports that a data flow has stopped.
+  void reportDataFlowStopped(const DataFlowStopped &stopped);
+
+  //! Reports a data flow alert.
+  void reportDataFlowAlert(const DataFlowAlert &alert);
+
   //! @return The MessageHub ID of the currently connected MessageHub
   MessageHubId getId();
 
