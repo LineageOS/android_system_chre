@@ -97,6 +97,13 @@ class BasicWifiTest : public Test {
   void startRangingAsyncTestStage();
 
   /**
+   * Calls API chreWifiRequestRangingAsync. Sends fatal failure to host if the
+   * API call fails. Uses mLatestWifiScanResults to populate the ranging
+   * request, and updates members to track the expected ranging results.
+   */
+  void testRequestRangingAsync();
+
+  /**
    * This method must be called after making an async request to CHRE.
    *
    * @param cookie pointer to request cookie.
@@ -187,6 +194,12 @@ class BasicWifiTest : public Test {
 
   // The handle to identify the timer event for restarting a wifi scan.
   uint32_t mScanTimeoutTimerHandle = CHRE_TIMER_INVALID;
+
+  // The expected async success result for the ranging request.
+  chre::Optional<bool> mExpectedRangingAsyncResult;
+
+  // The expected number of ranging results returned by the ranging event.
+  size_t mExpectedRangingResultCount;
 };
 
 }  // namespace general_test
