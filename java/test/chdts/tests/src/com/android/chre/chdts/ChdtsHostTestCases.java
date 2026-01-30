@@ -82,6 +82,7 @@ public class ChdtsHostTestCases extends BaseHostJUnit4Test {
     private boolean mRunChreConcurrencyTest;
     private boolean mRunReliableMessageTest;
     private boolean mRunEndpointTests;
+    private boolean mRunStressTests;
 
     @Option(name = "externalNanoAppPath",
             description = "The path to the directory which contains test nanoapps "
@@ -90,7 +91,7 @@ public class ChdtsHostTestCases extends BaseHostJUnit4Test {
 
     @Option(name = "stressTestDurationSeconds",
             description = "The duration of stress test (in seconds) "
-            + "for ContextHubHostTest")
+            + "for ContextHubHostTest.")
     private String mStressTestDurationSeconds = null;
 
     @Before
@@ -138,6 +139,8 @@ public class ChdtsHostTestCases extends BaseHostJUnit4Test {
         mRunEndpointTests = runBaklavaTests;
         mRunCrossValidationWwanTest = runBaklavaTests;
 
+        mRunStressTests = (mStressTestDurationSeconds != null);
+
         // Ensure Wifi is enabled for tests requiring it
         if (!getDevice().isWifiEnabled()) {
             getDevice().executeShellV2Command("svc wifi enable");
@@ -160,21 +163,19 @@ public class ChdtsHostTestCases extends BaseHostJUnit4Test {
             deviceTestRunOptions.addInstrumentationArg("externalNanoAppPath", mExternalNanoAppPath);
         }
 
-        if (mStressTestDurationSeconds != null) {
+        if (className.equals("GtsContextHubStressTest") && mStressTestDurationSeconds != null) {
             deviceTestRunOptions.addInstrumentationArg(
                     "stressTestDurationSeconds", mStressTestDurationSeconds);
-            if (className.equals("GtsContextHubStressTest")) {
-                try {
-                    // Set the stress test timeout to mStressTestDurationSeconds + 60s to make
-                    // sure the stress test is not interrupted by the test timeout.
-                    long stressTestTimeoutMs =
-                            (Long.parseLong(mStressTestDurationSeconds) + 60) * 1000L;
-                    if (stressTestTimeoutMs > 0) {
-                        deviceTestRunOptions.setTestTimeoutMs(stressTestTimeoutMs);
-                        deviceTestRunOptions.setMaxTimeToOutputMs(stressTestTimeoutMs);
-                    }
-                } catch (NumberFormatException e) { }
-            }
+            try {
+                // Set the stress test timeout to mStressTestDurationSeconds + 60s to make
+                // sure the stress test is not interrupted by the test timeout.
+                long stressTestTimeoutMs =
+                        (Long.parseLong(mStressTestDurationSeconds) + 60) * 1000L;
+                if (stressTestTimeoutMs > 0) {
+                    deviceTestRunOptions.setTestTimeoutMs(stressTestTimeoutMs);
+                    deviceTestRunOptions.setMaxTimeToOutputMs(stressTestTimeoutMs);
+                }
+            } catch (NumberFormatException e) { }
         }
 
         Assert.assertTrue(fullClassName + " failed.", runDeviceTests(deviceTestRunOptions));
@@ -546,6 +547,6 @@ public class ChdtsHostTestCases extends BaseHostJUnit4Test {
 
     @Test
     public void testContextHubStress() throws Exception {
-        runTest("GtsContextHubStressTest");
+        if (mRunStressTests) runTest("GtsContextHubStressTest");
     }
 }
