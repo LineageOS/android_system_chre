@@ -19,6 +19,7 @@
 #include "chre/core/chre_message_hub_manager.h"
 #include "chre/core/event_loop.h"
 #include "chre/core/event_loop_manager.h"
+#include "chre/core/multi_threading_api_mutex.h"
 #include "chre/core/nanoapp.h"
 #include "chre/platform/context.h"
 #include "chre/platform/fatal_error.h"
@@ -311,10 +312,6 @@ bool ChreMessageHubManager::sendMessage(void *message, size_t messageSize,
                                             fromEndpointId);
     }
   }
-
-  if (!success && freeCallback != nullptr) {
-    freeCallback(message, messageSize);
-  }
   return success;
 }
 
@@ -520,9 +517,12 @@ void ChreMessageHubManager::onMessageFreeCallback(
       ChreMessageHubManager::handleMessageFreeCallback);
 }
 
+// TODO(b/475537998): Optimize callbacks to avoid unnecessary global mutex locks
 void ChreMessageHubManager::handleMessageFreeCallback(uint16_t /* type */,
                                                       void *data,
                                                       void * /* extraData */) {
+  auto *mutex = getMultiThreadingApiMutex();
+  mutex->unlock();
   std::optional<CallbackAllocator<MessageFreeCallbackData>::CallbackRecord>
       record = EventLoopManagerSingleton::get()
                    ->getChreMessageHubManager()
@@ -540,6 +540,7 @@ void ChreMessageHubManager::handleMessageFreeCallback(uint16_t /* type */,
   EventLoopManagerSingleton::get()->getEventLoop().invokeMessageFreeFunction(
       record->metadata.nanoappId, record->metadata.freeCallback,
       record->message, record->messageSize);
+  mutex->lock();
 }
 
 void ChreMessageHubManager::onSessionStateChanged(

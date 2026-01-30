@@ -217,6 +217,15 @@ struct Message {
   }
 };
 
+//! Represents an identifier for a shared data flow between endpoints.
+struct DataFlowId {
+  //! The ID of the hub the data flow source endpoint is on.
+  MessageHubId hubId;
+
+  //! The ID of the data flow scoped to hubId.
+  uint32_t id;
+};
+
 }  // namespace chre::message
 
 #endif  // CHRE_UTIL_SYSTEM_MESSAGE_COMMON_TYPES_H_

@@ -22,14 +22,14 @@
 
 using chre::EventLoopManager;
 using chre::EventLoopManagerSingleton;
+using chre::GlobalApiLockGuard;
 using chre::Nanoapp;
 using chre::NanoappPermissions;
 
 DLL_EXPORT uint32_t chreWifiGetCapabilities() {
 #ifdef CHRE_WIFI_SUPPORT_ENABLED
-  return EventLoopManagerSingleton::get()
-      ->getWifiRequestManager()
-      .getCapabilities();
+  GlobalApiLockGuard lock;
+  return EventLoopManagerSingleton::get()->getWifiCapabilitiesLocked();
 #else
   return CHRE_WIFI_CAPABILITIES_NONE;
 #endif  // CHRE_WIFI_SUPPORT_ENABLED
@@ -39,6 +39,7 @@ DLL_EXPORT bool chreWifiConfigureScanMonitorAsync(
     [[maybe_unused]] bool enable, [[maybe_unused]] const void *cookie) {
 #ifdef CHRE_WIFI_SUPPORT_ENABLED
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+  GlobalApiLockGuard lock;
   return nanoapp->permitPermissionUse(NanoappPermissions::CHRE_PERMS_WIFI) &&
          EventLoopManagerSingleton::get()
              ->getWifiRequestManager()
@@ -53,6 +54,7 @@ DLL_EXPORT bool chreWifiRequestScanAsync(
     [[maybe_unused]] const void *cookie) {
 #ifdef CHRE_WIFI_SUPPORT_ENABLED
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+  GlobalApiLockGuard lock;
   return nanoapp->permitPermissionUse(NanoappPermissions::CHRE_PERMS_WIFI) &&
          EventLoopManagerSingleton::get()->getWifiRequestManager().requestScan(
              nanoapp, params, cookie);
@@ -66,6 +68,7 @@ DLL_EXPORT bool chreWifiRequestRangingAsync(
     [[maybe_unused]] const void *cookie) {
 #ifdef CHRE_WIFI_SUPPORT_ENABLED
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+  GlobalApiLockGuard lock;
   return nanoapp->permitPermissionUse(NanoappPermissions::CHRE_PERMS_WIFI) &&
          EventLoopManagerSingleton::get()
              ->getWifiRequestManager()
@@ -81,6 +84,7 @@ DLL_EXPORT bool chreWifiNanSubscribe(
     [[maybe_unused]] const void *cookie) {
 #if defined(CHRE_WIFI_SUPPORT_ENABLED) && defined(CHRE_WIFI_NAN_SUPPORT_ENABLED)
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+  GlobalApiLockGuard lock;
   return nanoapp->permitPermissionUse(NanoappPermissions::CHRE_PERMS_WIFI) &&
          EventLoopManagerSingleton::get()->getWifiRequestManager().nanSubscribe(
              nanoapp, config, cookie);
@@ -93,6 +97,7 @@ DLL_EXPORT bool chreWifiNanSubscribeCancel(
     [[maybe_unused]] uint32_t subscriptionId) {
 #if defined(CHRE_WIFI_SUPPORT_ENABLED) && defined(CHRE_WIFI_NAN_SUPPORT_ENABLED)
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+  GlobalApiLockGuard lock;
   return nanoapp->permitPermissionUse(NanoappPermissions::CHRE_PERMS_WIFI) &&
          EventLoopManagerSingleton::get()
              ->getWifiRequestManager()
@@ -107,6 +112,7 @@ DLL_EXPORT bool chreWifiNanRequestRangingAsync(
     [[maybe_unused]] const void *cookie) {
 #if defined(CHRE_WIFI_SUPPORT_ENABLED) && defined(CHRE_WIFI_NAN_SUPPORT_ENABLED)
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+  GlobalApiLockGuard lock;
   return nanoapp->permitPermissionUse(NanoappPermissions::CHRE_PERMS_WIFI) &&
          EventLoopManagerSingleton::get()
              ->getWifiRequestManager()
@@ -119,6 +125,7 @@ DLL_EXPORT bool chreWifiNanRequestRangingAsync(
 
 DLL_EXPORT bool chreWifiNanGetCapabilities(
     struct chreWifiNanCapabilities *capabilities) {
+  GlobalApiLockGuard lock;
   // Not implemented yet.
   UNUSED_VAR(capabilities);
   return false;

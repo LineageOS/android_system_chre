@@ -141,7 +141,6 @@ int32_t BleSocketManager::sendBleSocketPacket(
   PlatformBtSocket *btSocket = findPlatformBtSocket(socketId);
   if (btSocket == nullptr) {
     LOGE("BT socketId %" PRIu64 " not found", socketId);
-    freeCallback(const_cast<void *>(data), length);
     return CHRE_BLE_SOCKET_SEND_STATUS_FAILURE;
   }
   return btSocket->sendSocketPacket(data, length, freeCallback);

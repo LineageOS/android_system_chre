@@ -22,6 +22,7 @@
 
 using chre::EventLoopManager;
 using chre::EventLoopManagerSingleton;
+using chre::GlobalApiLockGuard;
 using chre::Nanoapp;
 using chre::NanoappPermissions;
 
@@ -29,6 +30,7 @@ DLL_EXPORT bool chreAudioGetSource(uint32_t handle,
                                    struct chreAudioSource *audioSource) {
 #ifdef CHRE_AUDIO_SUPPORT_ENABLED
   bool success = false;
+  GlobalApiLockGuard lock;
   if (audioSource != nullptr) {
     success = EventLoopManagerSingleton::get()
                   ->getAudioRequestManager()
@@ -48,6 +50,7 @@ DLL_EXPORT bool chreAudioConfigureSource(uint32_t handle, bool enable,
                                          uint64_t deliveryInterval) {
 #ifdef CHRE_AUDIO_SUPPORT_ENABLED
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+  GlobalApiLockGuard lock;
   return nanoapp->permitPermissionUse(NanoappPermissions::CHRE_PERMS_AUDIO) &&
          EventLoopManagerSingleton::get()
              ->getAudioRequestManager()

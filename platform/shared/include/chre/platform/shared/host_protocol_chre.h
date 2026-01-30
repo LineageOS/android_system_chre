@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <cstdint>
 
+#include <optional>
 #include "chre/core/ble_l2cap_coc_socket_data.h"
 #include "chre/core/nanoapp.h"
 #include "chre/core/settings.h"
@@ -358,8 +359,8 @@ class HostProtocolChre : public HostProtocolCommon {
    * @param reason Reason socket is being closed.
    * @param socketId BT socket identifier.
    */
-  static void encodeBtSocketClose(ChreFlatBufferBuilder &builder,uint64_t socketId,
-                                  const char *reason);
+  static void encodeBtSocketClose(ChreFlatBufferBuilder &builder,
+                                  uint64_t socketId, const char *reason);
 
   /**
    * Encodes a BT socket capabilities response.
@@ -508,6 +509,62 @@ class HostProtocolChre : public HostProtocolCommon {
   static void encodeEndpointSessionMessageDeliveryStatus(
       ChreFlatBufferBuilder &builder, message::MessageHubId hub,
       message::SessionId session, uint32_t messageId, uint8_t status);
+
+  /**
+   * Encodes a RegisterDataFlowSink message.
+   *
+   * @param builder Builder which assembles and stores the message.
+   * @param dataFlowId The ID of the data flow.
+   * @param source The data flow source endpoint.
+   * @param sink The endpoint being registered as a sink.
+   * @param primaryRegionId The ID of the primary shared memory region.
+   * @param metadataOffset The offset of the metadata in the primary region.
+   * @param sinkMetadataRegionId The ID of the sink metadata shared memory
+   * region.
+   * @param sinkMetadataOffset The offset of the sink metadata in its region.
+   */
+  static void encodeRegisterDataFlowSink(
+      ChreFlatBufferBuilder &builder, const message::DataFlowId &dataFlowId,
+      const message::Endpoint &source, const message::Endpoint &sink,
+      int32_t primaryRegionId, uint32_t metadataOffset,
+      int32_t sinkMetadataRegionId, uint32_t sinkMetadataOffset);
+
+  /**
+   * Encodes an UnregisterDataFlowSink message.
+   *
+   * @param builder Builder which assembles and stores the message.
+   * @param dataFlowId The ID of the data flow.
+   * @param endpointId The endpoint being removed from the flow.
+   */
+  static void encodeUnregisterDataFlowSink(
+      ChreFlatBufferBuilder &builder, const message::DataFlowId &dataFlowId,
+      const message::Endpoint &endpoint);
+
+  /**
+   * Encodes a DataFlowStopped message.
+   *
+   * @param builder Builder which assembles and stores the message.
+   * @param dataFlowId The ID of the data flow that stopped.
+   * @param destinationEndpoints An optional list of endpoints to notify. This
+   * is not needed when sending the message to the HAL.
+   */
+  static void encodeDataFlowStopped(
+      ChreFlatBufferBuilder &builder, const message::DataFlowId &dataFlowId,
+      const std::optional<DynamicVector<message::Endpoint>>
+          &destinationEndpoints = std::nullopt);
+
+  /**
+   * Encodes a DataFlowAlert message.
+   *
+   * @param builder Builder which assembles and stores the message.
+   * @param dataFlowId The ID of the data flow the alert is associated with.
+   * @param senderEndpoint The sending endpoint.
+   * @param receiverEndpoints The receiving endpoint(s).
+   */
+  static void encodeDataFlowAlert(
+      ChreFlatBufferBuilder &builder, const message::DataFlowId &dataFlowId,
+      const message::Endpoint &senderEndpoint,
+      const DynamicVector<message::Endpoint> &receiverEndpoints);
 };
 
 }  // namespace chre

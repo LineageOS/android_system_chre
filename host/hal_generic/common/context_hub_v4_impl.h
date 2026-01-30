@@ -62,12 +62,12 @@ class ContextHubV4Impl {
   using SendMessageFn =
       std::function<bool(const flatbuffers::FlatBufferBuilder &builder)>;
   ContextHubV4Impl(SendMessageFn sendMessageFn,
-                   std::unique_ptr<RegionAllocator> regionAllocator,
+                   std::shared_ptr<RegionAllocator> regionAllocator,
                    std::unique_ptr<WakelockManager> wakelockManager)
       : mManager(std::bind(&ContextHubV4Impl::unlinkDeadHostHub, this,
                            std::placeholders::_1)),
         mSendMessageFn(std::move(sendMessageFn)),
-        mRegionAllocator(std::move(regionAllocator)),
+        mRegionAllocator(regionAllocator),
         mWakelockManager(std::move(wakelockManager)) {}
   explicit ContextHubV4Impl(SendMessageFn sendMessageFn)
       : ContextHubV4Impl(std::move(sendMessageFn), /*regionAllocator=*/{},
@@ -144,7 +144,7 @@ class ContextHubV4Impl {
 
   MessageHubManager mManager;
   SendMessageFn mSendMessageFn;
-  std::unique_ptr<RegionAllocator> mRegionAllocator;
+  std::shared_ptr<RegionAllocator> mRegionAllocator;
   std::unique_ptr<WakelockManager> mWakelockManager;
 
   // This lock is required to be held around any operation which modifies the

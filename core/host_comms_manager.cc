@@ -516,21 +516,25 @@ void HostCommsManager::onMessageToHostCompleteInternal(
   // EventLoop context.
   if (msgToHost->toHostData.nanoappFreeFunction == nullptr) {
     mMessagePool.deallocate(msgToHost);
-  } else if (EventLoopManagerSingleton::get()->inEventLoopForNanoapp(
-                 msgToHost->appId)) {
-    // If we're already within the event loop context, it is safe to call the
-    // free callback synchronously.
-    freeMessageToHost(msgToHost);
   } else {
-    auto freeMsgCallback = [](uint16_t /*type*/, void *data,
-                              void * /*extraData*/) {
-      EventLoopManagerSingleton::get()->getHostCommsManager().freeMessageToHost(
-          static_cast<MessageToHost *>(data));
-    };
+    auto freeMsgCallback =
+        [](uint16_t /*type*/, void *data,
+           void * /*extraData*/) CHRE_NO_THREAD_SAFETY_ANALYSIS {
+          // TODO(b/475537998): Optimize the global API mutex locking in this
+          // code path.
+          auto *lock = EventLoopManagerSingleton::get()->getGlobalApiMutex();
+          lock->unlock();
+          EventLoopManagerSingleton::get()
+              ->getHostCommsManager()
+              .freeMessageToHost(static_cast<MessageToHost *>(data));
+          lock->lock();
+        };
 
     if (!EventLoopManagerSingleton::get()->deferCallback(
             SystemCallbackType::MessageToHostComplete, msgToHost,
-            freeMsgCallback)) {
+            freeMsgCallback,
+            EventLoopManagerSingleton::get()->getEventLoopByAppId(
+                msgToHost->appId))) {
       freeMessageToHost(static_cast<MessageToHost *>(msgToHost));
     }
   }

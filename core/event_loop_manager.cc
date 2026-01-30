@@ -207,6 +207,46 @@ bool EventLoopManager::postEventToLoop(EventLoop &loop, Event *event,
   return eventPosted;
 }
 
+uint32_t EventLoopManager::getBleCapabilitiesLocked() {
+#ifdef CHRE_BLE_SUPPORT_ENABLED
+  return getBleRequestManager().getCapabilities();
+#else
+  return CHRE_BLE_CAPABILITIES_NONE;
+#endif  // CHRE_BLE_SUPPORT_ENABLED
+}
+
+uint32_t EventLoopManager::getBleFilterCapabilitiesLocked() {
+#ifdef CHRE_BLE_SUPPORT_ENABLED
+  return getBleRequestManager().getFilterCapabilities();
+#else
+  return CHRE_BLE_FILTER_CAPABILITIES_NONE;
+#endif  // CHRE_BLE_SUPPORT_ENABLED
+}
+
+uint32_t EventLoopManager::getWifiCapabilitiesLocked() {
+#ifdef CHRE_WIFI_SUPPORT_ENABLED
+  return getWifiRequestManager().getCapabilities();
+#else
+  return CHRE_WIFI_CAPABILITIES_NONE;
+#endif  // CHRE_WIFI_SUPPORT_ENABLED
+}
+
+uint32_t EventLoopManager::getGnssCapabilitiesLocked() {
+#ifdef CHRE_GNSS_SUPPORT_ENABLED
+  return getGnssManager().getCapabilities();
+#else
+  return CHRE_GNSS_CAPABILITIES_NONE;
+#endif  // CHRE_GNSS_SUPPORT_ENABLED
+}
+
+uint32_t EventLoopManager::getWwanCapabilitiesLocked() {
+#ifdef CHRE_WWAN_SUPPORT_ENABLED
+  return getWwanRequestManager().getCapabilities();
+#else
+  return CHRE_WWAN_CAPABILITIES_NONE;
+#endif  // CHRE_WWAN_SUPPORT_ENABLED
+}
+
 // Explicitly instantiate the EventLoopManagerSingleton to reduce codesize.
 template class Singleton<EventLoopManager>;
 
