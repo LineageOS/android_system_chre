@@ -118,7 +118,8 @@ void Manager::handleStepStartMessage(
       }
       LOGD("chreWifiConfigureScanMonitorAsync() succeeded");
       if (stepStartCommand.has_chreScanCapacity) {
-        mExpectedMaxChreResultCanHandle = stepStartCommand.chreScanCapacity;
+        mExpectedMaxChreResultCanHandle =
+            static_cast<uint8_t>(stepStartCommand.chreScanCapacity);
       }
       break;
     }

@@ -134,7 +134,7 @@ bool Manager::sendMessages(
       return false;
     }
     for (uint32_t i = 0; i < command->messageSize; i++) {
-      mMessage[i] = i;
+      mMessage[i] = static_cast<uint8_t>(i);
     }
   }
 

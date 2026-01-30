@@ -19,6 +19,7 @@
 #include "chre/util/nanoapp/ble.h"
 #include "chre/util/nanoapp/log.h"
 #include "chre/util/nanoapp/string.h"
+#include "chre/util/unique_ptr.h"
 
 using ::chre::copyString;
 using ::chre::createBleGenericFilter;
@@ -86,8 +87,13 @@ bool ChreApiTestService::validateInputAndCallChreBleStartScanAsync(
     return false;
   }
 
-  chreBleGenericFilter scanFilters[request.filter.scanFilters_count];
-  if (!validateBleScanFilters(request.filter.scanFilters, scanFilters,
+  auto scanFilters = chre::MakeUniqueArray<chreBleGenericFilter[]>(
+      request.filter.scanFilters_count);
+  if (scanFilters.isNull()) {
+    LOG_OOM();
+    return false;
+  }
+  if (!validateBleScanFilters(request.filter.scanFilters, scanFilters.get(),
                               request.filter.scanFilters_count)) {
     return false;
   }
@@ -95,7 +101,7 @@ bool ChreApiTestService::validateInputAndCallChreBleStartScanAsync(
   struct chreBleScanFilter filter;
   filter.rssiThreshold = request.filter.rssiThreshold;
   filter.scanFilterCount = request.filter.scanFilters_count;
-  filter.scanFilters = scanFilters;
+  filter.scanFilters = scanFilters.get();
 
   auto mode = static_cast<chreBleScanMode>(request.mode);
   response.status = chreBleStartScanAsync(mode, request.reportDelayMs, &filter);
@@ -150,13 +156,24 @@ bool ChreApiTestService::validateInputAndCallChreBleStartScanAsyncV1_9(
     return false;
   }
 
-  chreBleGenericFilter genericFilters[request.filter.genericFilters_count];
-  if (!validateBleScanFilters(request.filter.genericFilters, genericFilters,
+  auto genericFilters = chre::MakeUniqueArray<chreBleGenericFilter[]>(
+      request.filter.genericFilters_count);
+  if (genericFilters.isNull()) {
+    LOG_OOM();
+    return false;
+  }
+  if (!validateBleScanFilters(request.filter.genericFilters,
+                              genericFilters.get(),
                               request.filter.genericFilters_count)) {
     return false;
   }
-  chreBleBroadcasterAddressFilter
-      broadcasterAddressFilters[request.filter.broadcasterAddressFilters_count];
+  auto broadcasterAddressFilters =
+      chre::MakeUniqueArray<chreBleBroadcasterAddressFilter[]>(
+          request.filter.broadcasterAddressFilters_count);
+  if (broadcasterAddressFilters.isNull()) {
+    LOG_OOM();
+    return false;
+  }
   for (size_t i = 0; i < request.filter.broadcasterAddressFilters_count; i++) {
     memcpy(broadcasterAddressFilters[i].broadcasterAddress,
            request.filter.broadcasterAddressFilters[i].broadcasterAddress.bytes,
@@ -166,10 +183,10 @@ bool ChreApiTestService::validateInputAndCallChreBleStartScanAsyncV1_9(
   struct chreBleScanFilterV1_9 filter;
   filter.rssiThreshold = request.filter.rssiThreshold;
   filter.genericFilterCount = request.filter.genericFilters_count;
-  filter.genericFilters = genericFilters;
+  filter.genericFilters = genericFilters.get();
   filter.broadcasterAddressFilterCount =
       request.filter.broadcasterAddressFilters_count;
-  filter.broadcasterAddressFilters = broadcasterAddressFilters;
+  filter.broadcasterAddressFilters = broadcasterAddressFilters.get();
 
   auto mode = static_cast<chreBleScanMode>(request.mode);
   response.status =

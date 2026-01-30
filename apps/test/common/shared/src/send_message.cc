@@ -114,7 +114,8 @@ void sendMessageToHostWithPermissions(uint16_t hostEndpointId,
   if (!pb_get_encoded_size(&size, fields, message)) {
     LOGE("Failed to get message size");
   } else {
-    pb_byte_t *bytes = static_cast<pb_byte_t *>(chreHeapAlloc(size));
+    pb_byte_t *bytes =
+        static_cast<pb_byte_t *>(chreHeapAlloc(static_cast<uint32_t>(size)));
     if (size > 0 && bytes == nullptr) {
       LOG_OOM();
     } else {

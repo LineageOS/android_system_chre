@@ -35,14 +35,14 @@ WifiScanResult::WifiScanResult(pb_istream_t *apWifiScanResultStream) {
                  &wifiScanResultProto)) {
     LOGE("AP wifi scan result proto message decode failed");
   }
-  mTotalNumResults = wifiScanResultProto.totalNumResults;
-  mResultIndex = wifiScanResultProto.resultIndex;
+  mTotalNumResults = static_cast<uint8_t>(wifiScanResultProto.totalNumResults);
+  mResultIndex = static_cast<uint8_t>(wifiScanResultProto.resultIndex);
 
   if (wifiScanResultProto.has_venueGroup) {
-    mVenueGroup = wifiScanResultProto.venueGroup;
+    mVenueGroup = static_cast<uint8_t>(wifiScanResultProto.venueGroup);
   }
   if (wifiScanResultProto.has_venueType) {
-    mVenueType = wifiScanResultProto.venueType;
+    mVenueType = static_cast<uint8_t>(wifiScanResultProto.venueType);
   }
 }
 

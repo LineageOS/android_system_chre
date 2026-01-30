@@ -190,8 +190,8 @@ bool EndpointEchoTestManager::handleEventHostToNanoappTest(
              " received %" PRIu16,
              mOpenSession->sessionId, msg->sessionId);
       } else {
-        uint8_t *messageBuffer =
-            static_cast<uint8_t *>(chreHeapAlloc(msg->messageSize));
+        uint8_t *messageBuffer = static_cast<uint8_t *>(
+            chreHeapAlloc(static_cast<uint32_t>(msg->messageSize)));
         if (msg->messageSize != 0 && messageBuffer == nullptr) {
           LOGE("Failed to allocate memory for message buffer");
         } else {
