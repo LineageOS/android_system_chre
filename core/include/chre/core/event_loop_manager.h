@@ -386,6 +386,11 @@ class EventLoopManager : public NonCopyable {
   }
 
   /**
+   * @return true if there is an event pending to be processed.
+   */
+  bool isEventPending();
+
+  /**
    * Schedules a CHRE system callback to be invoked at some point in the future
    * after a specified amount of time, in the context of the "main" CHRE
    * EventLoop.
