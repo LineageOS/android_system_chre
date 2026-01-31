@@ -83,6 +83,20 @@ class SynchronizedMemoryPool : public NonCopyable {
     return getFreeBlockCount() == 0;
   }
 
+  /**
+   * @return The number of elements currently allocated in the memory pool.
+   */
+  size_t size() {
+    return mMemoryPool.size();
+  }
+
+  /**
+   * @return True if the memory pool is empty (contains no allocated elements).
+   */
+  bool empty() {
+    return mMemoryPool.empty();
+  }
+
  private:
   //! The mutex used to guard access to this memory pool.
   Mutex mMutex;
