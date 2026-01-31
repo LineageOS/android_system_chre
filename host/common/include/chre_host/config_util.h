@@ -18,6 +18,7 @@
 #define CHRE_HOST_CONFIG_UTIL_H_
 
 #include <functional>
+#include <unordered_map>
 #include <vector>
 
 namespace android {
@@ -26,15 +27,15 @@ namespace chre {
 /**
  * Gets the preloaded nanoapps from the config file at path: configFilePath.
  *
- * @param configFilePath        the file path of the config file on the device
- * @param outDirectory          (out) the directory that contains the nanoapps
- *                              on the device
- * @param outNanoapps           (out) the list of nanoapps in the directory
- * @return bool                 success
+ * @param configFilePath         the file path of the config file on the device
+ * @param outNanoappsByDir       (out) the map that contains the nanoapps on
+ *                               the device by input directories.
+ * @return bool                  success
  */
-bool getPreloadedNanoappsFromConfigFile(const std::string &configFilePath,
-                                        std::string &outDirectory,
-                                        std::vector<std::string> &outNanoapps);
+bool getPreloadedNanoappsFromConfigFile(
+    const std::string &configFilePath,
+    std::unordered_map<std::string, std::vector<std::string>>
+        &outNanoappsByDir);
 
 }  // namespace chre
 }  // namespace android

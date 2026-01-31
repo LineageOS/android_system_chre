@@ -204,7 +204,11 @@ TEST_F(SensorTest, SensorOneShot) {
   sendEventToNanoapp(appId, CONFIGURE, config);
   waitForEvent(CONFIGURE, &success);
   EXPECT_TRUE(success);
-  EXPECT_TRUE(chrePalSensorIsEnabled(/* sensorHandle= */ 1));
+  // It's not possible to guarantee that the sensor is enabled at the PAL in the
+  // gTest context, since the one-shot sensor can be disabled when the nanoapp
+  // processes the event. Since we know that the sensor is enabled if the
+  // nanoapp did receive the event, so we skip the chrePalSensorIsEnabled check
+  // here.
 
   waitForEvent(CHRE_EVENT_SENSOR_SIGNIFICANT_MOTION_DATA);
   EXPECT_FALSE(chrePalSensorIsEnabled(/* sensorHandle= */ 1));

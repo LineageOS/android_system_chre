@@ -604,6 +604,15 @@ class EventLoop : public NonCopyable {
   void flushInboundEventQueue();
 
   /**
+   * Invokes an event which contains a nanoapp's chreEventCompleteFunction
+   * callback, ensuring the callback is executed in the nanoapp's context.
+   *
+   * @param event The event that contains the chreEventCompleteFunction
+   * callback.
+   */
+  void invokeNanoappFreeCallback(Event *event);
+
+  /**
    * Call after when an Event has been delivered to all intended recipients.
    * Invokes the event's free callback (if given) and releases resources.
    *

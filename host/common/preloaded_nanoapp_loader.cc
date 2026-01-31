@@ -17,6 +17,7 @@
 #include "chre_host/preloaded_nanoapp_loader.h"
 #include <chre_host/host_protocol_host.h>
 #include <fstream>
+#include <unordered_map>
 #include "chre_host/config_util.h"
 #include "chre_host/file_stream.h"
 #include "chre_host/fragmented_load_transaction.h"
@@ -58,32 +59,36 @@ inline bool shouldSkipNanoapp(
 
 void PreloadedNanoappLoader::getPreloadedNanoappIds(
     std::vector<uint64_t> &out_preloadedNanoappIds) {
-  std::vector<std::string> nanoappNames;
-  std::string directory;
+  std::unordered_map<std::string, std::vector<std::string>> nanoappsByDir;
   out_preloadedNanoappIds.clear();
-  if (!getPreloadedNanoappsFromConfigFile(mConfigPath, directory,
-                                          nanoappNames)) {
+  if (!getPreloadedNanoappsFromConfigFile(mConfigPath, nanoappsByDir)) {
     LOGE("Failed to parse preloaded nanoapps config file");
   }
-  for (const std::string &nanoappName : nanoappNames) {
-    std::string headerFileName = directory + "/" + nanoappName + ".napp_header";
-    std::vector<uint8_t> headerBuffer;
-    if (!getNanoappHeaderFromFile(headerFileName.c_str(), headerBuffer)) {
-      LOGE("Failed to parse the nanoapp header for %s", headerFileName.c_str());
-      continue;
+  for (const auto &entry : nanoappsByDir) {
+    const std::string &directory = entry.first;
+    const std::vector<std::string> &nanoappNames = entry.second;
+
+    for (const std::string &nanoappName : nanoappNames) {
+      std::string headerFileName =
+          directory + "/" + nanoappName + ".napp_header";
+      std::vector<uint8_t> headerBuffer;
+      if (!getNanoappHeaderFromFile(headerFileName.c_str(), headerBuffer)) {
+        LOGE("Failed to parse the nanoapp header for %s",
+             headerFileName.c_str());
+        continue;
+      }
+      auto header =
+          reinterpret_cast<const NanoAppBinaryHeader *>(headerBuffer.data());
+      out_preloadedNanoappIds.emplace_back(header->appId);
     }
-    auto header =
-        reinterpret_cast<const NanoAppBinaryHeader *>(headerBuffer.data());
-    out_preloadedNanoappIds.emplace_back(header->appId);
   }
 }
 
 int PreloadedNanoappLoader::loadPreloadedNanoapps(
     const std::optional<const std::vector<uint64_t>> &skippedNanoappIds) {
-  std::string directory;
-  std::vector<std::string> nanoapps;
+  std::unordered_map<std::string, std::vector<std::string>> nanoappsByDir;
   int numOfNanoappsLoaded = 0;
-  if (!getPreloadedNanoappsFromConfigFile(mConfigPath, directory, nanoapps)) {
+  if (!getPreloadedNanoappsFromConfigFile(mConfigPath, nanoappsByDir)) {
     LOGE("Failed to load any preloaded nanoapp");
     return numOfNanoappsLoaded;
   }
@@ -92,31 +97,37 @@ int PreloadedNanoappLoader::loadPreloadedNanoapps(
     return numOfNanoappsLoaded;
   }
 
-  for (uint32_t i = 0; i < nanoapps.size(); ++i) {
-    std::string headerFilename = directory + "/" + nanoapps[i] + ".napp_header";
-    std::string nanoappFilename = directory + "/" + nanoapps[i] + ".so";
-    // parse the header
-    std::vector<uint8_t> headerBuffer;
-    if (!getNanoappHeaderFromFile(headerFilename.c_str(), headerBuffer)) {
-      LOGE("Failed to parse the nanoapp header for %s",
-           nanoappFilename.c_str());
-      continue;
-    }
-    const auto header =
-        reinterpret_cast<const NanoAppBinaryHeader *>(headerBuffer.data());
-    // check if the app should be skipped
-    if (shouldSkipNanoapp(skippedNanoappIds, header->appId)) {
-      LOGI("Loading of %s is skipped.", nanoappFilename.c_str());
-      continue;
-    }
-    // load the binary
-    if (loadNanoapp(header, nanoappFilename, /* transactionId= */ i)) {
-      numOfNanoappsLoaded++;
-    } else {
-      LOGE("Failed to load nanoapp 0x%" PRIx64 " in preloaded nanoapp loader",
-           header->appId);
-      if (mNanoappLoadListener != nullptr) {
-        mNanoappLoadListener->onNanoappLoadFailed(header->appId);
+  for (const auto &entry : nanoappsByDir) {
+    const std::string &directory = entry.first;
+    const std::vector<std::string> &nanoapps = entry.second;
+
+    for (uint32_t i = 0; i < nanoapps.size(); ++i) {
+      std::string headerFilename =
+          directory + "/" + nanoapps[i] + ".napp_header";
+      std::string nanoappFilename = directory + "/" + nanoapps[i] + ".so";
+      // parse the header
+      std::vector<uint8_t> headerBuffer;
+      if (!getNanoappHeaderFromFile(headerFilename.c_str(), headerBuffer)) {
+        LOGE("Failed to parse the nanoapp header for %s",
+             nanoappFilename.c_str());
+        continue;
+      }
+      const auto header =
+          reinterpret_cast<const NanoAppBinaryHeader *>(headerBuffer.data());
+      // check if the app should be skipped
+      if (shouldSkipNanoapp(skippedNanoappIds, header->appId)) {
+        LOGI("Loading of %s is skipped.", nanoappFilename.c_str());
+        continue;
+      }
+      // load the binary
+      if (loadNanoapp(header, nanoappFilename, /* transactionId= */ i)) {
+        numOfNanoappsLoaded++;
+      } else {
+        LOGE("Failed to load nanoapp 0x%" PRIx64 " in preloaded nanoapp loader",
+             header->appId);
+        if (mNanoappLoadListener != nullptr) {
+          mNanoappLoadListener->onNanoappLoadFailed(header->appId);
+        }
       }
     }
   }

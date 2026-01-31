@@ -17,7 +17,6 @@
 #ifndef CHRE_PLATFORM_SHARED_PLATFORM_DEBUG_DUMP_MANAGER_BASE_H_
 #define CHRE_PLATFORM_SHARED_PLATFORM_DEBUG_DUMP_MANAGER_BASE_H_
 
-#include <cstdbool>
 #include <cstddef>
 #include <cstdint>
 

@@ -22,6 +22,7 @@
 #include "chre/util/memory.h"
 #include "chre/util/unique_ptr.h"
 
+#include <atomic>
 #include <chrono>
 #include <cinttypes>
 #include <cstdint>
@@ -65,7 +66,7 @@ struct chreSensorInfo gSensors[] = {
 
 //! Task to deliver asynchronous sensor data after a CHRE request.
 std::optional<uint32_t> gSensorTaskIds[ARRAY_SIZE(gSensors)];
-bool gIsSensorEnabled[ARRAY_SIZE(gSensors)];
+std::atomic_bool gIsSensorEnabled[ARRAY_SIZE(gSensors)];
 
 void stopSensor0Task() {
   if (gSensorTaskIds[0].has_value()) {

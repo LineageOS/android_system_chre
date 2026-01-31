@@ -73,7 +73,7 @@ class DataFeedBase {
 
   // called by the simulator whenever a message is received from the CHRE core.
   virtual void ReceivedMessageFromNanoapp(
-      uint64_t t_ns, const SafeChreMessageToHostData &message);
+      uint64_t t_ns, const SafeChreMessageToHostData& message);
 
   // these functions should provide the correct sensor data for the
   // tests. They are virtual functions intended to be overridden. The relevant
@@ -90,29 +90,29 @@ class DataFeedBase {
   // chre_api/include/chre_api/chre/ble.h
   virtual uint32_t GetCapabilitiesBle() = 0;
   virtual uint32_t GetFilterCapabilitiesBle() = 0;
-  virtual SafeChreBleAdvertisementEvent *absl_nullable
+  virtual SafeChreBleAdvertisementEvent* absl_nullable
   ReceivedBleAdvertisementEventRequestAtTime(
-      uint64_t t_ns, uint64_t latency, const SafeChreBleScanFilter &filter);
+      uint64_t t_ns, uint64_t latency, const SafeChreBleScanFilter& filter);
   virtual std::optional<chreBleReadRssiEvent> ReceivedBleRssiRequestAtTime(
       uint64_t t_ns, uint16_t connectionHandle);
 
   // gnss capabilities found here:
   // chre_api/include/chre_api/chre/gnss.h
   virtual uint32_t GetCapabilitiesGnss() = 0;
-  virtual SafeChreGnssLocationEvent *absl_nullable
+  virtual SafeChreGnssLocationEvent* absl_nullable
   ReceivedGnssLocationEventRequestAtTime(uint64_t t_ns,
                                          uint32_t min_interval_ms,
                                          uint32_t min_time_to_next_fix_ms);
-  virtual SafeChreGnssDataEvent *absl_nullable
+  virtual SafeChreGnssDataEvent* absl_nullable
   ReceivedGnssDataEventRequestAtTime(uint64_t t_ns, uint32_t min_interval_ms);
 
-  std::map<uint64_t, SafeChreGnssLocationEvent *> gnss_location_events_;
-  std::map<uint64_t, SafeChreGnssDataEvent *> gnss_data_events_;
+  std::map<uint64_t, SafeChreGnssLocationEvent*> gnss_location_events_;
+  std::map<uint64_t, SafeChreGnssDataEvent*> gnss_data_events_;
 
   // wwan capabilities found here:
   // chre_api/include/chre_api/chre/wwan.h
   virtual uint32_t GetCapabilitiesWwan() = 0;
-  virtual SafeChreWwanCellInfoResult *absl_nullable
+  virtual SafeChreWwanCellInfoResult* absl_nullable
   ReceivedWwanCallInfoResultRequestAtTime(uint64_t t_ns);
 
   // wifi capabilities found here:
@@ -120,14 +120,14 @@ class DataFeedBase {
   virtual uint32_t GetCapabilitiesWifi() = 0;
   // When returning nullptr, the simulator will send a failure event to the
   // nanoapp.
-  virtual SafeChreWifiScanEvent *absl_nullable
+  virtual SafeChreWifiScanEvent* absl_nullable
   ReceivedWifiScanEventRequestAtTime(uint64_t t_ns,
-                                     const SafeChreWifiScanParams &params);
-  virtual SafeChreWifiRangingEvent *absl_nullable
+                                     const SafeChreWifiScanParams& params);
+  virtual SafeChreWifiRangingEvent* absl_nullable
   ReceivedWifiRangingEventRequestAtTime(
-      uint64_t t_ns, const SafeChreWifiRangingParams &params);
+      uint64_t t_ns, const SafeChreWifiRangingParams& params);
 
-  std::map<uint64_t, SafeChreWifiScanEvent *> wifi_scan_events_;
+  std::map<uint64_t, SafeChreWifiScanEvent*> wifi_scan_events_;
 
   // This map is used to toggle the availability of chreWifiRequestScanAsync. By
   // default, availability is set to true. The availability is set for the rest
@@ -145,31 +145,27 @@ class DataFeedBase {
   // the value is a pair of <setting, enabled>.
   std::map<uint64_t, std::pair<uint8_t, bool>> setting_events_;
 
-  // return 0 for no sensor support, n > 0 for sensor support.
   virtual const std::vector<chreSensorInfo> GetSensors();
-  virtual SafeChreSensorSamplingStatus *absl_nullable GetSamplingStatusUpdate(
+  virtual SafeChreSensorSamplingStatus* absl_nullable GetSamplingStatusUpdate(
       uint64_t t_ns, uint32_t sensor_info_index, uint64_t requested_interval_ns,
       uint64_t requested_latency_ns);
-  virtual SafeChreSensorData *absl_nullable
-  ConfigureSensor(uint64_t t_ns, uint32_t sensor_info_index, bool is_oneshot,
-                  uint64_t interval_ns, uint64_t latency_ns);
-  std::vector<std::map<uint64_t, SafeChreBiasEvent *>> sensor_bias_events_;
-
-  // return 0 for no audio support, n > 0 for audio support.
-  virtual uint32_t GetAudioSourceCount() = 0;
+  virtual SafeChreSensorData* absl_nullable ConfigureSensor(
+      uint64_t t_ns, uint32_t sensor_info_index, bool is_oneshot,
+      uint64_t interval_ns, uint64_t latency_ns);
+  std::vector<std::map<uint64_t, SafeChreBiasEvent*>> sensor_bias_events_;
 
   // the below functions exist for convenience: calling any of them will return
   // an empty data structure. In some cases, t is required as an argument and
   // the function will populate the timestamp field with t.
-  SafeChreBleAdvertisementEvent *absl_nullable EmptyChreBleAdvertisementEvent();
-  SafeChreGnssLocationEvent *absl_nullable
-  EmptyChreGnssLocationEvent(uint64_t t_ns);
-  SafeChreGnssDataEvent *absl_nullable EmptyChreGnssDataEvent(uint64_t t_ns);
+  SafeChreBleAdvertisementEvent* absl_nullable EmptyChreBleAdvertisementEvent();
+  SafeChreGnssLocationEvent* absl_nullable EmptyChreGnssLocationEvent(
+      uint64_t t_ns);
+  SafeChreGnssDataEvent* absl_nullable EmptyChreGnssDataEvent(uint64_t t_ns);
 
-  SafeChreWwanCellInfoResult *absl_nullable EmptyChreWwanCellInfoResult();
+  SafeChreWwanCellInfoResult* absl_nullable EmptyChreWwanCellInfoResult();
 
-  SafeChreWifiScanEvent *absl_nullable EmptyChreWifiScanEvent(uint64_t t_ns);
-  SafeChreWifiRangingEvent *absl_nullable EmptyChreWifiRangingEvent();
+  SafeChreWifiScanEvent* absl_nullable EmptyChreWifiScanEvent(uint64_t t_ns);
+  SafeChreWifiRangingEvent* absl_nullable EmptyChreWifiRangingEvent();
 
   // Represents a list of times that the host endpoint is disconnected along
   // with the id of the endpoint.

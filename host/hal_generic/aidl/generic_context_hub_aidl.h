@@ -47,11 +47,13 @@ using ::android::chre::NanoAppBinaryHeader;
  * preloaded nanoapp information from the config.
  */
 struct chrePreloadedNanoappInfo {
-  chrePreloadedNanoappInfo(int64_t _id, const std::string &_name,
+  chrePreloadedNanoappInfo(int64_t _id, const std::string &_directory,
+                           const std::string &_name,
                            const NanoAppBinaryHeader &_header)
-      : id(_id), name(_name), header(_header) {}
+      : id(_id), directory(_directory), name(_name), header(_header) {}
 
   int64_t id;
+  std::string directory;
   std::string name;
   NanoAppBinaryHeader header;
 };
@@ -233,25 +235,20 @@ class ContextHub : public BnContextHub,
    *
    * @param out_preloadedNanoapps       out parameter, the nanoapp
    * information.
-   * @param out_directory               out parameter, optional, the directory
-   * that contains the nanoapps.
    * @return true                       the operation was successful.
    * @return false                      the operation was not successful.
    */
   bool getPreloadedNanoappIdsFromConfigFile(
-      std::vector<chrePreloadedNanoappInfo> &out_preloadedNanoapps,
-      std::string *out_directory) const;
+      std::vector<chrePreloadedNanoappInfo> &out_preloadedNanoapps) const;
 
   /**
    * Selects the nanoapps to load -> all preloaded and non-system nanoapps.
    *
    * @param preloadedNanoapps           the preloaded nanoapps.
-   * @param preloadedNanoappDirectory   the preloaded nanoapp directory.
    * @return                            the nanoapps to load.
    */
   std::vector<NanoappBinary> selectPreloadedNanoappsToLoad(
-      std::vector<chrePreloadedNanoappInfo> &preloadedNanoapps,
-      const std::string &preloadedNanoappDirectory);
+      std::vector<chrePreloadedNanoappInfo> &preloadedNanoapps);
 
   bool isSettingEnabled(Setting setting) {
     return mSettingEnabled.count(setting) > 0 && mSettingEnabled[setting];

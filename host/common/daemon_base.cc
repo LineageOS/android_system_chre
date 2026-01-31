@@ -84,17 +84,23 @@ ChreDaemonBase::ChreDaemonBase() : mChreShutdownRequested(false) {
 void ChreDaemonBase::loadPreloadedNanoapps() {
   const std::string kPreloadedNanoappsConfigPath =
       "/vendor/etc/chre/preloaded_nanoapps.json";
+  std::unordered_map<std::string, std::vector<std::string>> nanoappsByDir;
   std::string directory;
   std::vector<std::string> nanoapps;
   bool success = getPreloadedNanoappsFromConfigFile(
-      kPreloadedNanoappsConfigPath, directory, nanoapps);
+      kPreloadedNanoappsConfigPath, nanoappsByDir);
   if (!success) {
     LOGE("Failed to parse preloaded nanoapps config file");
     return;
   }
 
-  for (uint32_t i = 0; i < nanoapps.size(); ++i) {
-    loadPreloadedNanoapp(directory, nanoapps[i], i);
+  for (const auto &entry : nanoappsByDir) {
+    const std::string &directory = entry.first;
+    const std::vector<std::string> &nanoapps = entry.second;
+
+    for (uint32_t i = 0; i < nanoapps.size(); ++i) {
+      loadPreloadedNanoapp(directory, nanoapps[i], i);
+    }
   }
 }
 
@@ -180,9 +186,10 @@ void ChreDaemonBase::handleMetricLog(const ::chre::fbs::MetricLogT *metricMsg) {
       if (!metric.ParseFromArray(encodedMetric.data(), encodedMetric.size())) {
         LOGE("Failed to parse metric data");
       } else if (!mMetricsReporter.logEventQueueSnapshotReported(
-              metric.snapshot_chre_get_time_ms(),
-              metric.max_event_queue_size(), metric.mean_event_queue_size(),
-              metric.num_dropped_events())) {
+                     metric.snapshot_chre_get_time_ms(),
+                     metric.max_event_queue_size(),
+                     metric.mean_event_queue_size(),
+                     metric.num_dropped_events())) {
         LOGE("Could not log the event queue snapshot metric");
       }
       break;

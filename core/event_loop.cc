@@ -660,10 +660,25 @@ void EventLoop::flushInboundEventQueue() {
   }
 }
 
+void EventLoop::invokeNanoappFreeCallback(Event *event) {
+  mCurrentApp = lookupAppByInstanceId(event->senderInstanceId);
+  if (mCurrentApp != nullptr) {
+    mCurrentApp->invokeEventFreeCallback(event->freeCallback, event->eventType,
+                                         event->eventData);
+  } else {
+    LOGE("No app found (senderInstanceId=0x%" PRIx16
+         ", targetInstanceId=0x%" PRIx16 ", type=0x%" PRIx16
+         ") for free event callback",
+         event->senderInstanceId, event->targetInstanceId, event->eventType);
+  }
+  mCurrentApp = nullptr;
+}
+
 void EventLoop::freeEvent(Event *event) {
   // Free the event if and only if this was the last reference to it.
   if (event->decrementRefCount() != 1) return;
 
+  bool eventDeallocatedDeferred = false;
   mCurrentFreeingEventStack.push_back(event);
   // It's possible for a deferred callback or free event to result in
   // modifying internal states, so we lock the global mutex here.
@@ -675,20 +690,45 @@ void EventLoop::freeEvent(Event *event) {
       GlobalApiLockGuard lock;
       event->invokeEventFreeCallback();
     } else {
-      mCurrentApp = lookupAppByInstanceId(event->senderInstanceId);
-      if (mCurrentApp != nullptr) {
-        mCurrentApp->invokeEventFreeCallback(
-            event->freeCallback, event->eventType, event->eventData);
+      // If the sender event loop is not the current loop, defer a callback
+      // to invoke the free callback in the nanoapp's context, and deallocate
+      // the event afterwards.
+      EventLoop *senderEventLoop =
+          EventLoopManagerSingleton::get()->getEventLoopByInstanceId(
+              event->senderInstanceId);
+      CHRE_ASSERT(senderEventLoop != nullptr);
+      if (senderEventLoop != getCurrentEventLoop()) {
+        // TODO(b/475537998): Optimize callbacks to avoid unnecessary global
+        // mutex locks
+        auto callback =
+            [](uint16_t /* eventType */, void *data,
+               void * /* extraData */) CHRE_NO_THREAD_SAFETY_ANALYSIS {
+              auto *mutex = getMultiThreadingApiMutex();
+              mutex->unlock();
+              EventLoop *currentEventLoop = getCurrentEventLoop();
+              CHRE_ASSERT(currentEventLoop != nullptr);
+              Event *event = static_cast<Event *>(data);
+              EventLoop *senderEventLoop =
+                  EventLoopManagerSingleton::get()->getEventLoopByInstanceId(
+                      event->senderInstanceId);
+              CHRE_ASSERT(currentEventLoop == senderEventLoop);
+
+              currentEventLoop->freeEvent(event);
+              mutex->lock();
+            };
+        event->incrementRefCount();
+        eventDeallocatedDeferred =
+            EventLoopManagerSingleton::get()->deferCallback(
+                chre::SystemCallbackType::NanoappSendEventFreeCallback, event,
+                callback, /* extraData= */ nullptr, senderEventLoop);
       } else {
-        LOGE("No app found (senderIId=0x%" PRIx16 ", targetIId=0x%" PRIx16
-             ", type=0x%" PRIx16 ") for free event callback",
-             event->senderInstanceId, event->targetInstanceId,
-             event->eventType);
+        invokeNanoappFreeCallback(event);
       }
-      mCurrentApp = nullptr;
     }
   }
-  EventLoopManagerSingleton::get()->deallocateEvent(event);
+  if (!eventDeallocatedDeferred) {
+    EventLoopManagerSingleton::get()->deallocateEvent(event);
+  }
   mCurrentFreeingEventStack.pop_back();
 }
 

@@ -55,20 +55,23 @@ using ::chre::message::Session;
 using ::chre::message::SessionId;
 
 HostMessageHubManager::~HostMessageHubManager() {
-  LockGuard<Mutex> hostLock(mHubsLock);
+  LockGuard<Mutex> hostLock(mHubsOpLock);
   clearHubsLocked();
 }
 
 void HostMessageHubManager::onHostTransportReady(HostCallback &cb) {
-  CHRE_ASSERT_LOG(mCb == nullptr,
-                  "HostMessageHubManager::init() called more than once");
+  CHRE_ASSERT_LOG(
+      mCb == nullptr,
+      "HostMessageHubManager::onHostTransportReady() called more than once");
   mCb = &cb;
+
+  reset();
 }
 
 void HostMessageHubManager::reset() {
   LOGI("Resetting HostMessageHubManager");
   CHRE_ASSERT_NOT_NULL(mCb);
-  LockGuard<Mutex> hostLock(mHubsLock);
+  LockGuard<Mutex> hostLock(mHubsOpLock);
   clearHubsLocked();
 
   // Serialize the following against any other embedded hub or endpoint
@@ -78,8 +81,8 @@ void HostMessageHubManager::reset() {
   // Notify the HAL to accept embedded hub/endpoint registrations.
   mCb->onReset();
   MessageRouterSingleton::get()->forEachMessageHub(
-      [this](const MessageHubInfo &info) {
-        mCb->onHubRegistered(info);
+      [this](const MessageHubInfo &hubInfo) {
+        mCb->onHubRegistered(hubInfo);
         return false;
       });
   MessageRouterSingleton::get()->forEachEndpoint(
@@ -96,50 +99,62 @@ void HostMessageHubManager::reset() {
       [this](const MessageHubInfo &hub, const EndpointInfo &endpoint) {
         mCb->onEndpointReady(hub.id, endpoint.id);
       });
+
+  // Add an internal hub for CHRE to use for hub/endpoint registration
+  // callbacks. This internal hub is required because the message router can
+  // only give callbacks through registered hubs, and there is a possibility
+  // that hubs/endpoints are registered between when this function is called,
+  // and when the first host hub is registered. Adding the internal hub closes
+  // the gap such that the race condition is mitigated.
+  // TODO(b/477985342): Remove this hack once message router can accept
+  // independent lifecycle callback registrations.
+  pw::IntrusiveList<Endpoint> endpoints;
+  MessageHubInfo internalHubInfo;
+  internalHubInfo.id = kInternalHubId;
+  internalHubInfo.name = "chre-internal";
+  Hub::createLocked(this, internalHubInfo, endpoints, /* isInternal= */ true);
   LOGI("Initialized HostMessageHubManager");
 }
 
 void HostMessageHubManager::registerHub(const MessageHubInfo &info) {
-  LockGuard<Mutex> lock(mHubsLock);
+  if (info.id == kInternalHubId) {
+    LOGE("Cannot register internal hub 0x%" PRIx64, info.id);
+    return;
+  }
+
+  LockGuard<Mutex> lock(mHubsOpLock);
   pw::IntrusiveList<Endpoint> endpoints;
-  HostMessageHubManager::Hub::createLocked(this, info, endpoints);
+  HostMessageHubManager::Hub::createLocked(this, info, endpoints,
+                                           /* isInternal= */ false);
 }
 
 void HostMessageHubManager::unregisterHub(MessageHubId id) {
-  LockGuard<Mutex> lock(mHubsLock);
-
-  for (auto it = mHubs.begin(); it != mHubs.end(); ++it) {
-    if ((*it)->getMessageHub().getId() == id) {
-      (*it)->clear();
-      mHubs.erase(it);
-      return;
-    }
+  LockGuard<Mutex> lock(mHubsOpLock);
+  if (!removeHub(id)) {
+    LOGE("No host hub 0x%" PRIx64 " for unregister", id);
   }
-  LOGE("No host hub 0x%" PRIx64 " for unregister", id);
 }
 
 void HostMessageHubManager::registerEndpoint(
     MessageHubId hubId, const EndpointInfo &info,
     DynamicVector<ServiceInfo> &&services) {
-  LockGuard<Mutex> lock(mHubsLock);
-  for (auto &hub : mHubs) {
-    if (hub->getMessageHub().getId() != hubId) continue;
+  LockGuard<Mutex> lock(mHubsOpLock);
+  if (pw::IntrusivePtr<Hub> hub = getHub(hubId); hub) {
     hub->addEndpoint(info, std::move(services));
-    return;
+  } else {
+    LOGE("No host hub 0x%" PRIx64 " for add endpoint", hubId);
   }
-  LOGE("No host hub 0x%" PRIx64 " for add endpoint", hubId);
 }
 
 void HostMessageHubManager::unregisterEndpoint(MessageHubId hubId,
                                                EndpointId id) {
-  LockGuard<Mutex> lock(mHubsLock);
-  for (auto &hub : mHubs) {
-    if (hub->getMessageHub().getId() != hubId) continue;
+  LockGuard<Mutex> lock(mHubsOpLock);
+  if (pw::IntrusivePtr<Hub> hub = getHub(hubId); hub) {
     hub->removeEndpoint(id);
     hub->getMessageHub().unregisterEndpoint(id);
-    return;
+  } else {
+    LOGE("No host hub 0x%" PRIx64 " for unregister endpoint", hubId);
   }
-  LOGE("No host hub 0x%" PRIx64 " for unregister endpoint", hubId);
 }
 
 void HostMessageHubManager::openSession(MessageHubId hubId,
@@ -148,41 +163,38 @@ void HostMessageHubManager::openSession(MessageHubId hubId,
                                         EndpointId destinationEndpointId,
                                         SessionId sessionId,
                                         const char *serviceDescriptor) {
-  LockGuard<Mutex> lock(mHubsLock);
-  for (auto &hub : mHubs) {
-    if (hub->getMessageHub().getId() != hubId) continue;
+  LockGuard<Mutex> lock(mHubsOpLock);
+  if (pw::IntrusivePtr<Hub> hub = getHub(hubId); hub) {
     if (hub->getMessageHub().openSession(
             endpointId, destinationHubId, destinationEndpointId,
             serviceDescriptor, sessionId) != sessionId) {
       mCb->onSessionClosed(hubId, sessionId,
                            Reason::OPEN_ENDPOINT_SESSION_REQUEST_REJECTED);
     }
-    return;
+  } else {
+    LOGE("No host hub 0x%" PRIx64 " for open session", hubId);
   }
-  LOGE("No host hub 0x%" PRIx64 " for open session", hubId);
 }
 
 void HostMessageHubManager::ackSession(MessageHubId hubId,
                                        SessionId sessionId) {
-  LockGuard<Mutex> lock(mHubsLock);
-  for (auto &hub : mHubs) {
-    if (hub->getMessageHub().getId() != hubId) continue;
+  LockGuard<Mutex> lock(mHubsOpLock);
+  if (pw::IntrusivePtr<Hub> hub = getHub(hubId); hub) {
     hub->getMessageHub().onSessionOpenComplete(sessionId);
     mCb->onSessionOpened(hubId, sessionId);
-    return;
+  } else {
+    LOGE("No host hub 0x%" PRIx64 " for ack session", hubId);
   }
-  LOGE("No host hub 0x%" PRIx64 " for ack session", hubId);
 }
 
 void HostMessageHubManager::closeSession(MessageHubId hubId,
                                          SessionId sessionId, Reason reason) {
-  LockGuard<Mutex> lock(mHubsLock);
-  for (auto &hub : mHubs) {
-    if (hub->getMessageHub().getId() != hubId) continue;
+  LockGuard<Mutex> lock(mHubsOpLock);
+  if (pw::IntrusivePtr<Hub> hub = getHub(hubId); hub) {
     hub->getMessageHub().closeSession(sessionId, reason);
-    return;
+  } else {
+    LOGE("No host hub 0x%" PRIx64 " for close session", hubId);
   }
-  LOGE("No host hub 0x%" PRIx64 " for close session", hubId);
 }
 
 void HostMessageHubManager::sendMessage(MessageHubId hubId, SessionId sessionId,
@@ -190,9 +202,8 @@ void HostMessageHubManager::sendMessage(MessageHubId hubId, SessionId sessionId,
                                         uint32_t type, uint32_t permissions,
                                         bool isReliable,
                                         uint32_t sequenceNumber) {
-  LockGuard<Mutex> lock(mHubsLock);
-  for (auto &hub : mHubs) {
-    if (hub->getMessageHub().getId() != hubId) continue;
+  LockGuard<Mutex> lock(mHubsOpLock);
+  if (pw::IntrusivePtr<Hub> hub = getHub(hubId); hub) {
     auto dataCopy = mMsgAllocator.MakeUniqueArray<std::byte>(data.size());
     if (dataCopy == nullptr) {
       LOGE("Failed to allocate endpoint message from host hub 0x%" PRIx64
@@ -216,25 +227,25 @@ void HostMessageHubManager::sendMessage(MessageHubId hubId, SessionId sessionId,
       mCb->onMessageDeliveryStatus(hubId, sessionId, sequenceNumber,
                                    status ? CHRE_ERROR_NONE : CHRE_ERROR);
     }
-    return;
+  } else {
+    LOGE("No host hub 0x%" PRIx64 " for send message", hubId);
   }
-  LOGE("No host hub 0x%" PRIx64 " for send message", hubId);
 }
 
 bool HostMessageHubManager::Hub::createLocked(
     HostMessageHubManager *manager, const MessageHubInfo &info,
-    pw::IntrusiveList<Endpoint> &endpoints) {
+    pw::IntrusiveList<Endpoint> &endpoints, bool isInternal) {
   CHRE_ASSERT(manager != nullptr);
 
   // If there is an available slot, create a new Hub and try to register it with
   // MessageRouter, cleaning it up on failure.
-  if (manager->mHubs.full()) {
+  if (manager->hubsAreFull()) {
     LOGE("No space to register new host hub 0x%" PRIx64, info.id);
     deallocateEndpoints(endpoints);
     return false;
   }
 
-  Hub *hubPtr = memoryAlloc<Hub>(manager, info.name, endpoints);
+  Hub *hubPtr = memoryAlloc<Hub>(manager, info.name, endpoints, isInternal);
   if (hubPtr == nullptr) {
     LOGE("Failed to allocate storage for new host hub %" PRIu64, info.id);
     deallocateEndpoints(endpoints);
@@ -242,12 +253,13 @@ bool HostMessageHubManager::Hub::createLocked(
   }
 
   pw::IntrusivePtr<Hub> hub(hubPtr);
-  manager->mHubs.push_back(hub);
+  manager->addHub(hub);
   std::optional<MessageRouter::MessageHub> maybeHub =
       MessageRouterSingleton::get()->registerMessageHub(hub->kName, info.id,
                                                         hub);
   if (!maybeHub) {
     LOGE("Failed to register host hub 0x%" PRIx64, info.id);
+    LockGuard<Mutex> lock(manager->mHubsLock);
     manager->mHubs.pop_back();
     return false;
   }
@@ -257,8 +269,9 @@ bool HostMessageHubManager::Hub::createLocked(
 
 HostMessageHubManager::Hub::Hub(HostMessageHubManager *manager,
                                 const char *name,
-                                pw::IntrusiveList<Endpoint> &endpoints)
-    : mManager(manager) {
+                                pw::IntrusiveList<Endpoint> &endpoints,
+                                bool isInternal)
+    : mManager(manager), mIsInternal(isInternal) {
   std::strncpy(kName, name, kNameMaxLen);
   kName[kNameMaxLen] = 0;
   mEndpoints.splice_after(mEndpoints.before_begin(), endpoints);
@@ -428,22 +441,26 @@ void HostMessageHubManager::Hub::forEachService(
 }
 
 void HostMessageHubManager::Hub::onHubRegistered(const MessageHubInfo &info) {
+  if (!mIsInternal) return;
   LockGuard<Mutex> managerLock(mManagerLock);
   if (mManager == nullptr) {
     LOGW("The HostMessageHubManager has been destroyed.");
     return;
   }
+  if (mManager->isHostHub(info.id)) return;
 
   LockGuard<Mutex> lock(mManager->mEmbeddedHubOpLock);
   mManager->mCb->onHubRegistered(info);
 }
 
 void HostMessageHubManager::Hub::onHubUnregistered(MessageHubId id) {
+  if (!mIsInternal) return;
   LockGuard<Mutex> managerLock(mManagerLock);
   if (mManager == nullptr) {
     LOGW("The HostMessageHubManager has been destroyed.");
     return;
   }
+  if (mManager->isHostHub(id)) return;
 
   LockGuard<Mutex> lock(mManager->mEmbeddedHubOpLock);
   mManager->mCb->onHubUnregistered(id);
@@ -451,6 +468,7 @@ void HostMessageHubManager::Hub::onHubUnregistered(MessageHubId id) {
 
 void HostMessageHubManager::Hub::onEndpointRegistered(MessageHubId messageHubId,
                                                       EndpointId endpointId) {
+  if (!mIsInternal) return;
   std::optional<EndpointInfo> endpoint =
       MessageRouterSingleton::get()->getEndpointInfo(messageHubId, endpointId);
   if (!endpoint) return;
@@ -459,8 +477,9 @@ void HostMessageHubManager::Hub::onEndpointRegistered(MessageHubId messageHubId,
     LOGW("The HostMessageHubManager has been destroyed.");
     return;
   }
-  LockGuard<Mutex> lock(mManager->mEmbeddedHubOpLock);
+  if (mManager->isHostHub(messageHubId)) return;
 
+  LockGuard<Mutex> lock(mManager->mEmbeddedHubOpLock);
   mManager->mCb->onEndpointRegistered(messageHubId, *endpoint);
   struct {
     HostCallback *cb;
@@ -481,11 +500,13 @@ void HostMessageHubManager::Hub::onEndpointRegistered(MessageHubId messageHubId,
 
 void HostMessageHubManager::Hub::onEndpointUnregistered(
     MessageHubId messageHubId, EndpointId endpointId) {
+  if (!mIsInternal) return;
   LockGuard<Mutex> managerLock(mManagerLock);
   if (mManager == nullptr) {
     LOGW("The HostMessageHubManager has been destroyed.");
     return;
   }
+  if (mManager->isHostHub(messageHubId)) return;
 
   LockGuard<Mutex> lock(mManager->mEmbeddedHubOpLock);
   mManager->mCb->onEndpointUnregistered(messageHubId, endpointId);
@@ -522,7 +543,64 @@ void HostMessageHubManager::clearHubsLocked() {
   for (auto &hub : mHubs) {
     hub->clear();
   }
+  LockGuard<Mutex> lock(mHubsLock);
   mHubs.clear();
+}
+
+bool HostMessageHubManager::hubsAreFull() {
+  LockGuard<Mutex> lock(mHubsLock);
+  return mHubs.full();
+}
+
+bool HostMessageHubManager::addHub(pw::IntrusivePtr<Hub> hub) {
+  LockGuard<Mutex> lock(mHubsLock);
+  if (mHubs.full()) {
+    return false;
+  }
+  mHubs.push_back(hub);
+  return true;
+}
+
+bool HostMessageHubManager::removeHub(MessageHubId id) {
+  pw::IntrusivePtr<Hub> hubToClear;
+  {
+    LockGuard<Mutex> lock(mHubsLock);
+    for (auto it = mHubs.begin(); it != mHubs.end(); ++it) {
+      if ((*it)->getMessageHub().getId() == id) {
+        hubToClear = std::move(*it);
+        mHubs.erase(it);
+        break;
+      }
+    }
+  }
+
+  if (hubToClear) {
+    hubToClear->clear();
+    return true;
+  }
+
+  return false;
+}
+
+pw::IntrusivePtr<HostMessageHubManager::Hub> HostMessageHubManager::getHub(
+    MessageHubId id) {
+  LockGuard<Mutex> lock(mHubsLock);
+  for (auto &hub : mHubs) {
+    if (hub->getMessageHub().getId() == id) {
+      return hub;
+    }
+  }
+  return nullptr;
+}
+
+bool HostMessageHubManager::isHostHub(MessageHubId id) {
+  LockGuard<Mutex> lock(mHubsLock);
+  for (const auto &hub : mHubs) {
+    if (hub->getMessageHub().getId() == id) {
+      return true;
+    }
+  }
+  return false;
 }
 
 }  // namespace chre

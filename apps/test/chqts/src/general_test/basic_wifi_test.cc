@@ -24,6 +24,7 @@
 #include <shared/send_message.h>
 #include <shared/time_util.h>
 
+#include "chre/util/macros.h"
 #include "chre/util/nanoapp/log.h"
 #include "chre/util/time.h"
 #include "chre/util/unique_ptr.h"
@@ -126,48 +127,6 @@ void testRequestScanAsync() {
 }
 
 /**
- * Calls API chreWifiRequestRangingAsync. Sends fatal failure to host if the
- * API call fails.
- */
-void testRequestRangingAsync(const struct chreWifiScanResult *aps,
-                             uint8_t length) {
-  LOGI("Starts ranging test");
-  // Sending an array larger than CHRE_WIFI_RANGING_LIST_MAX_LEN will cause
-  // an immediate failure.
-  uint8_t targetLength =
-      std::min(length, static_cast<uint8_t>(CHRE_WIFI_RANGING_LIST_MAX_LEN));
-
-  auto targetList =
-      chre::MakeUniqueArray<struct chreWifiRangingTarget[]>(targetLength);
-  EXPECT_NE_OR_RETURN(targetList, nullptr,
-                      "Failed to allocate array for issuing a ranging request");
-
-  // Save the last spot for any available RTT APs in case they didn't make it
-  // in the array earlier. This first loop allows non-RTT compatible APs as a
-  // way to test that the driver implementation will return failure for only
-  // those APs and success for valid RTT APs.
-  for (uint8_t i = 0; i < targetLength - 1; i++) {
-    chreWifiRangingTargetFromScanResult(&aps[i], &targetList[i]);
-  }
-
-  for (uint8_t i = targetLength - 1; i < length; i++) {
-    if ((aps[i].flags & CHRE_WIFI_SCAN_RESULT_FLAGS_IS_FTM_RESPONDER) ==
-            CHRE_WIFI_SCAN_RESULT_FLAGS_IS_FTM_RESPONDER ||
-        i == (length - 1)) {
-      chreWifiRangingTargetFromScanResult(&aps[i],
-                                          &targetList[targetLength - 1]);
-      break;
-    }
-  }
-
-  struct chreWifiRangingParams params = {.targetListLen = targetLength,
-                                         .targetList = targetList.get()};
-  if (!chreWifiRequestRangingAsync(&params, &kRequestRangingCookie)) {
-    EXPECT_FAIL_RETURN("Failed to request ranging for a list of WiFi scans.");
-  }
-}
-
-/**
  * Validates center frequency and channel. Sends fatal failure to host
  * when appropriate based on API version.
  *
@@ -266,24 +225,15 @@ void validateRssi(int8_t rssi) {
 }
 
 /**
- * Validates that the amount of access points ranging was requested for matches
- * the number of ranging results returned. Also, verifies that the BSSID of
- * the each access point is present in the ranging results.
+ * Verifies that the BSSID of the each access point in the ranging results
+ * matches one of the BSSIDs from the access points in the scan results.
  */
 void validateRangingEventArray(const struct chreWifiScanResult *results,
                                size_t resultsSize,
                                const struct chreWifiRangingEvent *event) {
-  size_t expectedArraySize = std::min(
-      resultsSize, static_cast<size_t>(CHRE_WIFI_RANGING_LIST_MAX_LEN));
-  EXPECT_EQ_OR_RETURN(
-      event->resultCount, expectedArraySize,
-      "RTT ranging result count was not the same as the requested target "
-      "list size");
-
   uint8_t matchesFound = 0;
-
-  for (size_t i = 0; i < resultsSize; i++) {
-    for (size_t j = 0; j < expectedArraySize; j++) {
+  for (size_t j = 0; j < event->resultCount; j++) {
+    for (size_t i = 0; i < resultsSize; i++) {
       if (memcmp(results[i].bssid, event->results[j].macAddress,
                  CHRE_WIFI_BSSID_LEN) == 0) {
         matchesFound++;
@@ -292,9 +242,23 @@ void validateRangingEventArray(const struct chreWifiScanResult *results,
     }
   }
 
-  EXPECT_EQ_OR_RETURN(
-      matchesFound, expectedArraySize,
-      "BSSID(s) from the ranging request were not found in the ranging result");
+  if (matchesFound != event->resultCount) {
+    LOGI("scan results BSSIDs:");
+    for (size_t i = 0; i < resultsSize; i++) {
+      LOGI("%02x:%02x:%02x:%02x:%02x:%02x", results[i].bssid[0], results[i].bssid[1],
+          results[i].bssid[2], results[i].bssid[3], results[i].bssid[4],
+          results[i].bssid[5]);
+    }
+    LOGI("ranging results BSSIDs:");
+    for (size_t i = 0; i < event->resultCount; i++) {
+      LOGI("%02x:%02x:%02x:%02x:%02x:%02x", event->results[i].macAddress[0],
+          event->results[i].macAddress[1], event->results[i].macAddress[2],
+          event->results[i].macAddress[3], event->results[i].macAddress[4],
+          event->results[i].macAddress[5]);
+    }
+    EXPECT_FAIL_RETURN(
+        "BSSID(s) from the ranging request were not found in the ranging result");
+  }
 }
 
 /**
@@ -462,7 +426,23 @@ void BasicWifiTest::handleChreWifiAsyncEvent(const chreAsyncResult *result) {
       return;
     }
   }
-  validateChreAsyncResult(result, mCurrentWifiRequest.value());
+
+  if (result->requestType == CHRE_WIFI_REQUEST_TYPE_RANGING) {
+    if (!mExpectedRangingAsyncResult.has_value()) {
+      EXPECT_FAIL_RETURN("Unexpected ranging async result");
+    }
+    // In cases where APs under-report their capabilities, it is possible that
+    // our ranging requests will unexpectedly succeed. We should still not let
+    // them unexpectedly fail though.
+    if (!result->success && !mExpectedRangingAsyncResult.value()) {
+      EXPECT_FAIL_RETURN("Unexpected ranging async result failure");
+    }
+    mExpectedRangingAsyncResult.reset();
+  } else {
+    // Ranging async requests have their own expectations. For everything
+    // else, validate the async result in the usual way.
+    validateChreAsyncResult(result, mCurrentWifiRequest.value());
+  }
   processChreWifiAsyncResult(result);
 }
 
@@ -549,9 +529,7 @@ void BasicWifiTest::startRangingAsyncTestStage() {
   // mark it as a success.
   if (mWifiCapabilities & CHRE_WIFI_CAPABILITIES_RTT_RANGING &&
       mLatestWifiScanResults.size() != 0) {
-    testRequestRangingAsync(
-        mLatestWifiScanResults.data(),
-        static_cast<uint8_t>(mLatestWifiScanResults.size()));
+    testRequestRangingAsync();
     resetCurrentWifiRequest(&kRequestRangingCookie,
                             CHRE_WIFI_REQUEST_TYPE_RANGING,
                             CHRE_WIFI_RANGING_RESULT_TIMEOUT_NS);
@@ -560,6 +538,58 @@ void BasicWifiTest::startRangingAsyncTestStage() {
         BASIC_WIFI_TEST_STAGE_SCAN_RTT);
   }
 }
+
+/**
+ * Calls API chreWifiRequestRangingAsync. Sends fatal failure to host if the
+ * API call fails.
+ */
+void BasicWifiTest::testRequestRangingAsync() {
+  const struct chreWifiScanResult* aps = mLatestWifiScanResults.data();
+  uint8_t length = static_cast<uint8_t>(mLatestWifiScanResults.size());
+
+  LOGI("Starts ranging test");
+  // Sending an array larger than CHRE_WIFI_RANGING_LIST_MAX_LEN will cause
+  // an immediate failure.
+  uint8_t maxLength =
+      std::min(length, static_cast<uint8_t>(CHRE_WIFI_RANGING_LIST_MAX_LEN));
+
+  auto targetList =
+      chre::MakeUniqueArray<struct chreWifiRangingTarget[]>(maxLength);
+  EXPECT_NE_OR_RETURN(targetList, nullptr,
+                      "Failed to allocate array for issuing a ranging request");
+
+  uint8_t targetCount = 0;
+  for (uint8_t i = 0; i < length && targetCount < maxLength; i++) {
+    if (BITMASK_HAS_VALUE(aps[i].flags,
+                          CHRE_WIFI_SCAN_RESULT_FLAGS_IS_FTM_RESPONDER)) {
+      chreWifiRangingTargetFromScanResult(&aps[i], &targetList[targetCount]);
+      targetCount++;
+    }
+  }
+
+  if (targetCount > 0) {
+    LOGI("Found %" PRIu8 " RTT-capable AP(s)", targetCount);
+    mExpectedRangingAsyncResult = true;
+  } else {
+    LOGI("No RTT-capable APs found, expecting ranging request will fail");
+    mExpectedRangingAsyncResult = false;
+    // Populate the target list with APs known to not support ranging to verify
+    // that the ranging request fails as expected.
+    for (uint8_t i = 0; i < maxLength; i++) {
+      chreWifiRangingTargetFromScanResult(&aps[i], &targetList[i]);
+      targetCount++;
+    }
+  }
+
+  mExpectedRangingResultCount = targetCount;
+  struct chreWifiRangingParams params = {.targetListLen = targetCount,
+                                         .targetList = targetList.get()};
+  if (!chreWifiRequestRangingAsync(&params, &kRequestRangingCookie)) {
+    EXPECT_FAIL_RETURN("Failed to request ranging for a list of WiFi scans.");
+    mExpectedRangingAsyncResult.reset();
+  }
+}
+
 
 void BasicWifiTest::resetCurrentWifiRequest(const void *cookie,
                                             uint8_t requestType,
@@ -659,6 +689,9 @@ void BasicWifiTest::validateRangingEvent(
                              eventData->version);
   }
 
+  EXPECT_EQ_OR_RETURN(eventData->resultCount, mExpectedRangingResultCount,
+                      "RTT ranging result count was not the same as the "
+                      "requested target list size");
   validateRangingEventArray(mLatestWifiScanResults.data(),
                             mLatestWifiScanResults.size(), eventData);
 

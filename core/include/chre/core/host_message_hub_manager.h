@@ -297,7 +297,7 @@ class HostMessageHubManager : public NonCopyable {
    * for inspection by MessageRouter.
    *
    * The public APIs are expected to be called as a result of some host-side
-   * operation with HostMessageHubManager::mHubsLock held.
+   * operation with HostMessageHubManager::mHubsOpLock held.
    */
   class Hub : public NonCopyable,
               public message::MessageRouter::MessageHubCallback,
@@ -306,19 +306,23 @@ class HostMessageHubManager : public NonCopyable {
     /**
      * Creates and registers a new hub.
      *
-     * @param manager The manager instance
-     * @param info Details of the host message hub
+     * @param manager The manager instance.
+     * @param info Details of the host message hub.
      * @param endpoints The list of endpoints to initialize the hub with.
-     * Endpoints must have been allocated using mEndpointAllocator.
-     * @return true on successful registration or reactivation
+     *     Endpoints must have been allocated using mEndpointAllocator.
+     * @param isInternal Whether this is an internal hub used to invoke
+     * hub/endpoint lifecycle callbacks. See mInternal documentation for
+     * details.
+     * @return true on successful registration or reactivation.
      */
     static bool createLocked(HostMessageHubManager *manager,
                              const message::MessageHubInfo &info,
-                             pw::IntrusiveList<Endpoint> &endpoints);
+                             pw::IntrusiveList<Endpoint> &endpoints,
+                             bool isInternal);
 
     /** NOTE: Use createLocked() */
     Hub(HostMessageHubManager *manager, const char *name,
-        pw::IntrusiveList<Endpoint> &endpoints);
+        pw::IntrusiveList<Endpoint> &endpoints, bool isInternal);
     Hub(Hub &&) = delete;
     Hub &operator=(Hub &&) = delete;
     virtual ~Hub();
@@ -382,6 +386,11 @@ class HostMessageHubManager : public NonCopyable {
     // Guards mEndpoints. Must be the innermost lock.
     Mutex mEndpointsLock;
     pw::IntrusiveList<Endpoint> mEndpoints;
+
+    // True if this is an internal hub created by HostMessageHubManager. Iff
+    // true, the hub must handle callbacks that are not targeted to a specific
+    // hub (for example, hub/endpoint registration callbacks).
+    bool mIsInternal = false;
   };
 
   /**
@@ -402,25 +411,70 @@ class HostMessageHubManager : public NonCopyable {
 
   /**
    * Clears all hubs registered with MessageRouter. The caller must hold
-   * mHubsLock.
+   * mHubsOpLock.
    */
   void clearHubsLocked();
+
+  /**
+   * @return true if the maximum number of host hubs are registered.
+   */
+  bool hubsAreFull();
+
+  /**
+   * Adds a hub to the list of host-managed hubs.
+   *
+   * @param hub The hub to add.
+   * @return true if the hub was added successfully, false otherwise.
+   */
+  bool addHub(pw::IntrusivePtr<Hub> hub);
+
+  /**
+   * Removes a hub from the list of host-managed hubs.
+   *
+   * @param id The ID of the hub to remove.
+   * @return true if the hub was removed successfully, false otherwise.
+   */
+  bool removeHub(message::MessageHubId id);
+
+  /**
+   * Checks if a given hub ID corresponds to a host-managed hub.
+   * @param id The ID of the hub to retrieve.
+   * @return An intrusive pointer to the hub, or null if not found.
+   */
+  pw::IntrusivePtr<Hub> getHub(message::MessageHubId id);
+
+  /**
+   * Checks if a given hub ID corresponds to a host-managed hub.
+   * @return true if the hub ID is found in mHubs.
+   */
+  bool isHostHub(message::MessageHubId id);
+
+  // The ID of the internal hub used to generate hub/endpoint registration
+  // callbacks.
+  static constexpr uint64_t kInternalHubId = 0xd4a6fb6b22c4cc90;
 
   HostCallback *mCb = nullptr;
   ChreAllocator mMsgAllocator;
 
   // Endpoint storage and allocator.
   // NOTE: This is only accessed on host-triggered invocations which take
-  // mHubsLock, so additional synchronization is not required.
+  // mHubsOpLock, so additional synchronization is not required.
   MemoryPool<Endpoint, CHRE_MESSAGE_ROUTER_MAX_HOST_ENDPOINTS>
       mEndpointAllocator;
 
-  // Guards mHubs. This lock is only safe to take when coming from an external
-  // path, i.e. on message from the host. MessageRouter accesses Hub instances
-  // directly, i.e. not through mHubs via the registered MessageHubCallback
-  // interface.
+  // Guards all public API operations. This lock is only safe to take when
+  // coming from an external path, i.e. on message from the host.
+  // MessageRouter accesses Hub instances directly, i.e. not through mHubs via
+  // the registered MessageHubCallback interface.
+  Mutex mHubsOpLock;
+
+  // Guards mHubs
   Mutex mHubsLock;
-  pw::Vector<pw::IntrusivePtr<Hub>, CHRE_MESSAGE_ROUTER_MAX_HOST_HUBS> mHubs;
+  // We reserve 1 Hub for internal use.
+  // TODO(b/477985342): Remove this hack once message router can accept
+  // independent lifecycle callback registrations.
+  pw::Vector<pw::IntrusivePtr<Hub>, CHRE_MESSAGE_ROUTER_MAX_HOST_HUBS + 1>
+      mHubs;
 
   // Serializes embedded hub and endpoint state changes being sent to the host
   // with the operations in reset().

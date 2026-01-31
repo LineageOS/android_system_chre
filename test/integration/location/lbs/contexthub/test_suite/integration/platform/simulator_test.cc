@@ -91,8 +91,6 @@ class MessageToHostDataClass : public DataFeedBase {
   }
 
   const std::vector<chreSensorInfo> GetSensors() override { return {}; }
-
-  uint32_t GetAudioSourceCount() override { return 0; }
 };
 
 size_t CountOccurrences(std::string_view text, std::string_view sub) {
@@ -159,8 +157,6 @@ class BleDataClass : public DataFeedBase {
   }
 
   const std::vector<chreSensorInfo> GetSensors() override { return {}; }
-
-  uint32_t GetAudioSourceCount() override { return 0; }
 
   SafeChreBleAdvertisementEvent* ReceivedBleAdvertisementEventRequestAtTime(
       uint64_t t, uint64_t /* latency */,
@@ -240,8 +236,6 @@ class GnssDataClass : public DataFeedBase {
   uint32_t GetCapabilitiesWifi() override {
     return CHRE_WIFI_CAPABILITIES_NONE;
   }
-
-  uint32_t GetAudioSourceCount() override { return 0; }
 };
 
 TEST(SimulatorVerifyTest, VerifyData_GnssValidCasesTest) {
@@ -312,8 +306,6 @@ class WwanDataClass : public DataFeedBase {
   }
 
   const std::vector<chreSensorInfo> GetSensors() override { return {}; }
-
-  uint32_t GetAudioSourceCount() override { return 0; }
 
   SafeChreWwanCellInfoResult* ReceivedWwanCallInfoResultRequestAtTime(
       uint64_t t) override {
@@ -396,8 +388,6 @@ class WifiDataClass : public DataFeedBase {
   }
 
   const std::vector<chreSensorInfo> GetSensors() override { return {}; }
-
-  uint32_t GetAudioSourceCount() override { return 0; }
 
   SafeChreWifiScanEvent* ReceivedWifiScanEventRequestAtTime(
       uint64_t t, const SafeChreWifiScanParams& /* params */) override {
@@ -543,8 +533,6 @@ class SensorDataClass : public DataFeedBase {
   uint32_t GetCapabilitiesWifi() override {
     return CHRE_WIFI_CAPABILITIES_NONE;
   }
-
-  uint32_t GetAudioSourceCount() override { return 0; }
 
   const std::vector<chreSensorInfo> GetSensors() override {
     if (!define_all_functions_) return std::vector<chreSensorInfo>();
@@ -773,8 +761,6 @@ class GnssData : public DataFeedBase {
   }
 
   const std::vector<chreSensorInfo> GetSensors() override { return {}; }
-
-  uint32_t GetAudioSourceCount() override { return 0; }
 };
 
 class SimulatorGnssTest : public SimulatorCoreTest {
@@ -1077,8 +1063,6 @@ class QuickGnss : public DataFeedBase {
   }
 
   const std::vector<chreSensorInfo> GetSensors() override { return {}; }
-
-  uint32_t GetAudioSourceCount() override { return 0; }
 };
 
 class SimulatorQuickGnssTest : public SimulatorCoreTest {
@@ -1185,8 +1169,6 @@ class BleData : public DataFeedBase {
   }
 
   const std::vector<chreSensorInfo> GetSensors() override { return {}; }
-
-  uint32_t GetAudioSourceCount() override { return 0; }
 
  private:
   int8_t rssi_;
@@ -1306,8 +1288,6 @@ class WwanData : public DataFeedBase {
   }
 
   const std::vector<chreSensorInfo> GetSensors() override { return {}; }
-
-  uint32_t GetAudioSourceCount() override { return 0; }
 };
 
 class SimulatorWwanTest : public SimulatorCoreTest {
@@ -1433,8 +1413,6 @@ class WifiDataFlow : public DataFeedBase {
   }
 
   const std::vector<chreSensorInfo> GetSensors() override { return {}; }
-
-  uint32_t GetAudioSourceCount() override { return 0; }
 
   SafeChreWifiScanEvent* ReceivedWifiScanEventRequestAtTime(
       uint64_t t, const SafeChreWifiScanParams& /* params */) override {
@@ -1776,8 +1754,6 @@ class PassiveData : public DataFeedBase {
 
   const std::vector<chreSensorInfo> GetSensors() override { return {}; }
 
-  uint32_t GetAudioSourceCount() override { return 0; }
-
   void AddMessageAtT(uint64_t t) {
     SafeChreMessageFromHostData msg;
     msg.appId = 0;
@@ -2113,8 +2089,6 @@ class MixedData : public DataFeedBase {
 
   const std::vector<chreSensorInfo> GetSensors() override { return {}; }
 
-  uint32_t GetAudioSourceCount() override { return 0; }
-
   void AddMessageAtT(uint64_t t) {
     SafeChreMessageFromHostData msg;
     msg.message = nullptr;
@@ -2192,8 +2166,6 @@ class SimpleSensorData : public DataFeedBase {
   uint32_t GetCapabilitiesWifi() override {
     return CHRE_WIFI_CAPABILITIES_NONE;
   }
-
-  uint32_t GetAudioSourceCount() override { return 0; }
 
   std::vector<uint8_t> types_;
 
