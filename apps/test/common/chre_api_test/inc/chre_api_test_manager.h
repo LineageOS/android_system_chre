@@ -49,6 +49,18 @@ class ChreApiTestService final
                                           chre_rpc_Capabilities &response);
 
   /**
+   * Returns the WiFi capabilities.
+   */
+  pw::Status ChreWifiGetCapabilities(const google_protobuf_Empty &request,
+                                     chre_rpc_Capabilities &response);
+
+  /**
+   * Returns the WWAN capabilities.
+   */
+  pw::Status ChreWwanGetCapabilities(const google_protobuf_Empty &request,
+                                     chre_rpc_Capabilities &response);
+
+  /**
    * Finds the default sensor and returns the handle in the output.
    */
   pw::Status ChreSensorFindDefault(
@@ -267,6 +279,12 @@ class ChreApiTestService final
       const google_protobuf_Empty &request, chre_rpc_Capabilities &response);
 
   bool validateInputAndCallChreBleGetFilterCapabilities(
+      const google_protobuf_Empty &request, chre_rpc_Capabilities &response);
+
+  bool validateInputAndCallChreWifiGetCapabilities(
+      const google_protobuf_Empty &request, chre_rpc_Capabilities &response);
+
+  bool validateInputAndCallChreWwanGetCapabilities(
       const google_protobuf_Empty &request, chre_rpc_Capabilities &response);
 
   bool validateInputAndCallChreBleStartScanAsync(

@@ -51,6 +51,24 @@ bool ChreApiTestService::validateInputAndCallChreBleGetFilterCapabilities(
   return true;
 }
 
+bool ChreApiTestService::validateInputAndCallChreWifiGetCapabilities(
+    const google_protobuf_Empty & /* request */,
+    chre_rpc_Capabilities &response) {
+  response.capabilities = chreWifiGetCapabilities();
+  LOGD("ChreWifiGetCapabilities: capabilities: %" PRIu32,
+       response.capabilities);
+  return true;
+}
+
+bool ChreApiTestService::validateInputAndCallChreWwanGetCapabilities(
+    const google_protobuf_Empty & /* request */,
+    chre_rpc_Capabilities &response) {
+  response.capabilities = chreWwanGetCapabilities();
+  LOGD("ChreWwanGetCapabilities: capabilities: %" PRIu32,
+       response.capabilities);
+  return true;
+}
+
 bool ChreApiTestService::validateInputAndCallChreBleStartScanAsync(
     const chre_rpc_ChreBleStartScanAsyncInput &request,
     chre_rpc_Status &response) {

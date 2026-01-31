@@ -132,6 +132,24 @@ pw::Status ChreApiTestService::ChreBleGetFilterCapabilities(
              : pw::Status::InvalidArgument();
 }
 
+pw::Status ChreApiTestService::ChreWifiGetCapabilities(
+    const google_protobuf_Empty &request, chre_rpc_Capabilities &response) {
+  ChreApiTestManagerSingleton::get()->setPermissionForNextMessage(
+      CHRE_MESSAGE_PERMISSION_NONE);
+  return validateInputAndCallChreWifiGetCapabilities(request, response)
+             ? pw::OkStatus()
+             : pw::Status::InvalidArgument();
+}
+
+pw::Status ChreApiTestService::ChreWwanGetCapabilities(
+    const google_protobuf_Empty &request, chre_rpc_Capabilities &response) {
+  ChreApiTestManagerSingleton::get()->setPermissionForNextMessage(
+      CHRE_MESSAGE_PERMISSION_NONE);
+  return validateInputAndCallChreWwanGetCapabilities(request, response)
+             ? pw::OkStatus()
+             : pw::Status::InvalidArgument();
+}
+
 pw::Status ChreApiTestService::ChreSensorFindDefault(
     const chre_rpc_ChreSensorFindDefaultInput &request,
     chre_rpc_ChreSensorFindDefaultOutput &response) {
