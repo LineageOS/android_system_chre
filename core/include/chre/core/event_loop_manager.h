@@ -480,6 +480,24 @@ class EventLoopManager : public NonCopyable {
   }
 
   /**
+   * Returns the "next" event loop after the provided event loop based on the
+   * EventLoopManager's internal storage of event loops. This can be useful if
+   * the user wishes to operate for each event loop in a round-robin way given
+   * the default event loop as a starting point.
+   *
+   * @param current The current event loop.
+   * @return The "next" event loop in the internal event loop list.
+   */
+  EventLoop *getNextEventLoop(EventLoop *current) {
+    for (size_t i = 0; i < mEventLoops.size(); ++i) {
+      if (&mEventLoops[i] == current && i < mEventLoops.size() - 1) {
+        return &mEventLoops[i + 1];
+      }
+    }
+    return nullptr;
+  }
+
+  /**
    * @return A reference to the GNSS request manager. This allows interacting
    *         with the platform GNSS subsystem and manages requests from various
    *         nanoapps.
