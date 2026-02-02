@@ -20,11 +20,16 @@
 #include <android/binder_manager.h>
 #include <android/binder_process.h>
 
+#include "bluetooth_socket_fbs_hal.h"
+#include "aidl/android/hardware/bluetooth/socket/BnBluetoothSocket.h"
+
 #ifndef LOG_TAG
 #define LOG_TAG "android.hardware.contexthub-service"
 #endif
 
 using aidl::android::hardware::contexthub::TinysysContextHub;
+using aidl::android::hardware::bluetooth::socket::impl::BluetoothSocketFbsHal;
+using aidl::android::hardware::bluetooth::socket::IBluetoothSocket;
 
 int main() {
   ABinderProcess_setThreadPoolMaxThreadCount(0);
@@ -36,6 +41,18 @@ int main() {
   binder_status_t status = AServiceManager_addService(
       contextHub->asBinder().get(), contextHubName.c_str());
   CHECK(status == STATUS_OK);
+
+  std::string bluetoothSocketName = std::string() + IBluetoothSocket::descriptor + "/lpp";
+  if(AServiceManager_isDeclared(bluetoothSocketName.c_str()))
+  {
+      LOGI("Starting Bluetooth Socket HAL");
+      auto bluetoothSocket = ndk::SharedRefBase::make<BluetoothSocketFbsHal>(
+          contextHub->getBluetoothSocketOffloadLink());
+      status = AServiceManager_addService(bluetoothSocket->asBinder().get(),
+                                          bluetoothSocketName.c_str());
+  } else {
+    LOGI("bluetoothSocketName not declared!");
+  }
 
   ABinderProcess_joinThreadPool();
   return EXIT_FAILURE;  // should not reach

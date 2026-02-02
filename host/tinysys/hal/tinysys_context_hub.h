@@ -32,12 +32,15 @@ class TinysysContextHub : public MultiClientContextHubBase {
  public:
   TinysysContextHub();
 
+  std::shared_ptr<BluetoothSocketOffloadLink> getBluetoothSocketOffloadLink();
+
  protected:
   void onChreReconnected(bool chreRestarted = true) override;
   const std::string kPreloadedNanoappsConfigPath =
       "/vendor/etc/chre/preloaded_nanoapps.json";
   const std::string kClientIdMappingFilePath =
       "/data/vendor/chre/chre_hal_clients.json";
+  std::shared_ptr<TinysysChreConnection> mTinysysConnection{};
 };
 }  // namespace aidl::android::hardware::contexthub
 #endif  // ANDROID_HARDWARE_CONTEXTHUB_AIDL_CONTEXTHUB_H

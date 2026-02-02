@@ -40,9 +40,11 @@ cc_binary {
         "service.cc",
         "tinysys_chre_connection.cc",
         "tinysys_context_hub.cc",
+        ":bluetooth_socket_hal_core",
     ],
     cflags: ["-DCHRE_ST_LPMA_HANDLER_AIDL"],
     shared_libs: [
+        "android.hardware.bluetooth.socket-V2-ndk",
         "android.hardware.soundtrigger3-V1-ndk",
         "android.media.soundtrigger.types-V1-ndk",
         "libpower",
