@@ -18,11 +18,13 @@
 
 #include <memory>
 #include <optional>
+#include <thread>
 
 #include <aidl/android/hardware/contexthub/DataFlowAlertFds.h>
 #include <aidl/android/hardware/contexthub/DataFlowId.h>
 #include <aidl/android/hardware/contexthub/EndpointId.h>
 
+#include "android-base/unique_fd.h"
 #include "pw_result/result.h"
 #include "pw_status/status.h"
 
@@ -76,8 +78,7 @@ class DataFlowEpollWaiter {
    *
    * @param callback The methods to be invoked on an epoll event. Must outlive
    * the created instance.
-   * @return pw::Status::InvalidArgument() if the callback is null,
-   * pw::Status::Internal() if we fail to create the instance, or
+   * @return pw::Status::Internal() if we fail to create the instance, or
    * pw::Status::Ok() otherwise
    */
   static pw::Result<std::unique_ptr<DataFlowEpollWaiter>> create(
@@ -122,7 +123,24 @@ class DataFlowEpollWaiter {
                             std::optional<EndpointId> endpointId);
 
  protected:
-  DataFlowEpollWaiter();
+  /** Stores the details of a registered epoll trigger. */
+  struct Trigger {
+    DataFlowId dataFlowId;
+    EndpointId endpointId;
+    // Only contains the fds that have an epoll trigger registered.
+    DataFlowAlertFds alertFds;
+  };
+
+  DataFlowEpollWaiter(base::unique_fd epollFd, base::unique_fd haltFd,
+                      Callback &callback);
+
+  /** Main loop for the epoll thread. */
+  void epollWaitLoop();
+
+  base::unique_fd mEpollFd;
+  base::unique_fd mHaltFd;
+  Callback &mCallback;
+  std::thread mEpollThread;
 };
 
 }  // namespace android::hardware::contexthub::common::implementation
