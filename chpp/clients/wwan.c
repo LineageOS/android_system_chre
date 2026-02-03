@@ -78,7 +78,7 @@ struct ChppWwanClientState {
 // Note: This global definition of gWwanClientContext supports only one
 // instance of the CHPP WWAN client at a time.
 struct ChppWwanClientState gWwanClientContext;
-static const struct chrePalSystemApi *gSystemApi;
+static const struct chrePalSystemApi *gSystemApi = NULL;
 static const struct chrePalWwanCallbacks *gCallbacks = NULL;
 
 /**
@@ -121,7 +121,9 @@ static const struct ChppClient kWwanClientConfig = {
 };
 
 static const struct chrePalWwanCallbacks *getPalCallbacks(void) {
-  gSystemApi->forceDramAccess();
+  if (gSystemApi != NULL) {
+    gSystemApi->forceDramAccess();
+  }
   return gCallbacks;
 }
 
@@ -395,7 +397,14 @@ static void chppWwanGetCellInfoAsyncResult(
   }
 
   if (chre != NULL) {
-    getPalCallbacks()->cellInfoResultCallback(chre);
+    const struct chrePalWwanCallbacks *callbacks = getPalCallbacks();
+    if (callbacks == NULL) {
+      CHPP_LOGE("PAL callbacks not initialized for cell info result");
+      chppWwanClientReleaseCellInfoResult(
+          chre);  // Release memory to prevent leak
+    } else {
+      callbacks->cellInfoResultCallback(chre);
+    }
   }
 }
 
@@ -443,6 +452,9 @@ static bool chppWwanClientOpen(const struct chrePalSystemApi *systemApi,
  * Deinitializes the WWAN client.
  */
 static void chppWwanClientClose(void) {
+  gSystemApi = NULL;
+  gCallbacks = NULL;
+
   // Remote
   struct ChppAppHeader *request = chppAllocClientRequestCommand(
       &gWwanClientContext.client, CHPP_WWAN_CLOSE);
