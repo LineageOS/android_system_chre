@@ -19,6 +19,12 @@
 #include <sys/eventfd.h>
 #include <unistd.h>
 
+#include <chrono>
+#include <condition_variable>
+#include <future>
+#include <mutex>
+#include <thread>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -58,11 +64,8 @@ TEST_F(DataFlowEpollWaiterTest, CreateAndDestroy) {
 }
 
 TEST_F(DataFlowEpollWaiterTest, AddTriggersHostEndpoint) {
-  DataFlowId dataFlowId;
-  dataFlowId.id = 1;
-  EndpointId endpointId;
-  endpointId.id = 1;
-  endpointId.hubId = 1;
+  DataFlowId dataFlowId{.hubId = 1, .id = 1};
+  EndpointId endpointId{.id = 1, .hubId = 1};
   DataFlowAlertFds alertFds;
   alertFds.halAck.set(eventfd(0, 0));
 
@@ -71,11 +74,8 @@ TEST_F(DataFlowEpollWaiterTest, AddTriggersHostEndpoint) {
 }
 
 TEST_F(DataFlowEpollWaiterTest, AddTriggersEmbeddedEndpoint) {
-  DataFlowId dataFlowId;
-  dataFlowId.id = 1;
-  EndpointId endpointId;
-  endpointId.id = 1;
-  endpointId.hubId = 1;
+  DataFlowId dataFlowId{.hubId = 1, .id = 1};
+  EndpointId endpointId{.id = 1, .hubId = 1};
   DataFlowAlertFds alertFds;
   alertFds.waking.set(eventfd(0, 0));
   alertFds.nonWaking.set(eventfd(0, 0));
@@ -85,11 +85,8 @@ TEST_F(DataFlowEpollWaiterTest, AddTriggersEmbeddedEndpoint) {
 }
 
 TEST_F(DataFlowEpollWaiterTest, AddTriggersAlreadyExists) {
-  DataFlowId dataFlowId;
-  dataFlowId.id = 1;
-  EndpointId endpointId;
-  endpointId.id = 1;
-  endpointId.hubId = 1;
+  DataFlowId dataFlowId{.hubId = 1, .id = 1};
+  EndpointId endpointId{.id = 1, .hubId = 1};
   DataFlowAlertFds alertFds;
   alertFds.halAck.set(eventfd(0, 0));
 
@@ -102,11 +99,8 @@ TEST_F(DataFlowEpollWaiterTest, AddTriggersAlreadyExists) {
 }
 
 TEST_F(DataFlowEpollWaiterTest, AddTriggersEmbeddedInvalidFds) {
-  DataFlowId dataFlowId;
-  dataFlowId.id = 1;
-  EndpointId endpointId;
-  endpointId.id = 1;
-  endpointId.hubId = 1;
+  DataFlowId dataFlowId{.hubId = 1, .id = 1};
+  EndpointId endpointId{.id = 1, .hubId = 1};
   DataFlowAlertFds alertFds;  // Default constructed -> invalid FDs (-1)
 
   EXPECT_EQ(mWaiter->addTriggers(dataFlowId, endpointId, alertFds),
@@ -114,13 +108,9 @@ TEST_F(DataFlowEpollWaiterTest, AddTriggersEmbeddedInvalidFds) {
 }
 
 TEST_F(DataFlowEpollWaiterTest, RemoveTriggersByDataFlowId) {
-  DataFlowId df1;
-  df1.id = 1;
-  DataFlowId df2;
-  df2.id = 2;
-  EndpointId ep1;
-  ep1.id = 1;
-  ep1.hubId = 1;
+  DataFlowId df1{.hubId = 1, .id = 1};
+  DataFlowId df2{.hubId = 1, .id = 2};
+  EndpointId ep1{.id = 1, .hubId = 1};
   DataFlowAlertFds fds1, fds2;
   fds1.halAck.set(eventfd(0, 0));
   fds2.halAck.set(eventfd(0, 0));
@@ -134,14 +124,9 @@ TEST_F(DataFlowEpollWaiterTest, RemoveTriggersByDataFlowId) {
 }
 
 TEST_F(DataFlowEpollWaiterTest, RemoveTriggersByEndpointId) {
-  DataFlowId df1;
-  df1.id = 1;
-  EndpointId ep1;
-  ep1.id = 1;
-  ep1.hubId = 1;
-  EndpointId ep2;
-  ep2.id = 2;
-  ep2.hubId = 1;
+  DataFlowId df1{.hubId = 1, .id = 1};
+  EndpointId ep1{.id = 1, .hubId = 1};
+  EndpointId ep2{.id = 2, .hubId = 1};
   DataFlowAlertFds fds1, fds2;
   fds1.halAck.set(eventfd(0, 0));
   fds2.halAck.set(eventfd(0, 0));
@@ -155,16 +140,10 @@ TEST_F(DataFlowEpollWaiterTest, RemoveTriggersByEndpointId) {
 }
 
 TEST_F(DataFlowEpollWaiterTest, RemoveTriggersIntersection) {
-  DataFlowId df1;
-  df1.id = 1;
-  DataFlowId df2;
-  df2.id = 2;
-  EndpointId ep1;
-  ep1.id = 1;
-  ep1.hubId = 1;
-  EndpointId ep2;
-  ep2.id = 2;
-  ep2.hubId = 1;
+  DataFlowId df1{.hubId = 1, .id = 1};
+  DataFlowId df2{.hubId = 1, .id = 2};
+  EndpointId ep1{.id = 1, .hubId = 1};
+  EndpointId ep2{.id = 2, .hubId = 1};
 
   // (DF1, EP1)
   DataFlowAlertFds fds1;
@@ -192,17 +171,200 @@ TEST_F(DataFlowEpollWaiterTest, RemoveTriggersIntersection) {
 }
 
 TEST_F(DataFlowEpollWaiterTest, RemoveTriggersNotFound) {
-  DataFlowId df1;
-  df1.id = 1;
-  EndpointId ep1;
-  ep1.id = 1;
-  ep1.hubId = 1;
+  DataFlowId df1{.hubId = 1, .id = 1};
+  EndpointId ep1{.id = 1, .hubId = 1};
   EXPECT_EQ(mWaiter->removeTriggers(df1, ep1), pw::Status::NotFound());
 }
 
 TEST_F(DataFlowEpollWaiterTest, RemoveTriggersInvalidArgument) {
   EXPECT_EQ(mWaiter->removeTriggers(std::nullopt, std::nullopt),
             pw::Status::InvalidArgument());
+}
+
+TEST_F(DataFlowEpollWaiterTest, ReceiveWakingEvent) {
+  DataFlowId df1{.hubId = 1, .id = 1};
+  EndpointId ep1{.id = 1, .hubId = 1};
+  DataFlowAlertFds fds;
+  fds.waking.set(eventfd(0, EFD_NONBLOCK));
+  fds.nonWaking.set(eventfd(0, EFD_NONBLOCK));
+
+  ASSERT_EQ(mWaiter->addTriggers(df1, ep1, fds), pw::OkStatus());
+
+  std::promise<void> promise;
+  auto future = promise.get_future();
+
+  EXPECT_CALL(mCallback, onAlert(df1, ep1, true))
+      .WillOnce(::testing::InvokeWithoutArgs([&] {
+        eventfd_t val;
+        eventfd_read(fds.waking.get(), &val);
+        promise.set_value();
+      }));
+
+  uint64_t val = 1;
+  ASSERT_EQ(write(fds.waking.get(), &val, sizeof(val)), sizeof(val));
+
+  EXPECT_EQ(future.wait_for(std::chrono::seconds(1)),
+            std::future_status::ready);
+}
+
+TEST_F(DataFlowEpollWaiterTest, ReceiveNonWakingEvent) {
+  DataFlowId df1{.hubId = 1, .id = 1};
+  EndpointId ep1{.id = 1, .hubId = 1};
+  DataFlowAlertFds fds;
+  fds.waking.set(eventfd(0, EFD_NONBLOCK));
+  fds.nonWaking.set(eventfd(0, EFD_NONBLOCK));
+
+  ASSERT_EQ(mWaiter->addTriggers(df1, ep1, fds), pw::OkStatus());
+
+  std::promise<void> promise;
+  auto future = promise.get_future();
+
+  EXPECT_CALL(mCallback, onAlert(df1, ep1, false))
+      .WillOnce(::testing::InvokeWithoutArgs([&] {
+        eventfd_t val;
+        eventfd_read(fds.nonWaking.get(), &val);
+        promise.set_value();
+      }));
+
+  uint64_t val = 1;
+  ASSERT_EQ(write(fds.nonWaking.get(), &val, sizeof(val)), sizeof(val));
+
+  EXPECT_EQ(future.wait_for(std::chrono::seconds(1)),
+            std::future_status::ready);
+}
+
+TEST_F(DataFlowEpollWaiterTest, ReceiveHalAckEvent) {
+  DataFlowId df1{.hubId = 1, .id = 1};
+  EndpointId ep1{.id = 1, .hubId = 1};
+  DataFlowAlertFds fds;
+  fds.halAck.set(eventfd(0, EFD_NONBLOCK));
+
+  ASSERT_EQ(mWaiter->addTriggers(df1, ep1, fds), pw::OkStatus());
+
+  std::promise<void> promise;
+  auto future = promise.get_future();
+  uint64_t expectedWakeCount = 5;
+
+  EXPECT_CALL(mCallback, onWakingAck(df1, ep1, expectedWakeCount))
+      .WillOnce(
+          ::testing::InvokeWithoutArgs([&promise] { promise.set_value(); }));
+
+  ASSERT_EQ(
+      write(fds.halAck.get(), &expectedWakeCount, sizeof(expectedWakeCount)),
+      sizeof(expectedWakeCount));
+
+  EXPECT_EQ(future.wait_for(std::chrono::seconds(1)),
+            std::future_status::ready);
+}
+
+TEST_F(DataFlowEpollWaiterTest, EventNotReceivedAfterTriggerRemoval) {
+  DataFlowId df1{.hubId = 1, .id = 1};
+  EndpointId ep1{.id = 1, .hubId = 1};
+  DataFlowAlertFds fds;
+  fds.waking.set(eventfd(0, EFD_NONBLOCK));
+  fds.nonWaking.set(eventfd(0, EFD_NONBLOCK));
+
+  ASSERT_EQ(mWaiter->addTriggers(df1, ep1, fds), pw::OkStatus());
+
+  // 1. Verify callback works initially
+  {
+    std::promise<void> promise;
+    auto future = promise.get_future();
+    EXPECT_CALL(mCallback, onAlert(df1, ep1, true))
+        .WillOnce(::testing::InvokeWithoutArgs([&] {
+          eventfd_t val;
+          eventfd_read(fds.waking.get(), &val);
+          promise.set_value();
+        }));
+    uint64_t val = 1;
+    ASSERT_EQ(write(fds.waking.get(), &val, sizeof(val)), sizeof(val));
+    ASSERT_EQ(future.wait_for(std::chrono::seconds(1)),
+              std::future_status::ready);
+  }
+
+  // 2. Remove triggers
+  ASSERT_EQ(mWaiter->removeTriggers(df1, ep1), pw::OkStatus());
+
+  // 3. Verify callback NOT invoked
+  {
+    EXPECT_CALL(mCallback, onAlert).Times(0);
+    uint64_t val = 1;
+    ASSERT_EQ(write(fds.waking.get(), &val, sizeof(val)), sizeof(val));
+
+    // Wait a bit to ensure no callback is received.
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+}
+
+TEST_F(DataFlowEpollWaiterTest, ReceiveMultipleEvents) {
+  DataFlowId df1{.hubId = 1, .id = 1};
+  EndpointId ep1{.id = 1, .hubId = 1};
+  EndpointId ep2{.id = 1, .hubId = 2};
+
+  DataFlowAlertFds fds1;  // Embedded
+  fds1.waking.set(eventfd(0, EFD_NONBLOCK));
+  fds1.nonWaking.set(eventfd(0, EFD_NONBLOCK));
+
+  DataFlowAlertFds fds2;  // Host
+  fds2.halAck.set(eventfd(0, EFD_NONBLOCK));
+
+  ASSERT_EQ(mWaiter->addTriggers(df1, ep1, fds1), pw::OkStatus());
+  ASSERT_EQ(mWaiter->addTriggers(df1, ep2, fds2), pw::OkStatus());
+
+  struct TestState {
+    std::mutex mutex;
+    std::condition_variable cv;
+    int wakingCount = 0;
+    int nonWakingCount = 0;
+    int halAckCount = 0;
+  } state;
+
+  EXPECT_CALL(mCallback, onAlert(df1, ep1, true))
+      .Times(::testing::AtLeast(1))
+      .WillRepeatedly(::testing::InvokeWithoutArgs([&] {
+        eventfd_t val;
+        eventfd_read(fds1.waking.get(), &val);
+        std::lock_guard lock(state.mutex);
+        state.wakingCount++;
+        state.cv.notify_one();
+      }));
+
+  EXPECT_CALL(mCallback, onAlert(df1, ep1, false))
+      .Times(::testing::AtLeast(1))
+      .WillRepeatedly(::testing::InvokeWithoutArgs([&] {
+        eventfd_t val;
+        eventfd_read(fds1.nonWaking.get(), &val);
+        std::lock_guard lock(state.mutex);
+        state.nonWakingCount++;
+        state.cv.notify_one();
+      }));
+
+  EXPECT_CALL(mCallback, onWakingAck(df1, ep2, ::testing::_))
+      .Times(::testing::AtLeast(1))
+      .WillRepeatedly(::testing::InvokeWithoutArgs([&] {
+        std::lock_guard lock(state.mutex);
+        state.halAckCount++;
+        state.cv.notify_one();
+      }));
+
+  uint64_t val = 1;
+  // Trigger events
+  ASSERT_EQ(write(fds1.waking.get(), &val, sizeof(val)), sizeof(val));
+  ASSERT_EQ(write(fds1.nonWaking.get(), &val, sizeof(val)), sizeof(val));
+  ASSERT_EQ(write(fds2.halAck.get(), &val, sizeof(val)), sizeof(val));
+  // Trigger again
+  ASSERT_EQ(write(fds1.waking.get(), &val, sizeof(val)), sizeof(val));
+  ASSERT_EQ(write(fds2.halAck.get(), &val, sizeof(val)), sizeof(val));
+
+  std::unique_lock lock(state.mutex);
+  state.cv.wait_for(lock, std::chrono::seconds(1), [&] {
+    return state.wakingCount > 0 && state.nonWakingCount > 0 &&
+           state.halAckCount > 0;
+  });
+
+  EXPECT_GT(state.wakingCount, 0);
+  EXPECT_GT(state.nonWakingCount, 0);
+  EXPECT_GT(state.halAckCount, 0);
 }
 
 }  // namespace

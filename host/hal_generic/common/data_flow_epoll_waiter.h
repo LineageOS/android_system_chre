@@ -42,13 +42,14 @@ using ::aidl::android::hardware::contexthub::EndpointId;
 /**
  * Helper which manages and performs epoll_wait() on all eventfds relating to
  * data flow alerts which are written to by host endpoints. This class is
- * thread-safe. The methods of the Callback interface registered with an
- * instance of this class will be called on the internal thread and must be
- * non-blocking.
+ * thread-safe.
  */
 class DataFlowEpollWaiter {
  public:
-  /** Callback interface used to deliver epoll events. */
+  /**
+   * Callback interface used to deliver epoll events. Methods are called on the
+   * internal thread and must be non-blocking.
+   */
   class Callback {
    public:
     virtual ~Callback() = default;
@@ -141,6 +142,9 @@ class DataFlowEpollWaiter {
 
   /** Main loop for the epoll thread. */
   void epollWaitLoop() EXCLUDES(mLock);
+
+  /** Process a non-halt epoll event, invoking the appropriate callback. */
+  void processEvent(int fd);
 
   base::unique_fd mEpollFd;
   base::unique_fd mHaltFd;
