@@ -16,15 +16,20 @@
 
 #pragma once
 
+#include <list>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <thread>
+#include <unordered_map>
 
 #include <aidl/android/hardware/contexthub/DataFlowAlertFds.h>
 #include <aidl/android/hardware/contexthub/DataFlowId.h>
 #include <aidl/android/hardware/contexthub/EndpointId.h>
+#include <android-base/thread_annotations.h>
+#include <android-base/unique_fd.h>
 
-#include "android-base/unique_fd.h"
 #include "pw_result/result.h"
 #include "pw_status/status.h"
 
@@ -135,12 +140,18 @@ class DataFlowEpollWaiter {
                       Callback &callback);
 
   /** Main loop for the epoll thread. */
-  void epollWaitLoop();
+  void epollWaitLoop() EXCLUDES(mLock);
 
   base::unique_fd mEpollFd;
   base::unique_fd mHaltFd;
   Callback &mCallback;
   std::thread mEpollThread;
+
+  std::mutex mLock;
+  std::list<std::unique_ptr<Trigger>> mTriggers GUARDED_BY(mLock);
+  std::unordered_map<int, Trigger *> mFdToTrigger GUARDED_BY(mLock);
+  std::map<std::pair<DataFlowId, EndpointId>, Trigger *>
+      mDataFlowEndpointToTrigger GUARDED_BY(mLock);
 };
 
 }  // namespace android::hardware::contexthub::common::implementation
