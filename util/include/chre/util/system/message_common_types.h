@@ -98,8 +98,8 @@ struct Endpoint {
   Endpoint()
       : messageHubId(MESSAGE_HUB_ID_INVALID), endpointId(ENDPOINT_ID_INVALID) {}
 
-  Endpoint(MessageHubId messageHubId, EndpointId endpointId)
-      : messageHubId(messageHubId), endpointId(endpointId) {}
+  Endpoint(MessageHubId initMessageHubId, EndpointId initEndpointId)
+      : messageHubId(initMessageHubId), endpointId(initEndpointId) {}
 
   bool operator==(const Endpoint &other) const {
     return messageHubId == other.messageHubId && endpointId == other.endpointId;
@@ -121,15 +121,15 @@ struct Session {
     serviceDescriptor[0] = '\0';
   }
 
-  Session(SessionId sessionId, Endpoint initiator, Endpoint peer,
-          const char *serviceDescriptor)
-      : sessionId(sessionId),
+  Session(SessionId initSessionId, Endpoint initInitiator, Endpoint initPeer,
+          const char *initServiceDescriptor)
+      : sessionId(initSessionId),
         isActive(false),
-        hasServiceDescriptor(serviceDescriptor != nullptr),
-        initiator(initiator),
-        peer(peer) {
-    if (serviceDescriptor != nullptr) {
-      std::strncpy(this->serviceDescriptor, serviceDescriptor,
+        hasServiceDescriptor(initServiceDescriptor != nullptr),
+        initiator(initInitiator),
+        peer(initPeer) {
+    if (initServiceDescriptor != nullptr) {
+      std::strncpy(this->serviceDescriptor, initServiceDescriptor,
                    kMaxServiceDescriptorLength);
     } else {
       this->serviceDescriptor[0] = '\0';
@@ -185,15 +185,15 @@ struct Message {
         messageType(0),
         messagePermissions(0) {}
 
-  Message(pw::UniquePtr<std::byte[]> &&data, uint32_t messageType,
-          uint32_t messagePermissions, Session session,
-          bool sentBySessionInitiator)
-      : sender(sentBySessionInitiator ? session.initiator : session.peer),
-        recipient(sentBySessionInitiator ? session.peer : session.initiator),
-        sessionId(session.sessionId),
-        data(std::move(data)),
-        messageType(messageType),
-        messagePermissions(messagePermissions) {}
+  Message(pw::UniquePtr<std::byte[]> &&ourData, uint32_t initMessageType,
+          uint32_t initMessagePermissions, Session initSession,
+          bool initSentBySessionInitiator)
+      : sender(initSentBySessionInitiator ? initSession.initiator : initSession.peer),
+        recipient(initSentBySessionInitiator ? initSession.peer : initSession.initiator),
+        sessionId(initSession.sessionId),
+        data(std::move(ourData)),
+        messageType(initMessageType),
+        messagePermissions(initMessagePermissions) {}
 
   Message(const Message &) = delete;
   Message &operator=(const Message &) = delete;

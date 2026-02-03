@@ -398,9 +398,9 @@ class SensorRequestManager : public NonCopyable {
    * A reference counted container of a one-shot event.
    */
   struct RefCountedOneShotEvent {
-    RefCountedOneShotEvent(void *eventData, uint32_t refCount) {
-      this->eventData = eventData;
-      this->refCount = refCount;
+    RefCountedOneShotEvent(void *initEventData, uint32_t initRefCount) {
+      this->eventData = initEventData;
+      this->refCount = initRefCount;
     }
     void *eventData;
     uint32_t refCount;
