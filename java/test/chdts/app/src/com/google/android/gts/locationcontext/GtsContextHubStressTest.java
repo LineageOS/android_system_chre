@@ -22,30 +22,28 @@ import com.google.android.chre.test.stress.ContextHubStressTestExecutor;
 import com.google.android.utils.chre.ContextHubHostTestUtil;
 
 import org.junit.After;
-import org.junit.Assume;
+import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.util.concurrent.TimeUnit;
 
-/**
- * A test to run and validate the CHRE stress test nanoapp.
- */
+/** A test to run and validate the CHRE stress test nanoapp. */
 @RunWith(AndroidJUnit4.class)
 public class GtsContextHubStressTest extends GtsContextHubTestBase {
     private static final String TAG = "GtsContextHubStressTest";
 
     private final ContextHubStressTestExecutor mExecutor =
-            new ContextHubStressTestExecutor(getContextHubManager(), getContextHubInfo(),
+            new ContextHubStressTestExecutor(
+                    getContextHubManager(),
+                    getContextHubInfo(),
                     ContextHubHostTestUtil.createNanoAppBinary(
-                                    getContextHubInfo(), "chre_stress_test.napp"));
+                            getContextHubInfo(), "chre_stress_test.napp"));
     private final long mDuration = ContextHubHostTestUtil.getStressTestDurationSeconds();
 
     @Test
     public void stressTest() throws InterruptedException {
-        Assume.assumeTrue(
-                "Stress test is disabled because duration is <= 0. Duration: " + mDuration,
-                mDuration > 0);
+        Assert.assertTrue("Invalid stress test duration: " + mDuration, mDuration > 0);
 
         mExecutor.init();
         mExecutor.runStressTest(mDuration, TimeUnit.SECONDS);

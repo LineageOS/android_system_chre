@@ -15,13 +15,18 @@
  */
 package com.google.android.chre.test.stress;
 
-import static android.Manifest.permission.BLUETOOTH_CONNECT;
-import static android.Manifest.permission.BLUETOOTH_SCAN;
-import static android.Manifest.permission.BLUETOOTH_PRIVILEGED;
 import static android.Manifest.permission.ACCESS_FINE_LOCATION;
+import static android.Manifest.permission.BLUETOOTH_CONNECT;
+import static android.Manifest.permission.BLUETOOTH_PRIVILEGED;
+import static android.Manifest.permission.BLUETOOTH_SCAN;
 
+import android.Manifest;
 import android.app.Instrumentation;
 import android.content.Context;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.hardware.location.ContextHubClient;
 import android.hardware.location.ContextHubClientCallback;
 import android.hardware.location.ContextHubInfo;
@@ -29,7 +34,16 @@ import android.hardware.location.ContextHubManager;
 import android.hardware.location.ContextHubTransaction;
 import android.hardware.location.NanoAppBinary;
 import android.hardware.location.NanoAppMessage;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
+import android.media.AudioFormat;
+import android.media.AudioRecord;
+import android.media.MediaRecorder;
 import android.net.wifi.WifiManager;
+import android.os.Bundle;
+import android.telephony.CellInfo;
+import android.telephony.TelephonyManager;
 import android.util.Log;
 
 import androidx.test.InstrumentationRegistry;
@@ -43,9 +57,15 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import org.junit.Assert;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -88,6 +108,20 @@ public class ContextHubStressTestExecutor extends ContextHubClientCallback {
 
     private final Instrumentation mInstrumentation = InstrumentationRegistry.getInstrumentation();
 
+    // Used for generating AP workload
+    private final AtomicBoolean mStopApStress = new AtomicBoolean(false);
+    private ExecutorService mApStressExecutor;
+    private List<Future<?>> mApStressTasks = new ArrayList<>();
+
+    // AP workload stats
+    private final AtomicLong mWifiScanCount = new AtomicLong(0);
+    private final AtomicLong mGnssLocationCount = new AtomicLong(0);
+    private final AtomicLong mSensorEventCount = new AtomicLong(0);
+    private final AtomicLong mAudioEventCount = new AtomicLong(0);
+    private final AtomicLong mAudioBytesRead = new AtomicLong(0);
+    private final AtomicLong mBleScanCount = new AtomicLong(0);
+    private final AtomicLong mWwanRequestCount = new AtomicLong(0);
+
     public ContextHubStressTestExecutor(ContextHubManager manager, ContextHubInfo info,
             NanoAppBinary binary) {
         mNanoAppBinary = binary;
@@ -95,6 +129,21 @@ public class ContextHubStressTestExecutor extends ContextHubClientCallback {
         mContextHubManager = manager;
         mContextHubInfo = info;
     }
+
+    // Used for managing AP side sensor listening.
+    private final SensorEventListener mSensorListener =
+            new SensorEventListener() {
+                @Override
+                public void onSensorChanged(SensorEvent event) {
+                    long total = mSensorEventCount.incrementAndGet();
+                    if (total % 200 == 0) {
+                        Log.i(TAG, "[AP_LOAD] Sensors received " + total + " events so far.");
+                    }
+                }
+
+                @Override
+                public void onAccuracyChanged(Sensor sensor, int accuracy) {}
+            };
 
     @Override
     public void onMessageFromNanoApp(ContextHubClient client, NanoAppMessage message) {
@@ -183,24 +232,49 @@ public class ContextHubStressTestExecutor extends ContextHubClientCallback {
      */
     public void runStressTest(long timeout, TimeUnit unit) throws InterruptedException {
         ChreStressTest.TestCommand.Feature[] features = {
-                ChreStressTest.TestCommand.Feature.WIFI_ON_DEMAND_SCAN,
-                ChreStressTest.TestCommand.Feature.GNSS_LOCATION,
-                ChreStressTest.TestCommand.Feature.GNSS_MEASUREMENT,
-                ChreStressTest.TestCommand.Feature.WWAN,
-                ChreStressTest.TestCommand.Feature.SENSORS,
-                ChreStressTest.TestCommand.Feature.AUDIO,
-                ChreStressTest.TestCommand.Feature.BLE,
+            ChreStressTest.TestCommand.Feature.WIFI_ON_DEMAND_SCAN,
+            ChreStressTest.TestCommand.Feature.GNSS_LOCATION,
+            ChreStressTest.TestCommand.Feature.GNSS_MEASUREMENT,
+            ChreStressTest.TestCommand.Feature.WWAN,
+            ChreStressTest.TestCommand.Feature.SENSORS,
+            ChreStressTest.TestCommand.Feature.AUDIO,
+            ChreStressTest.TestCommand.Feature.BLE,
         };
+
+        // Acquires necessary AP permissions
+        mInstrumentation
+                .getUiAutomation()
+                .adoptShellPermissionIdentity(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                        Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+                        Manifest.permission.CHANGE_WIFI_STATE,
+                        Manifest.permission.ACCESS_WIFI_STATE,
+                        Manifest.permission.BLUETOOTH_SCAN,
+                        Manifest.permission.BLUETOOTH_CONNECT,
+                        Manifest.permission.BLUETOOTH_PRIVILEGED,
+                        Manifest.permission.RECORD_AUDIO,
+                        Manifest.permission.READ_PHONE_STATE);
 
         mTestResult.set(null);
         mCountDownLatch = new CountDownLatch(1);
 
+        // Starts AP side stress test
+        if (!mLoadAndStartOnly) {
+            startApSideStressLoads(features);
+        }
+
+        // Starts nanoapp side stress test
         for (ChreStressTest.TestCommand.Feature feature : features) {
             sendTestMessage(feature, true /* start */);
         }
 
         if (!mLoadAndStartOnly) {
             mCountDownLatch.await(timeout, unit);
+
+            // Stops AP side stress test
+            stopApSideStressLoads();
+
             checkTestFailure();
 
             for (ChreStressTest.TestCommand.Feature feature : features) {
@@ -214,6 +288,9 @@ public class ContextHubStressTestExecutor extends ContextHubClientCallback {
                 Assert.fail(e.getMessage());
             }
         }
+
+        // Release permissions.
+        mInstrumentation.getUiAutomation().dropShellPermissionIdentity();
     }
 
     /**
@@ -344,5 +421,346 @@ public class ContextHubStressTestExecutor extends ContextHubClientCallback {
                 Assert.fail("Stress test failed");
             }
         }
+    }
+
+    // ====== AP stress generating functions below. ======
+
+    private void startApSideStressLoads(ChreStressTest.TestCommand.Feature[] features) {
+        mStopApStress.set(false);
+        mApStressExecutor = Executors.newCachedThreadPool();
+        mApStressTasks.clear();
+
+        Context context = mInstrumentation.getContext();
+
+        for (ChreStressTest.TestCommand.Feature feature : features) {
+            switch (feature) {
+                case WIFI_ON_DEMAND_SCAN:
+                    mApStressTasks.add(mApStressExecutor.submit(this::runApWifiScanLoad));
+                    break;
+                case GNSS_LOCATION:
+                case GNSS_MEASUREMENT:
+                    mApStressTasks.add(mApStressExecutor.submit(this::runApGnssLoad));
+                    break;
+                case WWAN:
+                    mApStressTasks.add(mApStressExecutor.submit(this::runApWwanLoad));
+                    break;
+                case SENSORS:
+                    mApStressTasks.add(mApStressExecutor.submit(this::runApSensorLoad));
+                    break;
+                case AUDIO:
+                    mApStressTasks.add(mApStressExecutor.submit(this::runApAudioLoad));
+                    break;
+                case BLE:
+                    mApStressTasks.add(mApStressExecutor.submit(this::runApBleLoad));
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+
+    private void stopApSideStressLoads() {
+        mStopApStress.set(true);
+        if (mApStressExecutor != null) {
+            for (Future<?> task : mApStressTasks) {
+                task.cancel(true);
+            }
+            mApStressExecutor.shutdownNow();
+            try {
+                mApStressExecutor.awaitTermination(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Log.e(TAG, "[AP_LOAD] Interrupted while waiting for AP stress tasks to stop");
+            }
+            mApStressExecutor = null;
+        }
+
+        // Clear sensor registration
+        Context context = mInstrumentation.getContext();
+        SensorManager sm = context.getSystemService(SensorManager.class);
+        if (sm != null) {
+            sm.unregisterListener(mSensorListener);
+        }
+
+        // Print final report
+        StringBuilder sb = new StringBuilder();
+        sb.append("\n================ AP STRESS LOAD SUMMARY ================\n");
+        sb.append(String.format("WiFi Scans Triggered:  %d\n", mWifiScanCount.get()));
+        sb.append(String.format("GNSS Locations Rx:     %d\n", mGnssLocationCount.get()));
+        sb.append(String.format("Sensor Events Rx:      %d\n", mSensorEventCount.get()));
+        sb.append(String.format("Audio Events Rx:      %d\n", mAudioEventCount.get()));
+        sb.append(String.format("Audio Bytes Recorded:  %d bytes\n", mAudioBytesRead.get()));
+        sb.append(String.format("BLE Scan Cycles:       %d\n", mBleScanCount.get()));
+        sb.append(String.format("WWAN Info Requests:    %d\n", mWwanRequestCount.get()));
+        sb.append("========================================================\n");
+
+        Log.i(TAG, sb.toString());
+    }
+
+    private void runApWifiScanLoad() {
+        WifiManager wm =
+                (WifiManager) mInstrumentation.getContext().getSystemService(Context.WIFI_SERVICE);
+        Assert.assertNotNull("WifiManager not found", wm);
+
+        Log.i(TAG, "[AP_LOAD] Starting WiFi Scan load...");
+        while (!mStopApStress.get() && !Thread.currentThread().isInterrupted()) {
+            boolean success = wm.startScan();
+            long count = mWifiScanCount.incrementAndGet();
+            Log.i(TAG, "[AP_LOAD] WiFi Scan Triggered #" + count + ", success=" + success);
+
+            try {
+                // Scan interval
+                Thread.sleep(4000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    private void runApGnssLoad() {
+        LocationManager lm =
+                (LocationManager)
+                        mInstrumentation.getContext().getSystemService(Context.LOCATION_SERVICE);
+        Assert.assertNotNull("LocationManager not found", lm);
+
+        LocationListener listener =
+                new LocationListener() {
+                    @Override
+                    public void onLocationChanged(Location location) {
+                        long count = mGnssLocationCount.incrementAndGet();
+                        Log.i(
+                                TAG,
+                                "[AP_LOAD] GNSS Location updated #"
+                                        + count
+                                        + ": "
+                                        + location.getProvider());
+                    }
+
+                    @Override
+                    public void onProviderDisabled(String provider) {}
+
+                    @Override
+                    public void onProviderEnabled(String provider) {}
+
+                    @Override
+                    public void onStatusChanged(String provider, int status, Bundle extras) {}
+                };
+
+        Log.i(TAG, "[AP_LOAD] Registered GNSS updates.");
+
+        // Use Looper to run stress load
+        mInstrumentation.runOnMainSync(
+                () -> {
+                    try {
+                        if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                            lm.requestLocationUpdates(
+                                    LocationManager.GPS_PROVIDER, 1000, 0, listener);
+                        }
+                        if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                            lm.requestLocationUpdates(
+                                    LocationManager.NETWORK_PROVIDER, 1000, 0, listener);
+                        }
+                    } catch (SecurityException e) {
+                        Log.e(TAG, "[AP_LOAD] Security exception requesting location updates", e);
+                    }
+                });
+
+        while (!mStopApStress.get() && !Thread.currentThread().isInterrupted()) {
+            try {
+                // Scan interval
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        mInstrumentation.runOnMainSync(() -> lm.removeUpdates(listener));
+    }
+
+    private void runApSensorLoad() {
+        SensorManager sm =
+                (SensorManager)
+                        mInstrumentation.getContext().getSystemService(Context.SENSOR_SERVICE);
+        Assert.assertNotNull("SensorManager not found", sm);
+
+        Log.i(TAG, "[AP_LOAD] Starting AP Sensor load");
+        List<Sensor> sensors = sm.getSensorList(Sensor.TYPE_ALL);
+        int registeredCount = 0;
+
+        for (Sensor s : sensors) {
+            if (s.getType() == Sensor.TYPE_ACCELEROMETER || s.getType() == Sensor.TYPE_GYROSCOPE) {
+                boolean success =
+                        sm.registerListener(mSensorListener, s, SensorManager.SENSOR_DELAY_GAME);
+                Log.i(
+                        TAG,
+                        "[AP_LOAD] Registering sensor: "
+                                + s.getName()
+                                + " (Type "
+                                + s.getType()
+                                + "), success="
+                                + success);
+                if (success) registeredCount++;
+            }
+        }
+
+        if (registeredCount == 0) {
+            Log.w(TAG, "[AP_LOAD] No target sensors (Accel/Gyro) were registered!");
+        }
+        // Unregister logic will be handled in stopApSideStressLoads
+    }
+
+    private void runApAudioLoad() {
+        int sampleRate = 44100;
+        int channelConfig = AudioFormat.CHANNEL_IN_MONO;
+        int audioFormat = AudioFormat.ENCODING_PCM_16BIT;
+        int minBufSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat);
+
+        if (minBufSize == AudioRecord.ERROR || minBufSize == AudioRecord.ERROR_BAD_VALUE) {
+            Log.e(TAG, "[AP_LOAD] Invalid AudioRecord parameters");
+            return;
+        }
+
+        Log.i(TAG, "[AP_LOAD] Starting AP Audio load");
+
+        // Note: if CHRE is using mic, AP may fail or received all 0 data.
+        // We are creating resource racing here.
+        try {
+            AudioRecord recorder =
+                    new AudioRecord(
+                            MediaRecorder.AudioSource.MIC,
+                            sampleRate,
+                            channelConfig,
+                            audioFormat,
+                            minBufSize * 2);
+
+            if (recorder.getState() == AudioRecord.STATE_INITIALIZED) {
+                recorder.startRecording();
+                Log.i(TAG, "[AP_LOAD] Audio recording started.");
+
+                byte[] buffer = new byte[minBufSize];
+                while (!mStopApStress.get() && !Thread.currentThread().isInterrupted()) {
+                    int bytesRead = recorder.read(buffer, 0, minBufSize);
+                    if (bytesRead > 0) {
+                        mAudioBytesRead.addAndGet(bytesRead);
+                    }
+                    long count = mAudioEventCount.incrementAndGet();
+                    if (count % 50 == 0) {
+                        Log.i(
+                                TAG,
+                                "[AP_LOAD] Audio recording read count: "
+                                        + count
+                                        + ", read bytes: "
+                                        + bytesRead);
+                    }
+                }
+                recorder.stop();
+                recorder.release();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "[AP_LOAD] Failed to run Audio load", e);
+        }
+    }
+
+    private void runApWwanLoad() {
+        Log.i(TAG, "[AP_LOAD] Starting AP WWAN load setup...");
+
+        TelephonyManager tm =
+                (TelephonyManager)
+                        mInstrumentation.getContext().getSystemService(Context.TELEPHONY_SERVICE);
+
+        if (tm == null) {
+            Log.e(TAG, "[AP_LOAD] WWAN Load Aborted: TelephonyManager is NULL");
+            return;
+        }
+
+        // Checks if location service is enabled.
+        LocationManager lm =
+                (LocationManager)
+                        mInstrumentation.getContext().getSystemService(Context.LOCATION_SERVICE);
+        boolean isLocationEnabled = lm != null && lm.isLocationEnabled();
+        Log.i(TAG, "[AP_LOAD] Location enabled status: " + isLocationEnabled);
+
+        Log.i(TAG, "[AP_LOAD] Starting WWAN Request Loop...");
+
+        while (!mStopApStress.get() && !Thread.currentThread().isInterrupted()) {
+            try {
+                List<CellInfo> cellInfo = tm.getAllCellInfo();
+                long count = mWwanRequestCount.incrementAndGet();
+
+                // Preint results every 5 times or on error
+                if (cellInfo != null) {
+                    if (count % 5 == 0) {
+                        Log.i(
+                                TAG,
+                                "[AP_LOAD] WWAN Request #"
+                                        + count
+                                        + " success. Cells found: "
+                                        + cellInfo.size());
+                    }
+                } else {
+                    Log.w(
+                            TAG,
+                            "[AP_LOAD] WWAN Request #"
+                                    + count
+                                    + " returned NULL (Modem busy or Location off?)");
+                }
+
+                // Request interval
+                Thread.sleep(2000);
+
+            } catch (SecurityException e) {
+                Log.e(TAG, "[AP_LOAD] WWAN SecurityException: " + e.getMessage());
+                try {
+                    Thread.sleep(5000);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+
+            } catch (IllegalStateException e) {
+                Log.e(
+                        TAG,
+                        "[AP_LOAD] WWAN IllegalStateException (Service not ready?): "
+                                + e.getMessage());
+                try {
+                    Thread.sleep(2000);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+
+            } catch (Exception e) {
+                Log.e(TAG, "[AP_LOAD] WWAN Critical Unknown Error", e);
+                try {
+                    Thread.sleep(2000);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
+
+        Log.i(TAG, "[AP_LOAD] AP WWAN load thread stopped.");
+    }
+
+    private void runApBleLoad() {
+        BleHostClientUtil bleClient = new BleHostClientUtil(mInstrumentation.getContext());
+        if (!bleClient.isBleAvailable()) {
+            Log.w(TAG, "[AP_LOAD] BLE not available on AP, skipping load");
+            return;
+        }
+
+        Log.i(TAG, "[AP_LOAD] Starting AP BLE load");
+        while (!mStopApStress.get() && !Thread.currentThread().isInterrupted()) {
+            bleClient.start();
+            long count = mBleScanCount.incrementAndGet();
+            Log.i(TAG, "[AP_LOAD] BLE Scan cycle started #" + count);
+            try {
+                // Scan period
+                Thread.sleep(2000);
+                bleClient.stop();
+                // Request interval
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        bleClient.stop();
     }
 }
