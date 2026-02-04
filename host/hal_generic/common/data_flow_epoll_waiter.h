@@ -16,12 +16,19 @@
 
 #pragma once
 
+#include <list>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <thread>
+#include <unordered_map>
 
 #include <aidl/android/hardware/contexthub/DataFlowAlertFds.h>
 #include <aidl/android/hardware/contexthub/DataFlowId.h>
 #include <aidl/android/hardware/contexthub/EndpointId.h>
+#include <android-base/thread_annotations.h>
+#include <android-base/unique_fd.h>
 
 #include "pw_result/result.h"
 #include "pw_status/status.h"
@@ -76,8 +83,7 @@ class DataFlowEpollWaiter {
    *
    * @param callback The methods to be invoked on an epoll event. Must outlive
    * the created instance.
-   * @return pw::Status::InvalidArgument() if the callback is null,
-   * pw::Status::Internal() if we fail to create the instance, or
+   * @return pw::Status::Internal() if we fail to create the instance, or
    * pw::Status::Ok() otherwise
    */
   static pw::Result<std::unique_ptr<DataFlowEpollWaiter>> create(
@@ -122,7 +128,30 @@ class DataFlowEpollWaiter {
                             std::optional<EndpointId> endpointId);
 
  protected:
-  DataFlowEpollWaiter();
+  /** Stores the details of a registered epoll trigger. */
+  struct Trigger {
+    DataFlowId dataFlowId;
+    EndpointId endpointId;
+    // Only contains the fds that have an epoll trigger registered.
+    DataFlowAlertFds alertFds;
+  };
+
+  DataFlowEpollWaiter(base::unique_fd epollFd, base::unique_fd haltFd,
+                      Callback &callback);
+
+  /** Main loop for the epoll thread. */
+  void epollWaitLoop() EXCLUDES(mLock);
+
+  base::unique_fd mEpollFd;
+  base::unique_fd mHaltFd;
+  Callback &mCallback;
+  std::thread mEpollThread;
+
+  std::mutex mLock;
+  std::list<std::unique_ptr<Trigger>> mTriggers GUARDED_BY(mLock);
+  std::unordered_map<int, Trigger *> mFdToTrigger GUARDED_BY(mLock);
+  std::map<std::pair<DataFlowId, EndpointId>, Trigger *>
+      mDataFlowEndpointToTrigger GUARDED_BY(mLock);
 };
 
 }  // namespace android::hardware::contexthub::common::implementation

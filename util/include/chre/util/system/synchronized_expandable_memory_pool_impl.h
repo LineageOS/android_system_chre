@@ -113,6 +113,21 @@ bool SynchronizedExpandableMemoryPool<ElementType, kMemoryPoolSize,
 template <typename ElementType, size_t kMemoryPoolSize,
           size_t kMaxMemoryPoolCount>
 size_t SynchronizedExpandableMemoryPool<ElementType, kMemoryPoolSize,
+                                        kMaxMemoryPoolCount>::size() {
+  LockGuard<Mutex> lock(mMutex);
+  return mSize;
+}
+
+template <typename ElementType, size_t kMemoryPoolSize,
+          size_t kMaxMemoryPoolCount>
+bool SynchronizedExpandableMemoryPool<ElementType, kMemoryPoolSize,
+                                      kMaxMemoryPoolCount>::empty() {
+  return size() == 0;
+}
+
+template <typename ElementType, size_t kMemoryPoolSize,
+          size_t kMaxMemoryPoolCount>
+size_t SynchronizedExpandableMemoryPool<ElementType, kMemoryPoolSize,
                                         kMaxMemoryPoolCount>::getBlockCount() {
   LockGuard<Mutex> lock(mMutex);
   return mMemoryPoolPtrs.size();
