@@ -19,10 +19,24 @@
 
 #include "FreeRTOS.h"
 
+#include "chre/core/event_loop.h"
+#include "chre/core/nanoapp.h"
+
 namespace chre {
 
 /** @return the CHRE task priority being used. */
 BaseType_t getChreTaskPriority();
+
+/**
+ * Returns the event loop that a given nanoapp should be loaded on.
+ *
+ * When multi-threading is enabled, this function will select an event loop
+ * based on the nanoapp's requested thread priority.
+ *
+ * @param nanoapp A non-null pointer to the nanoapp.
+ * @return The event loop to use for this nanoapp.
+ */
+EventLoop *getEventLoopForNanoapp(Nanoapp *nanoapp);
 
 namespace freertos {
 

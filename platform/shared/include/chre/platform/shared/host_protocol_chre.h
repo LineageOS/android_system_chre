@@ -22,6 +22,7 @@
 
 #include <optional>
 #include "chre/core/ble_l2cap_coc_socket_data.h"
+#include "chre/core/event_loop.h"
 #include "chre/core/nanoapp.h"
 #include "chre/core/settings.h"
 #include "chre/platform/shared/fbs/host_messages_generated.h"
@@ -34,6 +35,7 @@
 #include "flatbuffers/flatbuffers.h"
 
 #include "pw_allocator/unique_ptr.h"
+#include "pw_function/function.h"
 
 namespace chre {
 
@@ -65,6 +67,7 @@ class HostMessageHandlers {
     UniquePtr<Nanoapp> nanoapp;
     uint32_t fragmentId;
     bool sendFragmentResponse;
+    pw::Function<EventLoop *(Nanoapp *)> getEventLoopFn;
   };
 
   static void handleNanoappMessage(uint64_t appId, uint32_t messageType,
@@ -122,6 +125,9 @@ class HostMessageHandlers {
   static void finishLoadingNanoappCallback(
       SystemCallbackType type, UniquePtr<LoadNanoappCallbackData> &&cbData);
 
+  static void startNanoappCallback(SystemCallbackType type,
+                                   UniquePtr<LoadNanoappCallbackData> &&cbData);
+
   /**
    * Helper function that loads a nanoapp into the system
    * from a buffer sent over in 1 or more fragments.
@@ -137,9 +143,17 @@ class HostMessageHandlers {
    * @param bufferLen the size of buffer in bytes
    * @param fragmentId the identifier indicating which fragment is being loaded
    * @param appBinaryLen the full size of the nanoapp binary to be loaded
-   *
-   * @return void
+   * @param getEventLoopFn A function that returns the event loop to load the
+   *     nanoapp on. This will be invoked after a call to openNanoapp().
    */
+  static void loadNanoappData(
+      uint16_t hostClientId, uint32_t transactionId, uint64_t appId,
+      uint32_t appVersion, uint32_t appFlags, uint32_t targetApiVersion,
+      const void *buffer, size_t bufferLen, uint32_t fragmentId,
+      size_t appBinaryLen, bool respondBeforeStart,
+      pw::Function<EventLoop *(Nanoapp *)> getEventLoopFn);
+
+  /** A version of loadNanoappData that loads to the main event loop. */
   static void loadNanoappData(uint16_t hostClientId, uint32_t transactionId,
                               uint64_t appId, uint32_t appVersion,
                               uint32_t appFlags, uint32_t targetApiVersion,

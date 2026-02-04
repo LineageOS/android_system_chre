@@ -14,8 +14,10 @@
  * limitations under the License.
  */
 
+#include "chre/core/event_loop.h"
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/multi_threading_api_mutex.h"
+#include "chre/platform/context.h"
 #include "chre/platform/shared/host_protocol_chre.h"
 #include "chre/platform/shared/nanoapp_load_manager.h"
 #include "chre/variant/config.h"
@@ -36,42 +38,77 @@ void HostMessageHandlers::handleDebugConfiguration(
           debugConfiguration->health_monitor_failure_crash());
 }
 
-// TODO(b/475537998): Optimize callbacks to avoid unnecessary global mutex locks
-void HostMessageHandlers::finishLoadingNanoappCallback(
-    SystemCallbackType /*type*/, UniquePtr<LoadNanoappCallbackData> &&cbData) {
+void HostMessageHandlers::startNanoappCallback(
+    SystemCallbackType /*type*/,
+    UniquePtr<HostMessageHandlers::LoadNanoappCallbackData> &&cbData) {
+  EventLoop *eventLoop = getCurrentEventLoop();
+  CHRE_ASSERT(eventLoop != nullptr);
+
+  // The global API mutex must always be unlocked prior to calling into
+  // nanoapp entrypoint functions to prevent deadlocks.
   auto *mutex = getMultiThreadingApiMutex();
   mutex->unlock();
+  bool success = eventLoop->startNanoapp(std::move(cbData->nanoapp));
+  mutex->lock();
+
+  if (cbData->sendFragmentResponse) {
+    HostMessageHandlers::sendFragmentResponse(cbData->hostClientId,
+                                              cbData->transactionId,
+                                              cbData->fragmentId, success);
+  }
+}
+
+#if CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
+void HostMessageHandlers::finishLoadingNanoappCallback(
+    SystemCallbackType type, UniquePtr<LoadNanoappCallbackData> &&cbData) {
+  EventLoop *currentEventLoop = getCurrentEventLoop();
+  CHRE_ASSERT(currentEventLoop != nullptr);
+  CHRE_ASSERT(cbData != nullptr);
+  if (!cbData->nanoapp->isLoaded() || !cbData->nanoapp->openNanoapp()) {
+    LOGE("Nanoapp is not loaded or failed to open");
+    if (cbData->sendFragmentResponse) {
+      HostMessageHandlers::sendFragmentResponse(
+          cbData->hostClientId, cbData->transactionId, cbData->fragmentId,
+          /* success= */ false);
+    }
+  } else {
+    EventLoop *eventLoop = cbData->getEventLoopFn(cbData->nanoapp.get());
+    if (currentEventLoop == eventLoop) {
+      startNanoappCallback(static_cast<SystemCallbackType>(type),
+                           std::move(cbData));
+    } else {
+      EventLoopManagerSingleton::get()->deferCallback(
+          SystemCallbackType::FinishLoadingNanoapp, std::move(cbData),
+          startNanoappCallback, eventLoop);
+    }
+  }
+}
+#else
+// TODO(b/475537998): Optimize callbacks to avoid unnecessary global mutex locks
+void HostMessageHandlers::finishLoadingNanoappCallback(
+    SystemCallbackType type, UniquePtr<LoadNanoappCallbackData> &&cbData) {
   constexpr size_t kInitialBufferSize = 48;
   ChreFlatBufferBuilder builder(kInitialBufferSize);
 
   CHRE_ASSERT(cbData != nullptr);
-
-  EventLoop &eventLoop = EventLoopManagerSingleton::get()->getEventLoop();
-  bool success = false;
-
   if (cbData->nanoapp->isLoaded()) {
-#if CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
-    success = cbData->nanoapp->openNanoapp() &&
-              eventLoop.startNanoapp(std::move(cbData->nanoapp));
-#else
-    success = eventLoop.startNanoapp(std::move(cbData->nanoapp));
-#endif  // CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
+    startNanoappCallback(type, std::move(cbData));
   } else {
     LOGE("Nanoapp is not loaded");
+    if (cbData->sendFragmentResponse) {
+      sendFragmentResponse(cbData->hostClientId, cbData->transactionId,
+                           cbData->fragmentId, /* success= */ false);
+    }
   }
-
-  if (cbData->sendFragmentResponse) {
-    sendFragmentResponse(cbData->hostClientId, cbData->transactionId,
-                         cbData->fragmentId, success);
-  }
-  mutex->lock();
 }
+#endif  // CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
 
 void HostMessageHandlers::loadNanoappData(
     uint16_t hostClientId, uint32_t transactionId, uint64_t appId,
     uint32_t appVersion, uint32_t appFlags, uint32_t targetApiVersion,
     const void *buffer, size_t bufferLen, uint32_t fragmentId,
-    size_t appBinaryLen, bool respondBeforeStart) {
+    size_t appBinaryLen, bool respondBeforeStart,
+    pw::Function<EventLoop *(Nanoapp *)> getEventLoopFn) {
   bool success = true;
 
   if (fragmentId == 0 || fragmentId == 1) {
@@ -119,6 +156,7 @@ void HostMessageHandlers::loadNanoappData(
       cbData->fragmentId = fragmentId;
       cbData->nanoapp = getLoadManager().releaseNanoapp();
       cbData->sendFragmentResponse = !respondBeforeStart;
+      cbData->getEventLoopFn = std::move(getEventLoopFn);
 
       // Note that if this fails, we'll generate the error response in
       // the normal deferred callback
@@ -133,6 +171,19 @@ void HostMessageHandlers::loadNanoappData(
     // send a response for this fragment
     sendFragmentResponse(hostClientId, transactionId, fragmentId, success);
   }
+}
+
+void HostMessageHandlers::loadNanoappData(
+    uint16_t hostClientId, uint32_t transactionId, uint64_t appId,
+    uint32_t appVersion, uint32_t appFlags, uint32_t targetApiVersion,
+    const void *buffer, size_t bufferLen, uint32_t fragmentId,
+    size_t appBinaryLen, bool respondBeforeStart) {
+  auto getEventLoopFn = [](Nanoapp *) -> EventLoop * {
+    return &EventLoopManagerSingleton::get()->getEventLoop();
+  };
+  loadNanoappData(hostClientId, transactionId, appId, appVersion, appFlags,
+                  targetApiVersion, buffer, bufferLen, fragmentId, appBinaryLen,
+                  respondBeforeStart, getEventLoopFn);
 }
 
 }  // namespace chre
