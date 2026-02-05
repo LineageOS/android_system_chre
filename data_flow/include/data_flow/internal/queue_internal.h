@@ -20,7 +20,11 @@
 #include <cstddef>
 #include <cstdint>
 
+#if __has_include(<aidl/android/hardware/contexthub/SharedDataRegion.h>)
 #include <aidl/android/hardware/contexthub/SharedDataRegion.h>
+#else  // __has_include(<aidl/android/hardware/contexthub/SharedDataRegion.h>)
+#include "data_flow/internal/SharedDataRegion.h"
+#endif  // __has_include(<aidl/android/hardware/contexthub/SharedDataRegion.h>)
 
 #include "chre/platform/atomic_ref.h"
 #include "data_flow/queue_defs.h"

@@ -1458,7 +1458,8 @@ pw::Status VariableDataProducer::push(pw::ConstByteSpan element) {
 void VariableDataProducer::updateFirstElementIndex() {
   auto *tailBlock = internal::fromOffset<internal::VariableDataBlock>(
       mRegion, mDesc->tailBlockOffsetBytes, kBlockLayout);
-  if (tailBlock->header.firstElementIndex == kBlockCapacity) {
+  if (static_cast<uint32_t>(tailBlock->header.firstElementIndex) ==
+      kBlockCapacity) {
     // Only set the first element index if this is the first variable size
     // element to be written into this block (on this pass through the block).
     tailBlock->header.firstElementIndex =
