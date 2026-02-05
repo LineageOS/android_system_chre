@@ -1642,6 +1642,7 @@ filegroup {
         "core/ble_request_multiplexer.cc",
         "core/ble_socket_manager.cc",
         "core/chre_message_hub_manager.cc",
+        "core/data_flow_manager.cc",
         "core/debug_dump_manager.cc",
         "core/event.cc",
         "core/event_loop.cc",

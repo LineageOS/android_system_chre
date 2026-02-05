@@ -21,6 +21,7 @@
 #include "chre/core/ble_request_manager.h"
 #include "chre/core/ble_socket_manager.h"
 #include "chre/core/chre_message_hub_manager.h"
+#include "chre/core/data_flow_manager.h"
 #include "chre/core/debug_dump_manager.h"
 #include "chre/core/event_loop.h"
 #include "chre/core/gnss_manager.h"
@@ -65,6 +66,7 @@ class WifiRequestManager;
 class WwanRequestManager;
 class ChreMessageHubManager;
 class HostMessageHubManager;
+class DataFlowManager;
 
 /**
  * A class that keeps track of all event loops in the system. This class
@@ -99,7 +101,8 @@ class EventLoopManager : public NonCopyable {
                    WifiRequestManager *wifiRequestManager,
                    WwanRequestManager *wwanRequestManager,
                    ChreMessageHubManager *chreMessageHubManager,
-                   HostMessageHubManager *hostMessageHubManager)
+                   HostMessageHubManager *hostMessageHubManager,
+                   DataFlowManager *dataFlowManager)
       : mEventLoops(checkEventLoops(eventLoops)),
         mBleSocketManager(bleSocketManager),
         mGnssManager(gnssManager),
@@ -107,7 +110,8 @@ class EventLoopManager : public NonCopyable {
         mWifiRequestManager(wifiRequestManager),
         mWwanRequestManager(wwanRequestManager),
         mChreMessageHubManager(chreMessageHubManager),
-        mHostMessageHubManager(hostMessageHubManager) {
+        mHostMessageHubManager(hostMessageHubManager),
+        mDataFlowManager(dataFlowManager) {
 #ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
     CHRE_ASSERT(mBleSocketManager != nullptr);
 #endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
@@ -124,6 +128,9 @@ class EventLoopManager : public NonCopyable {
     CHRE_ASSERT(mChreMessageHubManager != nullptr);
     CHRE_ASSERT(mHostMessageHubManager != nullptr);
 #endif  // CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
+#ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
+    CHRE_ASSERT(mDataFlowManager != nullptr);
+#endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
   }
 
   /**
@@ -596,6 +603,10 @@ class EventLoopManager : public NonCopyable {
     return *mHostMessageHubManager;
   }
 
+  DataFlowManager &getDataFlowManager() {
+    return *mDataFlowManager;
+  }
+
   /**
    * @return The global timer pool.
    */
@@ -800,6 +811,9 @@ Same as chreBleGetFilterCapabilities, but must be called with the global API
 
   //! The HostMessageHubManager handling communication with host message hubs.
   HostMessageHubManager *mHostMessageHubManager = nullptr;
+
+  //! The DataFlowManager handling data flow support.
+  DataFlowManager *mDataFlowManager = nullptr;
 
   //! A global mutex used to synchronize concurrent CHRE API calls across
   //! potentially multiple threads, or no-op if multi-threading is not enabled.

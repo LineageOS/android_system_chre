@@ -133,6 +133,25 @@ std::optional<ChreMessageHubManager> gChreMessageHubManager;
 
 CHRE_MESSAGE_ROUTER_MEMORY_REGION
 std::optional<HostMessageHubManager> gHostMessageHubManager;
+
+#ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
+
+#ifndef CHRE_DATA_FLOW_MEMORY_REGION
+#define CHRE_DATA_FLOW_MEMORY_REGION
+#endif  // CHRE_DATA_FLOW_MEMORY_REGION
+
+CHRE_DATA_FLOW_MEMORY_REGION
+std::optional<DataFlowManager> gDataFlowManager;
+
+#endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
+
+#else  // CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
+
+#ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
+#error \
+    "CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED must be defined to use CHRE_DATA_FLOW_SUPPORT_ENABLED"
+#endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
+
 #endif  // CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
 
 std::optional<EventLoop> gEventLoop;
@@ -242,6 +261,21 @@ void deinitMessageRouter() {
 #endif  // CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
 }
 
+DataFlowManager *initAndGetDataFlowManager() {
+#ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
+  gDataFlowManager.emplace();
+  return &gDataFlowManager.value();
+#else
+  return nullptr;
+#endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
+}
+
+void deinitDataFlowManager() {
+#ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
+  gDataFlowManager.reset();
+#endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
+}
+
 }  // namespace
 
 void initCommon() {
@@ -260,7 +294,8 @@ void initCommon(pw::span<EventLoop> eventLoops) {
   EventLoopManagerSingleton::init(
       eventLoops, getBleSocketManager(), initAndGetGnssManager(),
       initAndGetWifiRequestManager(), initAndGetWwanRequestManager(),
-      initAndGetChreMessageHubManager(), initAndGetHostMessageHubManager());
+      initAndGetChreMessageHubManager(), initAndGetHostMessageHubManager(),
+      initAndGetDataFlowManager());
 }
 
 void deinitCommon() {
@@ -270,6 +305,7 @@ void deinitCommon() {
   deinitWwanRequestManager();
   deinitChreMessageHubManager();
   deinitHostMessageHubManager();
+  deinitDataFlowManager();
 
   // The event loop manager must be deinitialized after other managers to avoid
   // issues in case manager destructors reference the singleton.

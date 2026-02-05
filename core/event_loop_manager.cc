@@ -201,6 +201,10 @@ void EventLoopManager::lateInit() {
 #ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
   mChreMessageHubManager->init();
 #endif  // CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
+
+#ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
+  mDataFlowManager->init();
+#endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
 }
 
 bool EventLoopManager::postEventToLoop(EventLoop &loop, Event *event,

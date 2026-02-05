@@ -11,6 +11,7 @@ COMMON_CFLAGS += -I$(CHRE_PREFIX)/core/include
 
 COMMON_SRCS += $(CHRE_PREFIX)/core/chre_message_hub_manager.cc
 COMMON_SRCS += $(CHRE_PREFIX)/core/debug_dump_manager.cc
+COMMON_SRCS += $(CHRE_PREFIX)/core/data_flow_manager.cc
 COMMON_SRCS += $(CHRE_PREFIX)/core/event.cc
 COMMON_SRCS += $(CHRE_PREFIX)/core/event_loop.cc
 COMMON_SRCS += $(CHRE_PREFIX)/core/multi_threading_api_mutex.cc
