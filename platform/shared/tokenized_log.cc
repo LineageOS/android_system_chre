@@ -15,7 +15,9 @@
  */
 
 #include "chre/platform/shared/nanoapp/tokenized_log.h"
+#include "chre/core/event_loop.h"
 #include "chre/core/event_loop_manager.h"
+#include "chre/platform/context.h"
 #include "chre/platform/log.h"
 #include "chre/platform/shared/log_buffer_manager.h"
 #include "chre_api/chre/re.h"
@@ -32,11 +34,9 @@ void platform_chrePwTokenizedLog(enum chreLogLevel level, uint32_t token,
       encodedMessage(token, types, args);
   va_end(args);
 
+  chre::Nanoapp *nanoapp =
+      chre::EventLoopManager::validateChreApiCall(__func__);
   chre::LogBufferManagerSingleton::get()->logNanoappTokenized(
-      level,
-      chre::EventLoopManagerSingleton::get()
-          ->getEventLoop()
-          .getCurrentNanoapp()
-          ->getInstanceId(),
-      encodedMessage.data_as_uint8(), encodedMessage.size());
+      level, nanoapp->getInstanceId(), encodedMessage.data_as_uint8(),
+      encodedMessage.size());
 }
