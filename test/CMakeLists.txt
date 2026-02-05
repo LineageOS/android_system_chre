@@ -1,3 +1,10 @@
+include(backend.cmake)
+
+pw_add_facade(chre.test.extension INTERFACE
+  BACKEND
+    chre.test.extension_BACKEND
+)
+
 pw_add_library(chre.test.unit_test STATIC
   HEADERS
     integration/location/lbs/contexthub/test_suite/chre_unit_test.h
@@ -11,8 +18,6 @@ pw_add_library(chre.test.unit_test STATIC
     integration/location/lbs/contexthub/test_suite/chre_fake_api/chre_api_sensor_fake.h
     integration/location/lbs/contexthub/test_suite/chre_fake_api/chre_api_wifi_fake.h
     integration/location/lbs/contexthub/test_suite/chre_fake_api/chre_api_wwan_fake.h
-    integration/location/lbs/contexthub/test_suite/chre_fake_api/chrex_api_fake_detector.h
-    integration/location/lbs/contexthub/test_suite/chre_fake_api/chrex_api_fake_provider.h
     integration/location/lbs/contexthub/test_suite/chre_fake_api/helpers/audio_helpers.h
     integration/location/lbs/contexthub/test_suite/chre_fake_api/helpers/ble_helpers.h
     integration/location/lbs/contexthub/test_suite/chre_fake_api/helpers/event_helpers.h
@@ -48,6 +53,7 @@ pw_add_library(chre.test.unit_test STATIC
     chre.core
     chre.platform.linux.thread_context
     chre.platform.shared.init
+    chre.test.extension
     pw_unit_test.googletest
   PRIVATE_DEPS
     chre.platform.assert
