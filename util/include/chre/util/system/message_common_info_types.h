@@ -29,14 +29,14 @@ namespace chre::message {
 struct EndpointInfo {
   static constexpr size_t kMaxNameLength = 50;
 
-  EndpointInfo(EndpointId id, const char *name, uint32_t version,
-               EndpointType type, uint32_t requiredPermissions)
-      : id(id),
-        version(version),
-        type(type),
-        requiredPermissions(requiredPermissions) {
-    if (name != nullptr) {
-      std::strncpy(this->name, name, kMaxNameLength);
+  EndpointInfo(EndpointId initId, const char *initName, uint32_t initVersion,
+               EndpointType initType, uint32_t initRequiredPermissions)
+      : id(initId),
+        version(initVersion),
+        type(initType),
+        requiredPermissions(initRequiredPermissions) {
+    if (initName != nullptr) {
+      std::strncpy(this->name, initName, kMaxNameLength);
     } else {
       this->name[0] = '\0';
     }
@@ -62,12 +62,12 @@ struct EndpointInfo {
 
 //! Represents information about a service provided by an endpoint.
 struct ServiceInfo {
-  ServiceInfo(const char *serviceDescriptor, uint32_t majorVersion,
-              uint32_t minorVersion, RpcFormat format)
-      : serviceDescriptor(serviceDescriptor),
-        majorVersion(majorVersion),
-        minorVersion(minorVersion),
-        format(format) {}
+  ServiceInfo(const char *initServiceDescriptor, uint32_t initMajorVersion,
+              uint32_t initMinorVersion, RpcFormat initFormat)
+      : serviceDescriptor(initServiceDescriptor),
+        majorVersion(initMajorVersion),
+        minorVersion(initMinorVersion),
+        format(initFormat) {}
 
   bool operator==(const ServiceInfo &other) const {
     if (majorVersion != other.majorVersion ||

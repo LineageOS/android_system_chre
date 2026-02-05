@@ -23,6 +23,8 @@
 #include "chre_host/log.h"
 #include "chre_host/log_message_parser.h"
 #include "chre_host/st_hal_lpma_handler.h"
+#include "bluetooth_socket_offload_link.h"
+#include "bluetooth_socket_offload_link_callback.h"
 
 #include <unistd.h>
 #include <cassert>
@@ -41,10 +43,12 @@ using namespace ::android::hardware::contexthub::common::implementation;
 using ::android::base::ScopedLockAssertion;
 using ::android::chre::HostProtocolHost;
 using ::android::chre::StHalLpmaHandler;
+using ::aidl::android::hardware::bluetooth::socket::impl::BluetoothSocketOffloadLink;
+using ::aidl::android::hardware::bluetooth::socket::impl::BluetoothSocketOffloadLinkCallback;
 
 /** A class handling message transmission between context hub HAL and CHRE. */
 // TODO(b/267188769): We should add comments explaining how IPI works.
-class TinysysChreConnection : public ChreConnection {
+class TinysysChreConnection : public ChreConnection, public BluetoothSocketOffloadLink {
  public:
   explicit TinysysChreConnection(ChreConnectionCallback *callback)
       : mCallback(callback), mLpmaHandler(/* allowed= */ true) {
@@ -101,6 +105,19 @@ class TinysysChreConnection : public ChreConnection {
     mChrePulseCondition.notify_all();
   }
 
+  // Implementation of the BluetoothSocketOffloadLink interface:
+  bool initOffloadLink() override {
+    return true;
+  }
+
+  bool sendMessageToOffloadStack(void *data, size_t size) override {
+    return sendMessage(data, size);
+  }
+
+  void setBluetoothSocketCallback(
+      BluetoothSocketOffloadLinkCallback *btSocketCallback) override {
+    mBtSocketCallback = btSocketCallback;
+  }
  private:
   // The wakelock used to keep device awake while handleUsfMsgAsync() is being
   // called.
@@ -244,6 +261,8 @@ class TinysysChreConnection : public ChreConnection {
   std::condition_variable mChrePulseCondition;
   // set to true after CHRE recovers from a restart.
   bool mIsChreBackOnline GUARDED_BY(mChrePulseMutex) = false;
+
+  BluetoothSocketOffloadLinkCallback *mBtSocketCallback = nullptr;
 };
 }  // namespace aidl::android::hardware::contexthub
 

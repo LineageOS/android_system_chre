@@ -99,7 +99,6 @@ DataFlowEpollWaiter::~DataFlowEpollWaiter() {
     // should never happen, so we will crash here.
     LOG_ALWAYS_FATAL("Failed to write to DataFlowEpollWaiter haltFd: %s",
                      strerror(errno));
-    return;
   }
   // Join the epoll thread.
   if (mEpollThread.joinable()) {
@@ -207,7 +206,50 @@ void DataFlowEpollWaiter::epollWaitLoop() {
         return;
       }
     }
-    // TODO(b/480216336): Process other epoll events.
+    // Process all of the remaining events.
+    for (auto i = 0; i < rv; ++i) {
+      if (events[i].data.fd == mHaltFd.get()) {
+        LOG_ALWAYS_FATAL("Didn't catch DataFlowEpollWaiter halt in pre-check");
+      }
+      processEvent(events[i].data.fd);
+    }
+  }
+}
+
+void DataFlowEpollWaiter::processEvent(int fd) {
+  DataFlowId dataFlowId;
+  EndpointId endpointId;
+  bool isHalAck = false;
+  uint64_t wakeCount = 0;
+  bool isWaking = false;
+  {
+    std::lock_guard lock(mLock);
+    auto it = mFdToTrigger.find(fd);
+    if (it == mFdToTrigger.end()) {
+      ALOGE("DataFlowEpollWaiter epoll_wait() found unknown fd: %d", fd);
+      return;
+    }
+    Trigger &trigger = *it->second;
+    dataFlowId = trigger.dataFlowId;
+    endpointId = trigger.endpointId;
+    isHalAck = trigger.alertFds.halAck.get() == fd;
+    if (isHalAck) {
+      ssize_t bytesRead =
+          TEMP_FAILURE_RETRY(read(fd, &wakeCount, sizeof(wakeCount)));
+      if (bytesRead != sizeof(wakeCount)) {
+        ALOGE("Failed to read DataFlowEpollWaiter halAck fd: %s",
+              strerror(errno));
+        return;
+      }
+    } else {
+      isWaking = fd == trigger.alertFds.waking.get();
+    }
+  }
+  // Deliver the event outside of the lock.
+  if (isHalAck) {
+    mCallback.onWakingAck(dataFlowId, endpointId, wakeCount);
+  } else {
+    mCallback.onAlert(dataFlowId, endpointId, isWaking);
   }
 }
 

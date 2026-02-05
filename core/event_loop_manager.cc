@@ -169,6 +169,10 @@ bool EventLoopManager::postEvent(uint16_t eventType, void *eventData,
   return true;
 }
 
+bool EventLoopManager::isEventPending() {
+  return !mEventPool.empty();
+}
+
 void EventLoopManager::lateInit() {
 #ifdef CHRE_SENSORS_SUPPORT_ENABLED
   mSensorRequestManager.init();
