@@ -26,6 +26,7 @@ cc_library_static {
     ],
     export_include_dirs: [
         "chre_fake_api",
+        "chre_fake_api/chrex_fake_api_default",
         "chre_fake_api/helpers",
     ],
     header_libs: [
