@@ -245,6 +245,7 @@ COMMON_CFLAGS += -I$(PIGWEED_DIR)/pw_bytes/public
 COMMON_CFLAGS += -I$(PIGWEED_DIR)/pw_containers/public
 COMMON_CFLAGS += -I$(PIGWEED_DIR)/pw_function/public
 COMMON_CFLAGS += -I$(PIGWEED_DIR)/pw_log/public
+COMMON_CFLAGS += -I$(PIGWEED_DIR)/pw_memory/public
 COMMON_CFLAGS += -I$(PIGWEED_DIR)/pw_polyfill/public
 COMMON_CFLAGS += -I$(PIGWEED_DIR)/pw_polyfill/public_overrides
 COMMON_CFLAGS += -I$(PIGWEED_DIR)/pw_polyfill/standard_library_public

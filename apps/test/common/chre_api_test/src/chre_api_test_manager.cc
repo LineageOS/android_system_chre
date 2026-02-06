@@ -132,6 +132,24 @@ pw::Status ChreApiTestService::ChreBleGetFilterCapabilities(
              : pw::Status::InvalidArgument();
 }
 
+pw::Status ChreApiTestService::ChreWifiGetCapabilities(
+    const google_protobuf_Empty &request, chre_rpc_Capabilities &response) {
+  ChreApiTestManagerSingleton::get()->setPermissionForNextMessage(
+      CHRE_MESSAGE_PERMISSION_NONE);
+  return validateInputAndCallChreWifiGetCapabilities(request, response)
+             ? pw::OkStatus()
+             : pw::Status::InvalidArgument();
+}
+
+pw::Status ChreApiTestService::ChreWwanGetCapabilities(
+    const google_protobuf_Empty &request, chre_rpc_Capabilities &response) {
+  ChreApiTestManagerSingleton::get()->setPermissionForNextMessage(
+      CHRE_MESSAGE_PERMISSION_NONE);
+  return validateInputAndCallChreWwanGetCapabilities(request, response)
+             ? pw::OkStatus()
+             : pw::Status::InvalidArgument();
+}
+
 pw::Status ChreApiTestService::ChreSensorFindDefault(
     const chre_rpc_ChreSensorFindDefaultInput &request,
     chre_rpc_ChreSensorFindDefaultOutput &response) {
@@ -568,12 +586,13 @@ bool ChreApiTestService::handleChreAudioDataEvent(
   uint32_t numSamplesToSend = MIN(maxSamplesPerMessage, totalSamples);
   uint32_t sampleIdx = 0;
   for (int id = 0; numSamplesToSend > 0; id++) {
-    gGeneralEventsMessage.data.chreAudioDataSamples.id = id;
+    gGeneralEventsMessage.data.chreAudioDataSamples.id =
+        static_cast<uint32_t>(id);
 
     // assign data
     if (data->format == CHRE_AUDIO_DATA_FORMAT_8_BIT_U_LAW) {
       gGeneralEventsMessage.data.chreAudioDataSamples.samples.size =
-          numSamplesToSend;
+          static_cast<pb_size_t>(numSamplesToSend);
       std::memcpy(gGeneralEventsMessage.data.chreAudioDataSamples.samples.bytes,
                   &data->samplesULaw8[sampleIdx], numSamplesToSend);
 
@@ -583,7 +602,7 @@ bool ChreApiTestService::handleChreAudioDataEvent(
     } else if (data->format == CHRE_AUDIO_DATA_FORMAT_16_BIT_SIGNED_PCM) {
       // send double the bytes since each sample is 2B
       gGeneralEventsMessage.data.chreAudioDataSamples.samples.size =
-          numSamplesToSend * 2;
+          static_cast<pb_size_t>(numSamplesToSend * 2);
       std::memcpy(gGeneralEventsMessage.data.chreAudioDataSamples.samples.bytes,
                   &data->samplesS16[sampleIdx], numSamplesToSend * 2);
 
@@ -685,7 +704,7 @@ void ChreApiTestService::handleGatheringEvent(uint16_t eventType,
       uint32_t numReadings =
           MIN(data->header.readingCount, kThreeAxisDataReadingsMaxCount);
       gGeneralEventsMessage.data.chreSensorThreeAxisData.readings_count =
-          numReadings;
+          static_cast<pb_size_t>(numReadings);
       for (uint32_t i = 0; i < numReadings; ++i) {
         gGeneralEventsMessage.data.chreSensorThreeAxisData.readings[i]
             .timestampDelta = data->readings[i].timestampDelta;
@@ -737,7 +756,7 @@ void ChreApiTestService::handleGatheringEvent(uint16_t eventType,
       uint32_t numReports =
           MIN(kChreBleAdvertisementReportMaxCount, data->numReports);
       gGeneralEventsMessage.data.chreBleAdvertisementEvent.reports_count =
-          numReports;
+          static_cast<pb_size_t>(numReports);
       for (uint32_t i = 0; i < numReports; ++i) {
         gGeneralEventsMessage.data.chreBleAdvertisementEvent.reports[i]
             .timestamp = data->reports[i].timestamp;

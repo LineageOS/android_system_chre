@@ -1305,6 +1305,7 @@ cc_defaults {
     cflags: [
         "-DCHRE_BLE_SOCKET_SUPPORT_ENABLED",
         "-DCHRE_MESSAGE_ROUTER_SUPPORT_ENABLED",
+        "-DCHRE_DATA_FLOW_SUPPORT_ENABLED",
     ],
     defaults: [
         "chre_linux_common_cflags",

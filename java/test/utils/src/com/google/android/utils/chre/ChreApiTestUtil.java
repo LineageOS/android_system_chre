@@ -17,6 +17,7 @@
 package com.google.android.utils.chre;
 
 import android.content.Context;
+import android.util.Log;
 
 import androidx.annotation.NonNull;
 
@@ -201,7 +202,7 @@ public class ChreApiTestUtil {
             List<ResponseType> callConcurrentUnaryRpcMethodSync(
                     @NonNull List<ChreRpcClient> rpcClients,
                     @NonNull String method,
-                    @NonNull List<RequestType> requests) throws Exception {
+            @NonNull List<RequestType> requests) {
         Objects.requireNonNull(rpcClients);
         Objects.requireNonNull(method);
         Objects.requireNonNull(requests);
@@ -230,6 +231,7 @@ public class ChreApiTestUtil {
                                 TimeUnit.MILLISECONDS);
                 responses.add(responseResult.response());
             } catch (Exception exception) {
+                Log.e("ChreApiTestUtil", "Failed to get a response result: ", exception);
                 success = false;
             }
         }
@@ -253,7 +255,7 @@ public class ChreApiTestUtil {
             List<ResponseType> callConcurrentUnaryRpcMethodSync(
                     @NonNull List<ChreRpcClient> rpcClients,
                     @NonNull String method,
-                    @NonNull RequestType request) throws Exception {
+            @NonNull RequestType request) {
         Objects.requireNonNull(rpcClients);
         Objects.requireNonNull(method);
         Objects.requireNonNull(request);
@@ -280,14 +282,14 @@ public class ChreApiTestUtil {
             callUnaryRpcMethodSync(
                     @NonNull ChreRpcClient rpcClient,
                     @NonNull String method,
-                    @NonNull RequestType request) throws Exception {
+            @NonNull RequestType request) {
         Objects.requireNonNull(rpcClient);
         Objects.requireNonNull(method);
         Objects.requireNonNull(request);
 
-        List<ResponseType> responses = callConcurrentUnaryRpcMethodSync(Arrays.asList(rpcClient),
+        List<ResponseType> responses = callConcurrentUnaryRpcMethodSync(List.of(rpcClient),
                 method, request);
-        return responses == null || responses.isEmpty() ? null : responses.get(0);
+        return responses == null || responses.isEmpty() ? null : responses.getFirst();
     }
 
     /**
@@ -300,8 +302,7 @@ public class ChreApiTestUtil {
      * @return                the proto response or null if there was an error.
      */
     public static <ResponseType extends MessageLite> ResponseType
-            callUnaryRpcMethodSync(@NonNull ChreRpcClient rpcClient, @NonNull String method)
-            throws Exception {
+               callUnaryRpcMethodSync(@NonNull ChreRpcClient rpcClient, @NonNull String method) {
         Objects.requireNonNull(rpcClient);
         Objects.requireNonNull(method);
 
@@ -483,6 +484,14 @@ public class ChreApiTestUtil {
                         ChreApiTest.Capabilities.parser()),
                 Service.unaryMethod(
                         "ChreBleGetFilterCapabilities",
+                        Empty.parser(),
+                        ChreApiTest.Capabilities.parser()),
+                Service.unaryMethod(
+                        "ChreWifiGetCapabilities",
+                        Empty.parser(),
+                        ChreApiTest.Capabilities.parser()),
+                Service.unaryMethod(
+                        "ChreWwanGetCapabilities",
                         Empty.parser(),
                         ChreApiTest.Capabilities.parser()),
                 Service.serverStreamingMethod(

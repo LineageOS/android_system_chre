@@ -252,6 +252,20 @@ class MessageRouter {
                                           EndpointId endpointId,
                                           bool isRegistered);
 
+  //! Registers a data flow sink.
+  //! @return true if the sink was registered, false otherwise.
+  bool registerDataFlowSink(const DataFlowSinkRegistration &registration);
+
+  //! Reports that a data flow sink has been unregistered.
+  void reportDataFlowSinkUnregistered(
+      const DataFlowSinkUnregistration &unregistration);
+
+  //! Reports that a data flow has stopped.
+  void reportDataFlowStopped(const DataFlowStopped &stopped);
+
+  //! Reports a data flow alert.
+  void reportDataFlowAlert(const DataFlowAlert &alert);
+
   //! @return The a copy of the list of MessageHubRecords
   std::optional<DynamicVector<MessageHubRecord>> getMessageHubRecords();
 

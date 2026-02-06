@@ -225,9 +225,10 @@ bool Manager::validateAudioDataEvent(const chreAudioDataEvent *data) {
   } else if (data->sampleCount == 0) {
     LOGE("The sample count is 0");
   } else if (data->sampleCount <
-             static_cast<uint64_t>(mAudioSource.minBufferDuration *
-                                   static_cast<double>(data->sampleRate) /
-                                   kOneSecondInNanoseconds)) {
+             static_cast<uint64_t>(
+                 static_cast<double>(mAudioSource.minBufferDuration) *
+                 static_cast<double>(data->sampleRate) /
+                 kOneSecondInNanoseconds)) {
     LOGE("The sample count is less than the minimum number of samples");
   } else if (!checkAudioSamplesAllZeros(data->samplesS16, data->sampleCount)) {
     LOGE("Audio samples are all zero");
@@ -246,7 +247,7 @@ bool Manager::validateAudioDataEvent(const chreAudioDataEvent *data) {
     if (mLastAudioBufferEndTimestampNs.has_value() &&
         data->timestamp > *mLastAudioBufferEndTimestampNs) {
       uint64_t gapNs = data->timestamp - *mLastAudioBufferEndTimestampNs;
-      if (gapNs > kMaxMissedSamples * sampleTimeInNs &&
+      if (static_cast<double>(gapNs) > kMaxMissedSamples * sampleTimeInNs &&
           !mSawSuspendAudioEvent) {
         LOGE(
             "Audio was suspended, but we did not receive a "
@@ -258,7 +259,8 @@ bool Manager::validateAudioDataEvent(const chreAudioDataEvent *data) {
 
     // Record last audio timestamp at end of buffer
     mLastAudioBufferEndTimestampNs =
-        data->timestamp + data->sampleCount * sampleTimeInNs;
+        data->timestamp +
+        static_cast<uint64_t>(data->sampleCount * sampleTimeInNs);
 
     success = timestampValid && (!mVerifyAudioGaps || gapValidationValid);
   }

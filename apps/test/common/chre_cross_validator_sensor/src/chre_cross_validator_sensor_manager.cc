@@ -217,8 +217,10 @@ bool Manager::encodeThreeAxisSensorDatapoints(pb_ostream_t *stream,
                                               void *const *arg) {
   const auto *sensorThreeAxisData =
       static_cast<const chreSensorThreeAxisData *>(*arg);
-  uint64_t currentTimestamp = sensorThreeAxisData->header.baseTimestamp +
-                              chreGetEstimatedHostTimeOffset();
+  uint64_t currentTimestamp =
+      sensorThreeAxisData->header.baseTimestamp +
+      static_cast<uint64_t>(chreGetEstimatedHostTimeOffset());
+  ;
   for (size_t i = 0; i < sensorThreeAxisData->header.readingCount; i++) {
     const chreSensorThreeAxisData::chreSensorThreeAxisSampleData &sampleData =
         sensorThreeAxisData->readings[i];
@@ -245,7 +247,8 @@ bool Manager::encodeFloatSensorDatapoints(pb_ostream_t *stream,
                                           void *const *arg) {
   const auto *sensorFloatData = static_cast<const chreSensorFloatData *>(*arg);
   uint64_t currentTimestamp =
-      sensorFloatData->header.baseTimestamp + chreGetEstimatedHostTimeOffset();
+      sensorFloatData->header.baseTimestamp +
+      static_cast<uint64_t>(chreGetEstimatedHostTimeOffset());
   for (size_t i = 0; i < sensorFloatData->header.readingCount; i++) {
     const chreSensorFloatData::chreSensorFloatSampleData &sampleData =
         sensorFloatData->readings[i];
@@ -272,8 +275,9 @@ bool Manager::encodeProximitySensorDatapoints(pb_ostream_t *stream,
                                               void *const *arg) {
   const auto *sensorProximityData =
       static_cast<const chreSensorByteData *>(*arg);
-  uint64_t currentTimestamp = sensorProximityData->header.baseTimestamp +
-                              chreGetEstimatedHostTimeOffset();
+  uint64_t currentTimestamp =
+      sensorProximityData->header.baseTimestamp +
+      static_cast<uint64_t>(chreGetEstimatedHostTimeOffset());
   for (size_t i = 0; i < sensorProximityData->header.readingCount; i++) {
     const chreSensorByteData::chreSensorByteSampleData &sampleData =
         sensorProximityData->readings[i];
@@ -300,8 +304,9 @@ bool Manager::encodeStepCounterSensorDatapoints(pb_ostream_t *stream,
                                                 void *const *arg) {
   const auto *sensorStepCounterData =
       static_cast<const chreSensorUint64Data *>(*arg);
-  uint64_t currentTimestamp = sensorStepCounterData->header.baseTimestamp +
-                              chreGetEstimatedHostTimeOffset();
+  uint64_t currentTimestamp =
+      sensorStepCounterData->header.baseTimestamp +
+      static_cast<uint64_t>(chreGetEstimatedHostTimeOffset());
   for (size_t i = 0; i < sensorStepCounterData->header.readingCount; i++) {
     const chreSensorUint64Data::chreSensorUint64SampleData &sampleData =
         sensorStepCounterData->readings[i];
@@ -325,7 +330,7 @@ bool Manager::encodeStepCounterSensorDatapoints(pb_ostream_t *stream,
 
 bool Manager::handleStartSensorMessage(
     const chre_cross_validation_sensor_StartSensorCommand &startSensorCommand) {
-  uint8_t sensorType = startSensorCommand.chreSensorType;
+  uint8_t sensorType = static_cast<uint8_t>(startSensorCommand.chreSensorType);
   uint64_t intervalFromApInNs =
       startSensorCommand.intervalInMs * kOneMillisecondInNanoseconds;
   uint64_t latencyInNs =
@@ -437,9 +442,10 @@ void Manager::handleInfoMessage(uint16_t hostEndpoint,
   infoResponse.isAvailable = false;
   infoResponse.has_sensorIndex = false;
 
-  bool supportsMultiSensors =
-      chreSensorFind(infoCommand.chreSensorType, 1, &handle);
-  for (uint8_t i = 0; chreSensorFind(infoCommand.chreSensorType, i, &handle);
+  bool supportsMultiSensors = chreSensorFind(
+      static_cast<uint8_t>(infoCommand.chreSensorType), 1, &handle);
+  for (uint8_t i = 0; chreSensorFind(
+           static_cast<uint8_t>(infoCommand.chreSensorType), i, &handle);
        i++) {
     struct chreSensorInfo info{};
     if (!chreGetSensorInfo(handle, &info)) {
@@ -652,7 +658,8 @@ bool Manager::getSensor(uint32_t sensorType, uint32_t sensorIndex,
   } else if (!supportsMultiSensor && sensorIndex != 0) {
     LOGW("CHRE API does not support multi-sensors");
   } else {
-    success = chreSensorFind(sensorType, sensorIndex, handle);
+    success = chreSensorFind(static_cast<uint8_t>(sensorType),
+                             static_cast<uint8_t>(sensorIndex), handle);
   }
 
   return success;

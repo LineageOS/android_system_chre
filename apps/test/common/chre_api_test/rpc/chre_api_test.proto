@@ -15,6 +15,12 @@ service ChreApiTestService {
   rpc ChreBleGetFilterCapabilities(google.protobuf.Empty)
       returns (Capabilities) {}
 
+  // Returns the WiFi capabilities.
+  rpc ChreWifiGetCapabilities(google.protobuf.Empty) returns (Capabilities) {}
+
+  // Returns the WWAN capabilities.
+  rpc ChreWwanGetCapabilities(google.protobuf.Empty) returns (Capabilities) {}
+
   // Finds the default sensor for the given sensor type.
   rpc ChreSensorFindDefault(ChreSensorFindDefaultInput)
       returns (ChreSensorFindDefaultOutput) {}

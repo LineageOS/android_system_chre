@@ -17,6 +17,7 @@
 #ifndef CHRE_UTIL_SYSTEM_MESSAGE_HUB_CALLBACK_V2_H_
 #define CHRE_UTIL_SYSTEM_MESSAGE_HUB_CALLBACK_V2_H_
 
+#include "chre/util/system/message_common.h"
 #include "chre/util/system/message_hub_callback.h"
 
 namespace chre::message {
@@ -24,11 +25,29 @@ namespace chre::message {
 //! The V2 callback used to register a MessageHub with the MessageRouter.
 //! This callback supports all existing functionality as well as notification
 //! APIs.
+//!
+//! @see chre::message::MessageHubCallback
 class MessageHubCallbackV2 : public MessageHubCallback {
  public:
   virtual ~MessageHubCallbackV2() = default;
 
-  // TODO(b/452707307): Add notification APIs.
+  //! Called when a data flow sink is registered.
+  //! @param registration The data flow sink registration information.
+  virtual void onDataFlowSinkRegistered(
+      const DataFlowSinkRegistration &registration) = 0;
+
+  //! Called when a data flow sink is unregistered.
+  //! @param unregistration The data flow sink unregistration information.
+  virtual void onDataFlowSinkUnregistered(
+      const DataFlowSinkUnregistration &unregistration) = 0;
+
+  //! Called when a data flow is stopped.
+  //! @param stopped The data flow stopped information.
+  virtual void onDataFlowStopped(const DataFlowStopped &stopped) = 0;
+
+  //! Called when a data flow alert is received.
+  //! @param alert The data flow alert information.
+  virtual void onDataFlowAlert(const DataFlowAlert &alert) = 0;
 };
 
 }  // namespace chre::message

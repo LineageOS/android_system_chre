@@ -89,6 +89,30 @@ bool MessageHub::unregisterEndpoint(EndpointId endpointId) {
   return mRouter != nullptr && mRouter->unregisterEndpoint(mHubId, endpointId);
 }
 
+bool MessageHub::registerDataFlowSink(
+    const DataFlowSinkRegistration &registration) {
+  return mRouter != nullptr && mRouter->registerDataFlowSink(registration);
+}
+
+void MessageHub::reportDataFlowSinkUnregistered(
+    const DataFlowSinkUnregistration &unregistration) {
+  if (mRouter != nullptr) {
+    mRouter->reportDataFlowSinkUnregistered(unregistration);
+  }
+}
+
+void MessageHub::reportDataFlowStopped(const DataFlowStopped &stopped) {
+  if (mRouter != nullptr) {
+    mRouter->reportDataFlowStopped(stopped);
+  }
+}
+
+void MessageHub::reportDataFlowAlert(const DataFlowAlert &alert) {
+  if (mRouter != nullptr) {
+    mRouter->reportDataFlowAlert(alert);
+  }
+}
+
 MessageHubId MessageHub::getId() {
   return mHubId;
 }
