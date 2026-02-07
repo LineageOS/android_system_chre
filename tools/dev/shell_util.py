@@ -23,24 +23,26 @@ import sys
 import time
 
 
-def check_dependencies(required_programs: list[str]):
+def check_dependencies(program_to_package: dict[str, str]):
   """Checks if all required command-line tools are installed.
 
   If a tool is missing, it prompts the user to install them.
   """
-  missing_programs = []
-
-  for program in required_programs:
-    if shutil.which(program) is None:
-      missing_programs.append(program)
+  missing_programs = [
+      p for p in program_to_package if shutil.which(p) is None
+  ]
 
   if missing_programs:
+    missing_packages = sorted(
+        {program_to_package[p] for p in missing_programs}
+    )
+
     log_i(
         "\nSome required packages are missing but can be installed by running"
         " the following command(s):\n"
     )
-    for program in missing_programs:
-      log_i(f"  sudo apt install {program}")
+    for package in missing_packages:
+      log_w(f"  sudo apt install {package}")
 
     answer = get_input_from_shell(
         "\nShall we install them for you? (Y/n): "
@@ -49,16 +51,16 @@ def check_dependencies(required_programs: list[str]):
       log_e("Please install them and/or add them to your PATH")
       sys.exit(1)
 
-    for program in missing_programs:
+    for package in missing_packages:
       try:
-        log_i(f"Installing {program}...")
-        result = subprocess.run(
-            ["sudo", "apt", "install", "-y", program],
+        log_i(f"Installing {package}...")
+        subprocess.run(
+            ["sudo", "apt", "install", "-y", package],
             capture_output=True,
             text=True,
             check=True,
         )
-        log_i(f"Successfully installed {program}")
+        log_i(f"Successfully installed {package}")
       except FileNotFoundError:
         fatal_error(
             "Error: 'sudo' or 'apt' command not found. Please ensure they are"
@@ -66,16 +68,15 @@ def check_dependencies(required_programs: list[str]):
         )
         sys.exit(1)
       except subprocess.CalledProcessError as e:
-        log_e(f"Failed to install {program}.")
+        log_e(f"Failed to install {package}.")
         log_e(f"Stderr: {e.stderr}")
         log_e("\nPlease install it manually and try again.")
         sys.exit(1)
 
   # Final check to be sure.
-  missing_programs = []
-  for program in required_programs:
-    if shutil.which(program) is None:
-      missing_programs.append(program)
+  missing_programs = [
+      p for p in program_to_package if shutil.which(p) is None
+  ]
 
   if missing_programs:
     log_e("Even after installation, the following programs are not found:")

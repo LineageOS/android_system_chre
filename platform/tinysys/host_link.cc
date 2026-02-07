@@ -956,12 +956,18 @@ DRAM_REGION_FUNCTION void HostLinkBase::sendNanoappTokenDatabaseInfo(
   auto msgBuilder = [](ChreFlatBufferBuilder &builder, void *cookie) {
     auto *args = static_cast<DatabaseInfoArgs *>(cookie);
     uint16_t instanceId;
-    EventLoopManagerSingleton::get()
-        ->getEventLoop()
-        .findNanoappInstanceIdByAppId(args->appId, &instanceId);
-    HostProtocolChre::encodeNanoappTokenDatabaseInfo(
-        builder, instanceId, args->appId, args->tokenDatabaseOffset,
-        args->tokenDatabaseSize);
+    EventLoop *eventLoop =
+        EventLoopManagerSingleton::get()->getEventLoopByAppId(args->appId);
+    if (eventLoop == nullptr) {
+      LOGE("Could not find event loop for app ID 0x%" PRIx64, args->appId);
+    } else if (!eventLoop->findNanoappInstanceIdByAppId(args->appId,
+                                                        &instanceId)) {
+      LOGE("Could not find instance ID for app ID 0x%" PRIx64, args->appId);
+    } else {
+      HostProtocolChre::encodeNanoappTokenDatabaseInfo(
+          builder, instanceId, args->appId, args->tokenDatabaseOffset,
+          args->tokenDatabaseSize);
+    }
   };
 
   buildAndEnqueueMessage(PendingMessageType::NanoappTokenDatabaseInfo,

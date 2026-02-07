@@ -193,7 +193,7 @@ void BleSocketManager::handlePlatformSocketEventSync(uint64_t socketId,
                                                      SocketEvent event) {
   PlatformBtSocket *btSocket = findPlatformBtSocket(socketId);
   if (btSocket == nullptr) {
-    LOGW("Received event %" PRIu32
+    LOGW("Received event %" PRIu8
          " for disconnected/unknown BT socketId %" PRIu64,
          event, socketId);
     return;

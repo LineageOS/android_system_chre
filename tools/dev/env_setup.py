@@ -40,6 +40,15 @@ from typing import Any
 from shell_util import check_dependencies, fatal_error, get_input_from_shell, init_file, log_e, log_i, log_w
 
 
+_PROGRAM_TO_PACKAGE = {
+    "cmake": "cmake",
+    "llvm-strip": "llvm",
+    "protoc": "protobuf-compiler",
+    "pyenv": "pyenv",
+    "xxd": "xxd",
+}
+
+
 def _print_env_var_pair(env_var: str):
   env_name, env_value = re.match(r"(.*)=(.*)", env_var).groups()
   print(f"\033[32m{env_name}\033[0m = {env_value}", file=sys.stderr)
@@ -331,7 +340,7 @@ def _parse_env_variable_fields(env_vars, predefined_envs, interactive: bool):
 
 def main():
   """Parses command-line arguments and orchestrates the script's execution."""
-  check_dependencies(["cmake", "llvm-strip", "protoc", "pyenv", "xxd"])
+  check_dependencies(_PROGRAM_TO_PACKAGE)
   arg_parser = ArgumentParser(
       description="CHRE development environment setup",
   )
