@@ -30,26 +30,16 @@
 namespace chre {
 
 void DebugDumpManager::trigger() {
-  auto callback =
-      [](uint16_t /*type*/, void * /*data*/, void * /*extraData*/)
-          CHRE_REQUIRES(getMultiThreadingApiMutex()) {
-            DebugDumpManager &debugDumpManager =
-                EventLoopManagerSingleton::get()->getDebugDumpManager();
-            if (getCurrentEventLoop() !=
-                &EventLoopManagerSingleton::get()->getEventLoop()) {
-              LOGE("Debug dump trigger must initiate from the main event loop");
-            } else if (debugDumpManager.isCollectingNanoappDebugDumps()) {
-              LOGE("Cannot start debug dump while one is pending");
-            } else {
-              debugDumpManager.collectFrameworkDebugDumps();
-              debugDumpManager.sendFrameworkDebugDumps();
-              debugDumpManager.handleNanoappDebugDumpSync();
-            }
-          };
+  auto callback = [](uint16_t /*type*/, void * /*data*/, void * /*extraData*/)
+                      CHRE_REQUIRES(getMultiThreadingApiMutex()) {
+                        EventLoopManagerSingleton::get()
+                            ->getDebugDumpManager()
+                            .startFullDebugDumpCollection();
+                      };
 
   // Collect CHRE/nanoapp framework debug dumps.
   EventLoopManagerSingleton::get()->deferCallback(
-      SystemCallbackType::PerformDebugDump, nullptr /*data*/, callback);
+      SystemCallbackType::PerformFullDebugDump, nullptr /*data*/, callback);
 }
 
 void DebugDumpManager::appendNanoappLog(const Nanoapp &nanoapp,
@@ -59,7 +49,7 @@ void DebugDumpManager::appendNanoappLog(const Nanoapp &nanoapp,
   // Note this check isn't exact as it's possible that the nanoapp isn't
   // handling CHRE_EVENT_DEBUG_DUMP. This approximate check is used for its low
   // complexity as it doesn't introduce any real harms.
-  if (!mCollectingNanoappDebugDumps) {
+  if (!mCollectingDebugDumps) {
     LOGW("Nanoapp instance 0x%" PRIx16
          " logging debug data while not in an active debug dump session",
          instanceId);
@@ -77,12 +67,12 @@ void DebugDumpManager::appendNanoappLog(const Nanoapp &nanoapp,
 
 void DebugDumpManager::collectFrameworkDebugDumps() {
   auto *eventLoopManager = EventLoopManagerSingleton::get();
+  mDebugDump.print("--- CHRE Framework Debug Dump ---\n");
   mDebugDump.print("CHRE debug dump started @ ts=%" PRIu64
                    ", estimatedHostTimeOffset=%" PRId64 "\n",
                    SystemTime::getMonotonicTime().toRawNanoseconds(),
                    SystemTime::getEstimatedHostTimeOffset());
   eventLoopManager->getMemoryManager().logStateToBuffer(mDebugDump);
-  eventLoopManager->getEventLoop().logStateToBuffer(mDebugDump);
 #ifdef CHRE_SENSORS_SUPPORT_ENABLED
   eventLoopManager->getSensorRequestManager().logStateToBuffer(mDebugDump);
 #endif  // CHRE_SENSORS_SUPPORT_ENABLED
@@ -131,21 +121,23 @@ void DebugDumpManager::appendCapabilities() {
       EventLoopManagerSingleton::get()->getWwanCapabilitiesLocked());
 }
 
-void DebugDumpManager::sendFrameworkDebugDumps() {
-  for (size_t i = 0; i < mDebugDump.getBuffers().size(); i++) {
-    const auto &buff = mDebugDump.getBuffers()[i];
-    sendDebugDump(buff.get(), false /*complete*/);
+void DebugDumpManager::startFullDebugDumpCollection() {
+  if (getCurrentEventLoop() !=
+      &EventLoopManagerSingleton::get()->getEventLoop()) {
+    LOGE("Debug dump trigger must initiate from the main event loop");
+  } else if (mCollectingDebugDumps) {
+    LOGE("Cannot start debug dump while one is pending");
+  } else {
+    mCollectingDebugDumps = true;
+    collectFrameworkDebugDumps();
+    mDebugDump.print("--- End CHRE Framework Debug Dump ---\n");
+
+    mCurrentDebugDumpEventLoopIndex = 0;
+    handleEventLoopAndNanoappDebugDump();
   }
-
-  // Clear out buffers before nanoapp debug dumps to reduce peak memory usage.
-  mDebugDump.clear();
-
-  // Mark the beginning of nanoapp debug dumps
-  mDebugDump.print("\n\nNanoapp debug dumps:");
-  mCollectingNanoappDebugDumps = true;
 }
 
-void DebugDumpManager::sendNanoappDebugDumps() {
+void DebugDumpManager::sendDebugDumps() {
   // Avoid buffer underflow when mDebugDump failed to allocate buffers.
   size_t numBuffers = mDebugDump.getBuffers().size();
   if (numBuffers > 0) {
@@ -162,30 +154,39 @@ void DebugDumpManager::sendNanoappDebugDumps() {
   // Clear current session debug dumps and release memory.
   mDebugDump.clear();
   mLastNanoappId.reset();
-  mCollectingNanoappDebugDumps = false;
+  mCollectingDebugDumps = false;
 }
 
-void DebugDumpManager::handleNanoappDebugDumpSync() {
-  auto nappCallback =
-      [](uint16_t /*type*/, void * /*data*/, void * /*extraData*/)
-          CHRE_REQUIRES(getMultiThreadingApiMutex()) {
-            EventLoopManagerSingleton::get()
-                ->getDebugDumpManager()
-                .handleNanoappDebugDumpSync();
-          };
-
+void DebugDumpManager::handleEventLoopAndNanoappDebugDump() {
   EventLoop *eventLoop = getCurrentEventLoop();
   CHRE_ASSERT(eventLoop != nullptr);
+
+  mDebugDump.print(kEventLoopDebugDumpFormatString,
+                   mCurrentDebugDumpEventLoopIndex);
+  eventLoop->logStateToBuffer(mDebugDump);
+
+  mDebugDump.print("\n--- Nanoapps on Event Loop %" PRIu32 " ---",
+                   mCurrentDebugDumpEventLoopIndex);
+  mLastNanoappId.reset();
   eventLoop->distributeEventSync(CHRE_EVENT_DEBUG_DUMP, nullptr /*eventData*/);
 
   EventLoop *nextEventLoop =
       EventLoopManagerSingleton::get()->getNextEventLoop(eventLoop);
   if (nextEventLoop != nullptr) {
+    mCurrentDebugDumpEventLoopIndex++;
+    auto callback =
+        [](uint16_t /*type*/, void * /* data */, void * /*extraData*/)
+            CHRE_REQUIRES(getMultiThreadingApiMutex()) {
+              EventLoopManagerSingleton::get()
+                  ->getDebugDumpManager()
+                  .handleEventLoopAndNanoappDebugDump();
+            };
     EventLoopManagerSingleton::get()->deferCallback(
-        SystemCallbackType::PerformNanoappDebugDump, nullptr /*data*/,
-        nappCallback, /* extraData= */ nullptr, nextEventLoop);
+        SystemCallbackType::PerformEventLoopAndNanoappDebugDump,
+        /*data=*/nullptr, callback, nullptr /* extraData */, nextEventLoop);
   } else {  // we are done iterating through all event loops
-    sendNanoappDebugDumps();
+    sendDebugDumps();
+    mCurrentDebugDumpEventLoopIndex = 0;
   }
 }
 

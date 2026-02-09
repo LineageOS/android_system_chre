@@ -39,7 +39,7 @@ enum class SystemCallbackType : uint16_t {
   HandleUnloadNanoapp,
   GnssSessionStatusChange,
   SensorStatusUpdate,
-  PerformDebugDump,
+  PerformFullDebugDump,
   TimerPoolTick,
   AudioHandleDataEvent,
   WifiHandleRangingEvent,
@@ -90,7 +90,7 @@ enum class SystemCallbackType : uint16_t {
   BleSocketClosed,
   SensorOneShotEvent,
   NanoappSendEventFreeCallback,
-  PerformNanoappDebugDump,
+  PerformEventLoopAndNanoappDebugDump,
 };
 
 //! Deferred/delayed callbacks use the event subsystem but are invariably sent
