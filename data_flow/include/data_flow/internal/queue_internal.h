@@ -17,12 +17,12 @@
 #pragma once
 
 #include <array>
-#include <atomic>
 #include <cstddef>
 #include <cstdint>
 
 #include <aidl/android/hardware/contexthub/SharedDataRegion.h>
 
+#include "chre/platform/atomic_ref.h"
 #include "data_flow/queue_defs.h"
 #include "pw_allocator/allocator.h"
 #include "pw_allocator/layout.h"
@@ -35,6 +35,10 @@
 
 namespace android::contexthub::data_flow {
 
+// This feature requires lock-free 32-bit atomic load/store operations to work
+// across core clusters.
+static_assert(chre::AtomicUint32Ref::is_always_lock_free());
+
 // Forward declarations.
 class ConsumerManager;
 class ConsumerPolicyBuilder;
@@ -42,12 +46,6 @@ class DataNotifier;
 class MemoryAccess;
 
 namespace internal {
-
-// TODO(b/444261568): Replace std::atomic_ref<uint32_t> with an equivalent based
-// on chre::AtomicUint32 to allow for platforms that don't have <atomic>
-// support. This will require a way to report something like is_always_lock_free
-// for a given platform's implementation.
-static_assert(std::atomic<uint32_t>::is_always_lock_free);
 
 // The following types are aliases of the shared memory ABI types defined in the
 // ContextHub HAL AIDL. Note that in the interface, the names are mapped in the
@@ -905,8 +903,8 @@ void ProducerBase::forAllConsumers(uint16_t excludeMask, const Fn &fn,
   for (auto node = mQueue->consumerList.begin();
        node != mQueue->consumerList.end();) {
     auto *desc = node->desc;
-    auto consumerFlags = std::atomic_ref(desc->sinkFlags).load();
-    auto producerFlags = std::atomic_ref(desc->sourceFlags).load();
+    auto consumerFlags = chre::AtomicUint32Ref(desc->sinkFlags).load();
+    auto producerFlags = chre::AtomicUint32Ref(desc->sourceFlags).load();
     if (static_cast<uint16_t>(consumerFlags) ==
         static_cast<uint16_t>(internal::ConsumerFlags::kFinished)) {
       eraseConsumerNode(node);  // Moves node forward.
