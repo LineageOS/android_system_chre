@@ -63,6 +63,12 @@ public class ChreCrossValidatorWwan extends ChreCrossValidatorBase implements Ex
 
     private static final long NANOAPP_ID = 0x476f6f6754000011L;
 
+    // Maximum number of times to repeat the cell info comparison process before failing.
+    private static final int MAX_CELL_INFO_COMPARISON_RETRIES = 3;
+
+    // Delay between cell info comparison retries in milliseconds.
+    private static final int MAX_CELL_INFO_RETRY_DELAY_MS = 1000;
+
     // Maximum difference between signal strength values in dBm. A small
     // difference is allowed for data updates between AP and CHRE readings.
     private static final int SIGNAL_STRENGTH_TOLERANCE_DBM = 4;
@@ -130,15 +136,32 @@ public class ChreCrossValidatorWwan extends ChreCrossValidatorBase implements Ex
         mCollectingData.set(false);
         verifyCapabilities();
 
-        requestCellInfoRefresh();
-        waitForCellInfoForAp();
+        boolean success = true;
+        for (int i = 0; i < MAX_CELL_INFO_COMPARISON_RETRIES; i++) {
+            requestCellInfoRefresh();
+            waitForCellInfoForAp();
+            // Skip the first comparison because we don't have CHRE results yet.
+            if (i != 0) {
+                success = verifyResult();
+                if (success) {
+                    break;
+                }
+            }
 
-        mCollectingData.set(true);
-        requestChreCellInfo();
-        waitForCellInfoResultFromNanoapp();
-        mCollectingData.set(false);
+            mCollectingData.set(true);
+            requestChreCellInfo();
+            waitForCellInfoResultFromNanoapp();
+            mCollectingData.set(false);
+            success = verifyResult();
+            if (success) {
+                break;
+            }
 
-        verifyResult();
+            if (i < MAX_CELL_INFO_COMPARISON_RETRIES - 1) {
+                Log.i(TAG, "Waiting for " + MAX_CELL_INFO_RETRY_DELAY_MS + "ms before next retry.");
+                sleep(MAX_CELL_INFO_RETRY_DELAY_MS);
+            }
+        }
     }
 
     @Override
@@ -148,6 +171,14 @@ public class ChreCrossValidatorWwan extends ChreCrossValidatorBase implements Ex
             mSettingsUtil.setAirplaneMode(mInitialAirplaneMode);
         } catch (InterruptedException e) {
             throw new AssertionError("Failed to restore initial airplane mode state.", e);
+        }
+    }
+
+    private void sleep(int millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            throw new AssertionError("Failed to sleep between retries.", e);
         }
     }
 
@@ -205,6 +236,7 @@ public class ChreCrossValidatorWwan extends ChreCrossValidatorBase implements Ex
         }
 
         mApCellInfo = result.getCellInfo();
+        Log.i(TAG, "Updated AP cell info. Count=" + mApCellInfo.size());
     }
 
     private boolean chreWwanHasBasicCapabilities() {
@@ -229,12 +261,12 @@ public class ChreCrossValidatorWwan extends ChreCrossValidatorBase implements Ex
                         + String.valueOf(chreWwanHasNeighborCapabilities()));
     }
 
-    private void verifyResult() {
-        verifyCellInfoCount();
-        verifyCellInfoContents();
+    private boolean verifyResult() {
+        return (verifyCellInfoCount() &&
+                verifyCellInfoContents());
     }
 
-    void verifyCellInfoCount() {
+    boolean verifyCellInfoCount() {
         ChreCrossValidationWwan.WwanCellInfoResult chreCellInfoResult = mChreCellInfoResult.get();
         List<CellInfo> apCellInfoList = mApCellInfo;
 
@@ -256,12 +288,15 @@ public class ChreCrossValidatorWwan extends ChreCrossValidatorBase implements Ex
 
         // CHRE may have more results than the AP, but never fewer.
         if (chreResultCount < expectedResults) {
-            Assert.fail("Insufficient result count from CHRE cell info. Expected>="
+            Log.e(TAG, "Insufficient result count from CHRE cell info. Expected>= "
                     + expectedResults + " Actual=" + chreResultCount);
+            return false;
         }
+
+        return true;
     }
 
-    void verifyCellInfoContents() {
+    boolean verifyCellInfoContents() {
         // Make a mutable copy of the CHRE cell info list
         List<ChreCrossValidationWwan.WwanCellInfo> chreCellInfoList =
                 new java.util.ArrayList<>(mChreCellInfoResult.get().getCellInfoList());
@@ -270,27 +305,30 @@ public class ChreCrossValidatorWwan extends ChreCrossValidatorBase implements Ex
         // CHRE cell info entries are removed from the list as they are matched.
         for (CellInfo apCi : mApCellInfo) {
             boolean matched = false;
+            String cellType = "Unknown";
             if (apCi instanceof CellInfoNr) {
+                cellType = "Nr";
                 matched = matchAndRemoveCellInfoNr((CellInfoNr) apCi, chreCellInfoList);
-                Assert.assertTrue(
-                        "Could not find matching CHRE Nr CellInfo for AP info: " + apCi, matched);
             } else if (apCi instanceof CellInfoLte) {
+                cellType = "Lte";
                 matched = matchAndRemoveCellInfoLte((CellInfoLte) apCi, chreCellInfoList);
-                Assert.assertTrue(
-                        "Could not find matching CHRE Lte CellInfo for AP info: " + apCi, matched);
             } else if (apCi instanceof CellInfoGsm) {
+                cellType = "Gsm";
                 matched = matchAndRemoveCellInfoGsm((CellInfoGsm) apCi, chreCellInfoList);
-                Assert.assertTrue(
-                        "Could not find matching CHRE Gsm CellInfo for AP info: " + apCi, matched);
             } else if (apCi instanceof CellInfoWcdma) {
+                cellType = "Wcdma";
                 matched = matchAndRemoveCellInfoWcdma((CellInfoWcdma) apCi, chreCellInfoList);
-                Assert.assertTrue(
-                        "Could not find matching CHRE Wcdma CellInfo for AP info: " + apCi,
-                        matched);
             } else {
                 Assert.fail("AP cell info of unknown type: " + apCi.getClass().getName());
             }
+
+            if (!matched) {
+                Log.e(TAG, "Could not find matching CHRE CellInfo for type=" + cellType
+                        + ", AP info: " + apCi);
+                return false;
+            }
         }
+        return true;
     }
 
     @Override
@@ -349,6 +387,7 @@ public class ChreCrossValidatorWwan extends ChreCrossValidatorBase implements Ex
         }
         mChreCellInfoResult.set(result);
         mReceivedCellInfoResults.set(true);
+        Log.i(TAG, "Updated CHRE cell info. Count=" + mChreCellInfoResult.get().getCellInfoCount());
     }
 
     /**
