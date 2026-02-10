@@ -435,11 +435,12 @@ bool chreMsgGetEndpointInfo(uint64_t hubId, uint64_t endpointId,
 
 /**
  * Configures whether this nanoapp will receive updates regarding an endpoint
- * that is connected with a message hub and a specific service.  The hubId can
+ * that is connected with a message hub and a specific service. The hubId can
  * be CHRE_MSG_HUB_ID_ANY to configure notifications for matching endpoints that
  * are connected with any message hub. The endpoint ID can be
  * CHRE_MSG_ENDPOINT_ID_ANY to configure notifications for all endpoints that
- * match the given hub.
+ * match the given hub. Both CHRE_MSG_HUB_ID_ANY and CHRE_MSG_ENDPOINT_ID_ANY
+ * cannot be specified at the same time.
  *
  * If this API succeeds, the nanoapp will receive endpoint notifications via
  * CHRE_EVENT_MSG_ENDPOINT_READY with chreMsgEndpointReadyEvent.
