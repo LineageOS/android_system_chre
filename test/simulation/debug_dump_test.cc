@@ -16,6 +16,7 @@
 
 #include <cstdint>
 
+#include "chre/core/debug_dump_manager.h"
 #include "chre/core/event_loop_manager.h"
 #include "chre/platform/linux/debug_dump_helper.h"
 
@@ -65,6 +66,10 @@ TEST_F(SingleThreadTestBase, DebugDumpTest) {
            "Debug dump from app ID 0x%" PRIx64, appId);
   EXPECT_NE(debugDump.find(expectedString), std::string::npos)
       << "Did not find '" << expectedString << "' in debug dump";
+  snprintf(expectedString, sizeof(expectedString),
+           kEventLoopDebugDumpFormatString, 0);
+  EXPECT_NE(debugDump.find(expectedString), std::string::npos)
+      << "Did not find '" << expectedString << "' in debug dump";
 }
 
 TEST_F(MultiThreadTestBase, DebugDumpMultiThreadedTest) {
@@ -82,16 +87,23 @@ TEST_F(MultiThreadTestBase, DebugDumpMultiThreadedTest) {
   waitForEvent(CHRE_EVENT_DEBUG_DUMP);
 
   std::string debugDump = getDebugDumpStringBlocking(/* timeoutMs= */ 1000);
-  char expectedString1[64];
-  snprintf(expectedString1, sizeof(expectedString1),
+  char expectedString[64];
+  snprintf(expectedString, sizeof(expectedString),
            "Debug dump from app ID 0x%" PRIx64, appId1);
-  EXPECT_NE(debugDump.find(expectedString1), std::string::npos)
-      << "Did not find '" << expectedString1 << "' in debug dump";
-  char expectedString2[64];
-  snprintf(expectedString2, sizeof(expectedString2),
+  EXPECT_NE(debugDump.find(expectedString), std::string::npos)
+      << "Did not find '" << expectedString << "' in debug dump";
+  snprintf(expectedString, sizeof(expectedString),
            "Debug dump from app ID 0x%" PRIx64, appId2);
-  EXPECT_NE(debugDump.find(expectedString2), std::string::npos)
-      << "Did not find '" << expectedString2 << "' in debug dump";
+  EXPECT_NE(debugDump.find(expectedString), std::string::npos)
+      << "Did not find '" << expectedString << "' in debug dump";
+  snprintf(expectedString, sizeof(expectedString),
+           kEventLoopDebugDumpFormatString, 0);
+  EXPECT_NE(debugDump.find(expectedString), std::string::npos)
+      << "Did not find '" << expectedString << "' in debug dump";
+  snprintf(expectedString, sizeof(expectedString),
+           kEventLoopDebugDumpFormatString, 1);
+  EXPECT_NE(debugDump.find(expectedString), std::string::npos)
+      << "Did not find '" << expectedString << "' in debug dump";
 }
 
 }  // namespace

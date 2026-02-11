@@ -30,6 +30,10 @@
 
 namespace chre {
 
+// An externally accessible debug dump string used for testing.
+inline constexpr char kEventLoopDebugDumpFormatString[] =
+    "\n--- Event Loop %" PRIu32 " Debug Dump ---\n";
+
 /**
  * A helper class that manages the CHRE framework and nanoapp debug dump
  * process.
@@ -48,19 +52,29 @@ class DebugDumpManager : public PlatformDebugDumpManager {
                         va_list args);
 
   /**
-   * @return true if the DebugDumpManager is collecting nanoapp debug dumps.
+   * Starts the full debug dump collection process.
+   *
+   * This function initiates the collection of debug dumps from the CHRE
+   * framework and then proceeds to collect debug dumps from each event loop
+   * and the nanoapps running on them.
+   *
+   * This function must be called from the main event loop.
    */
+  void startFullDebugDumpCollection()
+      CHRE_REQUIRES(getMultiThreadingApiMutex());
 
-  bool isCollectingNanoappDebugDumps() const {
-    return mCollectingNanoappDebugDumps;
-  }
+  /**
+   * Performs a debug dump for the event loop/nanoapps on this thread.
+   */
+  void handleEventLoopAndNanoappDebugDump()
+      CHRE_REQUIRES(getMultiThreadingApiMutex());
 
  private:
   //! Utility to hold the framework and nanoapp debug dumps.
   DebugDumpWrapper mDebugDump{kDebugDumpStrMaxSize};
 
-  //! Whether the DebugDumpManager is collecting nanoapp debug dumps.
-  AtomicBool mCollectingNanoappDebugDumps = false;
+  uint32_t mCurrentDebugDumpEventLoopIndex = 0;
+  bool mCollectingDebugDumps = false;
 
   //! Instance ID of the nanoapp that was last logging debug dumps in this
   //! session.
@@ -79,27 +93,11 @@ class DebugDumpManager : public PlatformDebugDumpManager {
   void collectFrameworkDebugDumps();
 
   /**
-   * Send collected framework debug dumps to the host.
-   *
-   * Should only be called from the main CHRE event loop.
-   */
-  void sendFrameworkDebugDumps();
-
-  /**
-   * Send collected nanoapp debug dumps to the host.
+   * Send collected debug dumps to the host.
    *
    * Can be called from any event loop.
    */
-  void sendNanoappDebugDumps();
-
-  /**
-   * A helper function to recursively go through each event loop to handle
-   * nanoapp debug dumps. When all event loops have processed the nanoapp debug
-   * dump event, sendNanoappDebugDumps will be called.
-   *
-   * This method must be called in an event loop context.
-   */
-  void handleNanoappDebugDumpSync() CHRE_REQUIRES(getMultiThreadingApiMutex());
+  void sendDebugDumps();
 };
 
 }  // namespace chre

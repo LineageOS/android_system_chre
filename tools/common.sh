@@ -79,6 +79,11 @@ connectedProduct() {
 checkConnectedProduct() {
   # Make sure connected device matches $TARGET_PRODUCT
   CONNECTED_PRODUCT="$(connectedProduct)"
+  if [ -z "$CONNECTED_PRODUCT" ]; then
+    echo "ERROR: Could not determine connected device product. Is a device connected and authorized?"
+    exit 1
+  fi
+
   if [ "$TARGET_PRODUCT" != "$CONNECTED_PRODUCT" ]
   then
     echo "ERROR: Connected device ($CONNECTED_PRODUCT) does not match TARGET_PRODUCT. Please lunch $CONNECTED_PRODUCT first"
