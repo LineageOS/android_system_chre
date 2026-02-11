@@ -76,11 +76,12 @@ class BleSocketManager : public NonCopyable {
    * Handles a request to free the socket packet from the platform. Switches the
    * context to the event loop thread before freeing the socket packet.
    *
+   * @param appId ID of the nanoapp that owns the socket packet.
    * @param data Socket packet to be freed.
    * @param length Length of socket packet.
    * @param freeCallback @see chreBleSocketPacketFreeFunction
    */
-  void freeSocketPacket(void *data, uint16_t length,
+  void freeSocketPacket(uint64_t appId, void *data, uint16_t length,
                         chreBleSocketPacketFreeFunction *freeCallback);
 
   /**

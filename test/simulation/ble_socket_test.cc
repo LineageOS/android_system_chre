@@ -396,14 +396,20 @@ TEST_F(BleSocketTest, BleSocketBasicSendTest) {
         }
         case CHRE_EVENT_TEST_EVENT: {
           auto event = static_cast<const TestEvent *>(eventData);
-          switch (event->type) {
-            case SOCKET_SEND: {
-              auto data = static_cast<SocketSendData *>(event->data);
-              int32_t status = chreBleSocketSend(
-                  mSocketId, data->data, data->length, data->freeCallback);
-              TestEventQueueSingleton::get()->pushEvent(SOCKET_SEND, status);
-              break;
-            }
+          if (event->type == SOCKET_SEND) {
+            auto data = static_cast<SocketSendData *>(event->data);
+            void *sendBuffer = chreHeapAlloc(data->length);
+            CHRE_ASSERT(sendBuffer != nullptr);
+            memcpy(sendBuffer, data->data, data->length);
+
+            int32_t status = chreBleSocketSend(
+                mSocketId, sendBuffer, data->length, [](void *data, uint16_t) {
+                  chreHeapFree(data);
+                  TestEventQueueSingleton::get()->pushEvent(
+                      SOCKET_SEND_FREE_CALLBACK);
+                });
+            TestEventQueueSingleton::get()->pushEvent(SOCKET_SEND, status);
+            break;
           }
         }
       }
@@ -429,18 +435,11 @@ TEST_F(BleSocketTest, BleSocketBasicSendTest) {
   EXPECT_CALL(mMockBtOffload, sendToController(_)).Times(1);
 
   SocketSendData data = {
-      .data = mDefaultMessage,
-      .length = 6,
-      .freeCallback = [](void *, uint16_t) {
-        TestEventQueueSingleton::get()->pushEvent(SOCKET_SEND_FREE_CALLBACK);
-      }};
+      .data = mDefaultMessage, .length = 6, .freeCallback = nullptr};
   sendEventToNanoapp(appId, SOCKET_SEND, data);
   int32_t status = 0;
   waitForEvent(SOCKET_SEND, &status);
   EXPECT_EQ(status, CHRE_BLE_SOCKET_SEND_STATUS_SUCCESS);
-  // Even though the multibuf is destroyed immediately in this case, the free
-  // callback is handled on the event loop thread and will occur after the
-  // SOCKET_SEND event
   waitForEvent(SOCKET_SEND_FREE_CALLBACK);
 }
 

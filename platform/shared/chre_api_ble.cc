@@ -166,7 +166,8 @@ chreBleSocketSend(uint64_t socketId, const void *data, uint16_t length,
                    .sendBleSocketPacket(socketId, data, length, freeCallback);
     }
   }
-  if (status != chreError::CHRE_ERROR_NONE && freeCallback != nullptr) {
+  if (status != CHRE_BLE_SOCKET_SEND_STATUS_SUCCESS &&
+      freeCallback != nullptr) {
     freeCallback(const_cast<void *>(data), length);
   }
   return status;

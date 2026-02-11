@@ -75,6 +75,14 @@ class PlatformBtSocket : public PlatformBtSocketBase {
     mInstanceId = instanceId;
   }
 
+  uint64_t getNanoappAppId() {
+    return mAppId;
+  }
+
+  void setNanoappAppId(uint64_t appId) {
+    mAppId = appId;
+  }
+
   /**
    * Checks whether the socket has been initialized successfully by the
    * constructor.
@@ -97,6 +105,9 @@ class PlatformBtSocket : public PlatformBtSocketBase {
  private:
   // Nanoapp instance ID.
   uint16_t mInstanceId = 0;
+
+  // Nanoapp ID.
+  uint64_t mAppId = 0;
 
   // Whether the nanoapp accepted the socket.
   bool mSocketAccepted = false;
