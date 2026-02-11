@@ -27,6 +27,7 @@
 #include "chre/platform/assert.h"
 #include "chre/platform/system_time.h"
 #include "chre/platform/system_timer.h"
+#include "chre/util/pigweed/default_pw_allocator.h"
 #include "chre/util/system/message_router.h"
 #include "chre/util/time.h"
 #include "mock_bt_offload.h"
@@ -147,6 +148,7 @@ class TestBase : public testing::Test {
     }
   };
 
+  DefaultPwAllocator mPwAllocator;
   MemberInitLogger mInitLogger;
   std::thread mChreThread;
   SystemTimer mSystemTimer;
