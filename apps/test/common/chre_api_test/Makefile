@@ -11,7 +11,7 @@ include chre_api_test.mk
 NANOAPP_NAME = chre_api_test
 NANOAPP_ID = 0x476f6f675400000d
 NANOAPP_NAME_STRING = \"CHRE\ API\ Test\"
-NANOAPP_VERSION = 0x00000001
+NANOAPP_VERSION = 0x00010000 # Version scheme: 0xMMmmpppp
 
 # Compiler Flags ###############################################################
 

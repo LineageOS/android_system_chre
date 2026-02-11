@@ -19,6 +19,7 @@
 #include "chre/util/nanoapp/ble.h"
 #include "chre/util/nanoapp/log.h"
 #include "chre/util/nanoapp/string.h"
+#include "chre/util/nanoapp/wifi.h"
 #include "chre/util/unique_ptr.h"
 
 using ::chre::copyString;
@@ -57,6 +58,15 @@ bool ChreApiTestService::validateInputAndCallChreWifiGetCapabilities(
   response.capabilities = chreWifiGetCapabilities();
   LOGD("ChreWifiGetCapabilities: capabilities: %" PRIu32,
        response.capabilities);
+  return true;
+}
+
+bool ChreApiTestService::validateInputAndCallChreWifiConfigureScanMonitorAsync(
+    const chre_rpc_ChreWifiConfigureScanMonitorAsyncInput &request,
+    chre_rpc_Status &response) {
+  response.status = chreWifiConfigureScanMonitorAsync(request.enable, nullptr);
+  LOGD("ChreWifiConfigureScanMonitorAsync: status: %s",
+       response.status ? "true" : "false");
   return true;
 }
 

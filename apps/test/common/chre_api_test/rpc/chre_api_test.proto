@@ -21,6 +21,10 @@ service ChreApiTestService {
   // Returns the WWAN capabilities.
   rpc ChreWwanGetCapabilities(google.protobuf.Empty) returns (Capabilities) {}
 
+  // Configures the nanoapp to monitor for WiFi scan events.
+  rpc ChreWifiConfigureScanMonitorAsync(ChreWifiConfigureScanMonitorAsyncInput)
+      returns (Status) {}
+
   // Finds the default sensor for the given sensor type.
   rpc ChreSensorFindDefault(ChreSensorFindDefaultInput)
       returns (ChreSensorFindDefaultOutput) {}
@@ -179,7 +183,18 @@ message GeneralEventsMessage {
     ChreAudioSourceStatusEvent chreAudioSourceStatusEvent = 6;
     ChreAudioDataMetadata chreAudioDataMetadata = 7;
     ChreAudioDataSamples chreAudioDataSamples = 8;
+    ChreWifiScanEvent chreWifiScanEvent = 9;
+    ChreAsyncResult chreAsyncResult = 10;
   }
+}
+
+// Data structure to indicate the result of an asynchronous operation
+message ChreAsyncResult {
+  uint32 requestType = 1;
+  bool success = 2;
+  uint32 errorCode = 3;
+  uint32 reserved = 4;
+  uint64 cookie = 5;
 }
 
 // Captured events' arguments (arguments to nanoappHandleEvent)
@@ -509,4 +524,78 @@ message ChreBleSocketDisconnectionEvent {
   bool status = 1;
 
   uint64 socketId = 2;
+}
+
+// Input value for ChreWifiConfigureScanMonitorAsync
+message ChreWifiConfigureScanMonitorAsyncInput {
+  bool enable = 1;
+}
+
+/*
+ * The fields that are common between the AP framework ScanResult object @
+ * //frameworks/base/wifi/java/android/net/wifi/ScanResult.java
+ * and the chreWifiScanResult in the WiFi CHRE API @
+ * //system/chre/chre_api/include/chre_api/chre/wifi.h
+ */
+message ChreWifiScanResult {
+  // The name of the access point
+  string ssid = 1;
+  // The mac address of the access point
+  bytes bssid = 2;
+  // The venue info group of the access point.
+  uint32 venueGroup = 3;
+  // The venue info type of the access point.
+  uint32 venueType = 4;
+  // RSSI (Received Signal Strength Indicator), in dBm.
+  int32 rssi = 5;
+  // Operating band
+  uint32 band = 6;
+  // Center frequency of the primary 20MHz channel, in MHz.
+  uint32 primaryChannel = 7;
+  // Channel center frequency, in MHz.
+  uint32 centerFreqPrimary = 8;
+  // Center frequency of segment 1, in MHz.
+  uint32 centerFreqSecondary = 9;
+  // Channel width
+  uint32 channelWidth = 10;
+  // Authentication and security modes
+  uint32 securityMode = 11;
+  // Scan result flags
+  uint32 flags = 12;
+  // Age of the scan result in milliseconds
+  uint32 ageMs = 13;
+  // Capability Information field
+  uint32 capabilityInfo = 14;
+  // Radio chain(s) used to discover this AP
+  uint32 radioChain = 15;
+  // RSSI measured on radio chain 0
+  int32 rssiChain0 = 16;
+  // RSSI measured on radio chain 1
+  int32 rssiChain1 = 17;
+}
+
+/*
+ * Data structure sent with SCAN_RESULT message from nanoapp to host.
+ */
+message ChreWifiScanEvent {
+  repeated ChreWifiScanResult results = 1;
+  // The total number of results returned by the scan.
+  uint32 totalNumResults = 2;
+  // Sequence number for this event within the series of events comprising a
+  // complete scan result. [0, <number of events for scan> - 1]
+  uint32 eventIndex = 3;
+  // Version of the structure
+  uint32 version = 4;
+  // Type of scan performed
+  uint32 scanType = 5;
+  // Number of unique SSIDs included in probe requests
+  uint32 ssidSetSize = 6;
+  // Number of frequencies scanned
+  uint32 scannedFreqListLen = 7;
+  // Timestamp when the scan was completed
+  uint64 referenceTime = 8;
+  // List of frequencies scanned in MHz
+  repeated uint32 scannedFreqList = 9;
+  // Radio chain preference used for the scan
+  uint32 radioChainPref = 10;
 }

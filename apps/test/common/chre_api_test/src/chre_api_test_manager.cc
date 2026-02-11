@@ -22,6 +22,7 @@
 
 #include "chre.h"
 #include "chre/util/nanoapp/log.h"
+#include "chre/util/nanoapp/wifi.h"
 #include "chre/util/time.h"
 
 namespace {
@@ -33,6 +34,7 @@ constexpr uint64_t kSyncFunctionTimeout = 2 * chre::kOneSecondInNanoseconds;
  */
 constexpr uint32_t kThreeAxisDataReadingsMaxCount = 10;
 constexpr uint32_t kChreBleAdvertisementReportMaxCount = 10;
+constexpr uint32_t kChreWifiScanResultMaxCount = 10;
 constexpr uint32_t kChreAudioDataEventMaxSampleBufferSize = 200;
 
 chre_rpc_GeneralEventsMessage gGeneralEventsMessage;
@@ -137,6 +139,17 @@ pw::Status ChreApiTestService::ChreWifiGetCapabilities(
   ChreApiTestManagerSingleton::get()->setPermissionForNextMessage(
       CHRE_MESSAGE_PERMISSION_NONE);
   return validateInputAndCallChreWifiGetCapabilities(request, response)
+             ? pw::OkStatus()
+             : pw::Status::InvalidArgument();
+}
+
+pw::Status ChreApiTestService::ChreWifiConfigureScanMonitorAsync(
+    const chre_rpc_ChreWifiConfigureScanMonitorAsyncInput &request,
+    chre_rpc_Status &response) {
+  ChreApiTestManagerSingleton::get()->setPermissionForNextMessage(
+      CHRE_MESSAGE_PERMISSION_NONE);
+  return validateInputAndCallChreWifiConfigureScanMonitorAsync(request,
+                                                               response)
              ? pw::OkStatus()
              : pw::Status::InvalidArgument();
 }
@@ -551,6 +564,93 @@ void ChreApiTestService::handleBleRssiReadEvent(
        event->connectionHandle, event->rssi);
 }
 
+void ChreApiTestService::fillChreWifiScanResult(
+    chre_rpc_ChreWifiScanResult &protoResult,
+    const chreWifiScanResult &result) {
+  // SSID
+  size_t ssidLen = MIN(result.ssidLen, CHRE_WIFI_SSID_MAX_LEN);
+  std::memcpy(protoResult.ssid, result.ssid, ssidLen);
+  protoResult.ssid[ssidLen] = '\0';  // Null terminate
+
+  // BSSID
+  std::memcpy(protoResult.bssid.bytes, result.bssid, CHRE_WIFI_BSSID_LEN);
+  protoResult.bssid.size = CHRE_WIFI_BSSID_LEN;
+
+  protoResult.venueGroup = result.venueGroup;
+  protoResult.venueType = result.venueType;
+  protoResult.rssi = result.rssi;
+  protoResult.band = result.band;
+  protoResult.primaryChannel = result.primaryChannel;
+  protoResult.centerFreqPrimary = result.centerFreqPrimary;
+  protoResult.centerFreqSecondary = result.centerFreqSecondary;
+  protoResult.channelWidth = result.channelWidth;
+  protoResult.securityMode = result.securityMode;
+  protoResult.flags = result.flags;
+  protoResult.ageMs = result.ageMs;
+  protoResult.capabilityInfo = result.capabilityInfo;
+  protoResult.radioChain = result.radioChain;
+  protoResult.rssiChain0 = result.rssiChain0;
+  protoResult.rssiChain1 = result.rssiChain1;
+}
+
+chre_rpc_ChreWifiScanEvent &ChreApiTestService::initChreWifiScanEventMessage(
+    const chreWifiScanEvent *event) {
+  std::memset(&gGeneralEventsMessage, 0, sizeof(gGeneralEventsMessage));
+  gGeneralEventsMessage.status = true;
+  gGeneralEventsMessage.which_data =
+      chre_rpc_GeneralEventsMessage_chreWifiScanEvent_tag;
+
+  auto &protoEvent = gGeneralEventsMessage.data.chreWifiScanEvent;
+  protoEvent.totalNumResults = event->resultTotal;
+  protoEvent.eventIndex = event->eventIndex;
+  protoEvent.version = event->version;
+  protoEvent.scanType = event->scanType;
+  protoEvent.ssidSetSize = event->ssidSetSize;
+  protoEvent.scannedFreqListLen = event->scannedFreqListLen;
+  protoEvent.referenceTime = event->referenceTime;
+  protoEvent.radioChainPref = event->radioChainPref;
+
+  uint32_t numFreqs =
+      MIN(static_cast<uint32_t>(CHRE_WIFI_FREQUENCY_LIST_MAX_LEN),
+          static_cast<uint32_t>(event->scannedFreqListLen));
+  protoEvent.scannedFreqList_count = static_cast<pb_size_t>(numFreqs);
+  for (uint32_t i = 0; i < numFreqs; ++i) {
+    protoEvent.scannedFreqList[i] = event->scannedFreqList[i];
+  }
+  return protoEvent;
+}
+
+bool ChreApiTestService::handleChreWifiScanEvent(
+    const chreWifiScanEvent *event) {
+  uint32_t totalResults = event->resultCount;
+  uint32_t resultsRemaining = totalResults;
+  uint32_t resultIdx = 0;
+
+  if (totalResults == 0) {
+    auto &protoEvent = initChreWifiScanEventMessage(event);
+    protoEvent.results_count = 0;
+    sendPartialGeneralEventToHost(gGeneralEventsMessage);
+  } else {
+    while (resultsRemaining > 0) {
+      auto &protoEvent = initChreWifiScanEventMessage(event);
+
+      uint32_t numResultsToSend =
+          MIN(kChreWifiScanResultMaxCount, resultsRemaining);
+      protoEvent.results_count = static_cast<pb_size_t>(numResultsToSend);
+
+      for (uint32_t i = 0; i < numResultsToSend; ++i) {
+        fillChreWifiScanResult(protoEvent.results[i],
+                               event->results[resultIdx++]);
+      }
+
+      sendPartialGeneralEventToHost(gGeneralEventsMessage);
+      resultsRemaining -= numResultsToSend;
+    }
+  }
+
+  return closePartialGeneralEventToHost();
+}
+
 bool ChreApiTestService::handleChreAudioDataEvent(
     const chreAudioDataEvent *data) {
   // send the metadata
@@ -832,6 +932,23 @@ void ChreApiTestService::handleGatheringEvent(uint16_t eventType,
       messageSent = handleChreAudioDataEvent(data);
       break;
     }
+    case CHRE_EVENT_WIFI_SCAN_RESULT: {
+      const auto *data =
+          static_cast<const struct chreWifiScanEvent *>(eventData);
+      messageSent = handleChreWifiScanEvent(data);
+      break;
+    }
+    case CHRE_EVENT_WIFI_ASYNC_RESULT: {
+      const auto *data = static_cast<const struct chreAsyncResult *>(eventData);
+      messageSent = handleChreAsyncResult(data);
+      break;
+    }
+    case CHRE_EVENT_MESSAGE_FROM_HOST: {
+      LOGD(
+          "GatherEvents: Received CHRE_EVENT_MESSAGE_FROM_HOST, no message "
+          "sent");
+      break;
+    }
     default: {
       LOGE("GatherEvents: event type: %" PRIu16 " not implemented", eventType);
     }
@@ -843,12 +960,26 @@ void ChreApiTestService::handleGatheringEvent(uint16_t eventType,
   }
 
   if (!gGeneralEventsMessage.status) {
-    LOGE("GatherEvents: unable to create message for event with type: %" PRIu16,
+    LOGW("GatherEvents: unable to create message for event with type: %" PRIu16,
          eventType);
     return;
   }
 
   sendGeneralEventToHost(gGeneralEventsMessage);
+}
+
+bool ChreApiTestService::handleChreAsyncResult(const chreAsyncResult *event) {
+  std::memset(&gGeneralEventsMessage, 0, sizeof(gGeneralEventsMessage));
+  gGeneralEventsMessage.status = true;
+  gGeneralEventsMessage.which_data =
+      chre_rpc_GeneralEventsMessage_chreAsyncResult_tag;
+  gGeneralEventsMessage.data.chreAsyncResult.requestType = event->requestType;
+  gGeneralEventsMessage.data.chreAsyncResult.success = event->success;
+  gGeneralEventsMessage.data.chreAsyncResult.errorCode = event->errorCode;
+  gGeneralEventsMessage.data.chreAsyncResult.reserved = event->reserved;
+  gGeneralEventsMessage.data.chreAsyncResult.cookie =
+      reinterpret_cast<uintptr_t>(event->cookie);
+  return sendGeneralEventToHost(gGeneralEventsMessage);
 }
 
 void ChreApiTestService::handleTimerEvent(const void *cookie) {
