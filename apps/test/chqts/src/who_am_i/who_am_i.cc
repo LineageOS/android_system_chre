@@ -30,7 +30,10 @@
 
 #include "chre_api/chre.h"
 
+#ifdef CHRE_NANOAPP_INTERNAL
 namespace chre {
+#endif  // CHRE_NANOAPP_INTERNAL
+
 namespace {
 
 //! A buffer to store the host endpoint ID of a messaging client.
@@ -64,4 +67,6 @@ bool nanoappStart(void) {
 
 void nanoappEnd(void) {}
 
-}  // namespace chre
+#ifdef CHRE_NANOAPP_INTERNAL
+}  // chre
+#endif  // CHRE_NANOAPP_INTERNAL
