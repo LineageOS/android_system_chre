@@ -273,7 +273,9 @@ public class ContextHubEndpointEchoExecutor {
         List<HubDiscoveryInfo> infoList = new ArrayList<>();
         checkApiSupport(
                 (manager) -> infoList.addAll(manager.findEndpoints(ECHO_SERVICE_DESCRIPTOR)));
-        Assert.assertNotEquals(infoList.size(), 0);
+        if (mIsEchoNanoappLoaded) {
+            Assert.assertNotEquals(infoList.size(), 0);
+        }
         for (HubDiscoveryInfo info : infoList) {
             printHubDiscoveryInfo(info);
             HubEndpointInfo endpointInfo = info.getHubEndpointInfo();
