@@ -109,7 +109,7 @@ class DataFlowEpollWaiter {
    * given endpoint and data flow, or pw::Status::Ok() otherwise
    */
   pw::Status addTriggers(DataFlowId dataFlowId, EndpointId endpointId,
-                         const DataFlowAlertFds &alertFds);
+                         const DataFlowAlertFds &alertFds) EXCLUDES(mLock);
 
   /**
    * Removes the triggers associated with a data flow and/or endpoint.
@@ -126,7 +126,8 @@ class DataFlowEpollWaiter {
    * or pw::Status::Ok() otherwise
    */
   pw::Status removeTriggers(std::optional<DataFlowId> dataFlowId,
-                            std::optional<EndpointId> endpointId);
+                            std::optional<EndpointId> endpointId)
+      EXCLUDES(mLock);
 
  protected:
   /** Stores the details of a registered epoll trigger. */
@@ -144,7 +145,7 @@ class DataFlowEpollWaiter {
   void epollWaitLoop() EXCLUDES(mLock);
 
   /** Process a non-halt epoll event, invoking the appropriate callback. */
-  void processEvent(int fd);
+  void processEvent(int fd) EXCLUDES(mLock);
 
   base::unique_fd mEpollFd;
   base::unique_fd mHaltFd;

@@ -42,29 +42,48 @@ class RegionAllocator {
    * with the returned id. Note that regions may be allocated and shared with
    * the common HAL implementation in other ways than this method in which case
    * releaseRegion() should still be called to release the region.
+   *
+   * @param requirements The requirements for the region.
+   * @return On success, the allocated region including its id, otherwise:
+   *   - pw::Status::Unimplemented() if a region with the desired properties
+   *     cannot be created (e.g. there is no shared memory region that can be
+   *     accessed by all of the necessary hubs).
+   *   - pw::Status::OutOfMemory() if the region could not be allocated.
    */
   virtual pw::Result<SharedDataRegion> allocateRegion(
       const SharedDataRegionRequirements &requirements) = 0;
 
   /**
-   * Retrieves the metadata and mappable file descriptor for the region with
-   * given id. This region may have been allocated via allocateRegion() or
-   * allocated internally and shared with the common HAL implementation (e.g.
-   * when a data flow is shared by an offload endpoint with a host endpoint).
-   */
-  virtual pw::Result<SharedDataRegion> getRegionInfo(int32_t id) = 0;
-
-  /**
-   * Releases resources associated with the region with the given id. This
-   * region may have been allocated via allocateRegion() or allocated internally
-   * and shared with the common HAL implementation (e.g. when a data flow is
-   * shared by an offload endpoint with a host endpoint).
+   * Releases resources associated with the region with the given id.
+   *
+   * @param id The ID of the region to release.
+   * @return pw::OkStatus() on success, otherwise:
+   *   - pw::Status::NotFound() if the region is not found.
+   *   - pw::Status::InvalidArgument() if the region was not allocated via
+   *     allocateRegion().
    */
   virtual pw::Status releaseRegion(int32_t id) = 0;
 
   /**
+   * Retrieves the metadata and mappable file descriptor for a region.
+   *
+   * This region may have been allocated via allocateRegion() or allocated
+   * internally and shared with the common HAL implementation (e.g. when a data
+   * flow is shared by an offload endpoint with a host endpoint).
+   *
+   * @param id The ID of the region to get information for.
+   * @return On success, the allocated region including its id, otherwise:
+   *   - pw::Status::NotFound() if the region is not found.
+   */
+  virtual pw::Result<SharedDataRegion> getRegionInfo(int32_t id) = 0;
+
+  /**
    * Returns whether consumers on an embedded hub should be given a separate
    * consumer metadata region, i.e. whether the hub supports memory protections.
+   *
+   * @param hubId The ID of the hub to check.
+   * @return true if the hub requires separate consumer regions, false
+   * otherwise.
    */
   virtual bool consumerRequiresSeparateRegion(int64_t hubId) = 0;
 
