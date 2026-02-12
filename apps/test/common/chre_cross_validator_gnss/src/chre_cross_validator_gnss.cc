@@ -18,8 +18,8 @@
 
 #include "chre_api/chre.h"
 
-void nanoappHandleEvent(uint32_t senderInstanceId, uint16_t eventType,
-                        const void *eventData) {}
+void nanoappHandleEvent(uint32_t /*senderInstanceId*/, uint16_t /*eventType*/,
+                        const void * /*eventData*/) {}
 
 bool nanoappStart(void) {
   return true;

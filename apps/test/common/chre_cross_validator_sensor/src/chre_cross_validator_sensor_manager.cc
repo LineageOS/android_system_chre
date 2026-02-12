@@ -403,7 +403,8 @@ void Manager::handleStartMessage(uint16_t hostEndpoint,
             handleStartSensorMessage(startCommand.command.startSensorCommand);
         break;
       default:
-        LOGE("Unknown start command type %" PRIu8, startCommand.which_command);
+        LOGE("Unknown start command type %" PRIu8,
+             static_cast<uint8_t>(startCommand.which_command));
     }
   }
   // If error occurred in validation setup then resetting mCrossValidatorState
