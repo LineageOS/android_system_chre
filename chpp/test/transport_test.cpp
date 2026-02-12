@@ -120,11 +120,10 @@ TEST_P(TransportTests, ZeroThenPreambleInput) {
   if (len <= kMaxChunkSize) {
     // Add preamble at the end of mBuf, as individual bytes instead of using
     // chppAddPreamble(&mBuf[preambleLoc])
-    size_t preambleLoc = MAX(0, len - CHPP_PREAMBLE_LEN_BYTES);
-    mBuf[preambleLoc] = kChppPreamble0;
-    mBuf[preambleLoc + 1] = kChppPreamble1;
-
     if (len >= CHPP_PREAMBLE_LEN_BYTES) {
+      size_t preambleLoc = len - CHPP_PREAMBLE_LEN_BYTES;
+      mBuf[preambleLoc] = kChppPreamble0;
+      mBuf[preambleLoc + 1] = kChppPreamble1;
       EXPECT_FALSE(chppRxDataCb(&mTransportContext, mBuf, len));
       EXPECT_EQ(mTransportContext.rxStatus.state, CHPP_STATE_HEADER);
     } else {

@@ -181,6 +181,13 @@ cc_library_static {
         "include_public",
         "platform/linux/include",
     ],
+    sanitize: {
+        address: true,
+        cfi: true,
+        integer_overflow: true,
+        misc_undefined: ["bounds"],
+        scs: true,
+    },
 }
 
 filegroup {
@@ -226,6 +233,10 @@ cc_test_host {
     ],
     sanitize: {
         address: true,
+        cfi: true,
+        integer_overflow: true,
+        misc_undefined: ["bounds"],
+        scs: true,
     },
 }
 

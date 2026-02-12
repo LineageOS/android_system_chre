@@ -119,8 +119,8 @@ bool chppDispatchTimesyncServiceResponse(struct ChppAppState *appState,
                                     &state->measureOffset, &response->header)) {
     state->timesyncResult.rttNs = state->measureOffset.responseTimeNs -
                                   state->measureOffset.requestTimeNs;
-    int64_t offsetNs =
-        (int64_t)(response->timeNs - state->measureOffset.responseTimeNs);
+    int64_t offsetNs = (int64_t)response->timeNs -
+                       (int64_t)state->measureOffset.responseTimeNs;
     int64_t offsetChangeNs = offsetNs - state->timesyncResult.offsetNs;
 
     int64_t clippedOffsetChangeNs = offsetChangeNs;
