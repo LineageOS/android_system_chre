@@ -16,7 +16,6 @@
 #ifndef _GTS_NANOAPPS_GENERAL_TEST_CELL_INFO_BASE_H_
 #define _GTS_NANOAPPS_GENERAL_TEST_CELL_INFO_BASE_H_
 
-#include <cstdbool>
 #include <cstdint>
 
 namespace general_test {

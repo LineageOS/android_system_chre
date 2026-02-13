@@ -205,6 +205,7 @@ SIM_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/public_platform_gnss_pal
 SIM_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/public_platform_wifi_pal
 SIM_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/public_platform_wwan_pal
 SIM_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/public_std_atomic
+SIM_CFLAGS += -I$(CHRE_PREFIX)/platform/shared/public_std_atomic_ref
 SIM_CFLAGS += -Iplatform/linux/sim/include
 
 # Simulator-specific Source Files ##############################################
@@ -287,6 +288,7 @@ endif
 # Linux-specific Compiler Flags ################################################
 
 GOOGLE_X86_LINUX_CFLAGS += -Iplatform/shared/public_std_atomic
+GOOGLE_X86_LINUX_CFLAGS += -Iplatform/shared/public_std_atomic_ref
 GOOGLE_X86_LINUX_CFLAGS += -Iplatform/linux/include
 GOOGLE_X86_LINUX_CFLAGS += -Iplatform/linux/public_fatal_error
 GOOGLE_X86_LINUX_CFLAGS += -Iplatform/linux/public_host_link
@@ -329,6 +331,7 @@ GOOGLE_ARM64_ANDROID_CFLAGS += -Ihost/common/include
 # Also add the linux sources to fall back to the default Linux implementation.
 GOOGLE_ARM64_ANDROID_CFLAGS += -Iplatform/linux/include
 GOOGLE_ARM64_ANDROID_CFLAGS += -Iplatform/shared/public_std_atomic
+GOOGLE_ARM64_ANDROID_CFLAGS += -Iplatform/shared/public_std_atomic_ref
 GOOGLE_ARM64_ANDROID_CFLAGS += -Iplatform/shared/fbs/include
 
 # We use FlatBuffers in the Android simulator

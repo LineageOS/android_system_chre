@@ -98,7 +98,7 @@ struct ChppWifiClientState {
 // Note: This global definition of gWifiClientContext supports only one
 // instance of the CHPP WiFi client at a time.
 struct ChppWifiClientState gWifiClientContext;
-static const struct chrePalSystemApi *gSystemApi;
+static const struct chrePalSystemApi *gSystemApi = NULL;
 static const struct chrePalWifiCallbacks *gCallbacks = NULL;
 
 /**
@@ -141,7 +141,9 @@ static const struct ChppClient kWifiClientConfig = {
 };
 
 static const struct chrePalWifiCallbacks *getPalCallbacks(void) {
-  gSystemApi->forceDramAccess();
+  if (gSystemApi != NULL) {
+    gSystemApi->forceDramAccess();
+  }
   return gCallbacks;
 }
 
@@ -174,6 +176,16 @@ static void chppWifiRequestScanResult(struct ChppWifiClientState *clientContext,
 static void chppWifiRequestRangingResult(
     struct ChppWifiClientState *clientContext, uint8_t *buf, size_t len);
 static void chppWifiRequestNanSubscribeResult(uint8_t *buf, size_t len);
+
+static bool chppWifiClientNanSubscribe(
+    const struct chreWifiNanSubscribeConfig *config);
+static bool chppWifiClientNanSubscribeCancel(uint32_t subscriptionId);
+static void chppWifiClientNanReleaseDiscoveryEvent(
+    struct chreWifiNanDiscoveryEvent *event);
+static bool chppWifiClientNanRequestNanRanging(
+    const struct chreWifiNanRangingParams *params);
+static bool chppWifiGetNanCapabilites(
+    struct chreWifiNanCapabilities *capabilities);
 
 static void chppWifiScanEventNotification(
     struct ChppWifiClientState *clientContext, uint8_t *buf, size_t len);
@@ -536,7 +548,13 @@ static void chppWifiConfigureScanMonitorResult(
     // Short response length indicates an error
     uint8_t error = chppAppShortResponseErrorHandler(buf, len, "ScanMonitor");
     if (!gWifiClientContext.scanMonitorSilenceCallback) {
-      getPalCallbacks()->scanMonitorStatusChangeCallback(false, error);
+      const struct chrePalWifiCallbacks *callbacks = getPalCallbacks();
+      if (callbacks == NULL) {
+        CHPP_LOGE(
+            "PAL callbacks not initialized for scan monitor status change");
+      } else {
+        callbacks->scanMonitorStatusChangeCallback(false, error);
+      }
     }
   } else {
     struct ChppWifiConfigureScanMonitorAsyncResponseParameters *result =
@@ -553,8 +571,14 @@ static void chppWifiConfigureScanMonitorResult(
       // calls to scanMonitorStatusChangeCallback must not be made, and it
       // should only be invoked as the direct result of an earlier call to
       // configureScanMonitor.
-      getPalCallbacks()->scanMonitorStatusChangeCallback(result->enabled,
-                                                         result->errorCode);
+      const struct chrePalWifiCallbacks *callbacks = getPalCallbacks();
+      if (callbacks == NULL) {
+        CHPP_LOGE(
+            "PAL callbacks not initialized for scan monitor status change");
+      } else {
+        callbacks->scanMonitorStatusChangeCallback(result->enabled,
+                                                   result->errorCode);
+      }
     }  // Else, the WiFi subsystem has been reset and we are required to
        // silently reenable the scan monitor.
 
@@ -577,8 +601,13 @@ static void chppWifiRequestScanResult(struct ChppWifiClientState *clientContext,
 
   if (len < sizeof(struct ChppWifiRequestScanResponse)) {
     // Short response length indicates an error
-    getPalCallbacks()->scanResponseCallback(
-        false, chppAppShortResponseErrorHandler(buf, len, "ScanRequest"));
+    const struct chrePalWifiCallbacks *callbacks = getPalCallbacks();
+    if (callbacks == NULL) {
+      CHPP_LOGE("PAL callbacks not initialized for scan response");
+    } else {
+      callbacks->scanResponseCallback(
+          false, chppAppShortResponseErrorHandler(buf, len, "ScanRequest"));
+    }
 
   } else {
     struct ChppWifiRequestScanResponseParameters *result =
@@ -594,7 +623,12 @@ static void chppWifiRequestScanResult(struct ChppWifiClientState *clientContext,
         clientContext->scanTimeoutPending = true;
       }
     }
-    getPalCallbacks()->scanResponseCallback(result->pending, result->errorCode);
+    const struct chrePalWifiCallbacks *callbacks = getPalCallbacks();
+    if (callbacks == NULL) {
+      CHPP_LOGE("PAL callbacks not initialized for scan response");
+    } else {
+      callbacks->scanResponseCallback(result->pending, result->errorCode);
+    }
   }
 }
 
@@ -615,8 +649,13 @@ static void chppWifiRequestRangingResult(
   struct ChppAppHeader *rxHeader = (struct ChppAppHeader *)buf;
 
   if (rxHeader->error != CHPP_APP_ERROR_NONE) {
-    getPalCallbacks()->rangingEventCallback(
-        chppAppErrorToChreError(rxHeader->error), NULL);
+    const struct chrePalWifiCallbacks *callbacks = getPalCallbacks();
+    if (callbacks == NULL) {
+      CHPP_LOGE("PAL callbacks not initialized for ranging event");
+    } else {
+      callbacks->rangingEventCallback(chppAppErrorToChreError(rxHeader->error),
+                                      NULL);
+    }
 
   } else {
     CHPP_LOGD("Ranging request accepted at service");
@@ -637,8 +676,13 @@ static void chppWifiRequestNanSubscribeResult(uint8_t *buf, size_t len) {
   struct ChppAppHeader *rxHeader = (struct ChppAppHeader *)buf;
 
   if (rxHeader->error != CHPP_APP_ERROR_NONE) {
-    getPalCallbacks()->nanServiceIdentifierCallback(
-        chppAppErrorToChreError(rxHeader->error), 0 /* subscriptionId */);
+    const struct chrePalWifiCallbacks *callbacks = getPalCallbacks();
+    if (callbacks == NULL) {
+      CHPP_LOGE("PAL callbacks not initialized for NAN service identifier");
+    } else {
+      callbacks->nanServiceIdentifierCallback(
+          chppAppErrorToChreError(rxHeader->error), 0 /* subscriptionId */);
+    }
 
   } else {
     CHPP_LOGD("NAN sub accepted at service");
@@ -659,8 +703,13 @@ static void chppWifiNanSubscriptionCanceledResult(uint8_t *buf, size_t len) {
   struct ChppAppHeader *rxHeader = (struct ChppAppHeader *)buf;
 
   if (rxHeader->error != CHPP_APP_ERROR_NONE) {
-    getPalCallbacks()->nanSubscriptionCanceledCallback(
-        chppAppErrorToChreError(rxHeader->error), 0 /* subscriptionId */);
+    const struct chrePalWifiCallbacks *callbacks = getPalCallbacks();
+    if (callbacks == NULL) {
+      CHPP_LOGE("PAL callbacks not initialized for NAN subscription canceled");
+    } else {
+      callbacks->nanSubscriptionCanceledCallback(
+          chppAppErrorToChreError(rxHeader->error), 0 /* subscriptionId */);
+    }
 
   } else {
     CHPP_LOGD("NAN sub cancel accepted at service");
@@ -717,18 +766,24 @@ static void chppWifiScanEventNotification(
     if (!(clientContext->capabilities & CHRE_WIFI_CAPABILITIES_VENUE_INFO)) {
       for (size_t i = 0; i < chre->resultCount; i++) {
         if (chre->results[i].venueInfo != 0) {
-          // Remove const qualification to allow for venueInfo to be set to 0.
-          // This is safe because the buffer was not const as it was provided to
-          // this function, and it has yet to be distributed to clients.
-          #pragma GCC diagnostic push
-          #pragma GCC diagnostic ignored "-Wcast-qual"
+// Remove const qualification to allow for venueInfo to be set to 0.
+// This is safe because the buffer was not const as it was provided to
+// this function, and it has yet to be distributed to clients.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-qual"
           ((struct chreWifiScanResult *)chre->results)[i].venueInfo = 0;
-          #pragma GCC diagnostic pop
+#pragma GCC diagnostic pop
         }
       }
     }
 
-    getPalCallbacks()->scanEventCallback(chre);
+    const struct chrePalWifiCallbacks *callbacks = getPalCallbacks();
+    if (callbacks == NULL) {
+      CHPP_LOGE("PAL callbacks not initialized for scan event");
+      chppWifiClientReleaseScanEvent(chre);  // Release memory to prevent leak
+    } else {
+      callbacks->scanEventCallback(chre);
+    }
   }
 }
 
@@ -786,7 +841,16 @@ static void chppWifiRangingEventNotification(
     CHPP_LOGE("Ranging event conversion failed len=%" PRIuSIZE, len);
   }
 
-  getPalCallbacks()->rangingEventCallback(error, chre);
+  const struct chrePalWifiCallbacks *callbacks = getPalCallbacks();
+  if (callbacks == NULL) {
+    CHPP_LOGE("PAL callbacks not initialized for ranging event");
+    if (chre != NULL) {  // Only release if it was successfully allocated
+      chppWifiClientReleaseRangingEvent(
+          chre);  // Release memory to prevent leak
+    }
+  } else {
+    callbacks->rangingEventCallback(error, chre);
+  }
 }
 
 /**
@@ -811,7 +875,13 @@ static void chppWifiDiscoveryEventNotification(uint8_t *buf, size_t len) {
   if (event == NULL) {
     CHPP_LOGE("Discovery event CHPP -> CHRE conversion failed");
   } else {
-    getPalCallbacks()->nanServiceDiscoveryCallback(event);
+    const struct chrePalWifiCallbacks *callbacks = getPalCallbacks();
+    if (callbacks == NULL) {
+      CHPP_LOGE("PAL callbacks not initialized for NAN service discovery");
+      chppWifiClientNanReleaseDiscoveryEvent(event);  // Release memory
+    } else {
+      callbacks->nanServiceDiscoveryCallback(event);
+    }
   }
 }
 
@@ -835,7 +905,13 @@ static void chppWifiNanServiceLostEventNotification(uint8_t *buf, size_t len) {
   if (event == NULL) {
     CHPP_LOGE("Session lost event CHPP -> CHRE conversion failed");
   } else {
-    getPalCallbacks()->nanServiceLostCallback(event->id, event->peerId);
+    const struct chrePalWifiCallbacks *callbacks = getPalCallbacks();
+    if (callbacks == NULL) {
+      CHPP_LOGE("PAL callbacks not initialized for NAN service lost");
+      CHPP_FREE_AND_NULLIFY(event);  // Release memory
+    } else {
+      callbacks->nanServiceLostCallback(event->id, event->peerId);
+    }
   }
 }
 
@@ -860,7 +936,13 @@ static void chppWifiNanServiceTerminatedEventNotification(uint8_t *buf,
   if (event == NULL) {
     CHPP_LOGE("Session terminated event CHPP -> CHRE conversion failed");
   } else {
-    getPalCallbacks()->nanServiceTerminatedCallback(event->reason, event->id);
+    const struct chrePalWifiCallbacks *callbacks = getPalCallbacks();
+    if (callbacks == NULL) {
+      CHPP_LOGE("PAL callbacks not initialized for NAN service terminated");
+      CHPP_FREE_AND_NULLIFY(event);  // Release memory
+    } else {
+      callbacks->nanServiceTerminatedCallback(event->reason, event->id);
+    }
   }
 }
 
@@ -884,7 +966,14 @@ static void chppWifiRequestNanSubscribeNotification(uint8_t *buf, size_t len) {
     errorCode = id->errorCode;
     subscriptionId = id->subscriptionId;
   }
-  getPalCallbacks()->nanServiceIdentifierCallback(errorCode, subscriptionId);
+  const struct chrePalWifiCallbacks *callbacks = getPalCallbacks();
+  if (callbacks == NULL) {
+    CHPP_LOGE(
+        "PAL callbacks not initialized for NAN service identifier "
+        "notification");
+  } else {
+    callbacks->nanServiceIdentifierCallback(errorCode, subscriptionId);
+  }
 }
 
 /**
@@ -907,7 +996,14 @@ static void chppWifiNanSubscriptionCanceledNotification(uint8_t *buf,
     errorCode = chppNotif->errorCode;
     subscriptionId = chppNotif->subscriptionId;
   }
-  getPalCallbacks()->nanSubscriptionCanceledCallback(errorCode, subscriptionId);
+  const struct chrePalWifiCallbacks *callbacks = getPalCallbacks();
+  if (callbacks == NULL) {
+    CHPP_LOGE(
+        "PAL callbacks not initialized for NAN subscription canceled "
+        "notification");
+  } else {
+    callbacks->nanSubscriptionCanceledCallback(errorCode, subscriptionId);
+  }
 }
 
 /**
@@ -953,6 +1049,9 @@ static bool chppWifiClientOpen(const struct chrePalSystemApi *systemApi,
  * Deinitializes the WiFi client.
  */
 static void chppWifiClientClose(void) {
+  gSystemApi = NULL;
+  gCallbacks = NULL;
+
   // Remote
   struct ChppAppHeader *request = chppAllocClientRequestCommand(
       &gWifiClientContext.client, CHPP_WIFI_CLOSE);

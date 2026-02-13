@@ -78,7 +78,7 @@ struct ChppGnssClientState {
 // Note: This global definition of gGnssClientContext supports only one
 // instance of the CHPP GNSS client at a time.
 struct ChppGnssClientState gGnssClientContext;
-static const struct chrePalSystemApi *gSystemApi;
+static const struct chrePalSystemApi *gSystemApi = NULL;
 static const struct chrePalGnssCallbacks *gCallbacks = NULL;
 
 /**
@@ -121,7 +121,9 @@ static const struct ChppClient kGnssClientConfig = {
 };
 
 static const struct chrePalGnssCallbacks *getPalCallbacks(void) {
-  gSystemApi->forceDramAccess();
+  if (gSystemApi != NULL) {
+    gSystemApi->forceDramAccess();
+  }
   return gCallbacks;
 }
 
@@ -207,7 +209,12 @@ static enum ChppAppErrorCode chppDispatchGnssResponse(void *clientContext,
         chppClientProcessOpenResponse(&gnssClientContext->client, buf, len);
         if (rxHeader->error == CHPP_APP_ERROR_NONE &&
             gnssClientContext->requestStateResyncPending) {
-          getPalCallbacks()->requestStateResync();
+          const struct chrePalGnssCallbacks *callbacks = getPalCallbacks();
+          if (callbacks == NULL) {
+            CHPP_LOGE("PAL callbacks not initialized for state resync");
+          } else {
+            callbacks->requestStateResync();
+          }
           gnssClientContext->requestStateResyncPending = false;
         }
         break;
@@ -430,9 +437,15 @@ static void chppGnssControlLocationSessionResult(
     struct ChppGnssClientState *clientContext, uint8_t *buf, size_t len) {
   UNUSED_VAR(clientContext);
 
+  const struct chrePalGnssCallbacks *callbacks = getPalCallbacks();
+  if (callbacks == NULL) {
+    CHPP_LOGE("PAL callbacks not initialized for location status change");
+    return;  // Exit early if callbacks are null
+  }
+
   if (len < sizeof(struct ChppGnssControlLocationSessionResponse)) {
     // Short response length indicates an error
-    getPalCallbacks()->locationStatusChangeCallback(
+    callbacks->locationStatusChangeCallback(
         false, chppAppShortResponseErrorHandler(buf, len, "ControlLocation"));
 
   } else {
@@ -444,8 +457,7 @@ static void chppGnssControlLocationSessionResult(
         "errorCode=%" PRIu8,
         result->enabled, result->errorCode);
 
-    getPalCallbacks()->locationStatusChangeCallback(result->enabled,
-                                                    result->errorCode);
+    callbacks->locationStatusChangeCallback(result->enabled, result->errorCode);
   }
 }
 
@@ -463,9 +475,15 @@ static void chppGnssControlMeasurementSessionResult(
     struct ChppGnssClientState *clientContext, uint8_t *buf, size_t len) {
   UNUSED_VAR(clientContext);
 
+  const struct chrePalGnssCallbacks *callbacks = getPalCallbacks();
+  if (callbacks == NULL) {
+    CHPP_LOGE("PAL callbacks not initialized for measurement status change");
+    return;  // Exit early if callbacks are null
+  }
+
   if (len < sizeof(struct ChppGnssControlMeasurementSessionResponse)) {
     // Short response length indicates an error
-    getPalCallbacks()->measurementStatusChangeCallback(
+    callbacks->measurementStatusChangeCallback(
         false, chppAppShortResponseErrorHandler(buf, len, "Measurement"));
 
   } else {
@@ -477,8 +495,8 @@ static void chppGnssControlMeasurementSessionResult(
         "errorCode=%" PRIu8,
         result->enabled, result->errorCode);
 
-    getPalCallbacks()->measurementStatusChangeCallback(result->enabled,
-                                                       result->errorCode);
+    callbacks->measurementStatusChangeCallback(result->enabled,
+                                               result->errorCode);
   }
 }
 
@@ -526,8 +544,13 @@ static void chppGnssStateResyncNotification(
     // for requestStateResync() may fail, so we set a flag to process it later
     // when the open has succeeded.
     clientContext->requestStateResyncPending = true;
-  } else {
-    getPalCallbacks()->requestStateResync();
+  } else {  // client.openState != CHPP_OPEN_STATE_WAITING_TO_OPEN
+    const struct chrePalGnssCallbacks *callbacks = getPalCallbacks();
+    if (callbacks == NULL) {
+      CHPP_LOGE("PAL callbacks not initialized for state resync notification");
+    } else {
+      callbacks->requestStateResync();
+    }
     clientContext->requestStateResyncPending = false;
   }
 }
@@ -556,7 +579,14 @@ static void chppGnssLocationResultNotification(
   if (chre == NULL) {
     CHPP_LOGE("Location result conversion failed: len=%" PRIuSIZE, len);
   } else {
-    getPalCallbacks()->locationEventCallback(chre);
+    const struct chrePalGnssCallbacks *callbacks = getPalCallbacks();
+    if (callbacks == NULL) {
+      CHPP_LOGE("PAL callbacks not initialized for location event");
+      chppGnssClientReleaseLocationEvent(
+          chre);  // Release memory to prevent leak
+    } else {
+      callbacks->locationEventCallback(chre);
+    }
   }
 }
 
@@ -585,7 +615,14 @@ static void chppGnssMeasurementResultNotification(
   if (chre == NULL) {
     CHPP_LOGE("Measurement result conversion failed len=%" PRIuSIZE, len);
   } else {
-    getPalCallbacks()->measurementEventCallback(chre);
+    const struct chrePalGnssCallbacks *callbacks = getPalCallbacks();
+    if (callbacks == NULL) {
+      CHPP_LOGE("PAL callbacks not initialized for measurement event");
+      chppGnssClientReleaseMeasurementDataEvent(
+          chre);  // Release memory to prevent leak
+    } else {
+      callbacks->measurementEventCallback(chre);
+    }
   }
 }
 
@@ -632,7 +669,9 @@ static bool chppGnssClientOpen(const struct chrePalSystemApi *systemApi,
  * Deinitializes the GNSS client.
  */
 static void chppGnssClientClose(void) {
-  // Remote
+  gSystemApi = NULL;
+  gCallbacks = NULL;
+
   struct ChppAppHeader *request = chppAllocClientRequestCommand(
       &gGnssClientContext.client, CHPP_GNSS_CLOSE);
 

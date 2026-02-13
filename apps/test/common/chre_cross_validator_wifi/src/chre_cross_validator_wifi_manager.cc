@@ -19,6 +19,7 @@
 #include <cstring>
 
 #include "chre/util/nanoapp/log.h"
+#include "chre/util/nanoapp/string.h"
 #include "chre/util/nanoapp/wifi.h"
 #include "chre/util/time.h"
 #include "chre_api/chre.h"
@@ -403,8 +404,7 @@ void Manager::handleTimerEvent(const void *eventData) {
 }
 
 void Manager::setLastError(const char *errorMsg) {
-  strncpy(mLastErrorMsg, errorMsg, kMaxErrorMsgLen);
-  mLastErrorMsg[kMaxErrorMsgLen - 1] = '\0';
+  chre::copyString(mLastErrorMsg, errorMsg, kMaxErrorMsgLen);
 }
 
 }  // namespace chre::cross_validator_wifi

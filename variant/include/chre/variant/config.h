@@ -39,6 +39,11 @@
 #define CHRE_ATOMIC_UINT8_ENABLED 0
 #endif  // CHRE_ATOMIC_UINT8_ENABLED
 
+// Temporary flag to disable AtomicUint32Ref until all platforms implement it
+#ifndef CHRE_ATOMIC_UINT32_REF_ENABLED
+#define CHRE_ATOMIC_UINT32_REF_ENABLED 0
+#endif  // CHRE_ATOMIC_UINT32_REF_ENABLED
+
 // The size of EventLoop::mCurrentFreeingEventStack
 #ifndef CHRE_MAX_FREEING_EVENT_STACK_SIZE
 #define CHRE_MAX_FREEING_EVENT_STACK_SIZE 4

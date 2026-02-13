@@ -967,6 +967,7 @@ cc_test_host {
         "platform/shared/public_platform_wifi_pal",
         "platform/shared/public_platform_wwan_pal",
         "platform/shared/public_std_atomic",
+        "platform/shared/public_std_atomic_ref",
         "test/simulation/inc",
     ],
     header_libs: [
@@ -1110,6 +1111,7 @@ cc_defaults {
         "platform/shared/nanoapp_memory_guard_no_op/include",
         "platform/shared/public_platform_debug_dump_manager",
         "platform/shared/public_std_atomic",
+        "platform/shared/public_std_atomic_ref",
         "util/include",
         "variant/include",
         "variant/android/include",
@@ -1263,6 +1265,7 @@ cc_library_static {
         "platform/shared/public_platform_wifi_pal",
         "platform/shared/public_platform_wwan_pal",
         "platform/shared/public_std_atomic",
+        "platform/shared/public_std_atomic_ref",
         "platform/shared/sensor_pal/include",
         "util/include",
         "variant/include",
@@ -1458,6 +1461,7 @@ cc_library_static {
         "platform/shared/public_platform_wifi_pal",
         "platform/shared/public_platform_wwan_pal",
         "platform/shared/public_std_atomic",
+        "platform/shared/public_std_atomic_ref",
         "platform/shared/sensor_pal/include",
         "util/include",
         "variant/include",
@@ -1527,7 +1531,7 @@ cc_library_static {
 
 cc_library_headers {
     name: "chre_integration_headers",
-    vendor: true,
+    vendor_available: true,
     export_include_dirs: [
         "apps/nearby",
         "chre_api/include",
@@ -1555,6 +1559,7 @@ cc_library_headers {
         "platform/shared/public_platform_wifi_pal",
         "platform/shared/public_platform_wwan_pal",
         "platform/shared/public_std_atomic",
+        "platform/shared/public_std_atomic_ref",
         "platform/shared/sensor_pal/include",
         "test",
         "test/integration",
