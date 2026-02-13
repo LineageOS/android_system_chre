@@ -239,7 +239,7 @@ $$($(1)_CC_OBJS): $(OUT)/$$($(1)_OBJS_DIR)/%.o: %.cc $(MAKEFILE_LIST)
 		$$< -o $$@
 
 $$($(1)_HP_CC_OBJS): $(OUT)/$$($(1)_OBJS_DIR)/%.o: %.cc $(MAKEFILE_LIST)
-	@echo " [CC] $$<"
+	@echo " [CC_HP] $$<"
 	$(V)$(3) $(COMMON_CXX_CFLAGS) -DCHRE_FILENAME=\"$$(notdir $$<)\" $(2) -c \
 		$$< -o $$@
 	$(V)$(OBJCOPY) $$@ --prefix-alloc-sections .high_power
