@@ -1538,6 +1538,10 @@ bool chppRxDataCb(struct ChppTransportState *context, const uint8_t *buf,
             chppGetRxStatusLabel(context->rxStatus.state));
   uint64_t now = chppGetCurrentTimeNs();
   context->rxStatus.lastDataTimeMs = (uint32_t)(now / CHPP_NSEC_PER_MSEC);
+  if (UINT64_MAX - len < context->rxStatus.numTotalDataBytes) {
+    CHPP_LOGD("RX numTotalDataBytes overflow, resetting to 0");
+    context->rxStatus.numTotalDataBytes = 0;
+  }
   context->rxStatus.numTotalDataBytes += len;
 
   size_t consumed = 0;

@@ -324,7 +324,7 @@ struct ChppRxStatus {
   size_t locInDatagram;
 
   //! The total number of data received in chppRxDataCb.
-  size_t numTotalDataBytes;
+  uint64_t numTotalDataBytes;
 
   //! The timestamp when the transport received any data through chppRxDataCb.
   uint32_t lastDataTimeMs;
