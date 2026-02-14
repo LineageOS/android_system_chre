@@ -18,3 +18,8 @@ chre.rpc.ChreBleAdvertisingReport.data max_size:255 # extended range is [0, 255]
 chre.rpc.ChreBleAdvertisementEvent.reports max_count:10
 chre.rpc.ChreBleSocketPacket.data max_size:2048
 chre.rpc.ChreBleSocketConnectionEvent.socketName max_size:100
+# This is an arbitrary number to keep the message within the CHRE_MESSAGE_TO_HOST_MAX_SIZE limit.
+chre.rpc.ChreWifiScanEvent.results max_count:10
+chre.rpc.ChreWifiScanResult.ssid max_size:33
+chre.rpc.ChreWifiScanResult.bssid max_size:6
+chre.rpc.ChreWifiScanEvent.scannedFreqList max_count:20

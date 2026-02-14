@@ -55,6 +55,13 @@ class ChreApiTestService final
                                      chre_rpc_Capabilities &response);
 
   /**
+   * Configures WiFi scan monitoring.
+   */
+  pw::Status ChreWifiConfigureScanMonitorAsync(
+      const chre_rpc_ChreWifiConfigureScanMonitorAsyncInput &request,
+      chre_rpc_Status &response);
+
+  /**
    * Returns the WWAN capabilities.
    */
   pw::Status ChreWwanGetCapabilities(const google_protobuf_Empty &request,
@@ -284,6 +291,10 @@ class ChreApiTestService final
   bool validateInputAndCallChreWifiGetCapabilities(
       const google_protobuf_Empty &request, chre_rpc_Capabilities &response);
 
+  bool validateInputAndCallChreWifiConfigureScanMonitorAsync(
+      const chre_rpc_ChreWifiConfigureScanMonitorAsyncInput &request,
+      chre_rpc_Status &response);
+
   bool validateInputAndCallChreWwanGetCapabilities(
       const google_protobuf_Empty &request, chre_rpc_Capabilities &response);
 
@@ -357,6 +368,40 @@ class ChreApiTestService final
    * @param data        The data received in the event.
    */
   bool handleChreAudioDataEvent(const chreAudioDataEvent *data);
+
+  /**
+   * Handle assigning the data to the GeneralEventsMessage proto received from
+   * a CHRE_WIFI_SCAN_RESULT event.
+   *
+   * @param event       The data received in the event.
+   */
+  bool handleChreWifiScanEvent(const chreWifiScanEvent *event);
+
+  /**
+   * Handle assigning the data to the GeneralEventsMessage proto received from
+   * a CHRE_ASYNC_RESULT event.
+   *
+   * @param event       The data received in the event.
+   */
+  bool handleChreAsyncResult(const chreAsyncResult *event);
+
+  /**
+   * Initializes the global gGeneralEventsMessage for a WiFi scan event.
+   *
+   * @param event       The data received in the event.
+   * @return            A reference to the initialized ChreWifiScanEvent proto.
+   */
+  chre_rpc_ChreWifiScanEvent &initChreWifiScanEventMessage(
+      const chreWifiScanEvent *event);
+
+  /**
+   * Fills in a ChreWifiScanResult proto from a chreWifiScanResult struct.
+   *
+   * @param protoResult The proto message to fill in.
+   * @param result      The data received in the event.
+   */
+  void fillChreWifiScanResult(chre_rpc_ChreWifiScanResult &protoResult,
+                              const chreWifiScanResult &result);
 
   /**
    * Handle sending a single message to host. Asserts success on event write.

@@ -41,6 +41,7 @@ COMMON_CFLAGS += -I$(NANOAPP_PATH)/inc
 
 CHRE_NANOAPP_USES_BLE = true
 CHRE_NANOAPP_USES_AUDIO = true
+CHRE_NANOAPP_USES_WIFI = true
 
 # PW RPC protos ################################################################
 
