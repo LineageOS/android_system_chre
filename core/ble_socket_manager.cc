@@ -139,11 +139,15 @@ bool BleSocketManager::acceptBleSocket(uint64_t socketId) {
 }
 
 int32_t BleSocketManager::sendBleSocketPacket(
-    uint64_t socketId, const void *data, uint16_t length,
+    uint64_t appId, uint64_t socketId, const void *data, uint16_t length,
     chreBleSocketPacketFreeFunction *freeCallback) {
   PlatformBtSocket *btSocket = findPlatformBtSocket(socketId);
   if (btSocket == nullptr) {
-    LOGE("BT socketId %" PRIu64 " not found", socketId);
+    LOGE("BT socketId %" PRIu64 " not found. NanoappId: %" PRIu64, socketId,
+         appId);
+    if (freeCallback != nullptr) {
+      freeSocketPacket(appId, const_cast<void *>(data), length, freeCallback);
+    }
     return CHRE_BLE_SOCKET_SEND_STATUS_FAILURE;
   }
   return btSocket->sendSocketPacket(data, length, freeCallback);

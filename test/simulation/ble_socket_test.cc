@@ -477,11 +477,11 @@ TEST_F(BleSocketTest, BleSocketSendNoSocketFoundTest) {
         TestEventQueueSingleton::get()->pushEvent(SOCKET_SEND_FREE_CALLBACK);
       }};
   sendEventToNanoapp(appId, SOCKET_SEND, data);
-  // Free callback is invoked synchronously on socket send failure
-  waitForEvent(SOCKET_SEND_FREE_CALLBACK);
+
   int32_t status = 0;
   waitForEvent(SOCKET_SEND, &status);
   EXPECT_EQ(status, CHRE_BLE_SOCKET_SEND_STATUS_FAILURE);
+  waitForEvent(SOCKET_SEND_FREE_CALLBACK);
 }
 
 TEST_F(BleSocketTest, BleSocketSendQueueFullTest) {

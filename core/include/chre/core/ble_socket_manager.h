@@ -68,8 +68,8 @@ class BleSocketManager : public NonCopyable {
    *
    * @see chreBleSocketSend
    */
-  int32_t sendBleSocketPacket(uint64_t socketId, const void *data,
-                              uint16_t length,
+  int32_t sendBleSocketPacket(uint64_t appId, uint64_t socketId,
+                              const void *data, uint16_t length,
                               chreBleSocketPacketFreeFunction *freeCallback);
 
   /**

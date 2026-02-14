@@ -227,7 +227,10 @@ int32_t PlatformBtSocket::sendSocketPacket(
   auto *context = memoryAlloc<SocketSendContext>();
   if (context == nullptr) {
     LOG_OOM();
-    freeCallback(nonConstData, length);
+    if (freeCallback != nullptr) {
+      EventLoopManagerSingleton::get()->getBleSocketManager().freeSocketPacket(
+          mAppId, const_cast<void *>(data), length, freeCallback);
+    }
     return CHRE_BLE_SOCKET_SEND_STATUS_FAILURE;
   }
   context->appId = mAppId;
@@ -251,8 +254,11 @@ int32_t PlatformBtSocket::sendSocketPacket(
   // If multibuf creation is not successful, the deleter will not be used.
   if (!multibuf.has_value()) {
     LOG_OOM();
-    freeCallback(nonConstData, length);
     memoryFree(context);
+    if (freeCallback != nullptr) {
+      EventLoopManagerSingleton::get()->getBleSocketManager().freeSocketPacket(
+          mAppId, const_cast<void *>(data), length, freeCallback);
+    }
     return CHRE_BLE_SOCKET_SEND_STATUS_FAILURE;
   }
   pw::bluetooth::proxy::StatusWithMultiBuf statusWithMultiBuf =
