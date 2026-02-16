@@ -29,6 +29,7 @@
 #include "chre/util/macros.h"
 #include "chre/util/system/napp_header_utils.h"
 #include "chre/util/system/napp_permissions.h"
+#include "chre/variant/config.h"
 #include "chre_api/chre/version.h"
 
 namespace chre {
@@ -62,6 +63,9 @@ bool PlatformNanoapp::start() {
   } else if (mAppInfo == nullptr) {
     LOGE("Null app info!");
   } else {
+#if CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
+    sendTokenDatabaseInfo();
+#endif  // CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
     NanoappMemoryGuard guard(*this);
     success = mAppInfo->entryPoints.start();
   }
@@ -299,7 +303,19 @@ void PlatformNanoappBase::sendTokenDatabaseInfo() {
                                              databaseSize);
 }
 
+#if CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
+bool PlatformNanoapp::isOpen() const {
+  return mIsStatic || (mDsoHandle != nullptr);
+}
+
+bool PlatformNanoapp::openNanoapp() {
+  if (isOpen()) return true;
+
+  //! Always force DRAM access when opening since nanoapps are loaded via DRAM.
+  forceDramAccess();
+#else
 bool PlatformNanoappBase::openNanoapp() {
+#endif  // CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
   bool success = false;
   if (mIsStatic) {
     success = true;
@@ -315,9 +331,15 @@ bool PlatformNanoappBase::openNanoapp() {
     } else {
       mDsoHandle = dlopenbuf(binaryStart, mExpectedTcmCapable);
       success = verifyNanoappInfo();
+#if !CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
+      // If openNanoapp() is called outside of start(), we can't send the
+      // token database info since the nanoapp hasn't been loaded in the
+      // EventLoop yet (and therefore hasn't been assigned an instance ID).
+      // In this case, the call to sendTokenDatabaseInfo is deferred to start().
       if (success) {
         sendTokenDatabaseInfo();
       }
+#endif  // CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
     }
   }
 

@@ -26,6 +26,7 @@
 #include "chre/platform/slpi/power_control_util.h"
 #include "chre/util/system/debug_dump.h"
 #include "chre/util/system/napp_permissions.h"
+#include "chre/variant/config.h"
 #include "chre_api/chre/version.h"
 
 #include "dlfcn.h"
@@ -173,7 +174,16 @@ void PlatformNanoappBase::closeNanoapp() {
   }
 }
 
+#if CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
+bool PlatformNanoapp::isOpen() const {
+  return mIsStatic || (mDsoHandle != nullptr);
+}
+
+bool PlatformNanoapp::openNanoapp() {
+  if (isOpen()) return true;
+#else
 bool PlatformNanoappBase::openNanoapp() {
+#endif  // CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
   bool success = false;
 
   if (mIsStatic) {

@@ -21,6 +21,7 @@
 #include <string>
 
 #include "chre/platform/shared/nanoapp_support_lib_dso.h"
+#include "chre/variant/config.h"
 
 namespace chre {
 
@@ -69,6 +70,7 @@ class PlatformNanoappBase {
   //! loadFromFile), this will be set to the filename string to pass to dlopen()
   std::string mFilename;
 
+#if !CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
   /**
    * Calls through to openNanoappFromFile if the nanoapp was loaded from a
    * shared object or returns true if the nanoapp is static.
@@ -76,6 +78,7 @@ class PlatformNanoappBase {
    * @return true if the nanoapp was loaded successfully.
    */
   bool openNanoapp();
+#endif  // CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
 
   /**
    * Calls dlopen on the app filename, and fetches and validates the app info

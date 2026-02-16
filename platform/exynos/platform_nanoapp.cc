@@ -19,6 +19,7 @@
 #include "chre/platform/shared/memory.h"
 #include "chre/platform/shared/nanoapp_dso_util.h"
 #include "chre/util/system/napp_permissions.h"
+#include "chre/variant/config.h"
 
 #include <cinttypes>
 
@@ -181,7 +182,16 @@ bool PlatformNanoappBase::verifyNanoappInfo() {
   return success;
 }
 
+#if CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
+bool PlatformNanoapp::isOpen() const {
+  return mIsStatic || (mDsoHandle != nullptr);
+}
+
+bool PlatformNanoapp::openNanoapp() {
+  if (isOpen()) return true;
+#else
 bool PlatformNanoappBase::openNanoapp() {
+#endif  // CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
   bool success = false;
   if (mIsStatic) {
     success = true;

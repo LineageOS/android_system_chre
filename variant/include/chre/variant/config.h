@@ -48,3 +48,9 @@
 #ifndef CHRE_MAX_FREEING_EVENT_STACK_SIZE
 #define CHRE_MAX_FREEING_EVENT_STACK_SIZE 4
 #endif  // CHRE_MAX_FREEING_EVENT_STACK_SIZE
+
+// Temporary flag to disable PlatformNanoapp::openNanoapp as a platform
+// interface until all platforms implement it
+#ifndef CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
+#define CHRE_PLATFORM_OPEN_NANOAPP_ENABLED 0
+#endif  // CHRE_PLATFORM_OPEN_NANOAPP_ENABLED

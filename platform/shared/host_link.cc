@@ -18,6 +18,7 @@
 #include "chre/core/multi_threading_api_mutex.h"
 #include "chre/platform/shared/host_protocol_chre.h"
 #include "chre/platform/shared/nanoapp_load_manager.h"
+#include "chre/variant/config.h"
 
 namespace chre {
 
@@ -49,7 +50,12 @@ void HostMessageHandlers::finishLoadingNanoappCallback(
   bool success = false;
 
   if (cbData->nanoapp->isLoaded()) {
+#if CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
+    success = cbData->nanoapp->openNanoapp() &&
+              eventLoop.startNanoapp(std::move(cbData->nanoapp));
+#else
     success = eventLoop.startNanoapp(std::move(cbData->nanoapp));
+#endif  // CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
   } else {
     LOGE("Nanoapp is not loaded");
   }
