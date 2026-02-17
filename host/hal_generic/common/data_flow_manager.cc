@@ -14,34 +14,73 @@
  * limitations under the License.
  */
 
+#define LOG_TAG "CHRE.DataFlowManager"
+
 #include "data_flow_manager.h"
 
+#include <cinttypes>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <vector>
 
+#include <utils/Log.h>
+
+#include "data_flow_epoll_waiter.h"
 #include "pw_result/result.h"
 #include "pw_status/status.h"
+#include "pw_status/try.h"
 
 namespace android::hardware::contexthub::common::implementation {
 
 DataFlowManager::DataFlowManager(
-    const std::shared_ptr<RegionAllocator> & /* regionAllocator */,
-    const std::shared_ptr<WakelockManager> & /* wakelockManager */,
-    SendAlertFn /* sendAlertFn */) {
-  // TODO(b/463163051): Implement this.
+    const std::shared_ptr<RegionAllocator> &regionAllocator,
+    const std::shared_ptr<WakelockManager> &wakelockManager,
+    SendAlertFn sendAlertFn)
+    : mRegionAllocator(regionAllocator),
+      mWakelockManager(wakelockManager),
+      mSendAlertFn(sendAlertFn) {
+  auto epollWaiter = DataFlowEpollWaiter::create(*this);
+  if (!epollWaiter.ok()) {
+    LOG_ALWAYS_FATAL("Failed to create DataFlowEpollWaiter: %d",
+                     epollWaiter.status().code());
+  }
+  mEpollWaiter = std::move(*epollWaiter);
 }
 
 pw::Result<SharedDataRegion> DataFlowManager::allocateRegion(
-    const SharedDataRegionRequirements & /* requirements */) {
-  // TODO(b/463163051): Implement this.
-  return pw::Status::Unimplemented();
+    int64_t hubId, const SharedDataRegionRequirements &requirements) {
+  std::lock_guard lock(mLock);
+  PW_TRY_ASSIGN(auto region, mRegionAllocator->allocateRegion(requirements));
+  ALOGI("Allocated region %" PRId32 " for hub %" PRId64, region.id, hubId);
+  // Initialize the use count to 0.
+  mHostHubToRegions[hubId][region.id] = 0;
+  return region;
 }
 
-pw::Status DataFlowManager::releaseRegion(int32_t /* region */) {
-  // TODO(b/463163051): Implement this.
-  return pw::Status::Unimplemented();
+pw::Status DataFlowManager::releaseRegion(int64_t hubId, int32_t regionId) {
+  std::lock_guard lock(mLock);
+  auto it = mHostHubToRegions.find(hubId);
+  if (it == mHostHubToRegions.end()) {
+    ALOGE("Hub %" PRId64 " has no allocated regions", hubId);
+    return pw::Status::NotFound();
+  }
+  auto regionIt = it->second.find(regionId);
+  if (regionIt == it->second.end()) {
+    ALOGE("Region %" PRId32 " not found for hub %" PRId64, regionId, hubId);
+    return pw::Status::NotFound();
+  }
+  if (regionIt->second > 0) {
+    ALOGE("Region %" PRId32 " is still in use by hub %" PRId64, regionId,
+          hubId);
+    return pw::Status::FailedPrecondition();
+  }
+  it->second.erase(regionIt);
+  if (it->second.empty()) {
+    mHostHubToRegions.erase(it);
+  }
+  return mRegionAllocator->releaseRegion(regionId);
 }
 
 pw::Status DataFlowManager::addHostSourceDataFlow(

@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 #include <aidl/android/hardware/contexthub/DataFlowId.h>
@@ -28,6 +29,7 @@
 #include <aidl/android/hardware/contexthub/EndpointId.h>
 #include <aidl/android/hardware/contexthub/SharedDataRegion.h>
 #include <aidl/android/hardware/contexthub/SharedDataRegionRequirements.h>
+#include <android-base/thread_annotations.h>
 
 #include "data_flow_epoll_waiter.h"
 #include "pw_result/result.h"
@@ -82,23 +84,29 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
   /**
    * Allocates a shared data region for a data flow with a host source.
    *
+   * @param hubId The ID of the hub that requested the allocation.
    * @param requirements The requirements for the shared data region.
-   * @return The allocated shared data region.
+   * @return On success, the allocated shared data region, otherwise:
+   *   - pw::Status::Unimplemented() if a region with the desired properties
+   *     cannot be created (e.g. there is no shared memory region that can be
+   *     accessed by all of the necessary hubs).
+   *   - pw::Status::ResourceExhausted() if there wasn't enough memory to
+   *     allocate the region.
    */
   pw::Result<SharedDataRegion> allocateRegion(
-      const SharedDataRegionRequirements &requirements);
+      int64_t hubId, const SharedDataRegionRequirements &requirements)
+      EXCLUDES(mLock);
 
   /**
    * Releases a shared data region allocated via allocateRegion().
    *
-   * @param region The ID of the region to release.
+   * @param hubId The ID of the hub that owns the region.
+   * @param regionId The ID of the region to release.
    * @return pw::OkStatus() on success, otherwise:
    *   - pw::Status::NotFound() if the region is not found.
    *   - pw::Status::FailedPrecondition() if the region is still in use.
-   *   - pw::Status::PermissionDenied() if the region was not allocated via
-   *     allocateRegion().
    */
-  pw::Status releaseRegion(int32_t region);
+  pw::Status releaseRegion(int64_t hubId, int32_t regionId) EXCLUDES(mLock);
 
   /**
    * Initializes the state for a new data flow with a host source.
@@ -201,6 +209,18 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
                bool waking) override;
   void onWakingAck(DataFlowId dataFlowId, EndpointId endpointId,
                    uint64_t wakeCount) override;
+
+  std::mutex mLock;
+
+  // Members set at construction.
+  std::shared_ptr<RegionAllocator> mRegionAllocator GUARDED_BY(mLock);
+  std::shared_ptr<WakelockManager> mWakelockManager;
+  std::unique_ptr<DataFlowEpollWaiter> mEpollWaiter;
+  SendAlertFn mSendAlertFn;
+
+  // Map of host hub allocated regions and their use counts.
+  std::unordered_map<int64_t, std::unordered_map<int32_t, size_t>>
+      mHostHubToRegions GUARDED_BY(mLock);
 };
 
 }  // namespace android::hardware::contexthub::common::implementation
