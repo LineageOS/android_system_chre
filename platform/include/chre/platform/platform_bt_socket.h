@@ -61,13 +61,13 @@ class PlatformBtSocket : public PlatformBtSocketBase {
     mSocketAccepted = accepted;
   }
 
-  bool getSocketAccepted() {
+  bool getSocketAccepted() const {
     return mSocketAccepted;
   }
 
   uint64_t getId();
 
-  uint16_t getNanoappInstanceId() {
+  uint16_t getNanoappInstanceId() const {
     return mInstanceId;
   }
 

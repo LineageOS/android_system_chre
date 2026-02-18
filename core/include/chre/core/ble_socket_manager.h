@@ -54,14 +54,22 @@ class BleSocketManager : public NonCopyable {
    *
    * @param socketData Metadata for the BLE socket.
    */
-  void handleSocketOpenedByHost(const BleL2capCocSocketData &socketData);
+  static void handleSocketOpenedByHost(const BleL2capCocSocketData &socketData);
 
   /**
-   * Callback a nanoapp uses to accept the socket. This will be used in the
-   * middle of socketConnected and is part of a synchronous interaction with the
-   * nanoapp
+   * Validates if a socket ID is currently managed by CHRE. This is used by
+   * nanoapps to accept an incoming socket connection.
+   *
+   * @param socketId The ID of the socket to find.
+   * @return true if the socket exists, false otherwise.
    */
-  bool acceptBleSocket(uint64_t socketId);
+  bool acceptBleSocket(uint64_t socketId) {
+    PlatformBtSocket *btSocket = findPlatformBtSocket(socketId);
+    if (btSocket != nullptr) {
+      btSocket->setSocketAccepted(true);
+    }
+    return btSocket != nullptr;
+  }
 
   /**
    * Sends a packet to the socket.
@@ -81,8 +89,8 @@ class BleSocketManager : public NonCopyable {
    * @param length Length of socket packet.
    * @param freeCallback @see chreBleSocketPacketFreeFunction
    */
-  void freeSocketPacket(uint64_t appId, void *data, uint16_t length,
-                        chreBleSocketPacketFreeFunction *freeCallback);
+  static void freeSocketPacket(uint64_t appId, void *data, uint16_t length,
+                               chreBleSocketPacketFreeFunction *freeCallback);
 
   /**
    * Handles a socket event originating from the platform. Switches the context
@@ -92,7 +100,8 @@ class BleSocketManager : public NonCopyable {
    * @param socketId Identifies socket which the event is for.
    * @param socketEvent Socket event to be processed.
    */
-  void handlePlatformSocketEvent(uint64_t socketId, SocketEvent socketEvent);
+  static void handlePlatformSocketEvent(uint64_t socketId,
+                                        SocketEvent socketEvent);
 
   /**
    * Handles a socket packet from the platform. Switches the context to the
@@ -103,8 +112,8 @@ class BleSocketManager : public NonCopyable {
    * @param data Socket packet data.
    * @param length Socket packet data length.
    */
-  void handlePlatformSocketPacket(uint64_t socketId, const uint8_t *data,
-                                  uint16_t length);
+  static void handlePlatformSocketPacket(uint64_t socketId, const uint8_t *data,
+                                         uint16_t length);
 
   /**
    * Closes the sockets belonging to a nanoapp when it is unloaded.
@@ -121,7 +130,7 @@ class BleSocketManager : public NonCopyable {
    *
    * @param socketId Socket ID to be closed.
    */
-  void handleSocketClosedByHost(uint64_t socketId);
+  static void handleSocketClosedByHost(uint64_t socketId);
 
  private:
   /**
@@ -165,9 +174,8 @@ class BleSocketManager : public NonCopyable {
 
   PlatformBtSocket *findPlatformBtSocket(uint64_t socketId) {
     return mBtSockets.find(
-        [](PlatformBtSocket *btSocket, void *data) {
-          uint64_t socketId = *(static_cast<uint64_t *>(data));
-          return (btSocket->getId() == socketId);
+        [](PlatformBtSocket *btSocket, void *targetSocketId) {
+          return btSocket->getId() == *static_cast<uint64_t *>(targetSocketId);
         },
         &socketId);
   }
