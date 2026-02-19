@@ -79,19 +79,7 @@ class DataFlowEpollWaiter {
     Callback() = default;
   };
 
-  /**
-   * Creates a new DataFlowEpollWaiter instance.
-   *
-   * @param callback The methods to be invoked on an epoll event. Must outlive
-   * the created instance.
-   * @return pw::Status::Internal() if we fail to create the instance, or
-   * pw::Status::Ok() otherwise
-   */
-  static pw::Result<std::unique_ptr<DataFlowEpollWaiter>> create(
-      Callback &callback);
-
-  /** Cleans up all resources. */
-  virtual ~DataFlowEpollWaiter();
+  virtual ~DataFlowEpollWaiter() = default;
 
   /**
    * Adds the appropriate epoll triggers for the given endpoint on a data flow.
@@ -108,8 +96,8 @@ class DataFlowEpollWaiter {
    * pw::Status::AlreadyExists() if triggers are already registered for the
    * given endpoint and data flow, or pw::Status::Ok() otherwise
    */
-  pw::Status addTriggers(DataFlowId dataFlowId, EndpointId endpointId,
-                         const DataFlowAlertFds &alertFds) EXCLUDES(mLock);
+  virtual pw::Status addTriggers(DataFlowId dataFlowId, EndpointId endpointId,
+                                 const DataFlowAlertFds &alertFds) = 0;
 
   /**
    * Removes the triggers associated with a data flow and/or endpoint.
@@ -125,8 +113,40 @@ class DataFlowEpollWaiter {
    * pw::Status::NotFound() if no triggers are found for the given parameters,
    * or pw::Status::Ok() otherwise
    */
+  virtual pw::Status removeTriggers(std::optional<DataFlowId> dataFlowId,
+                                    std::optional<EndpointId> endpointId) = 0;
+
+ protected:
+  DataFlowEpollWaiter() = default;
+};
+
+/**
+ * Helper which manages and performs epoll_wait() on all eventfds relating to
+ * data flow alerts which are written to by host endpoints. This class is
+ * thread-safe.
+ */
+class DataFlowEpollWaiterReal : public DataFlowEpollWaiter {
+ public:
+  /**
+   * Creates a new DataFlowEpollWaiter instance.
+   *
+   * @param callback The methods to be invoked on an epoll event. Must outlive
+   * the created instance.
+   * @return pw::Status::Internal() if we fail to create the instance, or
+   * pw::Status::Ok() otherwise
+   */
+  static pw::Result<std::unique_ptr<DataFlowEpollWaiter>> create(
+      Callback &callback);
+
+  /** Cleans up all resources. */
+  virtual ~DataFlowEpollWaiterReal();
+
+  // DataFlowEpollWaiter interface.
+  pw::Status addTriggers(DataFlowId dataFlowId, EndpointId endpointId,
+                         const DataFlowAlertFds &alertFds) override
+      EXCLUDES(mLock);
   pw::Status removeTriggers(std::optional<DataFlowId> dataFlowId,
-                            std::optional<EndpointId> endpointId)
+                            std::optional<EndpointId> endpointId) override
       EXCLUDES(mLock);
 
  protected:
@@ -138,8 +158,8 @@ class DataFlowEpollWaiter {
     DataFlowAlertFds alertFds;
   };
 
-  DataFlowEpollWaiter(base::unique_fd epollFd, base::unique_fd haltFd,
-                      Callback &callback);
+  DataFlowEpollWaiterReal(base::unique_fd epollFd, base::unique_fd haltFd,
+                          Callback &callback);
 
   /** Main loop for the epoll thread. */
   void epollWaitLoop() EXCLUDES(mLock);

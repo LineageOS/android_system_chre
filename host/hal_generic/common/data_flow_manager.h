@@ -16,9 +16,12 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
+#include <set>
 #include <unordered_map>
 #include <vector>
 
@@ -112,34 +115,32 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
    * Initializes the state for a new data flow with a host source.
    *
    * @param source The source endpoint of the data flow.
-   * @param id The ID to assign to the data flow.
    * @param info The data flow information.
    * @return pw::OkStatus() on success, otherwise:
    *   - pw::Status::AlreadyExists() if the id is already in use.
    *   - pw::Status::NotFound() if the region indicated in the info doesn't
    *     exist.
-   *   - pw::Status::PermissionDenied() if the region indicated in the info
-   *     isn't attributed to the source endpoint.
    *   - pw::Status::Internal() if the data flow could not be set up (e.g.
    *     failed to set up alert handling).
    */
-  pw::Status addHostSourceDataFlow(EndpointId source, DataFlowId id,
-                                   const DataFlowInfo &info);
+  pw::Result<DataFlowId> addHostSourceDataFlow(EndpointId source,
+                                               const DataFlowInfo &info)
+      EXCLUDES(mLock);
 
   /**
    * Initializes the state for a offload sink a host source data flow.
    *
    * @param params The parameters for the offload sink registration.
-   * @return on success, the previously registered DataFlowInfo and, if
-   * necessary, a separate region for the allocation of the sink metadata,
-   * otherwise:
+   * @return on success, a shallow copy of the previously registered
+   * DataFlowInfo (i.e. without the region fd) and a SharedDataRegion for the
+   * allocation of the sink metadata, otherwise:
    *   - pw::Status::NotFound() if the data flow is not found.
    *   - pw::Status::AlreadyExists() if the sink is already registered.
    *   - pw::Status::Internal() if the data flow could not be set up (e.g.
    *     failed to set up alert handling).
    */
-  pw::Result<std::pair<DataFlowInfo, std::optional<SharedDataRegion>>>
-  addOffloadSink(DataFlowSinkRegistrationParams params);
+  pw::Result<std::pair<DataFlowInfo, SharedDataRegion>> addOffloadSink(
+      const DataFlowSinkRegistrationParams &params) EXCLUDES(mLock);
 
   /**
    * Initializes the state for a host sink on a data flow.
@@ -169,7 +170,7 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
   pw::Result<DataFlowSinkContext> addHostSink(
       DataFlowId dataFlow, EndpointId source, EndpointId sink,
       int32_t primaryRegionId, int32_t sinkMetadataRegionId,
-      uint32_t metadataOffset, uint32_t sinkMetadataOffset);
+      uint32_t metadataOffset, uint32_t sinkMetadataOffset) EXCLUDES(mLock);
 
   /**
    * Removes a data flow, releasing any associated resources.
@@ -178,7 +179,8 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
    * @return the list of endpoints to notify, otherwise:
    *   - pw::Status::NotFound() if the data flow is not found.
    */
-  pw::Result<std::vector<EndpointId>> removeDataFlow(DataFlowId id);
+  pw::Result<std::vector<EndpointId>> removeDataFlow(DataFlowId id)
+      EXCLUDES(mLock);
 
   /**
    * Removes a sink from a data flow, releasing any associated resources.
@@ -190,7 +192,8 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
    *   - pw::Status::InvalidArgument() if the endpoint is not a sink on the
    *     data flow.
    */
-  pw::Result<EndpointId> removeSink(DataFlowId dataFlow, EndpointId sink);
+  pw::Result<EndpointId> removeSink(DataFlowId dataFlow, EndpointId sink)
+      EXCLUDES(mLock);
 
   /**
    * Removes all state associated with the given endpoint.
@@ -201,26 +204,80 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
    *   - pw::Status::NotFound() if the endpoint is not found.
    */
   pw::Result<std::vector<PrunedEndpointDataFlowEntry>> pruneEndpoint(
-      EndpointId endpoint);
+      EndpointId endpoint) EXCLUDES(mLock);
 
  protected:
+  // Data associated with a host hub.
+  struct HostHubData {
+    std::unordered_map<int32_t, size_t> regionToUseCount;
+    int32_t nextDataFlowId = 1;
+  };
+
+  // Data associated with a data flow.
+  struct DataFlow {
+    DataFlowInfo info;
+    EndpointId source;
+    std::set<EndpointId> sinks;
+    DataFlowId id;
+    bool isHostSource;
+
+    DataFlow(DataFlowId _id, EndpointId _source, const DataFlowInfo &_info,
+             bool _isHostSource)
+        : info(shallowCopyDataFlowInfo(_info)),
+          source(_source),
+          id(_id),
+          isHostSource(_isHostSource) {}
+  };
+
+  static DataFlowInfo shallowCopyDataFlowInfo(const DataFlowInfo &info) {
+    return {.region = {.id = info.region.id},
+            .metadataOffsetBytes = info.metadataOffsetBytes};
+  }
+
   // DataFlowEpollWaiter::Callback interface
   void onAlert(DataFlowId dataFlowId, EndpointId endpointId,
                bool waking) override;
   void onWakingAck(DataFlowId dataFlowId, EndpointId endpointId,
                    uint64_t wakeCount) override;
 
+  // Removes the association between the given endpoint and data flow.
+  void removeEndpointDataFlowAssociationLocked(EndpointId endpoint,
+                                               DataFlow *dataFlow)
+      REQUIRES(mLock);
+
+  // Allocates or retrieves the metadata region for an offload sink.
+  pw::Result<SharedDataRegion> getOffloadSinkMetadataRegionLocked(
+      EndpointId sinkId, DataFlow *dataFlow) REQUIRES(mLock);
+
+  // Removes the reference to the metadata region for the given data flow,
+  // releasing it if there are no more references.
+  void unlinkOffloadSinkMetadataRegionLocked(EndpointId sinkId,
+                                             DataFlow *dataFlow)
+      REQUIRES(mLock);
+
+  // Looks up and decrements the use count for a host allocated region.
+  void decrementHostRegionUseCountLocked(DataFlowId dataFlowId,
+                                         int32_t regionId) REQUIRES(mLock);
+
   std::mutex mLock;
 
   // Members set at construction.
   std::shared_ptr<RegionAllocator> mRegionAllocator GUARDED_BY(mLock);
   std::shared_ptr<WakelockManager> mWakelockManager;
-  std::unique_ptr<DataFlowEpollWaiter> mEpollWaiter;
+  std::unique_ptr<DataFlowEpollWaiter> mEpollWaiter GUARDED_BY(mLock);
   SendAlertFn mSendAlertFn;
 
   // Map of host hub allocated regions and their use counts.
-  std::unordered_map<int64_t, std::unordered_map<int32_t, size_t>>
-      mHostHubToRegions GUARDED_BY(mLock);
+  std::unordered_map<int64_t, HostHubData> mIdToHostHubData GUARDED_BY(mLock);
+  // Map of all host endpoint associated data flows.
+  std::map<DataFlowId, std::unique_ptr<DataFlow>> mIdToDataFlow
+      GUARDED_BY(mLock);
+  // Map of endpoint to associated data flows.
+  std::map<EndpointId, std::set<DataFlow *>> mEndpointToDataFlows
+      GUARDED_BY(mLock);
+  // Map of regions allocated for offload sink metadata.
+  std::map<EndpointId, std::map<DataFlowId, std::pair<int32_t, size_t>>>
+      mOffloadSinkToDataFlowToMetadataRegionIdAndRefCount GUARDED_BY(mLock);
 };
 
 }  // namespace android::hardware::contexthub::common::implementation
