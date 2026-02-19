@@ -91,16 +91,6 @@ flag {
 }
 
 flag {
-  name: "high_number_host_endpoint_fix"
-  namespace: "context_hub"
-  description: "Flag guarding the fix for high number host endpoints"
-  bug: "450934734"
-  metadata {
-    purpose: PURPOSE_BUGFIX
-  }
-}
-
-flag {
   name: "fmcq_share_data_flow_message_fix"
   namespace: "context_hub"
   description: "Flag guarding the fix for sharing a data flow with a message"
