@@ -93,7 +93,7 @@ pw::Result<SharedDataRegion> DataFlowManager::allocateRegion(
     int64_t hubId, const SharedDataRegionRequirements &requirements) {
   std::lock_guard lock(mLock);
   PW_TRY_ASSIGN(auto region, mRegionAllocator->allocateRegion(requirements));
-  ALOGI("Allocated region %" PRId32 " for hub %" PRIx64, region.id, hubId);
+  ALOGI("Allocated region %" PRId32 " for hub 0x%" PRIx64, region.id, hubId);
   // Initialize the use count to 0.
   mIdToHostHubData[hubId].regionToUseCount[region.id] = 0;
   return region;
@@ -103,16 +103,17 @@ pw::Status DataFlowManager::releaseRegion(int64_t hubId, int32_t regionId) {
   std::lock_guard lock(mLock);
   auto it = mIdToHostHubData.find(hubId);
   if (it == mIdToHostHubData.end()) {
-    ALOGE("Hub %" PRIx64 " has no allocated regions", hubId);
+    ALOGE("Hub 0x%" PRIx64 " has no allocated regions", hubId);
     return pw::Status::NotFound();
   }
   auto regionIt = it->second.regionToUseCount.find(regionId);
   if (regionIt == it->second.regionToUseCount.end()) {
-    ALOGE("Region %" PRId32 " not found for hub %" PRIx64, regionId, hubId);
+    ALOGE("Region %" PRId32 " not found for hub 0x%" PRIx64, regionId, hubId);
     return pw::Status::NotFound();
   }
   if (regionIt->second > 0) {
-    ALOGE("Region %" PRId32 " is still in use by hub %" PRIx64, regionId, hubId);
+    ALOGE("Region %" PRId32 " is still in use by hub 0x%" PRIx64, regionId,
+          hubId);
     return pw::Status::FailedPrecondition();
   }
   it->second.regionToUseCount.erase(regionIt);
@@ -127,12 +128,12 @@ pw::Result<DataFlowId> DataFlowManager::addHostSourceDataFlow(
   std::lock_guard lock(mLock);
   auto hubIt = mIdToHostHubData.find(source.hubId);
   if (hubIt == mIdToHostHubData.end()) {
-    ALOGE("Hub %" PRIx64 " has no allocated regions", source.hubId);
+    ALOGE("Hub 0x%" PRIx64 " has no allocated regions", source.hubId);
     return pw::Status::NotFound();
   }
   auto regionIt = hubIt->second.regionToUseCount.find(info.region.id);
   if (regionIt == hubIt->second.regionToUseCount.end()) {
-    ALOGE("Region %" PRId32 " not found for hub %" PRIx64, info.region.id,
+    ALOGE("Region %" PRId32 " not found for hub 0x%" PRIx64, info.region.id,
           source.hubId);
     return pw::Status::NotFound();
   }
@@ -152,19 +153,19 @@ DataFlowManager::addOffloadSink(const DataFlowSinkRegistrationParams &params) {
   const auto &dataFlowId = params.context.id;
   auto dataFlowIt = mIdToDataFlow.find(dataFlowId);
   if (dataFlowIt == mIdToDataFlow.end()) {
-    ALOGE("Data flow (%" PRIx64 ", %" PRId32 ") not found", dataFlowId.hubId,
+    ALOGE("Data flow (0x%" PRIx64 ", %" PRId32 ") not found", dataFlowId.hubId,
           dataFlowId.id);
     return pw::Status::NotFound();
   }
   auto &dataFlow = dataFlowIt->second;
   if (dataFlow->source != params.sourceId) {
-    ALOGE("Source id mismatch for data flow (%" PRIx64 ", %" PRId32 ")",
+    ALOGE("Source id mismatch for data flow (0x%" PRIx64 ", %" PRId32 ")",
           dataFlowId.hubId, dataFlowId.id);
     return pw::Status::InvalidArgument();
   }
   if (dataFlow->sinks.contains(params.sinkId)) {
-    ALOGE("Sink (%" PRIx64 ", %" PRIx64
-          ") already registered on data flow (%" PRIx64 ", %" PRId32 ")",
+    ALOGE("Sink (0x%" PRIx64 ", 0x%" PRIx64
+          ") already registered on data flow (0x%" PRIx64 ", %" PRId32 ")",
           params.sinkId.hubId, params.sinkId.id, dataFlowId.hubId,
           dataFlowId.id);
     return pw::Status::AlreadyExists();
@@ -209,18 +210,19 @@ pw::Result<DataFlowSinkContext> DataFlowManager::addHostSink(
                                                              *context.info));
   } else {
     if (source != dataFlowIt->second->source) {
-      ALOGE("Source id mismatch for data flow (%" PRIx64 ", %" PRId32 ")",
+      ALOGE("Source id mismatch for data flow (0x%" PRIx64 ", %" PRId32 ")",
             dataFlowId.hubId, dataFlowId.id);
       return pw::Status::AlreadyExists();
     }
     if (dataFlowIt->second->sinks.contains(sink)) {
-      ALOGE("Sink (%" PRIx64 ", %" PRIx64
-            ") already registered on data flow (%" PRIx64 ", %" PRId32 ")",
+      ALOGE("Sink (0x%" PRIx64 ", 0x%" PRIx64
+            ") already registered on data flow (0x%" PRIx64 ", %" PRId32 ")",
             sink.hubId, sink.id, dataFlowId.hubId, dataFlowId.id);
       return pw::Status::AlreadyExists();
     }
     if (dataFlowIt->second->info.metadataOffsetBytes != metadataOffset) {
-      ALOGE("Metadata offset mismatch for data flow (%" PRIx64 ", %" PRId32 ")",
+      ALOGE("Metadata offset mismatch for data flow (0x%" PRIx64 ", %" PRId32
+            ")",
             dataFlowId.hubId, dataFlowId.id);
       return pw::Status::AlreadyExists();
     }
@@ -246,22 +248,58 @@ pw::Result<std::vector<EndpointId>> DataFlowManager::removeDataFlow(
   std::lock_guard lock(mLock);
   auto it = mIdToDataFlow.find(id);
   if (it == mIdToDataFlow.end()) {
-    ALOGE("Data flow (%" PRIx64 ", %" PRId32 ") not found", id.hubId, id.id);
+    ALOGE("Data flow (0x%" PRIx64 ", %" PRId32 ") not found", id.hubId, id.id);
     return pw::Status::NotFound();
   }
   return removeDataFlowLocked(it);
 }
 
-pw::Result<EndpointId> DataFlowManager::removeSink(DataFlowId /* dataFlow */,
-                                                   EndpointId /* sink */) {
-  // TODO(b/463163051): Implement this.
-  return pw::Status::Unimplemented();
+pw::Result<EndpointId> DataFlowManager::removeSink(DataFlowId dataFlowId,
+                                                   EndpointId sink) {
+  std::lock_guard lock(mLock);
+  auto dataFlowIt = mIdToDataFlow.find(dataFlowId);
+  if (dataFlowIt == mIdToDataFlow.end()) {
+    ALOGE("Data flow (0x%" PRIx64 ", %" PRId32 ") not found", dataFlowId.hubId,
+          dataFlowId.id);
+    return pw::Status::NotFound();
+  }
+  if (!dataFlowIt->second->sinks.contains(sink)) {
+    ALOGE("Sink (0x%" PRIx64 ", 0x%" PRIx64
+          ") not found on data flow (0x%" PRIx64 ", %" PRId32 ")",
+          sink.hubId, sink.id, dataFlowId.hubId, dataFlowId.id);
+    return pw::Status::NotFound();
+  }
+  return removeSinkLocked(dataFlowIt, sink);
 }
 
 pw::Result<std::vector<DataFlowManager::PrunedEndpointDataFlowEntry>>
-DataFlowManager::pruneEndpoint(EndpointId /* endpoint */) {
-  // TODO(b/463163051): Implement this.
-  return pw::Status::Unimplemented();
+DataFlowManager::pruneEndpoint(EndpointId endpoint) {
+  std::lock_guard lock(mLock);
+  auto endpointNode = mEndpointToDataFlows.extract(endpoint);
+  if (endpointNode.empty()) {
+    ALOGE("Endpoint (0x%" PRIx64 ", 0x%" PRIx64 ") not found", endpoint.hubId,
+          endpoint.id);
+    return pw::Status::NotFound();
+  }
+  std::vector<PrunedEndpointDataFlowEntry> prunedDataFlows;
+  for (auto *dataFlow : endpointNode.mapped()) {
+    auto &entry = prunedDataFlows.emplace_back(dataFlow->id,
+                                               dataFlow->source == endpoint);
+    auto dataFlowIt = mIdToDataFlow.find(dataFlow->id);
+    if (dataFlowIt == mIdToDataFlow.end()) {
+      LOG_ALWAYS_FATAL(
+          "Data flow (0x%" PRIx64 ", %" PRId32
+          ") associated with endpoint (0x%" PRIx64 ", 0x%" PRIx64 ") not found",
+          dataFlow->id.hubId, dataFlow->id.id, endpoint.hubId, endpoint.id);
+    }
+    if (entry.isSource) {
+      PW_TRY_ASSIGN(entry.endpoints, removeDataFlowLocked(dataFlowIt));
+    } else {
+      PW_TRY_ASSIGN(entry.endpoints.emplace_back(),
+                    removeSinkLocked(dataFlowIt, endpoint));
+    }
+  }
+  return prunedDataFlows;
 }
 
 DataFlowManager::DataFlow::DataFlow(DataFlowId _id, EndpointId _source,
@@ -321,12 +359,35 @@ pw::Result<std::vector<EndpointId>> DataFlowManager::removeDataFlowLocked(
   if (auto status =
           mEpollWaiter->removeTriggers(dataFlowId, /* endpointId= */ {});
       !status.ok()) {
-    ALOGE("Failed to remove triggers for data flow (%" PRIx64 ", %" PRId32
+    ALOGE("Failed to remove triggers for data flow (0x%" PRIx64 ", %" PRId32
           ") with %d",
           dataFlowId.hubId, dataFlowId.id, status.code());
   }
   mIdToDataFlow.erase(it);
   return endpointsToNotify;
+}
+
+pw::Result<EndpointId> DataFlowManager::removeSinkLocked(
+    DataFlowMap::iterator it, EndpointId sink) {
+  auto &[dataFlowId, dataFlow] = *it;
+  // If this is the only sink remaining for an offload data flow, remove it.
+  if (!dataFlow->isHostSource && dataFlow->sinks.size() == 1) {
+    auto source = dataFlow->source;
+    PW_TRY(removeDataFlowLocked(it).status());
+    return source;
+  }
+  if (dataFlow->isHostSource) {
+    unlinkOffloadSinkMetadataRegionLocked(sink, dataFlow.get());
+  }
+  removeEndpointDataFlowAssociationLocked(sink, dataFlow.get());
+  auto status = mEpollWaiter->removeTriggers(dataFlowId, sink);
+  if (!status.ok()) {
+    ALOGE("Failed to remove triggers for sink (0x%" PRIx64 ", 0x%" PRIx64
+          ") on data flow (0x%" PRIx64 ", %" PRId32 ") with %d",
+          sink.hubId, sink.id, dataFlowId.hubId, dataFlowId.id, status.code());
+  }
+  dataFlow->sinks.erase(sink);
+  return dataFlow->source;
 }
 
 void DataFlowManager::removeEndpointDataFlowAssociationLocked(
@@ -384,7 +445,7 @@ void DataFlowManager::unlinkOffloadSinkMetadataRegionLocked(
           auto status = mRegionAllocator->releaseRegion(regionIt->second.first);
           if (!status.ok()) {
             ALOGE("Failed to release sink metadata region %" PRId32
-                  " for data flow (%" PRIx64 ", %" PRId32 "): %d",
+                  " for data flow (0x%" PRIx64 ", %" PRId32 "): %d",
                   regionIt->second.first, dataFlow->id.hubId, dataFlow->id.id,
                   status.code());
           }
@@ -402,13 +463,13 @@ void DataFlowManager::decrementHostRegionUseCountLocked(DataFlowId dataFlowId,
                                                         int32_t regionId) {
   auto hubIt = mIdToHostHubData.find(dataFlowId.hubId);
   if (hubIt == mIdToHostHubData.end()) {
-    LOG_ALWAYS_FATAL("Hub %" PRIx64 " has no allocated regions",
+    LOG_ALWAYS_FATAL("Hub 0x%" PRIx64 " has no allocated regions",
                      dataFlowId.hubId);
   }
   auto regionIt = hubIt->second.regionToUseCount.find(regionId);
   if (regionIt == hubIt->second.regionToUseCount.end()) {
-    LOG_ALWAYS_FATAL("Region %" PRId32 " not found for hub %" PRIx64, regionId,
-                     dataFlowId.hubId);
+    LOG_ALWAYS_FATAL("Region %" PRId32 " not found for hub 0x%" PRIx64,
+                     regionId, dataFlowId.hubId);
   }
   regionIt->second--;
 }

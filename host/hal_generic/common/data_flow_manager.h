@@ -77,6 +77,9 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
     DataFlowId dataFlowId;
     std::vector<EndpointId> endpoints;
     bool isSource;
+
+    PrunedEndpointDataFlowEntry(DataFlowId _dataFlowId, bool _isSource)
+        : dataFlowId(_dataFlowId), isSource(_isSource) {}
   };
 
   DataFlowManager(const std::shared_ptr<RegionAllocator> &regionAllocator,
@@ -185,14 +188,16 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
   /**
    * Removes a sink from a data flow, releasing any associated resources.
    *
-   * @param dataFlow The data flow to remove the sink from.
+   * This may result in the removal of state associated with the data flow if it
+   * has an offload source and no more host sinks.
+   *
+   * @param dataFlowId The data flow to remove the sink from.
    * @param sink The sink endpoint to remove.
    * @return the source endpoint of the data flow, otherwise:
-   *   - pw::Status::NotFound() if the data flow or sink is not found.
-   *   - pw::Status::InvalidArgument() if the endpoint is not a sink on the
+   *   - pw::Status::NotFound() if the data flow or sink is not found on the
    *     data flow.
    */
-  pw::Result<EndpointId> removeSink(DataFlowId dataFlow, EndpointId sink)
+  pw::Result<EndpointId> removeSink(DataFlowId dataFlowId, EndpointId sink)
       EXCLUDES(mLock);
 
   /**
@@ -241,6 +246,12 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
   // Implementation of removeDataFlow() that assumes the lock is held.
   pw::Result<std::vector<EndpointId>> removeDataFlowLocked(
       DataFlowMap::iterator it) REQUIRES(mLock);
+
+  // Removes a sink from a data flow, releasing any associated resources. This
+  // may result in the removal of an offload source data flow that has no more
+  // host sinks.
+  pw::Result<EndpointId> removeSinkLocked(DataFlowMap::iterator it,
+                                          EndpointId sink) REQUIRES(mLock);
 
   // Removes the association between the given endpoint and data flow.
   void removeEndpointDataFlowAssociationLocked(EndpointId endpoint,

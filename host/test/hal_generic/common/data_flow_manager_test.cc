@@ -580,5 +580,323 @@ TEST_F(DataFlowManagerTest, AddHostSinkTriggerFailure) {
             pw::Status::Internal());
 }
 
+TEST_F(DataFlowManagerTest, RemoveSinkSuccess) {
+  allocateRegion(kRegionId);
+  EndpointId source{.id = 1, .hubId = kHubId};
+  DataFlowInfo info{.region = {.id = kRegionId}};
+  EXPECT_CALL(*mEpollWaiter, addTriggers(_, _, _))
+      .WillOnce(Return(pw::OkStatus()));
+  auto flowId = mDataFlowManager->addHostSourceDataFlow(source, info).value();
+
+  EndpointId sink{.id = 2, .hubId = kSinkHubId};
+  DataFlowSinkRegistrationParams params{
+      .context = {.id = flowId},
+      .sourceId = source,
+      .sinkId = sink,
+  };
+
+  EXPECT_CALL(*mRegionAllocator, consumerRequiresSeparateRegion(kSinkHubId))
+      .WillRepeatedly(Return(false));
+  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kRegionId))
+      .WillOnce(Invoke([](int32_t id) { return SharedDataRegion{.id = id}; }));
+  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, sink, _))
+      .WillOnce(Return(pw::OkStatus()));
+
+  ASSERT_TRUE(mDataFlowManager->addOffloadSink(params).ok());
+
+  // Expect removal of triggers for the sink
+  EXPECT_CALL(*mEpollWaiter, removeTriggers(std::optional<DataFlowId>(flowId),
+                                            std::optional<EndpointId>(sink)))
+      .WillOnce(Return(pw::OkStatus()));
+
+  auto result = mDataFlowManager->removeSink(flowId, sink);
+  ASSERT_TRUE(result.ok());
+  EXPECT_EQ(result.value(), source);
+}
+
+TEST_F(DataFlowManagerTest, RemoveSinkDataFlowNotFound) {
+  DataFlowId flowId{.hubId = kHubId, .id = 1};
+  EndpointId sink{.id = 2, .hubId = kSinkHubId};
+
+  EXPECT_EQ(mDataFlowManager->removeSink(flowId, sink).status(),
+            pw::Status::NotFound());
+}
+
+TEST_F(DataFlowManagerTest, RemoveSinkSinkNotFound) {
+  allocateRegion(kRegionId);
+  EndpointId source{.id = 1, .hubId = kHubId};
+  DataFlowInfo info{.region = {.id = kRegionId}};
+  EXPECT_CALL(*mEpollWaiter, addTriggers(_, _, _))
+      .WillOnce(Return(pw::OkStatus()));
+  auto flowId = mDataFlowManager->addHostSourceDataFlow(source, info).value();
+
+  EndpointId sink{.id = 2, .hubId = kSinkHubId};
+
+  EXPECT_EQ(mDataFlowManager->removeSink(flowId, sink).status(),
+            pw::Status::NotFound());
+}
+
+TEST_F(DataFlowManagerTest, PruneEndpointSource) {
+  allocateRegion(kRegionId);
+  EndpointId source{.id = 1, .hubId = kHubId};
+  DataFlowInfo info{.region = {.id = kRegionId}};
+  EXPECT_CALL(*mEpollWaiter, addTriggers(_, _, _))
+      .WillOnce(Return(pw::OkStatus()));
+  auto flowId = mDataFlowManager->addHostSourceDataFlow(source, info).value();
+
+  // Expect removal of triggers for the flow (source)
+  EXPECT_CALL(*mEpollWaiter, removeTriggers(std::optional<DataFlowId>(flowId),
+                                            std::optional<EndpointId>()))
+      .WillOnce(Return(pw::OkStatus()));
+
+  auto result = mDataFlowManager->pruneEndpoint(source);
+  ASSERT_TRUE(result.ok());
+  ASSERT_EQ(result.value().size(), 1);
+  EXPECT_EQ(result.value()[0].dataFlowId, flowId);
+  EXPECT_TRUE(result.value()[0].isSource);
+  EXPECT_TRUE(result.value()[0].endpoints.empty());
+
+  // Data flow should be gone
+  EXPECT_EQ(mDataFlowManager->removeDataFlow(flowId).status(),
+            pw::Status::NotFound());
+}
+
+TEST_F(DataFlowManagerTest, PruneEndpointSourceWithSink) {
+  allocateRegion(kRegionId);
+  EndpointId source{.id = 1, .hubId = kHubId};
+  DataFlowInfo info{.region = {.id = kRegionId}};
+  EXPECT_CALL(*mEpollWaiter, addTriggers(_, _, _))
+      .WillOnce(Return(pw::OkStatus()));
+  auto flowId = mDataFlowManager->addHostSourceDataFlow(source, info).value();
+
+  EndpointId sink{.id = 2, .hubId = kSinkHubId};
+  DataFlowSinkRegistrationParams params{
+      .context = {.id = flowId},
+      .sourceId = source,
+      .sinkId = sink,
+  };
+
+  EXPECT_CALL(*mRegionAllocator, consumerRequiresSeparateRegion(kSinkHubId))
+      .WillRepeatedly(Return(false));
+  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kRegionId))
+      .WillOnce(Invoke([](int32_t id) { return SharedDataRegion{.id = id}; }));
+  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, sink, _))
+      .WillOnce(Return(pw::OkStatus()));
+
+  ASSERT_TRUE(mDataFlowManager->addOffloadSink(params).ok());
+
+  // Expect removal of triggers for the flow
+  EXPECT_CALL(*mEpollWaiter, removeTriggers(std::optional<DataFlowId>(flowId),
+                                            std::optional<EndpointId>()))
+      .WillOnce(Return(pw::OkStatus()));
+
+  auto result = mDataFlowManager->pruneEndpoint(source);
+  ASSERT_TRUE(result.ok());
+  ASSERT_EQ(result.value().size(), 1);
+  EXPECT_EQ(result.value()[0].dataFlowId, flowId);
+  EXPECT_TRUE(result.value()[0].isSource);
+  EXPECT_THAT(result.value()[0].endpoints, ::testing::ElementsAre(sink));
+
+  // Data flow should be gone
+  EXPECT_EQ(mDataFlowManager->removeDataFlow(flowId).status(),
+            pw::Status::NotFound());
+}
+
+TEST_F(DataFlowManagerTest, PruneEndpointSink) {
+  allocateRegion(kRegionId);
+  EndpointId source{.id = 1, .hubId = kHubId};
+  DataFlowInfo info{.region = {.id = kRegionId}};
+  EXPECT_CALL(*mEpollWaiter, addTriggers(_, _, _))
+      .WillOnce(Return(pw::OkStatus()));
+  auto flowId = mDataFlowManager->addHostSourceDataFlow(source, info).value();
+
+  EndpointId sink{.id = 2, .hubId = kSinkHubId};
+  DataFlowSinkRegistrationParams params{
+      .context = {.id = flowId},
+      .sourceId = source,
+      .sinkId = sink,
+  };
+
+  EXPECT_CALL(*mRegionAllocator, consumerRequiresSeparateRegion(kSinkHubId))
+      .WillRepeatedly(Return(false));
+  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kRegionId))
+      .WillOnce(Invoke([](int32_t id) { return SharedDataRegion{.id = id}; }));
+  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, sink, _))
+      .WillOnce(Return(pw::OkStatus()));
+
+  ASSERT_TRUE(mDataFlowManager->addOffloadSink(params).ok());
+
+  // Expect removal of triggers for the sink
+  EXPECT_CALL(*mEpollWaiter, removeTriggers(std::optional<DataFlowId>(flowId),
+                                            std::optional<EndpointId>(sink)))
+      .WillOnce(Return(pw::OkStatus()));
+
+  auto result = mDataFlowManager->pruneEndpoint(sink);
+  ASSERT_TRUE(result.ok());
+  ASSERT_EQ(result.value().size(), 1);
+  EXPECT_EQ(result.value()[0].dataFlowId, flowId);
+  EXPECT_FALSE(result.value()[0].isSource);
+  EXPECT_THAT(result.value()[0].endpoints, ::testing::ElementsAre(source));
+
+  // Sink should be gone from data flow
+  EXPECT_EQ(mDataFlowManager->removeSink(flowId, sink).status(),
+            pw::Status::NotFound());
+}
+
+TEST_F(DataFlowManagerTest, PruneEndpointNotFound) {
+  EndpointId endpoint{.id = 1, .hubId = kHubId};
+  EXPECT_EQ(mDataFlowManager->pruneEndpoint(endpoint).status(),
+            pw::Status::NotFound());
+}
+
+TEST_F(DataFlowManagerTest, RemoveSinkHostSinkSuccess) {
+  DataFlowId flowId{.hubId = kHubId, .id = 1};
+  EndpointId source{.id = 1, .hubId = kHubId};
+  EndpointId sink{.id = 2, .hubId = kSinkHubId};
+  constexpr int32_t kPrimaryRegionId = 10;
+  constexpr int32_t kSinkMetadataRegionId = 11;
+
+  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kPrimaryRegionId))
+      .WillOnce(Invoke([](int32_t) {
+        return pw::Result<SharedDataRegion>(
+            SharedDataRegion{.id = kPrimaryRegionId});
+      }));
+  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kSinkMetadataRegionId))
+      .WillOnce(Invoke([](int32_t) {
+        return pw::Result<SharedDataRegion>(
+            SharedDataRegion{.id = kSinkMetadataRegionId});
+      }));
+  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, source, _))
+      .WillOnce(Return(pw::OkStatus()));
+  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, sink, _))
+      .WillOnce(Return(pw::OkStatus()));
+
+  ASSERT_TRUE(mDataFlowManager
+                  ->addHostSink(flowId, source, sink, kPrimaryRegionId,
+                                kSinkMetadataRegionId, 0, 0)
+                  .ok());
+
+  // Expect removal of triggers for the flow, because this is the last host sink
+  // on an offload data flow.
+  EXPECT_CALL(*mEpollWaiter, removeTriggers(std::optional<DataFlowId>(flowId),
+                                            std::optional<EndpointId>()))
+      .WillOnce(Return(pw::OkStatus()));
+
+  auto result = mDataFlowManager->removeSink(flowId, sink);
+  ASSERT_TRUE(result.ok());
+  EXPECT_EQ(result.value(), source);
+
+  // Data flow should be gone
+  EXPECT_EQ(mDataFlowManager->removeDataFlow(flowId).status(),
+            pw::Status::NotFound());
+}
+
+TEST_F(DataFlowManagerTest, RemoveSinkHostSinkNotLast) {
+  DataFlowId flowId{.hubId = kHubId, .id = 1};
+  EndpointId source{.id = 1, .hubId = kHubId};
+  EndpointId sink1{.id = 2, .hubId = kSinkHubId};
+  EndpointId sink2{.id = 3, .hubId = kSinkHubId};
+  constexpr int32_t kPrimaryRegionId = 10;
+  constexpr int32_t kSinkMetadataRegionId = 11;
+
+  // Add first sink
+  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kPrimaryRegionId))
+      .WillRepeatedly(Invoke([](int32_t) {
+        return pw::Result<SharedDataRegion>(
+            SharedDataRegion{.id = kPrimaryRegionId});
+      }));
+  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kSinkMetadataRegionId))
+      .WillRepeatedly(Invoke([](int32_t) {
+        return pw::Result<SharedDataRegion>(
+            SharedDataRegion{.id = kSinkMetadataRegionId});
+      }));
+  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, source, _))
+      .WillOnce(Return(pw::OkStatus()));
+  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, sink1, _))
+      .WillOnce(Return(pw::OkStatus()));
+
+  ASSERT_TRUE(mDataFlowManager
+                  ->addHostSink(flowId, source, sink1, kPrimaryRegionId,
+                                kSinkMetadataRegionId, 0, 0)
+                  .ok());
+
+  // Add second sink
+  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, sink2, _))
+      .WillOnce(Return(pw::OkStatus()));
+
+  ASSERT_TRUE(mDataFlowManager
+                  ->addHostSink(flowId, source, sink2, kPrimaryRegionId,
+                                kSinkMetadataRegionId, 0, 0)
+                  .ok());
+
+  // Remove first sink. Should remove triggers for that sink, but NOT the flow.
+  EXPECT_CALL(*mEpollWaiter, removeTriggers(std::optional<DataFlowId>(flowId),
+                                            std::optional<EndpointId>(sink1)))
+      .WillOnce(Return(pw::OkStatus()));
+
+  auto result = mDataFlowManager->removeSink(flowId, sink1);
+  ASSERT_TRUE(result.ok());
+  EXPECT_EQ(result.value(), source);
+
+  // Data flow should still exist.
+  // We can verify this by checking that removing the second sink succeeds.
+  EXPECT_CALL(*mEpollWaiter, removeTriggers(std::optional<DataFlowId>(flowId),
+                                            std::optional<EndpointId>()))
+      .WillOnce(Return(pw::OkStatus()));
+
+  result = mDataFlowManager->removeSink(flowId, sink2);
+  ASSERT_TRUE(result.ok());
+  EXPECT_EQ(result.value(), source);
+
+  // Now data flow should be gone.
+  EXPECT_EQ(mDataFlowManager->removeDataFlow(flowId).status(),
+            pw::Status::NotFound());
+}
+
+TEST_F(DataFlowManagerTest, PruneEndpointHostSink) {
+  DataFlowId flowId{.hubId = kHubId, .id = 1};
+  EndpointId source{.id = 1, .hubId = kHubId};
+  EndpointId sink{.id = 2, .hubId = kSinkHubId};
+  constexpr int32_t kPrimaryRegionId = 10;
+  constexpr int32_t kSinkMetadataRegionId = 11;
+
+  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kPrimaryRegionId))
+      .WillOnce(Invoke([](int32_t) {
+        return pw::Result<SharedDataRegion>(
+            SharedDataRegion{.id = kPrimaryRegionId});
+      }));
+  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kSinkMetadataRegionId))
+      .WillOnce(Invoke([](int32_t) {
+        return pw::Result<SharedDataRegion>(
+            SharedDataRegion{.id = kSinkMetadataRegionId});
+      }));
+  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, source, _))
+      .WillOnce(Return(pw::OkStatus()));
+  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, sink, _))
+      .WillOnce(Return(pw::OkStatus()));
+
+  ASSERT_TRUE(mDataFlowManager
+                  ->addHostSink(flowId, source, sink, kPrimaryRegionId,
+                                kSinkMetadataRegionId, 0, 0)
+                  .ok());
+
+  // Pruning the endpoint should trigger removal of the flow since it's the last
+  // host sink on an offload data flow.
+  EXPECT_CALL(*mEpollWaiter, removeTriggers(std::optional<DataFlowId>(flowId),
+                                            std::optional<EndpointId>()))
+      .WillOnce(Return(pw::OkStatus()));
+
+  auto result = mDataFlowManager->pruneEndpoint(sink);
+  ASSERT_TRUE(result.ok());
+  ASSERT_EQ(result.value().size(), 1);
+  EXPECT_EQ(result.value()[0].dataFlowId, flowId);
+  EXPECT_FALSE(result.value()[0].isSource);
+  EXPECT_THAT(result.value()[0].endpoints, ::testing::ElementsAre(source));
+
+  // Data flow should be gone
+  EXPECT_EQ(mDataFlowManager->removeDataFlow(flowId).status(),
+            pw::Status::NotFound());
+}
+
 }  // namespace
 }  // namespace android::hardware::contexthub::common::implementation
