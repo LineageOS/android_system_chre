@@ -18,6 +18,7 @@
 
 #include "data_flow_manager.h"
 
+#include <sys/eventfd.h>
 #include <unistd.h>
 
 #include <cinttypes>
@@ -27,14 +28,51 @@
 #include <optional>
 #include <vector>
 
+#include <aidl/android/hardware/contexthub/DataFlowAlertFds.h>
 #include <utils/Log.h>
 
+#include "android/binder_auto_utils.h"
 #include "data_flow_epoll_waiter.h"
 #include "pw_result/result.h"
 #include "pw_status/status.h"
 #include "pw_status/try.h"
 
 namespace android::hardware::contexthub::common::implementation {
+namespace {
+
+using ::aidl::android::hardware::contexthub::DataFlowAlertFds;
+
+pw::Result<DataFlowAlertFds> createAlertFds(bool isHostEndpoint) {
+  DataFlowAlertFds fds{
+      .waking = ndk::ScopedFileDescriptor(eventfd(0, EFD_NONBLOCK)),
+      .nonWaking = ndk::ScopedFileDescriptor(eventfd(0, EFD_NONBLOCK)),
+      .halAck = ndk::ScopedFileDescriptor(
+          isHostEndpoint ? eventfd(0, EFD_NONBLOCK) : -1)};
+  if (fds.waking.get() < 0 || fds.nonWaking.get() < 0 ||
+      (isHostEndpoint && fds.halAck.get() < 0)) {
+    ALOGE("Failed to create alert fds");
+    return pw::Status::Internal();
+  }
+  return fds;
+}
+
+DataFlowAlertFds dupAlertFds(const DataFlowAlertFds &fds, bool isHostEndpoint) {
+  DataFlowAlertFds dupFds{
+      .waking =
+          ndk::ScopedFileDescriptor(TEMP_FAILURE_RETRY(dup(fds.waking.get()))),
+      .nonWaking = ndk::ScopedFileDescriptor(
+          TEMP_FAILURE_RETRY(dup(fds.nonWaking.get()))),
+      .halAck = isHostEndpoint ? ndk::ScopedFileDescriptor(
+                                     TEMP_FAILURE_RETRY(dup(fds.halAck.get())))
+                               : ndk::ScopedFileDescriptor(-1)};
+  if (dupFds.waking.get() < 0 || dupFds.nonWaking.get() < 0 ||
+      (isHostEndpoint && dupFds.halAck.get() < 0)) {
+    LOG_ALWAYS_FATAL("Failed to dup alert fds");
+  }
+  return dupFds;
+}
+
+}  // namespace
 
 DataFlowManager::DataFlowManager(
     const std::shared_ptr<RegionAllocator> &regionAllocator,
@@ -143,16 +181,64 @@ DataFlowManager::addOffloadSink(const DataFlowSinkRegistrationParams &params) {
           }));
   dataFlow->sinks.insert(params.sinkId);
   mEndpointToDataFlows[params.sinkId].insert(dataFlow.get());
-  return std::make_pair(shallowCopyDataFlowInfo(dataFlow->info),
-                        std::move(region));
+  return std::make_pair(
+      DataFlowInfo{.region = {.id = dataFlow->info.region.id},
+                   .metadataOffsetBytes = dataFlow->info.metadataOffsetBytes},
+      std::move(region));
 }
 
 pw::Result<DataFlowSinkContext> DataFlowManager::addHostSink(
-    DataFlowId /* dataFlow */, EndpointId /* source */, EndpointId /* sink */,
-    int32_t /* primaryRegionId */, int32_t /* sinkMetadataRegionId */,
-    uint32_t /* metadataOffset */, uint32_t /* sinkMetadataOffset */) {
-  // TODO(b/463163051): Implement this.
-  return pw::Status::Unimplemented();
+    DataFlowId dataFlowId, EndpointId source, EndpointId sink,
+    int32_t primaryRegionId, int32_t sinkMetadataRegionId,
+    uint32_t metadataOffset, uint32_t sinkMetadataOffset) {
+  std::lock_guard lock(mLock);
+  PW_TRY_ASSIGN(auto primaryRegion,
+                mRegionAllocator->getRegionInfo(primaryRegionId));
+  PW_TRY_ASSIGN(auto sinkMetadataRegion,
+                mRegionAllocator->getRegionInfo(sinkMetadataRegionId));
+  DataFlowSinkContext context = {
+      .id = dataFlowId,
+      .sinkMetadataRegion = std::move(sinkMetadataRegion),
+      .metadataOffsetBytes = sinkMetadataOffset};
+  PW_TRY_ASSIGN(context.alertFds, createAlertFds(/* isHostEndpoint= */ true));
+  context.info = DataFlowInfo{.region = std::move(primaryRegion),
+                              .metadataOffsetBytes = metadataOffset};
+  auto dataFlowIt = mIdToDataFlow.find(dataFlowId);
+  if (dataFlowIt == mIdToDataFlow.end()) {
+    PW_TRY_ASSIGN(dataFlowIt, addOffloadSourceDataFlowLocked(dataFlowId, source,
+                                                             *context.info));
+  } else {
+    if (source != dataFlowIt->second->source) {
+      ALOGE("Source id mismatch for data flow (%" PRIx64 ", %" PRId32 ")",
+            dataFlowId.hubId, dataFlowId.id);
+      return pw::Status::AlreadyExists();
+    }
+    if (dataFlowIt->second->sinks.contains(sink)) {
+      ALOGE("Sink (%" PRIx64 ", %" PRIx64
+            ") already registered on data flow (%" PRIx64 ", %" PRId32 ")",
+            sink.hubId, sink.id, dataFlowId.hubId, dataFlowId.id);
+      return pw::Status::AlreadyExists();
+    }
+    if (dataFlowIt->second->info.metadataOffsetBytes != metadataOffset) {
+      ALOGE("Metadata offset mismatch for data flow (%" PRIx64 ", %" PRId32 ")",
+            dataFlowId.hubId, dataFlowId.id);
+      return pw::Status::AlreadyExists();
+    }
+    context.info->alertFds = dupAlertFds(dataFlowIt->second->info.alertFds,
+                                         /* isHostEndpoint= */ false);
+  }
+  auto &dataFlow = *dataFlowIt->second;
+  auto status = mEpollWaiter->addTriggers(dataFlowId, sink, context.alertFds);
+  if (!status.ok()) {
+    if (dataFlow.sinks.empty()) {
+      // Clear the state for the new data flow as there are no host sinks.
+      removeDataFlowLocked(dataFlowIt).IgnoreError();
+    }
+    return status;
+  }
+  dataFlow.sinks.insert(sink);
+  mEndpointToDataFlows[sink].insert(&dataFlow);
+  return context;
 }
 
 pw::Result<std::vector<EndpointId>> DataFlowManager::removeDataFlow(
@@ -163,27 +249,7 @@ pw::Result<std::vector<EndpointId>> DataFlowManager::removeDataFlow(
     ALOGE("Data flow (%" PRIx64 ", %" PRId32 ") not found", id.hubId, id.id);
     return pw::Status::NotFound();
   }
-  if (it->second->isHostSource) {
-    decrementHostRegionUseCountLocked(id, it->second->info.region.id);
-  }
-  auto &dataFlow = it->second;
-  removeEndpointDataFlowAssociationLocked(dataFlow->source, dataFlow.get());
-  std::vector<EndpointId> endpointsToNotify;
-  for (const auto &sink : dataFlow->sinks) {
-    if (dataFlow->isHostSource) {
-      unlinkOffloadSinkMetadataRegionLocked(sink, dataFlow.get());
-    }
-    endpointsToNotify.push_back(sink);
-    removeEndpointDataFlowAssociationLocked(sink, dataFlow.get());
-  }
-  if (auto status = mEpollWaiter->removeTriggers(id, /* endpointId= */ {});
-      !status.ok()) {
-    ALOGE("Failed to remove triggers for data flow (%" PRIx64 ", %" PRId32
-          ") with %d",
-          id.hubId, id.id, status.code());
-  }
-  mIdToDataFlow.erase(it);
-  return endpointsToNotify;
+  return removeDataFlowLocked(it);
 }
 
 pw::Result<EndpointId> DataFlowManager::removeSink(DataFlowId /* dataFlow */,
@@ -198,6 +264,21 @@ DataFlowManager::pruneEndpoint(EndpointId /* endpoint */) {
   return pw::Status::Unimplemented();
 }
 
+DataFlowManager::DataFlow::DataFlow(DataFlowId _id, EndpointId _source,
+                                    const DataFlowInfo &_info,
+                                    bool _isHostSource)
+    : info{.region = {.id = _info.region.id},
+           .metadataOffsetBytes = _info.metadataOffsetBytes},
+      source(_source),
+      id(_id),
+      isHostSource(_isHostSource) {
+  // Store the alert fds if this is an offload source data flow so they can be
+  // duplicated when host sinks are added.
+  if (!_isHostSource) {
+    info.alertFds = dupAlertFds(_info.alertFds, /* isHostEndpoint= */ false);
+  }
+}
+
 void DataFlowManager::onAlert(DataFlowId /* dataFlowId */,
                               EndpointId /* endpointId */, bool /* waking */) {
   // TODO(b/463163051): Implement this.
@@ -207,6 +288,45 @@ void DataFlowManager::onWakingAck(DataFlowId /* dataFlowId */,
                                   EndpointId /* endpointId */,
                                   uint64_t /* wakeCount */) {
   // TODO(b/463163051): Implement this.
+}
+
+pw::Result<DataFlowManager::DataFlowMap::iterator>
+DataFlowManager::addOffloadSourceDataFlowLocked(DataFlowId dataFlowId,
+                                                EndpointId source,
+                                                DataFlowInfo &info) {
+  PW_TRY_ASSIGN(info.alertFds, createAlertFds(/* isHostEndpoint= */ false));
+  PW_TRY(mEpollWaiter->addTriggers(dataFlowId, source, info.alertFds));
+  auto itAndInserted = mIdToDataFlow.insert(
+      {dataFlowId, std::make_unique<DataFlow>(dataFlowId, source, info,
+                                              /* isHostSource= */ false)});
+  mEndpointToDataFlows[source].insert(itAndInserted.first->second.get());
+  return itAndInserted.first;
+}
+
+pw::Result<std::vector<EndpointId>> DataFlowManager::removeDataFlowLocked(
+    DataFlowMap::iterator it) {
+  auto &[dataFlowId, dataFlow] = *it;
+  if (dataFlow->isHostSource) {
+    decrementHostRegionUseCountLocked(dataFlowId, it->second->info.region.id);
+  }
+  removeEndpointDataFlowAssociationLocked(dataFlow->source, dataFlow.get());
+  std::vector<EndpointId> endpointsToNotify;
+  for (const auto &sink : dataFlow->sinks) {
+    if (dataFlow->isHostSource) {
+      unlinkOffloadSinkMetadataRegionLocked(sink, dataFlow.get());
+    }
+    endpointsToNotify.push_back(sink);
+    removeEndpointDataFlowAssociationLocked(sink, dataFlow.get());
+  }
+  if (auto status =
+          mEpollWaiter->removeTriggers(dataFlowId, /* endpointId= */ {});
+      !status.ok()) {
+    ALOGE("Failed to remove triggers for data flow (%" PRIx64 ", %" PRId32
+          ") with %d",
+          dataFlowId.hubId, dataFlowId.id, status.code());
+  }
+  mIdToDataFlow.erase(it);
+  return endpointsToNotify;
 }
 
 void DataFlowManager::removeEndpointDataFlowAssociationLocked(

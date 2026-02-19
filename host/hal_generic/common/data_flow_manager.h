@@ -148,7 +148,7 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
    * If the data flow hasn't previously been shared with a host endpoint,
    * initializes epoll events for its source.
    *
-   * @param dataFlow The ID of the data flow.
+   * @param dataFlowId The ID of the data flow.
    * @param source The source endpoint of the data flow.
    * @param sink The sink endpoint of the data flow.
    * @param primaryRegionId The ID of the primary shared data region.
@@ -168,7 +168,7 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
    *     failed to set up alert handling).
    */
   pw::Result<DataFlowSinkContext> addHostSink(
-      DataFlowId dataFlow, EndpointId source, EndpointId sink,
+      DataFlowId dataFlowId, EndpointId source, EndpointId sink,
       int32_t primaryRegionId, int32_t sinkMetadataRegionId,
       uint32_t metadataOffset, uint32_t sinkMetadataOffset) EXCLUDES(mLock);
 
@@ -222,23 +222,25 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
     bool isHostSource;
 
     DataFlow(DataFlowId _id, EndpointId _source, const DataFlowInfo &_info,
-             bool _isHostSource)
-        : info(shallowCopyDataFlowInfo(_info)),
-          source(_source),
-          id(_id),
-          isHostSource(_isHostSource) {}
+             bool _isHostSource);
   };
 
-  static DataFlowInfo shallowCopyDataFlowInfo(const DataFlowInfo &info) {
-    return {.region = {.id = info.region.id},
-            .metadataOffsetBytes = info.metadataOffsetBytes};
-  }
+  using DataFlowMap = std::map<DataFlowId, std::unique_ptr<DataFlow>>;
 
   // DataFlowEpollWaiter::Callback interface
   void onAlert(DataFlowId dataFlowId, EndpointId endpointId,
                bool waking) override;
   void onWakingAck(DataFlowId dataFlowId, EndpointId endpointId,
                    uint64_t wakeCount) override;
+
+  // Adds an offload source data flow to the map, returning an iterator to it.
+  pw::Result<DataFlowMap::iterator> addOffloadSourceDataFlowLocked(
+      DataFlowId dataFlowId, EndpointId source, DataFlowInfo &info)
+      REQUIRES(mLock);
+
+  // Implementation of removeDataFlow() that assumes the lock is held.
+  pw::Result<std::vector<EndpointId>> removeDataFlowLocked(
+      DataFlowMap::iterator it) REQUIRES(mLock);
 
   // Removes the association between the given endpoint and data flow.
   void removeEndpointDataFlowAssociationLocked(EndpointId endpoint,
@@ -270,8 +272,7 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
   // Map of host hub allocated regions and their use counts.
   std::unordered_map<int64_t, HostHubData> mIdToHostHubData GUARDED_BY(mLock);
   // Map of all host endpoint associated data flows.
-  std::map<DataFlowId, std::unique_ptr<DataFlow>> mIdToDataFlow
-      GUARDED_BY(mLock);
+  DataFlowMap mIdToDataFlow GUARDED_BY(mLock);
   // Map of endpoint to associated data flows.
   std::map<EndpointId, std::set<DataFlow *>> mEndpointToDataFlows
       GUARDED_BY(mLock);
