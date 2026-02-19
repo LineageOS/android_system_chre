@@ -559,14 +559,12 @@ TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/platform_gnss.cc
 endif
 
 ifeq ($(CHRE_WIFI_SUPPORT_ENABLED), true)
-TINYSYS_SRCS += platform/shared/platform_wifi.cc
+TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/platform_wifi.cc
 endif
 
 ifeq ($(CHRE_WWAN_SUPPORT_ENABLED), true)
-TINYSYS_SRCS += platform/shared/platform_wwan.cc
+TINYSYS_SRCS += $(CHRE_PREFIX)/platform/shared/platform_wwan.cc
 endif
-
-# Compiler flags
 
 # Variables
 TINYSYS_PLATFORM = mt6989

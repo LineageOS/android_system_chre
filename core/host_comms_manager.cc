@@ -532,7 +532,7 @@ void HostCommsManager::onMessageToHostCompleteInternal(
 
     if (!EventLoopManagerSingleton::get()->deferCallback(
             SystemCallbackType::MessageToHostComplete, msgToHost,
-            freeMsgCallback,
+            freeMsgCallback, /* extraData= */ nullptr,
             EventLoopManagerSingleton::get()->getEventLoopByAppId(
                 msgToHost->appId))) {
       freeMessageToHost(static_cast<MessageToHost *>(msgToHost));

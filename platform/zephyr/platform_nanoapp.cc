@@ -17,10 +17,22 @@
 #include "chre/platform/platform_nanoapp.h"
 
 #include "chre/platform/assert.h"
+#include "chre/variant/config.h"
 
 namespace chre {
 
 PlatformNanoapp::~PlatformNanoapp() {}
+
+#if CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
+// This platform does not support dynamic loading.
+bool PlatformNanoapp::isOpen() const {
+  return true;
+}
+
+bool PlatformNanoapp::openNanoapp() {
+  return true;
+}
+#endif  // CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
 
 bool PlatformNanoapp::start() {
   bool success = false;

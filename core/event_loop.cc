@@ -153,6 +153,10 @@ void EventLoop::invokeMessageFreeFunction(uint64_t appId,
     LOGE("Couldn't find app 0x%016" PRIx64 " for message free callback", appId);
     return;
   }
+  if (freeFunction == nullptr) {
+    LOGW("Null free function for app 0x%016" PRIx64 ". Skipping", appId);
+    return;
+  }
   auto prevCurrentApp = mCurrentApp;
   mCurrentApp = nanoapp;
   mCurrentApp->invokeMessageFreeCallback(freeFunction, message, messageSize);

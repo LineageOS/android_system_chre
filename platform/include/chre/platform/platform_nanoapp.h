@@ -24,6 +24,7 @@
 #include "chre/target_platform/platform_nanoapp_base.h"
 #include "chre/util/non_copyable.h"
 #include "chre/util/system/debug_dump.h"
+#include "chre/variant/config.h"
 
 namespace chre {
 
@@ -33,6 +34,22 @@ namespace chre {
  */
 class PlatformNanoapp : public PlatformNanoappBase, public NonCopyable {
  public:
+#if CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
+  /**
+   * Opens the nanoapp and prepares it for execution. This must be called
+   * before start(). For dynamically loaded nanoapps, this involves loading the
+   * binary, resolving symbols, and running static initializers.
+   *
+   * @return true if the nanoapp was opened successfully.
+   */
+  bool openNanoapp();
+
+  /**
+   * @return true if the nanoapp has been opened.
+   */
+  bool isOpen() const;
+#endif  // CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
+
   /**
    * Calls the start function of the nanoapp. For dynamically loaded nanoapps,
    * this must also result in calling through to any of the nanoapp's static

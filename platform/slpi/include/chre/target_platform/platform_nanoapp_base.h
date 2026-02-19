@@ -21,6 +21,7 @@
 #include <cstdint>
 
 #include "chre/platform/shared/nanoapp_support_lib_dso.h"
+#include "chre/variant/config.h"
 
 namespace chre {
 
@@ -137,11 +138,13 @@ class PlatformNanoappBase {
   //! The number of bytes of the binary that has been loaded so far.
   size_t mBytesLoaded = 0;
 
+#if !CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
   /**
    * Calls through to openNanoappFromBuffer or openNanoappFromFile, depending on
    * how this nanoapp was loaded.
    */
   bool openNanoapp();
+#endif  // CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
 
   /**
    * Calls dlopenbuf on the app binary, and fetches and validates the app info

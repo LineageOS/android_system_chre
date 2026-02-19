@@ -191,6 +191,11 @@ bool PlatformBtSocket::isInitialized() {
   return mL2capCoc.has_value();
 }
 
+struct SocketSendContext {
+  uint64_t appId;
+  chreBleSocketPacketFreeFunction *freeCallback;
+};
+
 int32_t PlatformBtSocket::sendSocketPacket(
     const void *data, uint16_t length,
     chreBleSocketPacketFreeFunction *freeCallback) {
@@ -219,13 +224,29 @@ int32_t PlatformBtSocket::sendSocketPacket(
    * empties, triggering a call to removeDramAccessVote() right before this
    * event is enqueued.
    */
-  auto deleter = [freeCallback](pw::ByteSpan byteSpan) {
+  auto *context = memoryAlloc<SocketSendContext>();
+  if (context == nullptr) {
+    LOG_OOM();
+    if (freeCallback != nullptr) {
+      EventLoopManagerSingleton::get()->getBleSocketManager().freeSocketPacket(
+          mAppId, const_cast<void *>(data), length, freeCallback);
+    }
+    return CHRE_BLE_SOCKET_SEND_STATUS_FAILURE;
+  }
+  context->appId = mAppId;
+  context->freeCallback = freeCallback;
+
+  // PW requires the deleter's size must not exceed 4 on a 32-bit system hence
+  // the parameters are wrapped in a SocketSendContext
+  auto deleter = [context](pw::ByteSpan byteSpan) {
     EventLoopManagerSingleton::get()->getBleSocketManager().freeSocketPacket(
-        byteSpan.data(), byteSpan.size(), freeCallback);
+        context->appId, byteSpan.data(), static_cast<uint16_t>(byteSpan.size()),
+        context->freeCallback);
     // Call after enqueuing free socket packet event on CHRE's event loop queue
     // TODO(b/429237573): Support enqueueing high power events on CHRE's event
     // queue
     forceDramAccess();
+    memoryFree(context);
   };
   std::optional<pw::multibuf::MultiBuf> multibuf =
       pw::multibuf::FromSpan(mTxFirstFitAllocator, byteSpan, deleter);
@@ -233,7 +254,11 @@ int32_t PlatformBtSocket::sendSocketPacket(
   // If multibuf creation is not successful, the deleter will not be used.
   if (!multibuf.has_value()) {
     LOG_OOM();
-    freeCallback(nonConstData, length);
+    memoryFree(context);
+    if (freeCallback != nullptr) {
+      EventLoopManagerSingleton::get()->getBleSocketManager().freeSocketPacket(
+          mAppId, const_cast<void *>(data), length, freeCallback);
+    }
     return CHRE_BLE_SOCKET_SEND_STATUS_FAILURE;
   }
   pw::bluetooth::proxy::StatusWithMultiBuf statusWithMultiBuf =

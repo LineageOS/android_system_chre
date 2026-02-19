@@ -589,6 +589,9 @@ void HostProtocolChre::encodeNanConfigurationRequest(
 void HostProtocolChre::encodeBtSocketOpenResponse(
     ChreFlatBufferBuilder &builder, uint64_t socketId, bool success,
     const char *reason) {
+  if (reason == nullptr) {
+    reason = "";
+  }
   auto reasonOffset = addStringAsByteVector(builder, reason);
   auto socketOpenResponse = fbs::CreateBtSocketOpenResponse(
       builder, static_cast<int64_t>(socketId),

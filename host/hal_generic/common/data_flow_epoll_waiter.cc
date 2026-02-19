@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#define LOG_TAG "DataFlowEpollWaiter"
+#define LOG_TAG "CHRE.DataFlowEpollWaiter"
 
 #include "data_flow_epoll_waiter.h"
 

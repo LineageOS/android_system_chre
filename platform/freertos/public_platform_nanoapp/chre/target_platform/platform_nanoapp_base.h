@@ -19,6 +19,7 @@
 
 #include "chre/platform/shared/memory.h"
 #include "chre/platform/shared/nanoapp_support_lib_dso.h"
+#include "chre/variant/config.h"
 
 namespace chre {
 
@@ -149,6 +150,7 @@ class PlatformNanoappBase {
    */
   bool verifyNanoappInfo();
 
+#if !CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
   /**
    * Calls through to openNanoappFromBuffer or openNanoappFromFile, depending on
    * how this nanoapp was loaded.
@@ -156,6 +158,7 @@ class PlatformNanoappBase {
    * @return true if the nanoapp is successfully opened.
    */
   bool openNanoapp();
+#endif  // CHRE_PLATFORM_OPEN_NANOAPP_ENABLED
 
   /**
    * Releases the DSO handle if it was active, by calling dlclose(). This will

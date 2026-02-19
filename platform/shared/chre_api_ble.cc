@@ -154,22 +154,21 @@ DLL_EXPORT int32_t
 chreBleSocketSend(uint64_t socketId, const void *data, uint16_t length,
                   chreBleSocketPacketFreeFunction *freeCallback) {
 #ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
-  int32_t status;
-  {
-    GlobalApiLockGuard lock;
-    Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
-    if (!nanoapp->permitPermissionUse(NanoappPermissions::CHRE_PERMS_BLE)) {
-      status = chreError::CHRE_ERROR_PERMISSION_DENIED;
-    } else {
-      status = EventLoopManagerSingleton::get()
-                   ->getBleSocketManager()
-                   .sendBleSocketPacket(socketId, data, length, freeCallback);
+  GlobalApiLockGuard lock;
+  Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+  if (!nanoapp->permitPermissionUse(NanoappPermissions::CHRE_PERMS_BLE)) {
+    LOGE("Nanoapp 0x%" PRIx64 " does not have CHRE_PERMS_BLE permission",
+         nanoapp->getAppId());
+    if (freeCallback != nullptr) {
+      EventLoopManagerSingleton::get()->getBleSocketManager().freeSocketPacket(
+          nanoapp->getAppId(), const_cast<void *>(data), length, freeCallback);
     }
+    return CHRE_BLE_SOCKET_SEND_STATUS_FAILURE;
   }
-  if (status != chreError::CHRE_ERROR_NONE && freeCallback != nullptr) {
-    freeCallback(const_cast<void *>(data), length);
-  }
-  return status;
+  return EventLoopManagerSingleton::get()
+      ->getBleSocketManager()
+      .sendBleSocketPacket(nanoapp->getAppId(), socketId, data, length,
+                           freeCallback);
 #else
   UNUSED_VAR(socketId);
   UNUSED_VAR(data);
