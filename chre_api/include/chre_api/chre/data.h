@@ -412,6 +412,96 @@ struct chreDataFlowNewDataAlert {
 // NOTE: Do not add new events with ID > 15
 /** @} */
 
+/**
+ * Creates a data flow with the given properties. This data flow will be used
+ * by the nanoapp as a source. An elementSize of 0 indicates variable size
+ * elements with minElementCount and maxElementCount both representing bytes.
+ * This function will return CHRE_STATUS_OK and the nanoapp will receive a
+ * CHRE_EVENT_DATA_FLOW_CREATED event when the data flow is created or a failure
+ * status if the data flow cannot be created.
+ *
+ * The data flow may be instantiated in a new or existing region, guaranteed
+ * to have the provided domain and permission properties. The parameters
+ * sinkDomains, minAverageWriteIntervalNs, and
+ * maxAverageWriteBandwidthBytesPerSecond are used to guide the platform on
+ * memory bank selection. Once a data flow is created, its memory region cannot
+ * be changed without destroying and re-creating the flow, so nanoapps should
+ * supply values that represent the desired performance and power attributes for
+ * the lifetime of the flow.
+ *
+ * @param sinkDomains A bitmask of CHRE_DATA_SINK_DOMAIN_* values, indicating
+ *     the sink domains that this data flow must be able to support.
+ * @param minAverageWriteIntervalNs The expected minimum average (sustained)
+ *     interval between successive writes to the data flow, in nanoseconds.
+ *     This guides the platform towards selecting a memory region with suitable
+ *     power attributes.
+ * @param maxAverageWriteBandwidthBytesPerSecond The expected maximum average
+ *     (sustained) write bandwidth for the data flow, in bytes per second. This
+ *     guides the platform towards selecting and/or configuring a memory region
+ *     with suitable performance attributes.
+ * @param sinkPermissions Bitmask of permissions that must be held to receive
+ *     data from the data flow, and will be attributed to the recipient.
+ *     Primarily relevant when the destination endpoint is an Android
+ *     application. Refer to CHRE_MESSAGE_PERMISSION_* values.
+ * @param elementSize The size of each element in bytes. If
+ *     CHRE_DATA_ELEMENT_SIZE_VARIABLE, the data flow will have variable
+ *     size elements.
+ * @param alignment The alignment of each element in bytes. If
+ *     CHRE_DATA_ELEMENT_ALIGNMENT_UNALIGNED, the data flow will have no
+ *     alignment requirements and elements will be packed, with no padding
+ *     inserted to ensure alignment. In this case, special care must be taken on
+ *     both the source and all sinks to ensure that safe methods for unaligned
+ *     access are used, according to the requirements of the local processor.
+ * @param minElementCount The minimum number of elements to allocate for the
+ *     data flow. If this amount cannot be allocated, this function will return
+ *     CHRE_STATUS_RESOURCE_EXHAUSTED.
+ * @param maxElementCount The maximum number of elements to allocate for the
+ *     data flow. Must be greater than or equal to minElementCount. The data
+ *     flow will dynamically grow up to this size as needed. If this is
+ *     CHRE_DATA_DYNAMIC_MAX_SIZE, then the data flow will be created with
+ *     a maximum size determined by CHRE. Note that the data flow may not be
+ *     able to grow to this max size if other data flows in the same region grow
+ *     to their maximum sizes and the region cannot accommodate more elements.
+ * @param name A human-readable name for the data flow. This is used for
+ *     debugging purposes and will not be shared with endpoints. This must not
+ *     be NULL.
+ * @return One of chreStatus
+ *  - CHRE_STATUS_OK if the data flow was successfully created.
+ *  - CHRE_STATUS_INVALID_ARGUMENT if any of the arguments are invalid or if
+ *    the name is NULL.
+ *  - CHRE_STATUS_RESOURCE_EXHAUSTED if the data flow cannot be created due to
+ *    insufficient memory.
+ *  - CHRE_STATUS_FAILED_PRECONDITION if the requested domains cannot be
+ *    supported by the platform.
+ *
+ * @since v1.12
+ */
+uint32_t chreDataFlowCreateAsync(uint32_t sinkDomains,
+    uint64_t minAverageWriteIntervalNs,
+    uint32_t maxAverageWriteBandwidthBytesPerSecond,
+    uint32_t sinkPermissions, uint32_t elementSize, uint32_t alignment,
+    uint32_t minElementCount, uint32_t maxElementCount,
+    const char *name);
+
+/**
+ * Destroys a data flow. This data flow must be owned by this nanoapp. If the
+ * data flow is not owned by this nanoapp, this function will return an error
+ * status and the data flow will not be destroyed. All nanoapp sinks of this
+ * data flow will be notified with a CHRE_EVENT_DATA_FLOW_STOPPED event, and all
+ * non-nanoapp sinks will be notified as well.
+ *
+ * It is safe to destroy a data flow while one or more sinks are enabled.
+ *
+ * @param dataFlowId The ID of the data flow to destroy.
+ * @return One of chreStatus:
+ *  - CHRE_STATUS_OK if the data flow was successfully destroyed.
+ *  - CHRE_STATUS_PERMISSION_DENIED if the data flow is not owned by this
+ *    nanoapp.
+ *
+ * @since v1.12
+ */
+uint32_t chreDataFlowDestroy(uint32_t dataFlowId);
+
 #ifdef __cplusplus
 }
 #endif
