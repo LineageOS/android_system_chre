@@ -83,6 +83,10 @@ extern "C" {
 //! @see chreMsgSend
 #define CHRE_CAPABILITIES_GENERIC_ENDPOINT_MESSAGES     (UINT32_C(1) << 1)
 
+//! Support for data flows
+//! @see chreDataFlowCreateAsync
+#define CHRE_CAPABILITIES_DATA_FLOW                     (UINT32_C(1) << 2)
+
 /** @} */
 
 /**
