@@ -302,7 +302,7 @@ BaseType_t getChreTaskPriority() {
 EventLoop *getEventLoopForNanoapp(Nanoapp *nanoapp) {
 #if CHRE_MULTI_THREADING_ENABLED
   CHRE_ASSERT(nanoapp->isOpen());
-  CHRE_ASSERT(gEventLoops.has_value());
+  CHRE_ASSERT(freertos::gEventLoops.has_value());
   if (nanoapp->getRequestedThreadPriority() ==
       NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND) {
     return &freertos::gEventLoops.value()[freertos::kForegroundEventLoopIndex];
