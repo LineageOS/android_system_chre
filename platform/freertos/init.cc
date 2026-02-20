@@ -30,6 +30,7 @@
 #include "chre/platform/context.h"
 #include "chre/platform/shared/dram_vote_client.h"
 #include "chre/platform/shared/init.h"
+#include "chre/util/macros.h"
 #include "chre/variant/config.h"
 
 #ifdef CHRE_USE_BUFFERED_LOGGING
@@ -83,6 +84,7 @@ uint8_t gSecondaryLogBufferData[CHRE_LOG_BUFFER_DATA_SIZE];
 uint8_t gPrimaryLogBufferData[CHRE_LOG_BUFFER_DATA_SIZE];
 #endif  // CHRE_USE_BUFFERED_LOGGING
 
+// TODO(b/485889897): Make the multi-threading setting more configurable.
 #if CHRE_MULTI_THREADING_ENABLED
 Mutex gInitMutex;
 ConditionVariable gInitCond;
@@ -91,6 +93,9 @@ bool gChreInitializationComplete = false;
 Mutex gDeinitMutex;
 ConditionVariable gDeinitCond;
 bool gBackgroundThreadActive = true;
+
+constexpr size_t kForegroundEventLoopIndex = 0;
+constexpr size_t kBackgroundEventLoopIndex = 1;
 
 // Foreground
 StackType_t gForegroundChreWorkerStack[kChreTaskStackDepthWords];
@@ -101,7 +106,8 @@ StackType_t gBackgroundChreWorkerStack[kChreTaskStackDepthWords];
 StaticTask_t gBackgroundChreWorkerTcb;
 
 void chreForegroundThreadEntry(void * /*context*/) {
-  EventLoop *eventLoop = &gEventLoops.value()[0];
+  CHRE_ASSERT(gEventLoops.has_value());
+  EventLoop *eventLoop = &gEventLoops.value()[kForegroundEventLoopIndex];
   vTaskSetThreadLocalStoragePointer(/* xTaskToSet= */ nullptr, /* xIndex= */ 0,
                                     eventLoop);
 
@@ -142,7 +148,8 @@ void chreBackgroundThreadEntry(void * /*context*/) {
     gBackgroundThreadActive = true;
   }
 
-  EventLoop *eventLoop = &gEventLoops.value()[1];
+  CHRE_ASSERT(gEventLoops.has_value());
+  EventLoop *eventLoop = &gEventLoops.value()[kBackgroundEventLoopIndex];
   vTaskSetThreadLocalStoragePointer(/* xTaskToSet= */ nullptr, /* xIndex= */ 0,
                                     eventLoop);
 
@@ -290,6 +297,22 @@ const char *getChreFlushTaskName() {
 
 BaseType_t getChreTaskPriority() {
   return freertos::kChreTaskPriority;
+}
+
+EventLoop *getEventLoopForNanoapp(Nanoapp *nanoapp) {
+#if CHRE_MULTI_THREADING_ENABLED
+  CHRE_ASSERT(nanoapp->isOpen());
+  CHRE_ASSERT(gEventLoops.has_value());
+  if (nanoapp->getRequestedThreadPriority() ==
+      NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND) {
+    return &freertos::gEventLoops.value()[freertos::kForegroundEventLoopIndex];
+  } else {
+    return &freertos::gEventLoops.value()[freertos::kBackgroundEventLoopIndex];
+  }
+#else
+  UNUSED_VAR(nanoapp);
+  return &EventLoopManagerSingleton::get()->getEventLoop();
+#endif  // CHRE_MULTI_THREADING_ENABLED
 }
 
 bool inEventLoopThread() {

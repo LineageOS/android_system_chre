@@ -183,6 +183,11 @@ class PlatformNanoappBase {
    */
   void sendTokenDatabaseInfo();
 
+  /**
+   * Returns true if the nanoapp supports requested thread priority.
+   */
+  bool supportsRequestedThreadPriority() const;
+
   /** If this app needs to access DRAM to function, enables DRAM access. */
   inline void enableDramAccessIfRequired() const {
     if (!isTcmApp()) {

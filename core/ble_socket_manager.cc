@@ -22,7 +22,6 @@
 #include "chre/core/event_loop_manager.h"
 #include "chre/platform/context.h"
 #include "chre/platform/log.h"
-#include "chre_api/chre.h"
 
 namespace chre {
 
@@ -72,7 +71,7 @@ void BleSocketManager::handleSocketOpenedByHost(
           CHRE_REQUIRES(getMultiThreadingApiMutex()) {
             EventLoopManagerSingleton::get()
                 ->getBleSocketManager()
-                .handleSocketOpenedByHostSync(*(data.get()));
+                .handleSocketOpenedByHostSync(*data);
           });
 }
 
@@ -123,21 +122,6 @@ void BleSocketManager::handleSocketOpenedByHostSync(
       ->getHostCommsManager()
       .sendBtSocketOpenResponse(socketData.socketId, success, reason);
 }
-
-bool BleSocketManager::acceptBleSocket(uint64_t socketId) {
-  PlatformBtSocket *btSocket = mBtSockets.find(
-      [](PlatformBtSocket *btSocket, void *data) {
-        uint64_t socketId = *(static_cast<uint64_t *>(data));
-        if (btSocket->getId() == socketId) {
-          btSocket->setSocketAccepted(true);
-          return true;
-        }
-        return false;
-      },
-      &socketId);
-  return btSocket != nullptr;
-}
-
 int32_t BleSocketManager::sendBleSocketPacket(
     uint64_t appId, uint64_t socketId, const void *data, uint16_t length,
     chreBleSocketPacketFreeFunction *freeCallback) {
@@ -276,7 +260,7 @@ uint32_t BleSocketManager::closeSocketsOnNanoappUnload(
     uint16_t nanoappInstanceId) {
   return mBtSockets.forEach(
       [](PlatformBtSocket *btSocket, void *data) {
-        uint64_t nanoappInstanceId = *(static_cast<uint64_t *>(data));
+        uint64_t nanoappInstanceId = *static_cast<uint64_t *>(data);
         if (btSocket->getNanoappInstanceId() == nanoappInstanceId) {
           EventLoopManagerSingleton::get()
               ->getHostCommsManager()
@@ -300,7 +284,7 @@ void BleSocketManager::handleSocketClosedByHost(uint64_t socketId) {
           CHRE_REQUIRES(getMultiThreadingApiMutex()) {
             EventLoopManagerSingleton::get()
                 ->getBleSocketManager()
-                .handleSocketClosedByHostSync(*data.get());
+                .handleSocketClosedByHostSync(*data);
           });
 }
 

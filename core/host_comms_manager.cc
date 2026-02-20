@@ -252,10 +252,15 @@ void HostCommsManager::sendMessageToNanoappFromHost(
                               ->getHostCommsManager()
                               .deliverNanoappMessageFromHost(craftedMessage);
                         };
-
-    if (!EventLoopManagerSingleton::get()->deferCallback(
-            SystemCallbackType::DeferredMessageToNanoappFromHost,
-            craftedMessage, callback)) {
+    EventLoop *eventLoop =
+        EventLoopManagerSingleton::get()->getEventLoopByAppId(appId);
+    if (eventLoop == nullptr) {
+      LOGE("App ID 0x%016" PRIx64 " not found on any event loop", appId);
+      error = CHRE_ERROR_DESTINATION_NOT_FOUND;
+    } else if (!EventLoopManagerSingleton::get()->deferCallback(
+                   SystemCallbackType::DeferredMessageToNanoappFromHost,
+                   craftedMessage, callback, /* extraData= */ nullptr,
+                   eventLoop)) {
       LOGE("Failed to defer callback to send message to nanoapp from host");
       error = CHRE_ERROR_BUSY;
     }
@@ -350,10 +355,10 @@ void HostCommsManager::deliverNanoappMessageFromHost(
   Optional<chreError> error;
   uint16_t targetInstanceId;
 
-  bool foundNanoapp = EventLoopManagerSingleton::get()
-                          ->getEventLoop()
-                          .findNanoappInstanceIdByAppId(craftedMessage->appId,
-                                                        &targetInstanceId);
+  EventLoop *eventLoop = getCurrentEventLoop();
+  CHRE_ASSERT(eventLoop != nullptr);
+  bool foundNanoapp = eventLoop->findNanoappInstanceIdByAppId(
+      craftedMessage->appId, &targetInstanceId);
   bool shouldDeliverMessage = !craftedMessage->isReliable ||
                               shouldSendReliableMessageToNanoapp(
                                   craftedMessage->messageSequenceNumber,
@@ -361,9 +366,9 @@ void HostCommsManager::deliverNanoappMessageFromHost(
   if (!foundNanoapp) {
     error = CHRE_ERROR_DESTINATION_NOT_FOUND;
   } else if (shouldDeliverMessage) {
-    EventLoopManagerSingleton::get()->getEventLoop().distributeEventSync(
-        CHRE_EVENT_MESSAGE_FROM_HOST, &craftedMessage->fromHostData,
-        targetInstanceId);
+    eventLoop->distributeEventSync(CHRE_EVENT_MESSAGE_FROM_HOST,
+                                   &craftedMessage->fromHostData,
+                                   targetInstanceId);
     error = CHRE_ERROR_NONE;
   }
 

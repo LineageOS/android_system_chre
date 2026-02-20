@@ -120,6 +120,19 @@ const char *PlatformNanoapp::getAppName() const {
   return (mAppInfo != nullptr) ? mAppInfo->name : "Unknown";
 }
 
+bool PlatformNanoappBase::supportsRequestedThreadPriority() const {
+  return (mAppInfo != nullptr) ? (mAppInfo->structMinorVersion >=
+                                  CHRE_NSL_NANOAPP_INFO_STRUCT_MINOR_VERSION_4)
+                               : false;
+}
+
+int8_t PlatformNanoapp::getRequestedThreadPriority() const {
+  enableDramAccessIfRequired();
+  return supportsRequestedThreadPriority()
+             ? mAppInfo->requestedThreadPriority
+             : NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL;
+}
+
 uint32_t PlatformNanoapp::getTargetApiVersion() const {
   enableDramAccessIfRequired();
   return (mAppInfo != nullptr) ? mAppInfo->targetApiVersion
@@ -136,8 +149,7 @@ void PlatformNanoapp::logStateToBuffer(DebugDumpWrapper &debugDump) const {
     enableDramAccessIfRequired();
     size_t versionLen = 0;
     const char *version = getAppVersionString(&versionLen);
-    int8_t prio = (mAppInfo->structMinorVersion >=
-                   CHRE_NSL_NANOAPP_INFO_STRUCT_MINOR_VERSION_4)
+    int8_t prio = supportsRequestedThreadPriority()
                       ? mAppInfo->requestedThreadPriority
                       : NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL;
     debugDump.print("%s (%s) @ build: %.*s prio=%" PRId8, mAppInfo->name,
@@ -281,11 +293,15 @@ bool PlatformNanoappBase::verifyNanoappInfo() {
         if (!success) {
           mAppInfo = nullptr;
         } else {
+          int8_t requestedThreadPriority =
+              (supportsRequestedThreadPriority()
+                   ? mAppInfo->requestedThreadPriority
+                   : NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
           LOGI("Nanoapp loaded: %s (0x%016" PRIx64 ") version 0x%" PRIx32
-               " (%s) uimg %d system %d",
+               " (%s) uimg %d system %d requestedPrio=%" PRId8,
                mAppInfo->name, mAppInfo->appId, mAppInfo->appVersion,
                mAppInfo->appVersionString, mAppInfo->isTcmNanoapp,
-               mAppInfo->isSystemNanoapp);
+               mAppInfo->isSystemNanoapp, requestedThreadPriority);
         }
       }
     }
