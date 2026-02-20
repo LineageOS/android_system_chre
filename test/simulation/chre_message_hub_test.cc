@@ -268,6 +268,8 @@ pw::UniquePtr<std::byte[]> createMessageData(
 
 class ChreMessageHubTest : public SingleThreadTestBase {};
 
+class ChreMessageHubMultiThreadTest : public MultiThreadTestBase {};
+
 TEST_F(ChreMessageHubTest, NanoappsAreEndpointsToChreMessageHub) {
   class App : public TestNanoapp {
    public:
@@ -446,7 +448,8 @@ class MessageTestApp : public TestNanoapp {
   bool &mSessionClosed;
 };
 
-TEST_F(ChreMessageHubTest, SendMessageToNanoapp) {
+void doSendMessageToNanoappTest(TestBase *test,
+                                int8_t requestedThreadPriority) {
   constexpr uint64_t kNanoappId = 0x1234;
 
   bool messageReceivedAndValidated = false;
@@ -458,9 +461,10 @@ TEST_F(ChreMessageHubTest, SendMessageToNanoapp) {
       createMessageData(allocator, kMessageSize);
 
   // Load the nanoapp
-  uint64_t appId = loadNanoapp(MakeUnique<MessageTestApp>(
-      messageReceivedAndValidated, sessionClosed,
-      TestNanoappInfo{.name = "TEST1", .id = kNanoappId}));
+  TestNanoappInfo info = {.name = "TEST1", .id = kNanoappId};
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId = test->loadNanoapp(MakeUnique<MessageTestApp>(
+      messageReceivedAndValidated, sessionClosed, info));
   TestNanoapp *testNanoapp = queryNanoapp(appId);
   ASSERT_NE(testNanoapp, nullptr);
 
@@ -497,6 +501,20 @@ TEST_F(ChreMessageHubTest, SendMessageToNanoapp) {
   EXPECT_TRUE(messageHub->closeSession(sessionId));
   testNanoapp->wait(CHRE_EVENT_MSG_SESSION_CLOSED);
   EXPECT_TRUE(sessionClosed);
+}
+
+TEST_F(ChreMessageHubTest, SendMessageToNanoapp) {
+  doSendMessageToNanoappTest(this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(ChreMessageHubMultiThreadTest, MessageHubSendMessageToNanoapp) {
+  doSendMessageToNanoappTest(this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(ChreMessageHubMultiThreadTest,
+       MessageHubSendMessageToNanoappForeground) {
+  doSendMessageToNanoappTest(this,
+                             NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
 }
 
 //! Nanoapp used to test sending messages from a generic endpoint to a nanoapp
@@ -973,14 +991,17 @@ TEST_F(ChreMessageHubTest, NanoappGetSessionInfoForNonPartySession) {
                             TEST_GET_SESSION_INFO_INVALID_SESSION);
 }
 
-TEST_F(ChreMessageHubTest, NanoappSendsMessageToGenericEndpoint) {
+void doNanoappSendsMessageToGenericEndpointTest(
+    TestBase *test, int8_t requestedThreadPriority) {
   SessionId sessionId = SESSION_ID_INVALID;
   Message message;
 
   // Load the nanoapp
-  uint64_t appId = loadNanoapp(MakeUnique<SessionAndMessageTestApp>(
-      sessionId, TestNanoappInfo{.name = "TEST_OPEN_SESSION", .id = 0x1234}));
-  Nanoapp *nanoapp = getNanoappByAppId(appId);
+  TestNanoappInfo info = {.name = "TEST_OPEN_SESSION", .id = 0x1234};
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId =
+      test->loadNanoapp(MakeUnique<SessionAndMessageTestApp>(sessionId, info));
+  Nanoapp *nanoapp = test->getNanoappByAppId(appId);
   ASSERT_NE(nanoapp, nullptr);
   TestNanoapp *testNanoapp = queryNanoapp(appId);
   ASSERT_NE(testNanoapp, nullptr);
@@ -1016,6 +1037,23 @@ TEST_F(ChreMessageHubTest, NanoappSendsMessageToGenericEndpoint) {
         return true;
       },
       CHRE_EVENT_MSG_SESSION_CLOSED);
+}
+
+TEST_F(ChreMessageHubTest, NanoappSendsMessageToGenericEndpoint) {
+  doNanoappSendsMessageToGenericEndpointTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(ChreMessageHubMultiThreadTest,
+       MessageHubNanoappSendsMessageToGenericEndpoint) {
+  doNanoappSendsMessageToGenericEndpointTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(ChreMessageHubMultiThreadTest,
+       MessageHubNanoappSendsMessageToGenericEndpointForeground) {
+  doNanoappSendsMessageToGenericEndpointTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
 }
 
 TEST_F(ChreMessageHubTest,
@@ -1109,15 +1147,18 @@ TEST_F(ChreMessageHubTest, NanoappGetsMessageFromGenericEndpoint) {
       CHRE_EVENT_MSG_SESSION_CLOSED);
 }
 
-TEST_F(ChreMessageHubTest, NanoappSendsMessageToNanoapp) {
+void doNanoappSendsMessageToNanoappTest(TestBase *test,
+                                        int8_t requestedThreadPriority) {
   Session session;
   SessionId sessionId = SESSION_ID_INVALID;
 
   // Load the nanoapp
-  uint64_t appId = loadNanoapp(MakeUnique<SessionAndMessageTestApp>(
-      sessionId, TestNanoappInfo{.name = "TEST_SEND_MESSAGE_NANOAPP_TO_NANOAPP",
-                                 .id = 0x1234}));
-  Nanoapp *nanoapp = getNanoappByAppId(appId);
+  TestNanoappInfo info = {.name = "TEST_SEND_MESSAGE_NANOAPP_TO_NANOAPP",
+                          .id = 0x1234};
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId =
+      test->loadNanoapp(MakeUnique<SessionAndMessageTestApp>(sessionId, info));
+  Nanoapp *nanoapp = test->getNanoappByAppId(appId);
   ASSERT_NE(nanoapp, nullptr);
 
   // Test opening the session to itself
@@ -1131,6 +1172,22 @@ TEST_F(ChreMessageHubTest, NanoappSendsMessageToNanoapp) {
   // Wait for the session to be closed
   sendEventToNanoappAndWait(appId, TEST_CLOSE_SESSION,
                             CHRE_EVENT_MSG_SESSION_CLOSED);
+}
+
+TEST_F(ChreMessageHubTest, NanoappSendsMessageToNanoapp) {
+  doNanoappSendsMessageToNanoappTest(this,
+                                     NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(ChreMessageHubMultiThreadTest, MessageHubNanoappSendsMessageToNanoapp) {
+  doNanoappSendsMessageToNanoappTest(this,
+                                     NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(ChreMessageHubMultiThreadTest,
+       MessageHubNanoappSendsMessageToNanoappForeground) {
+  doNanoappSendsMessageToNanoappTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
 }
 
 //! Nanoapp used to test opening sessions with services
@@ -1210,15 +1267,16 @@ class ServiceSessionTestApp : public TestNanoapp {
   }
 };
 
-TEST_F(ChreMessageHubTest, OpenSessionWithNanoappService) {
+void doOpenSessionWithNanoappServiceTest(TestBase *test,
+                                         int8_t requestedThreadPriority) {
   constexpr uint64_t kNanoappId = 0x1234;
 
   // Load the nanoapp
-  uint64_t appId = loadNanoapp(MakeUnique<ServiceSessionTestApp>(
-
-      TestNanoappInfo{.name = "TEST_OPEN_SESSION_WITH_SERVICE",
-                      .id = kNanoappId}));
-  Nanoapp *nanoapp = getNanoappByAppId(appId);
+  TestNanoappInfo info = {.name = "TEST_OPEN_SESSION_WITH_SERVICE",
+                          .id = kNanoappId};
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId = test->loadNanoapp(MakeUnique<ServiceSessionTestApp>(info));
+  Nanoapp *nanoapp = test->getNanoappByAppId(appId);
   ASSERT_NE(nanoapp, nullptr);
   TestNanoapp *testNanoapp = queryNanoapp(appId);
   ASSERT_NE(testNanoapp, nullptr);
@@ -1260,15 +1318,32 @@ TEST_F(ChreMessageHubTest, OpenSessionWithNanoappService) {
       CHRE_EVENT_MSG_SESSION_CLOSED);
 }
 
-TEST_F(ChreMessageHubTest, OpenTwoSessionsWithNanoappServiceAndNoService) {
+TEST_F(ChreMessageHubTest, OpenSessionWithNanoappService) {
+  doOpenSessionWithNanoappServiceTest(this,
+                                      NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(ChreMessageHubMultiThreadTest, MessageHubOpenSessionWithNanoappService) {
+  doOpenSessionWithNanoappServiceTest(this,
+                                      NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(ChreMessageHubMultiThreadTest,
+       MessageHubOpenSessionWithNanoappServiceForeground) {
+  doOpenSessionWithNanoappServiceTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
+}
+
+void doOpenTwoSessionsWithNanoappServiceAndNoServiceTest(
+    TestBase *test, int8_t requestedThreadPriority) {
   constexpr uint64_t kNanoappId = 0x1234;
 
   // Load the nanoapp
-  uint64_t appId = loadNanoapp(MakeUnique<ServiceSessionTestApp>(
-
-      TestNanoappInfo{.name = "TEST_OPEN_SESSION_WITH_SERVICE",
-                      .id = kNanoappId}));
-  Nanoapp *nanoapp = getNanoappByAppId(appId);
+  TestNanoappInfo info = {.name = "TEST_OPEN_SESSION_WITH_SERVICE",
+                          .id = kNanoappId};
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId = test->loadNanoapp(MakeUnique<ServiceSessionTestApp>(info));
+  Nanoapp *nanoapp = test->getNanoappByAppId(appId);
   ASSERT_NE(nanoapp, nullptr);
   TestNanoapp *testNanoapp = queryNanoapp(appId);
   ASSERT_NE(testNanoapp, nullptr);
@@ -1333,13 +1408,31 @@ TEST_F(ChreMessageHubTest, OpenTwoSessionsWithNanoappServiceAndNoService) {
       CHRE_EVENT_MSG_SESSION_CLOSED);
 }
 
-TEST_F(ChreMessageHubTest, OpenSessionWithNanoappLegacyService) {
-  // Load the nanoapp
-  uint64_t appId = loadNanoapp(MakeUnique<ServiceSessionTestApp>(
+TEST_F(ChreMessageHubTest, OpenTwoSessionsWithNanoappServiceAndNoService) {
+  doOpenTwoSessionsWithNanoappServiceAndNoServiceTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
 
-      TestNanoappInfo{.name = "TEST_OPEN_SESSION_WITH_LEGACY_SERVICE",
-                      .id = kLegacyServiceNanoappId}));
-  Nanoapp *nanoapp = getNanoappByAppId(appId);
+TEST_F(ChreMessageHubMultiThreadTest,
+       MessageHubOpenTwoSessionsWithNanoappServiceAndNoService) {
+  doOpenTwoSessionsWithNanoappServiceAndNoServiceTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(ChreMessageHubMultiThreadTest,
+       MessageHubOpenTwoSessionsWithNanoappServiceAndNoServiceForeground) {
+  doOpenTwoSessionsWithNanoappServiceAndNoServiceTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
+}
+
+void doOpenSessionWithNanoappLegacyServiceTest(TestBase *test,
+                                               int8_t requestedThreadPriority) {
+  // Load the nanoapp
+  TestNanoappInfo info = {.name = "TEST_OPEN_SESSION_WITH_LEGACY_SERVICE",
+                          .id = kLegacyServiceNanoappId};
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId = test->loadNanoapp(MakeUnique<ServiceSessionTestApp>(info));
+  Nanoapp *nanoapp = test->getNanoappByAppId(appId);
   ASSERT_NE(nanoapp, nullptr);
   TestNanoapp *testNanoapp = queryNanoapp(appId);
   ASSERT_NE(testNanoapp, nullptr);
@@ -1373,6 +1466,23 @@ TEST_F(ChreMessageHubTest, OpenSessionWithNanoappLegacyService) {
         return true;
       },
       CHRE_EVENT_MSG_SESSION_CLOSED);
+}
+
+TEST_F(ChreMessageHubTest, OpenSessionWithNanoappLegacyService) {
+  doOpenSessionWithNanoappLegacyServiceTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(ChreMessageHubMultiThreadTest,
+       MessageHubOpenSessionWithNanoappLegacyService) {
+  doOpenSessionWithNanoappLegacyServiceTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(ChreMessageHubMultiThreadTest,
+       MessageHubOpenSessionWithNanoappLegacyServiceForeground) {
+  doOpenSessionWithNanoappLegacyServiceTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
 }
 
 TEST_F(ChreMessageHubTest, ForEachServiceNanoappLegacyService) {
@@ -1412,15 +1522,16 @@ TEST_F(ChreMessageHubTest, ForEachServiceNanoappLegacyService) {
       });
 }
 
-TEST_F(ChreMessageHubTest, NanoappFailsToPublishLegacyServiceInNewWay) {
+void doNanoappFailsToPublishLegacyServiceInNewWayTest(
+    TestBase *test, int8_t requestedThreadPriority) {
   constexpr uint64_t kNanoappId = 0x1234;
 
   // Load the nanoapp
-  uint64_t appId = loadNanoapp(MakeUnique<ServiceSessionTestApp>(
-
-      TestNanoappInfo{.name = "TEST_BAD_LEGACY_SERVICE_NAME",
-                      .id = kNanoappId}));
-  Nanoapp *nanoapp = getNanoappByAppId(appId);
+  TestNanoappInfo info = {.name = "TEST_BAD_LEGACY_SERVICE_NAME",
+                          .id = kNanoappId};
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId = test->loadNanoapp(MakeUnique<ServiceSessionTestApp>(info));
+  Nanoapp *nanoapp = test->getNanoappByAppId(appId);
   ASSERT_NE(nanoapp, nullptr);
 
   // Create the other hub
@@ -1438,15 +1549,33 @@ TEST_F(ChreMessageHubTest, NanoappFailsToPublishLegacyServiceInNewWay) {
                             TEST_BAD_LEGACY_SERVICE_NAME);
 }
 
-TEST_F(ChreMessageHubTest, NanoappOpensSessionWithService) {
+TEST_F(ChreMessageHubTest, NanoappFailsToPublishLegacyServiceInNewWay) {
+  doNanoappFailsToPublishLegacyServiceInNewWayTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(ChreMessageHubMultiThreadTest,
+       MessageHubNanoappFailsToPublishLegacyServiceInNewWay) {
+  doNanoappFailsToPublishLegacyServiceInNewWayTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(ChreMessageHubMultiThreadTest,
+       MessageHubNanoappFailsToPublishLegacyServiceInNewWayForeground) {
+  doNanoappFailsToPublishLegacyServiceInNewWayTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
+}
+
+void doNanoappOpensSessionWithServiceTest(TestBase *test,
+                                          int8_t requestedThreadPriority) {
   constexpr uint64_t kNanoappId = 0x1234;
 
   // Load the nanoapp
-  uint64_t appId = loadNanoapp(MakeUnique<ServiceSessionTestApp>(
-
-      TestNanoappInfo{.name = "TEST_OPEN_SESSION_WITH_SERVICE",
-                      .id = kNanoappId}));
-  Nanoapp *nanoapp = getNanoappByAppId(appId);
+  TestNanoappInfo info = {.name = "TEST_OPEN_SESSION_WITH_SERVICE",
+                          .id = kNanoappId};
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId = test->loadNanoapp(MakeUnique<ServiceSessionTestApp>(info));
+  Nanoapp *nanoapp = test->getNanoappByAppId(appId);
   ASSERT_NE(nanoapp, nullptr);
 
   // Create the other hub
@@ -1464,7 +1593,25 @@ TEST_F(ChreMessageHubTest, NanoappOpensSessionWithService) {
                             CHRE_EVENT_MSG_SESSION_OPENED);
 }
 
-TEST_F(ChreMessageHubTest, NanoappUnloadUnregistersProvidedServices) {
+TEST_F(ChreMessageHubTest, NanoappOpensSessionWithService) {
+  doNanoappOpensSessionWithServiceTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(ChreMessageHubMultiThreadTest,
+       MessageHubNanoappOpensSessionWithService) {
+  doNanoappOpensSessionWithServiceTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(ChreMessageHubMultiThreadTest,
+       MessageHubNanoappOpensSessionWithServiceForeground) {
+  doNanoappOpensSessionWithServiceTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
+}
+
+void doNanoappUnloadUnregistersProvidedServicesTest(
+    TestBase *test, int8_t requestedThreadPriority) {
   constexpr uint64_t kNanoappId = 0x1234;
 
   // Create the other hub
@@ -1478,11 +1625,11 @@ TEST_F(ChreMessageHubTest, NanoappUnloadUnregistersProvidedServices) {
   callback->setMessageHub(&(*messageHub));
 
   // Load the nanoapp
-  uint64_t appId = loadNanoapp(MakeUnique<ServiceSessionTestApp>(
-
-      TestNanoappInfo{.name = "TEST_UNLOAD_UNREGISTERS_PROVIDED_SERVICES",
-                      .id = kNanoappId}));
-  Nanoapp *nanoapp = getNanoappByAppId(appId);
+  TestNanoappInfo info = {.name = "TEST_UNLOAD_UNREGISTERS_PROVIDED_SERVICES",
+                          .id = kNanoappId};
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId = test->loadNanoapp(MakeUnique<ServiceSessionTestApp>(info));
+  Nanoapp *nanoapp = test->getNanoappByAppId(appId);
   UNUSED_VAR(nanoapp);
   callback->setMessageHub(&(*messageHub));
 
@@ -1503,11 +1650,11 @@ TEST_F(ChreMessageHubTest, NanoappUnloadUnregistersProvidedServices) {
   EXPECT_EQ(endpoint->endpointId, kNanoappId);
 
   // Unload the nanoapp
-  unloadNanoapp(appId);
+  test->unloadNanoapp(appId);
 
   // Load another nanoapp. This forces this thread to wait for the finish
   // load nanoapp event to process, which is after the cleanup event.
-  loadNanoapp(MakeUnique<TestNanoapp>());
+  test->loadNanoapp(MakeUnique<TestNanoapp>());
 
   // The service should be gone
   endpoint = MessageRouterSingleton::get()->getEndpointForService(
@@ -1516,6 +1663,23 @@ TEST_F(ChreMessageHubTest, NanoappUnloadUnregistersProvidedServices) {
           .kChreMessageHubId,
       kServiceDescriptorForNanoapp);
   EXPECT_FALSE(endpoint.has_value());
+}
+
+TEST_F(ChreMessageHubTest, NanoappUnloadUnregistersProvidedServices) {
+  doNanoappUnloadUnregistersProvidedServicesTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(ChreMessageHubMultiThreadTest,
+       MessageHubNanoappUnloadUnregistersProvidedServices) {
+  doNanoappUnloadUnregistersProvidedServicesTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(ChreMessageHubMultiThreadTest,
+       MessageHubNanoappUnloadUnregistersProvidedServicesForeground) {
+  doNanoappUnloadUnregistersProvidedServicesTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
 }
 
 //! Nanoapp used to test endpoint registration and ready events
@@ -1594,12 +1758,14 @@ class EndpointRegistrationTestApp : public TestNanoapp {
   EndpointId mEndpointId = ENDPOINT_ID_INVALID;
 };
 
-TEST_F(ChreMessageHubTest, NanoappSubscribesToEndpointReadyEvent) {
+void doNanoappSubscribesToEndpointReadyEventTest(
+    TestBase *test, int8_t requestedThreadPriority) {
   // Load the nanoapp
-  uint64_t appId = loadNanoapp(MakeUnique<EndpointRegistrationTestApp>(
-
-      TestNanoappInfo{.name = "TEST_ENDPOINT_READY_EVENT", .id = 0x1234}));
-  Nanoapp *nanoapp = getNanoappByAppId(appId);
+  TestNanoappInfo info = {.name = "TEST_ENDPOINT_READY_EVENT", .id = 0x1234};
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId =
+      test->loadNanoapp(MakeUnique<EndpointRegistrationTestApp>(info));
+  Nanoapp *nanoapp = test->getNanoappByAppId(appId);
   ASSERT_NE(nanoapp, nullptr);
   TestNanoapp *testNanoapp = queryNanoapp(appId);
   ASSERT_NE(testNanoapp, nullptr);
@@ -1627,12 +1793,31 @@ TEST_F(ChreMessageHubTest, NanoappSubscribesToEndpointReadyEvent) {
                             TEST_UNSUBSCRIBE_FROM_READY_EVENT);
 }
 
-TEST_F(ChreMessageHubTest, NanoappSubscribesToEndpointReadyEventAlreadyExists) {
-  // Load the nanoapp
-  uint64_t appId = loadNanoapp(MakeUnique<EndpointRegistrationTestApp>(
+TEST_F(ChreMessageHubTest, NanoappSubscribesToEndpointReadyEvent) {
+  doNanoappSubscribesToEndpointReadyEventTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
 
-      TestNanoappInfo{.name = "TEST_ENDPOINT_READY_EVENT", .id = 0x1234}));
-  Nanoapp *nanoapp = getNanoappByAppId(appId);
+TEST_F(ChreMessageHubMultiThreadTest,
+       MessageHubNanoappSubscribesToEndpointReadyEvent) {
+  doNanoappSubscribesToEndpointReadyEventTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(ChreMessageHubMultiThreadTest,
+       MessageHubNanoappSubscribesToEndpointReadyEventForeground) {
+  doNanoappSubscribesToEndpointReadyEventTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
+}
+
+void doNanoappSubscribesToEndpointReadyEventAlreadyExistsTest(
+    TestBase *test, int8_t requestedThreadPriority) {
+  // Load the nanoapp
+  TestNanoappInfo info = {.name = "TEST_ENDPOINT_READY_EVENT", .id = 0x1234};
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId =
+      test->loadNanoapp(MakeUnique<EndpointRegistrationTestApp>(info));
+  Nanoapp *nanoapp = test->getNanoappByAppId(appId);
   ASSERT_NE(nanoapp, nullptr);
 
   // Create the other hub
@@ -1654,11 +1839,31 @@ TEST_F(ChreMessageHubTest, NanoappSubscribesToEndpointReadyEventAlreadyExists) {
                             TEST_UNSUBSCRIBE_FROM_READY_EVENT);
 }
 
-TEST_F(ChreMessageHubTest, NanoappSubscribesToServiceReadyEvent) {
+TEST_F(ChreMessageHubTest, NanoappSubscribesToEndpointReadyEventAlreadyExists) {
+  doNanoappSubscribesToEndpointReadyEventAlreadyExistsTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(ChreMessageHubMultiThreadTest,
+       MessageHubNanoappSubscribesToEndpointReadyEventAlreadyExists) {
+  doNanoappSubscribesToEndpointReadyEventAlreadyExistsTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(ChreMessageHubMultiThreadTest,
+       MessageHubNanoappSubscribesToEndpointReadyEventAlreadyExistsForeground) {
+  doNanoappSubscribesToEndpointReadyEventAlreadyExistsTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
+}
+
+void doNanoappSubscribesToServiceReadyEventTest(
+    TestBase *test, int8_t requestedThreadPriority) {
   // Load the nanoapp
-  uint64_t appId = loadNanoapp(MakeUnique<EndpointRegistrationTestApp>(
-      TestNanoappInfo{.name = "TEST_SERVICE_READY_EVENT", .id = 0x1234}));
-  Nanoapp *nanoapp = getNanoappByAppId(appId);
+  TestNanoappInfo info = {.name = "TEST_SERVICE_READY_EVENT", .id = 0x1234};
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId =
+      test->loadNanoapp(MakeUnique<EndpointRegistrationTestApp>(info));
+  Nanoapp *nanoapp = test->getNanoappByAppId(appId);
   ASSERT_NE(nanoapp, nullptr);
   TestNanoapp *testNanoapp = queryNanoapp(appId);
   ASSERT_NE(testNanoapp, nullptr);
@@ -1684,6 +1889,23 @@ TEST_F(ChreMessageHubTest, NanoappSubscribesToServiceReadyEvent) {
   // Unsubscribe from the service ready event
   sendEventToNanoappAndWait(appId, TEST_UNSUBSCRIBE_FROM_SERVICE_READY_EVENT,
                             TEST_UNSUBSCRIBE_FROM_SERVICE_READY_EVENT);
+}
+
+TEST_F(ChreMessageHubTest, NanoappSubscribesToServiceReadyEvent) {
+  doNanoappSubscribesToServiceReadyEventTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(ChreMessageHubMultiThreadTest,
+       MessageHubNanoappSubscribesToServiceReadyEvent) {
+  doNanoappSubscribesToServiceReadyEventTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(ChreMessageHubMultiThreadTest,
+       MessageHubNanoappSubscribesToServiceReadyEventForeground) {
+  doNanoappSubscribesToServiceReadyEventTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
 }
 
 TEST_F(ChreMessageHubTest, NanoappLoadAndUnloadAreRegisteredAndUnregistered) {

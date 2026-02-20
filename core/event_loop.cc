@@ -514,18 +514,19 @@ void EventLoop::logStateToBuffer(DebugDumpWrapper &debugDump) const {
   }
 }
 
-void EventLoop::onMatchingNanoappEndpoint(
+bool EventLoop::onMatchingNanoappEndpoint(
     const pw::Function<bool(const EndpointInfo &)> &function) {
   ConditionalLockGuard<Mutex> lock(mNanoappsLock, !inThisEventLoopThread());
 
   for (const UniquePtr<Nanoapp> &app : mNanoapps) {
     if (function(getEndpointInfoFromNanoappLocked(*app.get()))) {
-      break;
+      return true;
     }
   }
+  return false;
 }
 
-void EventLoop::onMatchingNanoappService(
+bool EventLoop::onMatchingNanoappService(
     const pw::Function<bool(const EndpointInfo &, const ServiceInfo &)>
         &function) {
   ConditionalLockGuard<Mutex> lock(mNanoappsLock, !inThisEventLoopThread());
@@ -551,10 +552,11 @@ void EventLoop::onMatchingNanoappService(
       ServiceInfo serviceInfo(buffer, service.version, /* minorVersion= */ 0,
                               RpcFormat::PW_RPC_PROTOBUF);
       if (function(getEndpointInfoFromNanoappLocked(*app.get()), serviceInfo)) {
-        return;
+        return true;
       }
     }
   }
+  return false;
 }
 
 std::optional<EndpointInfo> EventLoop::getEndpointInfo(uint64_t appId) {

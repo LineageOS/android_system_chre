@@ -697,6 +697,46 @@ Same as chreBleGetFilterCapabilities, but must be called with the global API
    */
   uint32_t getWwanCapabilitiesLocked();
 
+  /**
+   * Iterates through all nanoapps in all event loops and calls the provided
+   * function for each nanoapp's endpoint.
+   *
+   * @param function The function to call for each endpoint. Return true to stop
+   *     iteration.
+   */
+  void onMatchingNanoappEndpoint(
+      const pw::Function<bool(const message::EndpointInfo &)> &function);
+
+  /**
+   * Gets the endpoint info for a given endpoint ID by searching through all
+   * event loops.
+   *
+   * @param endpointId The endpoint ID to search for.
+   * @return The endpoint info if found, otherwise std::nullopt.
+   */
+  std::optional<message::EndpointInfo> getEndpointInfo(
+      message::EndpointId endpointId);
+
+  /**
+   * Checks if a nanoapp has a legacy RPC service.
+   *
+   * @param nanoappId The app ID of the nanoapp.
+   * @param serviceId The service ID to check for.
+   * @return true if the nanoapp has the service, false otherwise.
+   */
+  bool doesNanoappHaveLegacyService(uint64_t nanoappId, uint64_t serviceId);
+
+  /**
+   * Iterates through all nanoapps in all event loops and calls the provided
+   * function for each nanoapp's service.
+   *
+   * @param function The function to call for each service. Return true to stop
+   *     iteration.
+   */
+  void onMatchingNanoappService(
+      const pw::Function<bool(const message::EndpointInfo &,
+                              const message::ServiceInfo &)> &function);
+
  private:
   /**
    * Posts an event to a specific event loop.
