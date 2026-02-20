@@ -88,8 +88,8 @@ BlockHeader *allocateBlock(pw::Allocator &allocator,
                            bool variableData) {
   auto *block = static_cast<BlockHeader *>(allocator.Allocate(layout));
   if (block) {
-    chre::AtomicUint32Ref(block->baseIndex).store(0);
-    chre::AtomicUint32Ref(block->skipIndex).store(blockCapacity);
+    ::chre::AtomicUint32Ref(block->baseIndex).store(0);
+    ::chre::AtomicUint32Ref(block->skipIndex).store(blockCapacity);
   }
   if (variableData) {
     auto *variableDataBlock =
@@ -218,7 +218,7 @@ constexpr uint32_t ringDiff(uint32_t end, uint32_t begin, uint32_t size) {
 void initProducerDesc(ProducerDesc &desc, uint32_t writeIndex,
                       uint32_t correction, BlockHeader *tailBlock,
                       uintptr_t shmemBase) {
-  chre::AtomicUint32Ref(desc.writeIndex).store(writeIndex);
+  ::chre::AtomicUint32Ref(desc.writeIndex).store(writeIndex);
   desc.indexCorrection = correction;
   desc.tailBlockOffsetBytes = toOffset(shmemBase, tailBlock);
 }
@@ -302,10 +302,10 @@ uint32_t blockCountForEpoch(uint32_t epoch) {
  */
 uint32_t indexCorrectionIncrement(BlockHeader *curr, BlockHeader *next,
                                   uint32_t capacity) {
-  auto baseIndex = chre::AtomicUint32Ref(curr->baseIndex).load();
-  auto skipIndex = chre::AtomicUint32Ref(curr->skipIndex).load();
+  auto baseIndex = ::chre::AtomicUint32Ref(curr->baseIndex).load();
+  auto skipIndex = ::chre::AtomicUint32Ref(curr->skipIndex).load();
   uint32_t diffBase = skipIndex == capacity ? baseIndex : skipIndex;
-  return ringDiff(chre::AtomicUint32Ref(next->baseIndex).load(), diffBase,
+  return ringDiff(::chre::AtomicUint32Ref(next->baseIndex).load(), diffBase,
                   capacity);
 }
 
@@ -453,9 +453,9 @@ pw::Status ProducerBase::initialize(bool variableData) {
   mDesc = &mCurrBlock->sourceMetadata;
   initProducerDesc(*mDesc, /*writeIndex=*/0, /*correction=*/0, mCurrBlock,
                    mRegion.base);
-  chre::AtomicUint32Ref(mQueue->queue.blockListEpoch)
+  ::chre::AtomicUint32Ref(mQueue->queue.blockListEpoch)
       .store(getBlockListEpoch(mBlockCount, /*epoch=*/0));
-  chre::AtomicUint32Ref(mQueue->queue.sourceMetadataOffsetBytes)
+  ::chre::AtomicUint32Ref(mQueue->queue.sourceMetadataOffsetBytes)
       .store(toOffset(mRegion.base, mDesc));
   return pw::OkStatus();
 }
@@ -490,7 +490,7 @@ void ProducerBase::stop() {
     return;
   }
   mState = State::kStopped;
-  chre::AtomicUint32Ref(mQueue->queue.sourceMetadataOffsetBytes)
+  ::chre::AtomicUint32Ref(mQueue->queue.sourceMetadataOffsetBytes)
       .store(kOffsetInvalid);
   // Mark the producer as torn down and notify all consumers.
   forAllConsumers(
@@ -517,8 +517,8 @@ pw::Result<pw::ByteSpan> ProducerBase::reserve(size_t count) {
   PW_TRY_ASSIGN(uint32_t size, checkAvailable(count, /*allOrNothing=*/true));
   // Return a span over the next available contiguous region.
   auto *begin = blockData(mCurrBlock, kDataOffset) + mCurrBlockIndex;
-  if (advanceContiguous(chre::AtomicUint32Ref(mCurrBlock->baseIndex).load(),
-                        chre::AtomicUint32Ref(mCurrBlock->skipIndex).load(),
+  if (advanceContiguous(::chre::AtomicUint32Ref(mCurrBlock->baseIndex).load(),
+                        ::chre::AtomicUint32Ref(mCurrBlock->skipIndex).load(),
                         kBlockCapacity, mCurrBlockIndex, size)) {
     enterNextBlock(mCurrBlock, /*correction=*/nullptr, mCurrBlockIndex,
                    /*convertSkipToBase=*/true);
@@ -544,7 +544,7 @@ pw::Status ProducerBase::truncate(size_t size) {
   // Sync the current block and index back to the write index.
   mCurrBlock = fromOffset<BlockHeader>(mRegion, mDesc->tailBlockOffsetBytes,
                                        kBlockLayout);
-  mCurrBlockIndex = (chre::AtomicUint32Ref(mDesc->writeIndex).load() +
+  mCurrBlockIndex = (::chre::AtomicUint32Ref(mDesc->writeIndex).load() +
                      mDesc->indexCorrection) %
                     kBlockCapacity;
   // Advance to the new reservation size.
@@ -618,7 +618,7 @@ pw::Result<size_t> ProducerBase::checkAvailable(size_t count,
 
 void ProducerBase::advanceWriteIndex(uint32_t count,
                                      std::optional<pw::ConstByteSpan> data) {
-  uint32_t writeIndex = chre::AtomicUint32Ref(mDesc->writeIndex).load();
+  uint32_t writeIndex = ::chre::AtomicUint32Ref(mDesc->writeIndex).load();
   uint32_t correction = mDesc->indexCorrection;
   auto *block = fromOffset<BlockHeader>(mRegion, mDesc->tailBlockOffsetBytes,
                                         kBlockLayout);
@@ -639,8 +639,8 @@ void ProducerBase::advanceBlockIndexWithData(
     // index.
     auto *copyDst = blockData(block, kDataOffset) + index;
     bool toNextBlock =
-        advanceContiguous(chre::AtomicUint32Ref(block->baseIndex).load(),
-                          chre::AtomicUint32Ref(block->skipIndex).load(),
+        advanceContiguous(::chre::AtomicUint32Ref(block->baseIndex).load(),
+                          ::chre::AtomicUint32Ref(block->skipIndex).load(),
                           kBlockCapacity, index, advance);
     if (data) {
       std::memcpy(copyDst, data->data(), advance);
@@ -658,21 +658,21 @@ void ProducerBase::advanceBlockIndexWithData(
 void ProducerBase::enterNextBlock(BlockHeader *&block, uint32_t *correction,
                                   uint32_t &index, bool convertSkipToBase) {
   auto *nextBlock = fromOffset<BlockHeader>(
-      mRegion, chre::AtomicUint32Ref(block->nextBlockOffsetBytes).load(),
+      mRegion, ::chre::AtomicUint32Ref(block->nextBlockOffsetBytes).load(),
       kBlockLayout);
   // If the next block was skipped from on the last visit, set its base
   // index to that skip index and reset the skip index.
-  auto nextSkipIndex = chre::AtomicUint32Ref(nextBlock->skipIndex).load();
+  auto nextSkipIndex = ::chre::AtomicUint32Ref(nextBlock->skipIndex).load();
   if (convertSkipToBase && nextSkipIndex != kBlockCapacity) {
-    chre::AtomicUint32Ref(nextBlock->baseIndex).store(nextSkipIndex);
-    chre::AtomicUint32Ref(nextBlock->skipIndex).store(kBlockCapacity);
+    ::chre::AtomicUint32Ref(nextBlock->baseIndex).store(nextSkipIndex);
+    ::chre::AtomicUint32Ref(nextBlock->skipIndex).store(kBlockCapacity);
   }
   if (correction) {
     // Update the index correction to be applied to the write index.
     *correction += indexCorrectionIncrement(block, nextBlock, kBlockCapacity);
   }
   block = nextBlock;
-  index = chre::AtomicUint32Ref(block->baseIndex).load();
+  index = ::chre::AtomicUint32Ref(block->baseIndex).load();
 }
 
 void ProducerBase::updateWriteIndex(BlockHeader *tailBlock, uint32_t writeIndex,
@@ -681,19 +681,19 @@ void ProducerBase::updateWriteIndex(BlockHeader *tailBlock, uint32_t writeIndex,
                                            kBlockLayout)) {
     // If the currently linked tail block is still the tail, just store the
     // new write index.
-    chre::AtomicUint32Ref(mDesc->writeIndex).store(writeIndex);
+    ::chre::AtomicUint32Ref(mDesc->writeIndex).store(writeIndex);
   } else {
     // Initialize the descriptor in the new tail block, then link it.
     auto &newDesc = tailBlock->sourceMetadata;
     initProducerDesc(newDesc, writeIndex, correction, tailBlock, mRegion.base);
-    chre::AtomicUint32Ref(mQueue->queue.sourceMetadataOffsetBytes)
+    ::chre::AtomicUint32Ref(mQueue->queue.sourceMetadataOffsetBytes)
         .store(toOffset(mRegion.base, &newDesc));
     mDesc = &newDesc;
   }
 }
 
 void ProducerBase::updateAvailable(uint32_t increment) {
-  auto tail = chre::AtomicUint32Ref(mDesc->writeIndex).load() + mReserved;
+  auto tail = ::chre::AtomicUint32Ref(mDesc->writeIndex).load() + mReserved;
   mAvailable = capacity() - mReserved;  // Reset available counts.
   // Consumers that have been overwritten or would otherwise need to sync back
   // to the producer position should not block writes to the queue, as well as
@@ -706,7 +706,7 @@ void ProducerBase::updateAvailable(uint32_t increment) {
       excludeMask,
       [this](internal::ConsumerNode &node, uint32_t producerFlags,
              uint32_t tail, uint32_t increment) {
-        auto readIndex = chre::AtomicUint32Ref(node.desc->readIndex).load();
+        auto readIndex = ::chre::AtomicUint32Ref(node.desc->readIndex).load();
         auto diff = writeReadDiff(tail, readIndex);
         bool overwritable = node.policy.overwrite == OverwritePolicy::kAllowed;
         bool overwritten = false;
@@ -734,7 +734,7 @@ void ProducerBase::updateAvailable(uint32_t increment) {
 void ProducerBase::setConsumerFlag(ConsumerNode &node, uint32_t current,
                                    ProducerFlags flag, bool forceNotify) {
   uint32_t flagCounter = getFlagsCounter(current) + kFlagCountInc;
-  chre::AtomicUint32Ref(node.desc->sourceFlags)
+  ::chre::AtomicUint32Ref(node.desc->sourceFlags)
       .store(static_cast<uint32_t>(flag) | flagCounter);
   // NOTE: If forceNotify, still check that the consumer has been initialized.
   if ((forceNotify &&
@@ -775,18 +775,18 @@ pw::Result<uint32_t> ProducerBase::addConsumer(pw::ConstByteSpan id,
   std::memcpy(&desc->id, id.data(), id.size());
   // Let the consumer know if they are overwritable.
   desc->isOverwritable = policy.overwrite == OverwritePolicy::kAllowed;
-  chre::AtomicUint32Ref(desc->sinkFlags)
+  ::chre::AtomicUint32Ref(desc->sinkFlags)
       .store(static_cast<uint32_t>(internal::ConsumerFlags::kFlagsCleared));
-  chre::AtomicUint32Ref(desc->sourceFlags)
+  ::chre::AtomicUint32Ref(desc->sourceFlags)
       .store(static_cast<uint32_t>(internal::ProducerFlags::kPendingInit) |
              internal::kFlagCountInc);
   // Sync the consumer to the producer.
   desc->indexCorrection = mDesc->indexCorrection;
-  chre::AtomicUint32Ref(desc->readIndex)
-      .store(chre::AtomicUint32Ref(mDesc->writeIndex).load());
+  ::chre::AtomicUint32Ref(desc->readIndex)
+      .store(::chre::AtomicUint32Ref(mDesc->writeIndex).load());
   desc->initialHeadBlockOffsetBytes = mDesc->tailBlockOffsetBytes;
   desc->initialBlockListEpoch =
-      chre::AtomicUint32Ref(mQueue->queue.blockListEpoch).load();
+      ::chre::AtomicUint32Ref(mQueue->queue.blockListEpoch).load();
   // Link the node to the list of consumers.
   mQueue->consumerList.push_back(*node);
   // Return the offset of the descriptor in the region it was allocated from.
@@ -822,7 +822,7 @@ pw::Status ProducerBase::pruneConsumers(
     if (match(node->id)) {
       // If the consumer is matched, mark it disconnected and remove it.
       setConsumerFlag(*node,
-                      chre::AtomicUint32Ref(node->desc->sourceFlags).load(),
+                      ::chre::AtomicUint32Ref(node->desc->sourceFlags).load(),
                       ProducerFlags::kDisconnected);
       eraseConsumerNode(node);
     } else {
@@ -856,7 +856,7 @@ bool ProducerBase::isFlagInMask(internal::ConsumerDesc &desc,
     // If the flag hasn't been cleared, clear it now.
     if (internal::getProducerFlags(producerFlags) !=
         internal::ProducerFlags::kNone) {
-      chre::AtomicUint32Ref(desc.sourceFlags)
+      ::chre::AtomicUint32Ref(desc.sourceFlags)
           .store(internal::getFlagsCounter(producerFlags) |
                  static_cast<uint32_t>(internal::ProducerFlags::kNone));
     }
@@ -941,8 +941,8 @@ pw::Status ConsumerBase::initialize(
         "or vice versa");
     return pw::Status::FailedPrecondition();
   }
-  auto consumerFlags = chre::AtomicUint32Ref(mDesc->sinkFlags).load();
-  mCurrentFlags = chre::AtomicUint32Ref(mDesc->sourceFlags).load();
+  auto consumerFlags = ::chre::AtomicUint32Ref(mDesc->sinkFlags).load();
+  mCurrentFlags = ::chre::AtomicUint32Ref(mDesc->sourceFlags).load();
   auto flagValue = getAndCheckProducerFlags(mCurrentFlags, consumerFlags);
   if (!(flagValue == ProducerFlags::kPendingInit ||
         flagValue == ProducerFlags::kOverwrite ||
@@ -985,8 +985,8 @@ pw::Status ConsumerBase::checkState() {
     PW_LOG_ERROR("ConsumerBase::checkState: instance is disabled");
     return pw::Status::FailedPrecondition();
   }
-  mCurrentFlags = chre::AtomicUint32Ref(mDesc->sourceFlags).load();
-  auto consumerFlags = chre::AtomicUint32Ref(mDesc->sinkFlags).load();
+  mCurrentFlags = ::chre::AtomicUint32Ref(mDesc->sourceFlags).load();
+  auto consumerFlags = ::chre::AtomicUint32Ref(mDesc->sinkFlags).load();
   auto flagValue = getAndCheckProducerFlags(mCurrentFlags, consumerFlags);
   switch (flagValue) {
     case ProducerFlags::kFinished:
@@ -1015,7 +1015,7 @@ pw::Status ConsumerBase::checkState() {
       [[fallthrough]];
     case ProducerFlags::kNone:
       // As long as we're in a good state, keep the epoch in sync.
-      mBlockListEpoch = chre::AtomicUint32Ref(mQueue->blockListEpoch).load();
+      mBlockListEpoch = ::chre::AtomicUint32Ref(mQueue->blockListEpoch).load();
       return pw::OkStatus();
     default:  // Unexpected flag value. Clear it.
       PW_LOG_WARN("ConsumerBase::checkState: unexpected flag value %" PRIu16,
@@ -1030,20 +1030,21 @@ pw::Result<pw::ConstByteSpan> ConsumerBase::peek(size_t count) {
   PW_TRY(checkAvailable(count));
   if (!mPeeked) {
     mCurrBlock = mHeadBlock;
-    mCurrBlockIndex = (chre::AtomicUint32Ref(mDesc->readIndex).load() +
+    mCurrBlockIndex = (::chre::AtomicUint32Ref(mDesc->readIndex).load() +
                        mDesc->indexCorrection) %
                       kBlockCapacity;
   }
   mPeeked += count;
   const auto *data = blockData(mCurrBlock, kDataOffset) + mCurrBlockIndex;
   uint32_t advance = count;
-  if (advanceContiguous(chre::AtomicUint32Ref(mCurrBlock->baseIndex).load(),
-                        chre::AtomicUint32Ref(mCurrBlock->skipIndex).load(),
+  if (advanceContiguous(::chre::AtomicUint32Ref(mCurrBlock->baseIndex).load(),
+                        ::chre::AtomicUint32Ref(mCurrBlock->skipIndex).load(),
                         kBlockCapacity, mCurrBlockIndex, advance)) {
     mCurrBlock = fromOffset<BlockHeader>(
-        mRegion, chre::AtomicUint32Ref(mCurrBlock->nextBlockOffsetBytes).load(),
+        mRegion,
+        ::chre::AtomicUint32Ref(mCurrBlock->nextBlockOffsetBytes).load(),
         kBlockLayout);
-    mCurrBlockIndex = chre::AtomicUint32Ref(mCurrBlock->baseIndex).load();
+    mCurrBlockIndex = ::chre::AtomicUint32Ref(mCurrBlock->baseIndex).load();
   }
   PW_TRY(checkState());
   return pw::ConstByteSpan(data, count);
@@ -1111,7 +1112,7 @@ pw::Status ConsumerBase::checkAvailable(size_t count) {
   PW_TRY(checkState());
   if (count > capacity()) {
     // If the epoch has changed, check against the updated capacity.
-    mBlockListEpoch = chre::AtomicUint32Ref(mQueue->blockListEpoch).load();
+    mBlockListEpoch = ::chre::AtomicUint32Ref(mQueue->blockListEpoch).load();
     if (count > capacity()) {
       PW_LOG_ERROR(
           "ConsumerBase::checkAvailable: count %zu exceeds capacity %zu", count,
@@ -1134,7 +1135,7 @@ size_t ConsumerBase::advanceReadIndex(size_t count,
                                       std::optional<pw::ByteSpan> buf,
                                       bool stopOnNextBlock) {
   auto pending = count;
-  auto readIndex = chre::AtomicUint32Ref(mDesc->readIndex).load();
+  auto readIndex = ::chre::AtomicUint32Ref(mDesc->readIndex).load();
   uint32_t blockIndex = (readIndex + mDesc->indexCorrection) % kBlockCapacity;
   auto correction = mDesc->indexCorrection;
   // Loop through the contiguous regions, copying out data and tracking index
@@ -1143,8 +1144,8 @@ size_t ConsumerBase::advanceReadIndex(size_t count,
     uint32_t advance = pending;
     const auto *dataPtr = blockData(mHeadBlock, kDataOffset) + blockIndex;
     bool toNextBlock =
-        advanceContiguous(chre::AtomicUint32Ref(mHeadBlock->baseIndex).load(),
-                          chre::AtomicUint32Ref(mHeadBlock->skipIndex).load(),
+        advanceContiguous(::chre::AtomicUint32Ref(mHeadBlock->baseIndex).load(),
+                          ::chre::AtomicUint32Ref(mHeadBlock->skipIndex).load(),
                           kBlockCapacity, blockIndex, advance);
     if (buf) {
       std::memcpy(buf->data(), dataPtr, advance);
@@ -1154,18 +1155,18 @@ size_t ConsumerBase::advanceReadIndex(size_t count,
     if (toNextBlock) {
       auto *nextBlock = fromOffset<BlockHeader>(
           mRegion,
-          chre::AtomicUint32Ref(mHeadBlock->nextBlockOffsetBytes).load(),
+          ::chre::AtomicUint32Ref(mHeadBlock->nextBlockOffsetBytes).load(),
           kBlockLayout);
       correction +=
           indexCorrectionIncrement(mHeadBlock, nextBlock, kBlockCapacity);
       mHeadBlock = nextBlock;
-      blockIndex = chre::AtomicUint32Ref(mHeadBlock->baseIndex).load();
+      blockIndex = ::chre::AtomicUint32Ref(mHeadBlock->baseIndex).load();
       if (stopOnNextBlock) {
         break;
       }
     }
   }
-  chre::AtomicUint32Ref(mDesc->readIndex).store(readIndex + count - pending);
+  ::chre::AtomicUint32Ref(mDesc->readIndex).store(readIndex + count - pending);
   mDesc->indexCorrection = correction;
   return count - pending;
 }
@@ -1179,7 +1180,8 @@ void ConsumerBase::maybeNotifyOnRead() {
 
 pw::Status ConsumerBase::handleOverwrite() {
   // If the epoch has changed, just sync to the producer.
-  if (chre::AtomicUint32Ref(mQueue->blockListEpoch).load() != mBlockListEpoch) {
+  if (::chre::AtomicUint32Ref(mQueue->blockListEpoch).load() !=
+      mBlockListEpoch) {
     return syncToProducer();
   }
   // Update mAvailable to determine how much to fast-forward.
@@ -1195,7 +1197,8 @@ pw::Status ConsumerBase::handleOverwrite() {
   PW_TRY(overwriteFastForward(offset));
   // If the epoch changed since we attempted to fast forward, the fast forward
   // is invalidated. Sync to the producer.
-  if (chre::AtomicUint32Ref(mQueue->blockListEpoch).load() != mBlockListEpoch) {
+  if (::chre::AtomicUint32Ref(mQueue->blockListEpoch).load() !=
+      mBlockListEpoch) {
     return syncToProducer();
   }
   return pw::OkStatus();
@@ -1204,8 +1207,8 @@ pw::Status ConsumerBase::handleOverwrite() {
 pw::Status ConsumerBase::updateAvailable() {
   PW_TRY_ASSIGN(auto *producerDesc, getProducerDesc());
   mAvailable =
-      writeReadDiff(chre::AtomicUint32Ref(producerDesc->writeIndex).load(),
-                    chre::AtomicUint32Ref(mDesc->readIndex).load());
+      writeReadDiff(::chre::AtomicUint32Ref(producerDesc->writeIndex).load(),
+                    ::chre::AtomicUint32Ref(mDesc->readIndex).load());
   return pw::OkStatus();
 }
 
@@ -1217,18 +1220,19 @@ pw::Status ConsumerBase::overwriteFastForward(size_t offset) {
 
 pw::Status ConsumerBase::syncToProducer() {
   PW_TRY_ASSIGN(auto *producerDesc, getProducerDesc());
-  auto readIndex = chre::AtomicUint32Ref(producerDesc->writeIndex).load();
-  chre::AtomicUint32Ref(mDesc->readIndex).store(readIndex);
+  auto readIndex = ::chre::AtomicUint32Ref(producerDesc->writeIndex).load();
+  ::chre::AtomicUint32Ref(mDesc->readIndex).store(readIndex);
   mDesc->indexCorrection = producerDesc->indexCorrection;
   mHeadBlock = fromOffset<BlockHeader>(
       mRegion, producerDesc->tailBlockOffsetBytes, kBlockLayout);
-  mBlockListEpoch = chre::AtomicUint32Ref(mQueue->blockListEpoch).load();
+  mBlockListEpoch = ::chre::AtomicUint32Ref(mQueue->blockListEpoch).load();
   return pw::OkStatus();
 }
 
 pw::Result<ProducerDesc *> ConsumerBase::getProducerDesc() {
   auto *producerDesc = fromOffset<ProducerDesc>(
-      mRegion, chre::AtomicUint32Ref(mQueue->sourceMetadataOffsetBytes).load());
+      mRegion,
+      ::chre::AtomicUint32Ref(mQueue->sourceMetadataOffsetBytes).load());
   if (!producerDesc) {
     disableAndNotify();
     PW_LOG_ERROR("ConsumerBase::getProducerDesc: Producer gone");
@@ -1243,7 +1247,7 @@ size_t ConsumerBase::capacity() {
 
 void ConsumerBase::disableAndNotify() {
   mActive = false;
-  chre::AtomicUint32Ref(mDesc->sinkFlags)
+  ::chre::AtomicUint32Ref(mDesc->sinkFlags)
       .store(static_cast<uint32_t>(ConsumerFlags::kFinished));
   notifyProducer();
 }
@@ -1254,7 +1258,7 @@ void ConsumerBase::notifyProducer() {
 
 void ConsumerBase::clearFlags() {
   auto counter = getFlagsCounter(mCurrentFlags);
-  chre::AtomicUint32Ref(mDesc->sinkFlags)
+  ::chre::AtomicUint32Ref(mDesc->sinkFlags)
       .store(static_cast<uint32_t>(ConsumerFlags::kFlagsCleared) | counter);
   mCurrentFlags = static_cast<uint32_t>(ProducerFlags::kNone) | counter;
 }
@@ -1266,7 +1270,7 @@ void DataNotifier::onWrite(internal::ProducerBase &producer) {
   // flags or ProducerFlags::kBlocking).
   uint16_t excludeMask =
       ~(static_cast<uint16_t>(internal::ProducerFlags::kBlocking));
-  uint32_t tail = chre::AtomicUint32Ref(producer.mDesc->writeIndex).load();
+  uint32_t tail = ::chre::AtomicUint32Ref(producer.mDesc->writeIndex).load();
   producer.forAllConsumers(
       excludeMask,
       [&](internal::ConsumerNode &node, uint32_t /*producerFlags*/,
@@ -1329,7 +1333,7 @@ void DataNotifier::notifyIfAtWatermark(internal::ProducerBase &producer,
                      .elementSizeBytes;
   }
   if (internal::writeReadDiff(
-          writeIndex, chre::AtomicUint32Ref(consumer.readIndex).load()) >=
+          writeIndex, ::chre::AtomicUint32Ref(consumer.readIndex).load()) >=
       threshold) {
     producer.notifyConsumer(consumer);
   }
@@ -1463,7 +1467,7 @@ void VariableDataProducer::updateFirstElementIndex() {
     // Only set the first element index if this is the first variable size
     // element to be written into this block (on this pass through the block).
     tailBlock->header.firstElementIndex =
-        (chre::AtomicUint32Ref(mDesc->writeIndex).load() +
+        (::chre::AtomicUint32Ref(mDesc->writeIndex).load() +
          mDesc->indexCorrection) %
         kBlockCapacity;
   }
@@ -1624,14 +1628,16 @@ pw::Status VariableDataConsumer::overwriteFastForward(size_t offset) {
     if (firstElementIndex != kBlockCapacity && mAvailable < capacity()) {
       auto diff = internal::ringDiff(
           firstElementIndex,
-          chre::AtomicUint32Ref(mHeadBlock->baseIndex).load(), kBlockCapacity);
+          ::chre::AtomicUint32Ref(mHeadBlock->baseIndex).load(),
+          kBlockCapacity);
       mAvailable -= advanceReadIndex(diff, /*buf=*/std::nullopt);
       break;
     }
   }
   // If the epoch changed since we attempted to fast forward, the fast forward
   // is invalidated. Sync to the producer.
-  if (chre::AtomicUint32Ref(mQueue->blockListEpoch).load() != mBlockListEpoch) {
+  if (::chre::AtomicUint32Ref(mQueue->blockListEpoch).load() !=
+      mBlockListEpoch) {
     return syncToProducer();
   }
   clearFlags();
