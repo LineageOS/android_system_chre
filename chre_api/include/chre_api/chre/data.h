@@ -43,6 +43,8 @@
  * - Source nanoapp:
  *  - Responds to the request and creates a sink
  *  - The sink handle is sent to the sink nanoapp by the platform.
+ *  - Receives the CHRE_EVENT_DATA_SINK_CONFIGURE_DONE event, indicating the
+ *    sink was successfully created and notified
  *
  * - Sink nanoapp:
  *  - Receives the CHRE_EVENT_DATA_SINK_CREATED event
@@ -213,17 +215,33 @@ struct chreDataFlowStoppedInfo {
 };
 
 /**
- * Data provided in the CHRE_EVENT_DATA_SINK_CREATED event. Only the status and
- * hubId field are valid when this event is received by a source nanoapp.
+ * Data provided in the CHRE_EVENT_DATA_SINK_CONFIGURE_DONE event.
  */
-struct chreDataFlowSinkInfo {
+struct chreDataFlowSinkConfigureInfo {
   /** The status of the data flow sink creation request, one of chreStatus. */
   uint32_t status;
 
-  /** The message hub ID of the source. */
+  /**
+   * The data flow ID of the data flow that was created. This is scoped to the
+   * message hub ID of this source.
+   */
+  uint32_t dataFlowId;
+
+  /** The message hub ID of the sink. */
   uint64_t hubId;
 
-  /** The endpoint ID of the source. */
+  /** The endpoint ID of the sink. */
+  uint64_t endpointId;
+};
+
+/**
+ * Data provided in the CHRE_EVENT_DATA_SINK_CREATED event.
+ */
+struct chreDataFlowSinkInfo {
+  /** The message hub ID of the source that created this sink. */
+  uint64_t hubId;
+
+  /** The endpoint ID of the source that created this sink. */
   uint64_t endpointId;
 
   /**
@@ -244,8 +262,8 @@ struct chreDataFlowSinkInfo {
 
   /**
    * If this data flow sink was created with a message, this will be non-NULL
-   * and contain the message, else it will be NULL. If this is received by
-   * a source nanoapp, this will be NULL.
+   * and contain the message, else it will be NULL. If this is received from a
+   * CHRE_EVENT_DATA_SINK_STOPPED event, this will be NULL.
    */
   struct chreMsgMessageFromEndpointData *messageFromEndpointData;
 };
@@ -379,19 +397,24 @@ struct chreDataFlowNewDataAlert {
 #define CHRE_EVENT_DATA_FLOW_STOPPED CHRE_DATA_EVENT_ID(1)
 
 /**
+ * nanoappHandleEvent argument: struct chreDataFlowSinkConfigureInfo.
+ *
+ * Event sent when a data flow sink configuration is complete.
+ *
+ * @see chreDataFlowSourceAddSinkAsync
+ */
+#define CHRE_EVENT_DATA_SINK_CONFIGURE_DONE CHRE_DATA_EVENT_ID(2)
+
+/**
  * nanoappHandleEvent argument: struct chreDataFlowSinkInfo.
  *
  * Event sent to a sink nanoapp when a data flow sink is created for the
  * nanoapp. If the nanoapp wants to be a sink, it must call
  * chreDataFlowSinkEnable() to activate the sink.
  *
- * This event is also sent to the source nanoapp when a data flow sink is
- * created for the source nanoapp, where the source nanoapp is the owner of the
- * data flow.
- *
  * @see chreDataFlowSinkEnable
  */
-#define CHRE_EVENT_DATA_SINK_CREATED CHRE_DATA_EVENT_ID(2)
+#define CHRE_EVENT_DATA_SINK_CREATED CHRE_DATA_EVENT_ID(3)
 
 /**
  * nanoappHandleEvent argument: struct chreDataFlowSinkInfo.
@@ -400,14 +423,14 @@ struct chreDataFlowNewDataAlert {
  *
  * @see chreDataFlowSinkDisable
  */
-#define CHRE_EVENT_DATA_SINK_STOPPED CHRE_DATA_EVENT_ID(3)
+#define CHRE_EVENT_DATA_SINK_STOPPED CHRE_DATA_EVENT_ID(4)
 
 /**
  * nanoappHandleEvent argument: struct chreDataFlowNewDataAlert.
  *
  * Event sent when data is available in the data flow for consumption.
  */
-#define CHRE_EVENT_DATA_ALERT CHRE_DATA_EVENT_ID(4)
+#define CHRE_EVENT_DATA_ALERT CHRE_DATA_EVENT_ID(5)
 
 // NOTE: Do not add new events with ID > 15
 /** @} */
@@ -501,6 +524,252 @@ uint32_t chreDataFlowCreateAsync(uint32_t sinkDomains,
  * @since v1.12
  */
 uint32_t chreDataFlowDestroy(uint32_t dataFlowId);
+
+/**
+ * Creates a sink on the data flow owned by the nanoapp. This function returns
+ * CHRE_STATUS_OK if the request to create the sink was successfully queued for
+ * processing by the platform. This source nanoapp will receive the
+ * CHRE_EVENT_DATA_SINK_CONFIGURE_DONE event with a status indicating whether
+ * the sink was successfully created and notified or an error status otherwise.
+ * On sink creation, the sink handle is sent to the specified endpoint. A
+ * nanoapp sink will receive the CHRE_EVENT_DATA_SINK_CREATED event.
+ *
+ * @param hubId The sink's message hub ID.
+ * @param endpointId The sink's endpoint ID.
+ * @param dataFlowId The ID of the data flow on which to create the sink.
+ * @param sinkPolicy The sink policy for the sink. Must be non-NULL.
+ * @return one of chreStatus:
+ *  - CHRE_STATUS_OK if this nanoapp will receive the
+ *    CHRE_EVENT_DATA_SINK_CONFIGURE_DONE event with a status indicating the
+ *    request was successful.
+ *  - CHRE_STATUS_INVALID_ARGUMENT if sinkPolicy is NULL.
+ *  - CHRE_STATUS_FAILED_PRECONDITION if the sink cannot be added to the
+ *    data flow because it cannot access the domain in which the data flow was
+ *    created.
+ *  - CHRE_STATUS_PERMISSION_DENIED if the source does not own the data
+ *    flow or if the sink does not have permission to access the domain of the
+ *    data flow.
+ *
+ * @since v1.12
+ */
+uint32_t chreDataFlowSourceAddSinkAsync(uint64_t hubId,
+    uint64_t endpointId, uint32_t dataFlowId,
+    const struct chreDataFlowSinkPolicy *sinkPolicy);
+
+/**
+ * Creates a sink on a data flow owned by the calling nanoapp, delivering the
+ * metadata for the new sink alongside message payload.
+ *
+ * The intended use case of this API is for scenarios where an endpoint sends
+ * a message requesting a data flow, and the source would like to deliver the
+ * data flow sink handle with custom response message (what would be sent
+ * via chreMsgSend()), for example containing metadata related to the current
+ * data flow contents.
+ *
+ * See chreDataFlowSourceAddSinkAsync() for more details.
+ *
+ * @param hubId The sink's message hub ID.
+ * @param endpointId The sink's endpoint ID.
+ * @param dataFlowId The ID of the data flow on which to create the sink.
+ * @param sinkPolicy The sink policy for the sink. Must be non-NULL.
+ * @param message Pointer to a block of memory to send to the other endpoint in
+ *     this session. NULL is acceptable only if messageSize is 0. This function
+ *     transfers ownership of the provided memory to the system, so the data
+ *     must stay valid and unmodified until freeCallback is invoked.
+ * @param messageSize The size, in bytes, of the given message. Maximum allowed
+ *     size for the destination endpoint is provided in chreMsgEndpointInfo.
+ * @param messageType An opaque value passed along with the message payload,
+ *     using an application/service-defined scheme.
+ * @param sessionId The session over which to send this message, which also
+ *     implicitly identifies the destination service (if used), endpoint, and
+ *     hub. Provided in chreMsgSessionInfo.
+ * @param messagePermissions Bitmask of permissions that must be held to receive
+ *     this message, and will be attributed to the recipient. Primarily relevant
+ *     when the destination endpoint is an Android application. Refer to
+ *     CHRE_MESSAGE_PERMISSION_* values.
+ * @param freeCallback Invoked when the system no longer needs the memory
+ *     holding the message. Note that this does not necessarily mean that the
+ *     message has been delivered. If message is non-NULL, this must be
+ *     non-NULL, and if message is NULL, this must be NULL.
+ * @return one of chreStatus:
+ *  - CHRE_STATUS_OK if the request was successfully queued for processing. The
+ *    nanoapp will receive a CHRE_EVENT_DATA_SINK_CONFIGURE_DONE event with a
+ *    status indicating whether the sink was successfully created and notified
+ *    or an error status otherwise.
+ *  - CHRE_STATUS_ALREADY_EXISTS if a sink already exists on the data flow.
+ *  - CHRE_STATUS_INVALID_ARGUMENT if sinkPolicy is NULL or if the constraints
+ *    specified in chreMsgSend() are not met for message, messageSize, and
+ *    messageType.
+ *  - CHRE_STATUS_FAILED_PRECONDITION if the sink cannot be added to the
+ *    data flow because it cannot access the domain in which the data flow was
+ *    created.
+ *  - CHRE_STATUS_PERMISSION_DENIED if the source does not own the data
+ *    flow.
+ *
+ * @see chreDataFlowSourceAddSinkAsync
+ * @see chreMsgSend
+ *
+ * @since v1.12
+ */
+uint32_t chreDataFlowSourceAddSinkOverSessionAsync(uint64_t hubId,
+    uint64_t endpointId, uint32_t dataFlowId,
+    const struct chreDataFlowSinkPolicy *sinkPolicy, void *message,
+    size_t messageSize, uint32_t messageType, uint16_t sessionId,
+    uint32_t messagePermissions, chreMessageFreeFunction *freeCallback);
+
+/**
+ * Synchronously configures an existing sink on a data flow owned by the
+ * calling nanoapp.
+ *
+ * @param hubId The sink's message hub ID.
+ * @param endpointId The sink's endpoint ID.
+ * @param dataFlowId The ID of the data flow on which to create the sink.
+ * @param sinkPolicy The sink policy for the sink. Must be non-NULL.
+ * @return one of chreStatus:
+ *  - CHRE_STATUS_OK if the request was successful. The sink is configured
+ *    immediately.
+ *  - CHRE_STATUS_INVALID_ARGUMENT if sinkPolicy is NULL or if the sink does
+ *    not exist on the data flow.
+ *  - CHRE_STATUS_PERMISSION_DENIED if the source does not own the data
+ *    flow.
+ *
+ * @since v1.12
+ */
+uint32_t chreDataFlowSourceConfigureSink(uint64_t hubId,
+    uint64_t endpointId, uint32_t dataFlowId,
+    const struct chreDataFlowSinkPolicy *sinkPolicy);
+
+/**
+ * Reserves contiguous space in the data flow for numBytes bytes. This
+ * function returns the number of bytes that were successfully reserved,
+ * which can be 0 or fewer than numBytes. *data will point to
+ * the reserved memory if successful or NULL if this function returns 0.
+ *
+ * If there is enough memory available to write all of numBytes, but in
+ * different contiguous blocks, this function will return the number of bytes
+ * that were successfully reserved in a single contiguous block. The nanoapp
+ * should call this function again to reserve the remaining space.
+ *
+ * Reservations allow the nanoapp to reserve a chunk of data in the data flow
+ * and then write to it later. This allows the platform to know how much space
+ * to reserve for the data, which can then be used to provide flow control
+ * feedback to the source.
+ *
+ * @param dataFlowId The ID of the data flow on which to reserve space.
+ * @param numBytes The number of bytes for which to reserve space.
+ * @param data A pointer to the reserved memory if successful, otherwise
+ *     NULL.
+ * @param reservedBytes A pointer to an integer to store the number of bytes that
+ *     were successfully reserved.
+ * @return One of chreStatus:
+ *  - CHRE_STATUS_OK on success.
+ *  - CHRE_STATUS_PERMISSION_DENIED if the data flow is not owned by this
+ *    nanoapp.
+ *  - CHRE_STATUS_INVALID_ARGUMENT if numBytes is not a multiple of the element
+ *    size for only a fixed-size data flow or if data or reservedBytes is
+ *    NULL.
+ *
+ * @since v1.12
+ */
+uint32_t chreDataFlowSourceReserve(uint32_t dataFlowId, uint32_t numBytes,
+                                   void **data, uint32_t *reservedBytes);
+
+/**
+ * Releases the first numBytes bytes reserved for writing. This function
+ * returns CHRE_STATUS_OK if the request was successful, i.e. if the
+ * data flow is valid and there are numBytes that can be released after being
+ * reserved. If the data flow is not owned by this nanoapp, this function will
+ * return CHRE_STATUS_PERMISSION_DENIED.
+ *
+ * @param dataFlowId The ID of the data flow on which to release space.
+ * @param numBytes The number of bytes to release. Must be a multiple of the
+ *     element size for only a fixed-size data flow. Must be less than or equal
+ *     to the number of bytes reserved for writing.
+ * @return one of chreStatus:
+ *  - CHRE_STATUS_OK if the request was successful.
+ *  - CHRE_STATUS_PERMISSION_DENIED if the data flow is not owned by this
+ *    nanoapp.
+ *  - CHRE_STATUS_INVALID_ARGUMENT if numBytes is not a multiple of the element
+ *    size for only a fixed-size data flow or if numBytes is greater than the
+ *    number of bytes reserved for writing.
+ *
+ * @since v1.12
+ */
+uint32_t chreDataFlowSourceCommit(uint32_t dataFlowId, uint32_t numBytes);
+
+/**
+ * Pushes the given data into the data flow. *numberOfBytesPushed will be
+ * populated with the number of bytes that were successfully pushed.
+ *
+ * @param dataFlowId The ID of the data flow on which to push elements.
+ * @param data The data to push into the data flow. Must be at least numBytes in
+ *     size. Cannot be NULL.
+ * @param numBytes The number of bytes in data to push. Must be a multiple of
+ *     the element size for only a fixed-size data flow.
+ * @param allOrNothing If true, either all or none of the bytes will be
+ *     pushed. If false, any number of bytes may be pushed, depending on the
+ *     available space in the data flow.
+ * @param numberOfBytesPushed A pointer to an integer to store the number of
+ *     bytes that were successfully pushed. This value will be less than or
+ *     equal to numBytes. Cannot be NULL.
+ * @return one of chreStatus:
+ *  - CHRE_STATUS_OK on success.
+ *  - CHRE_STATUS_PERMISSION_DENIED if the data flow is not owned by this
+ *    nanoapp.
+ *  - CHRE_STATUS_RESOURCE_EXHAUSTED if the data flow is full and
+ *    allOrNothing is true.
+ *  - CHRE_STATUS_FAILED_PRECONDITION if there is an active reservation.
+ *  - CHRE_STATUS_INVALID_ARGUMENT if numBytes is 0 or not a multiple of the
+ *    element size for only a fixed-size data flow, if data or
+ *    numberOfBytesPushed is NULL.
+ *
+ * @since v1.12
+ */
+uint32_t chreDataFlowSourcePush(uint32_t dataFlowId, const void *data,
+                                uint32_t numBytes, bool allOrNothing,
+                                uint32_t *numberOfBytesPushed);
+
+/**
+ * Returns the current depth of the data flow in bytes with respect to the
+ * furthest behind not-overwritten sink. If includeReserved is true, the
+ * size of data that has been reserved but not yet committed is added to the
+ * returned value.
+ *
+ * @param dataFlowId The ID of the data flow on which to get the size.
+ * @param includeReserved If true, include reserved bytes in the count.
+ * @param size A pointer to an integer to store the depth of the data flow in
+ *     bytes. Cannot be NULL.
+ *
+ * @return One of chreStatus:
+ *  - CHRE_STATUS_OK on success.
+ *  - CHRE_STATUS_PERMISSION_DENIED if the data flow is not owned by this
+ *    nanoapp.
+ *  - CHRE_STATUS_INVALID_ARGUMENT if size is NULL.
+ *
+ * @see chreDataFlowSourceGetCapacity
+ *
+ * @since v1.12
+ */
+uint32_t chreDataFlowSourceGetSize(uint32_t dataFlowId, bool includeReserved,
+                                   uint32_t *size);
+
+/**
+ * Returns the capacity of the data flow in number of bytes. This is the maximum
+ * number of bytes that can be pushed into the data flow and is fixed at data
+ * flow creation.
+ *
+ * @param dataFlowId The ID of the data flow on which to get the capacity.
+ * @param capacity A pointer to an integer to store the capacity of the data
+ *     flow in number of bytes. Cannot be NULL.
+ * @return One of chreStatus:
+ *  - CHRE_STATUS_OK on success.
+ *  - CHRE_STATUS_PERMISSION_DENIED if the data flow is not owned by this
+ *    nanoapp.
+ *  - CHRE_STATUS_INVALID_ARGUMENT if capacity is NULL.
+ *
+ * @since v1.12
+ */
+uint32_t chreDataFlowSourceGetCapacity(uint32_t dataFlowId, uint32_t *capacity);
 
 #ifdef __cplusplus
 }
