@@ -44,6 +44,7 @@ class RpcServer : public NonCopyable {
   struct Service {
     /** A Pigweed service. */
     pw::rpc::Service &service;
+
     /**
      * The ID of the service, it must be generated according to RFC 4122, UUID
      * version 4 (random). This ID must be unique within a given nanoapp.

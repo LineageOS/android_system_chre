@@ -256,6 +256,68 @@ uint32_t EventLoopManager::getWwanCapabilitiesLocked() {
 #endif  // CHRE_WWAN_SUPPORT_ENABLED
 }
 
+void EventLoopManager::onMatchingNanoappEndpoint(
+    const pw::Function<bool(const message::EndpointInfo &)> &function) {
+  for (auto &loop : mEventLoops) {
+    if (loop.onMatchingNanoappEndpoint(function)) {
+      break;
+    }
+  }
+}
+
+std::optional<message::EndpointInfo> EventLoopManager::getEndpointInfo(
+    message::EndpointId endpointId) {
+  for (auto &loop : mEventLoops) {
+    auto endpointInfo = loop.getEndpointInfo(endpointId);
+    if (endpointInfo.has_value()) {
+      return endpointInfo;
+    }
+  }
+  return std::nullopt;
+}
+
+bool EventLoopManager::doesNanoappHaveLegacyService(uint64_t nanoappId,
+                                                    uint64_t serviceId) {
+  struct SearchContext {
+    uint64_t nanoappId;
+    uint64_t serviceId;
+    bool nanoappFound = false;
+    bool hasService = false;
+  };
+  SearchContext context = {
+      .nanoappId = nanoappId,
+      .serviceId = serviceId,
+  };
+
+  for (auto &loop : mEventLoops) {
+    loop.forEachNanoapp(
+        [](const Nanoapp *nanoapp, void *data) {
+          auto *context = static_cast<SearchContext *>(data);
+          if (nanoapp->getAppId() == context->nanoappId) {
+            context->nanoappFound = true;
+            context->hasService = nanoapp->hasRpcService(context->serviceId);
+          }
+        },
+        &context);
+
+    if (context.nanoappFound) {
+      break;
+    }
+  }
+
+  return context.hasService;
+}
+
+void EventLoopManager::onMatchingNanoappService(
+    const pw::Function<bool(const message::EndpointInfo &,
+                            const message::ServiceInfo &)> &function) {
+  for (auto &loop : mEventLoops) {
+    if (loop.onMatchingNanoappService(function)) {
+      break;
+    }
+  }
+}
+
 // Explicitly instantiate the EventLoopManagerSingleton to reduce codesize.
 template class Singleton<EventLoopManager>;
 

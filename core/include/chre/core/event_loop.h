@@ -403,8 +403,9 @@ class EventLoop : public NonCopyable {
    * This function is safe to call from any thread.
    *
    * @param function The function to execute for each nanoapp.
+   * @return true if the iteration was stopped because a match was found.
    */
-  void onMatchingNanoappEndpoint(
+  bool onMatchingNanoappEndpoint(
       const pw::Function<bool(const message::EndpointInfo &)> &function);
 
   /**
@@ -414,8 +415,9 @@ class EventLoop : public NonCopyable {
    * This function is safe to call from any thread.
    *
    * @param function The function to execute for each service.
+   * @return true if the iteration was stopped because a match was found.
    */
-  void onMatchingNanoappService(
+  bool onMatchingNanoappService(
       const pw::Function<bool(const message::EndpointInfo &,
                               const message::ServiceInfo &)> &function);
 

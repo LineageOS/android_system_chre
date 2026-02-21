@@ -41,7 +41,7 @@ namespace android::contexthub::data_flow {
 
 // This feature requires lock-free 32-bit atomic load/store operations to work
 // across core clusters.
-static_assert(chre::AtomicUint32Ref::is_always_lock_free());
+static_assert(::chre::AtomicUint32Ref::is_always_lock_free());
 
 // Forward declarations.
 class ConsumerManager;
@@ -907,8 +907,8 @@ void ProducerBase::forAllConsumers(uint16_t excludeMask, const Fn &fn,
   for (auto node = mQueue->consumerList.begin();
        node != mQueue->consumerList.end();) {
     auto *desc = node->desc;
-    auto consumerFlags = chre::AtomicUint32Ref(desc->sinkFlags).load();
-    auto producerFlags = chre::AtomicUint32Ref(desc->sourceFlags).load();
+    auto consumerFlags = ::chre::AtomicUint32Ref(desc->sinkFlags).load();
+    auto producerFlags = ::chre::AtomicUint32Ref(desc->sourceFlags).load();
     if (static_cast<uint16_t>(consumerFlags) ==
         static_cast<uint16_t>(internal::ConsumerFlags::kFinished)) {
       eraseConsumerNode(node);  // Moves node forward.

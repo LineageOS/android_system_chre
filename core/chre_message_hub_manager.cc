@@ -440,9 +440,9 @@ chreMsgEndpointReason ChreMessageHubManager::toChreEndpointReason(
 void ChreMessageHubManager::onMessageToNanoappCallback(
     SystemCallbackType /* type */, UniquePtr<MessageCallbackData> &&data) {
   bool success = false;
-  Nanoapp *nanoapp =
-      EventLoopManagerSingleton::get()->getEventLoop().findNanoappByAppId(
-          data->nanoappId);
+  EventLoop *eventLoop = getCurrentEventLoop();
+  CHRE_ASSERT(eventLoop != nullptr);
+  Nanoapp *nanoapp = eventLoop->findNanoappByAppId(data->nanoappId);
   uint32_t messagePermissions = data->messageToNanoapp.messagePermissions;
   if (nanoapp == nullptr) {
     LOGE("Unable to find nanoapp with ID 0x%" PRIx64
@@ -457,11 +457,9 @@ void ChreMessageHubManager::onMessageToNanoappCallback(
          "message with type %" PRIu32 " and permissions 0x%" PRIx32,
          nanoapp->getAppId(), data->messageToNanoapp.messageType,
          data->messageToNanoapp.messagePermissions);
-  } else if (!EventLoopManagerSingleton::get()
-                  ->getEventLoop()
-                  .distributeEventSync(CHRE_EVENT_MSG_FROM_ENDPOINT,
-                                       &data->messageToNanoapp,
-                                       nanoapp->getInstanceId())) {
+  } else if (!eventLoop->distributeEventSync(CHRE_EVENT_MSG_FROM_ENDPOINT,
+                                             &data->messageToNanoapp,
+                                             nanoapp->getInstanceId())) {
     LOGE("Unable to distribute message to nanoapp with ID 0x%" PRIx64,
          nanoapp->getAppId());
   } else {
@@ -479,9 +477,9 @@ void ChreMessageHubManager::onMessageToNanoappCallback(
 
 void ChreMessageHubManager::onSessionStateChangedCallback(
     SystemCallbackType /* type */, UniquePtr<SessionCallbackData> &&data) {
-  Nanoapp *nanoapp =
-      EventLoopManagerSingleton::get()->getEventLoop().findNanoappByAppId(
-          data->nanoappId);
+  EventLoop *eventLoop = getCurrentEventLoop();
+  CHRE_ASSERT(eventLoop != nullptr);
+  Nanoapp *nanoapp = eventLoop->findNanoappByAppId(data->nanoappId);
   if (nanoapp == nullptr) {
     LOGE("Unable to find nanoapp with ID 0x%" PRIx64
          " to close the session with ID %" PRIu16,
@@ -489,11 +487,10 @@ void ChreMessageHubManager::onSessionStateChangedCallback(
     return;
   }
 
-  bool success =
-      EventLoopManagerSingleton::get()->getEventLoop().distributeEventSync(
-          data->isClosed ? CHRE_EVENT_MSG_SESSION_CLOSED
-                         : CHRE_EVENT_MSG_SESSION_OPENED,
-          &data->sessionData, nanoapp->getInstanceId());
+  bool success = eventLoop->distributeEventSync(
+      data->isClosed ? CHRE_EVENT_MSG_SESSION_CLOSED
+                     : CHRE_EVENT_MSG_SESSION_OPENED,
+      &data->sessionData, nanoapp->getInstanceId());
   if (!success) {
     LOGE("Unable to process session closed event to nanoapp with ID 0x%" PRIx64,
          nanoapp->getAppId());
@@ -511,16 +508,30 @@ void ChreMessageHubManager::onSessionOpenCompleteCallback(
 
 void ChreMessageHubManager::onMessageFreeCallback(
     std::byte *message, size_t /* length */,
-    MessageFreeCallbackData && /* callbackData */) {
+    MessageFreeCallbackData &&callbackData) {
+  EventLoop *eventLoop = EventLoopManagerSingleton::get()->getEventLoopByAppId(
+      callbackData.nanoappId);
+  if (eventLoop == nullptr) {
+    LOGE("No event loop for nanoapp with ID 0x%" PRIx64
+         " to deliver message free event with message: %p",
+         callbackData.nanoappId, message);
+    EventLoopManagerSingleton::get()
+        ->getChreMessageHubManager()
+        .getAndRemoveFreeCallbackRecord(message);
+    return;
+  }
   EventLoopManagerSingleton::get()->deferCallback(
       SystemCallbackType::EndpointMessageFreeEvent, message,
-      ChreMessageHubManager::handleMessageFreeCallback);
+      ChreMessageHubManager::handleMessageFreeCallback,
+      /* extraData= */ nullptr, eventLoop);
 }
 
 // TODO(b/475537998): Optimize callbacks to avoid unnecessary global mutex locks
 void ChreMessageHubManager::handleMessageFreeCallback(uint16_t /* type */,
                                                       void *data,
                                                       void * /* extraData */) {
+  EventLoop *eventLoop = getCurrentEventLoop();
+  CHRE_ASSERT(eventLoop != nullptr);
   auto *mutex = getMultiThreadingApiMutex();
   mutex->unlock();
   std::optional<CallbackAllocator<MessageFreeCallbackData>::CallbackRecord>
@@ -532,14 +543,13 @@ void ChreMessageHubManager::handleMessageFreeCallback(uint16_t /* type */,
          data);
     return;
   }
-
   if (record->metadata.freeCallback == nullptr) {
     return;
   }
 
-  EventLoopManagerSingleton::get()->getEventLoop().invokeMessageFreeFunction(
-      record->metadata.nanoappId, record->metadata.freeCallback,
-      record->message, record->messageSize);
+  eventLoop->invokeMessageFreeFunction(record->metadata.nanoappId,
+                                       record->metadata.freeCallback,
+                                       record->message, record->messageSize);
   mutex->lock();
 }
 
@@ -580,10 +590,19 @@ void ChreMessageHubManager::onSessionStateChanged(
       sessionCallbackData->sessionData.serviceDescriptor[0] = '\0';
     }
 
-    EventLoopManagerSingleton::get()->deferCallback(
-        SystemCallbackType::EndpointSessionStateChangedEvent,
-        std::move(sessionCallbackData),
-        ChreMessageHubManager::onSessionStateChangedCallback);
+    EventLoop *eventLoop =
+        EventLoopManagerSingleton::get()->getEventLoopByAppId(nanoappId);
+    if (eventLoop == nullptr) {
+      LOGE("No event loop for nanoapp with ID 0x%" PRIx64
+           " to deliver "
+           "session state changed event with session ID %" PRIu16,
+           nanoappId, session.sessionId);
+    } else {
+      EventLoopManagerSingleton::get()->deferCallback(
+          SystemCallbackType::EndpointSessionStateChangedEvent,
+          std::move(sessionCallbackData),
+          ChreMessageHubManager::onSessionStateChangedCallback, eventLoop);
+    }
 
     if (session.initiator == session.peer) {
       // Session between self - only deliver one event
@@ -612,9 +631,16 @@ void ChreMessageHubManager::onEndpointReadyEvent(MessageHubId messageHubId,
     bool endpointIdMatches =
         data.endpointId == ENDPOINT_ID_ANY || data.endpointId == endpointId;
     if (messageHubIdMatches && endpointIdMatches) {
-      Nanoapp *nanoapp =
-          EventLoopManagerSingleton::get()->getEventLoop().findNanoappByAppId(
+      EventLoop *eventLoop =
+          EventLoopManagerSingleton::get()->getEventLoopByAppId(
               data.fromEndpointId);
+      if (eventLoop == nullptr) {
+        LOGE("No event loop for nanoapp with ID 0x%" PRIx64
+             " to deliver ready event",
+             data.fromEndpointId);
+        continue;
+      }
+      Nanoapp *nanoapp = eventLoop->findNanoappByAppId(data.fromEndpointId);
       if (nanoapp == nullptr) {
         LOGW("Could not find nanoapp with ID 0x%" PRIx64 " to send ready event",
              data.fromEndpointId);
@@ -633,26 +659,8 @@ void ChreMessageHubManager::onEndpointReadyEvent(MessageHubId messageHubId,
 
 bool ChreMessageHubManager::doesNanoappHaveLegacyService(uint64_t nanoappId,
                                                          uint64_t serviceId) {
-  struct SearchContext {
-    uint64_t nanoappId;
-    uint64_t serviceId;
-    bool found;
-  };
-  SearchContext context = {
-      .nanoappId = nanoappId,
-      .serviceId = serviceId,
-      .found = false,
-  };
-
-  EventLoopManagerSingleton::get()->getEventLoop().forEachNanoapp(
-      [](const Nanoapp *nanoapp, void *data) {
-        SearchContext *context = static_cast<SearchContext *>(data);
-        if (!context->found && nanoapp->getAppId() == context->nanoappId) {
-          context->found = nanoapp->hasRpcService(context->serviceId);
-        }
-      },
-      &context);
-  return context.found;
+  return EventLoopManagerSingleton::get()->doesNanoappHaveLegacyService(
+      nanoappId, serviceId);
 }
 
 bool ChreMessageHubManager::validateServicesLocked(
@@ -770,10 +778,20 @@ bool ChreMessageHubManager::ChreMessageHubCallback::onMessageReceived(
   messageCallbackData->data = std::move(data);
   messageCallbackData->nanoappId = receiver.endpointId;
 
+  EventLoop *eventLoop = EventLoopManagerSingleton::get()->getEventLoopByAppId(
+      receiver.endpointId);
+  if (eventLoop == nullptr) {
+    LOGE("No event loop for nanoapp with ID 0x%" PRIx64
+         " to deliver message with type %" PRIu32 " and permissions %" PRIu32
+         " with session ID %" PRIu16,
+         receiver.endpointId, messageType, messagePermissions,
+         session.sessionId);
+    return false;
+  }
   return EventLoopManagerSingleton::get()->deferCallback(
       SystemCallbackType::EndpointMessageToNanoappEvent,
       std::move(messageCallbackData),
-      ChreMessageHubManager::onMessageToNanoappCallback);
+      ChreMessageHubManager::onMessageToNanoappCallback, eventLoop);
 }
 
 void ChreMessageHubManager::ChreMessageHubCallback::onSessionOpenRequest(
@@ -812,15 +830,13 @@ void ChreMessageHubManager::ChreMessageHubCallback::onSessionClosed(
 
 void ChreMessageHubManager::ChreMessageHubCallback::forEachEndpoint(
     const pw::Function<bool(const EndpointInfo &)> &function) {
-  EventLoopManagerSingleton::get()->getEventLoop().onMatchingNanoappEndpoint(
-      function);
+  EventLoopManagerSingleton::get()->onMatchingNanoappEndpoint(function);
 }
 
 std::optional<EndpointInfo>
 ChreMessageHubManager::ChreMessageHubCallback::getEndpointInfo(
     EndpointId endpointId) {
-  return EventLoopManagerSingleton::get()->getEventLoop().getEndpointInfo(
-      endpointId);
+  return EventLoopManagerSingleton::get()->getEndpointInfo(endpointId);
 }
 
 std::optional<EndpointId>
@@ -882,8 +898,7 @@ void ChreMessageHubManager::ChreMessageHubCallback::forEachService(
     for (const NanoappServiceData &service :
          mChreMessageHubManager->mNanoappPublishedServices) {
       std::optional<EndpointInfo> endpointInfo =
-          EventLoopManagerSingleton::get()->getEventLoop().getEndpointInfo(
-              service.nanoappId);
+          EventLoopManagerSingleton::get()->getEndpointInfo(service.nanoappId);
       if (endpointInfo.has_value()) {
         ServiceInfo serviceInfo(service.serviceInfo.serviceDescriptor,
                                 service.serviceInfo.majorVersion,
@@ -898,8 +913,7 @@ void ChreMessageHubManager::ChreMessageHubCallback::forEachService(
     }
   }
 
-  EventLoopManagerSingleton::get()->getEventLoop().onMatchingNanoappService(
-      function);
+  EventLoopManagerSingleton::get()->onMatchingNanoappService(function);
 }
 
 void ChreMessageHubManager::ChreMessageHubCallback::onHubRegistered(

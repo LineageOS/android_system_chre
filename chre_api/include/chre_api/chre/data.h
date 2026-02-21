@@ -26,9 +26,10 @@
  * efficient high-throughput data transmission between a single source
  * and multiple sinks, which may include nanoapps and other endpoints. These
  * data flows enable the transfer of large amounts of data with minimal data
- * copies, leveraging shared memory regions. They provide a mechanism for
- * nanoapps to exchange data streams, supporting various new data alert and
- * overwrite policies to suit different batching use cases.
+ * copies, leveraging shared memory regions. Data flows are uinquely identified
+ * by the message hub ID of the source and the data flow ID. They provide a
+ * mechanism for nanoapps to exchange data streams, supporting various new data
+ * alert and overwrite policies to suit different batching use cases.
  *
  * Here is an example of a source nanoapp that creates a data flow and adds a
  * sink nanoapp:
@@ -410,7 +411,8 @@ struct chreDataFlowNewDataAlert {
  *
  * Event sent to a sink nanoapp when a data flow sink is created for the
  * nanoapp. If the nanoapp wants to be a sink, it must call
- * chreDataFlowSinkEnable() to activate the sink.
+ * chreDataFlowSinkEnable() to activate the sink. If chreDataFlowSinkEnable()
+ * is not called, the sink will be disabled.
  *
  * @see chreDataFlowSinkEnable
  */
@@ -628,8 +630,8 @@ uint32_t chreDataFlowSourceAddSinkOverSessionAsync(uint64_t hubId,
  * @return one of chreStatus:
  *  - CHRE_STATUS_OK if the request was successful. The sink is configured
  *    immediately.
- *  - CHRE_STATUS_INVALID_ARGUMENT if sinkPolicy is NULL or if the sink does
- *    not exist on the data flow.
+ *  - CHRE_STATUS_INVALID_ARGUMENT if sinkPolicy is NULL.
+ *  - CHRE_STATUS_NOT_FOUND if the sink does not exist on the data flow.
  *  - CHRE_STATUS_PERMISSION_DENIED if the source does not own the data
  *    flow.
  *
@@ -770,6 +772,185 @@ uint32_t chreDataFlowSourceGetSize(uint32_t dataFlowId, bool includeReserved,
  * @since v1.12
  */
 uint32_t chreDataFlowSourceGetCapacity(uint32_t dataFlowId, uint32_t *capacity);
+
+/**
+ * Enables this nanoapp to be a sink of the given data flow. This function
+ * returns CHRE_STATUS_OK if the sink is enabled, or an error
+ * status otherwise. If the sink is enabled, the nanoapp will receive data
+ * flow events for this data flow and can start using the data flow sink
+ * API. This function should be called during the handling of the
+ * CHRE_EVENT_DATA_SINK_CREATED event.
+ *
+ * @param hubId The ID of the hub associated with the data flow source.
+ * @param dataFlowId The ID of the data flow on which to enable the sink.
+ * @return one of chreStatus:
+ *  - CHRE_STATUS_OK if the sink is enabled.
+ *  - CHRE_STATUS_ALREADY_EXISTS if this nanoapp is already a sink of the
+ *    data flow.
+ *  - CHRE_STATUS_NOT_FOUND if the source did not create a sink for this
+ *    nanoapp.
+ *
+ * @see chreDataFlowSinkDisable
+ *
+ * @since v1.12
+ */
+uint32_t chreDataFlowSinkEnable(uint64_t hubId, uint32_t dataFlowId);
+
+/**
+ * Disables this nanoapp as a sink of the given data flow. If the sink is
+ * disabled, the nanoapp will not receive any more data flow events for this
+ * data flow. This operation is final, and any subsequent calls to
+ * chreDataFlowSinkEnable() will fail. To re-enable the sink, the source must
+ * re-create the sink in the same manner as when it was first created.
+ *
+ * If the source is a nanoapp, it will receive a CHRE_EVENT_DATA_SINK_STOPPED
+ * event, indicating this sink has been disabled.
+ *
+ * @param hubId The ID of the hub associated with the data flow source.
+ * @param dataFlowId The ID of the data flow on which to disable the sink.
+ * @return one of chreStatus:
+ *  - CHRE_STATUS_OK if the sink is disabled.
+ *  - CHRE_STATUS_NOT_FOUND if this nanoapp is not a sink of the data
+ *    flow.
+ *
+ * @since v1.12
+ */
+uint32_t chreDataFlowSinkDisable(uint64_t hubId, uint32_t dataFlowId);
+
+/**
+ * Gets the state of the sink on the given data flow.
+ *
+ * @param hubId The ID of the hub associated with the data flow.
+ * @param dataFlowId The ID of the data flow on which to get the state.
+ * @return The state of the sink, one of chreStatus.
+ *  - CHRE_STATUS_OK if the sink is enabled.
+ *  - CHRE_STATUS_ABORTED if the data flow has been destroyed.
+ *  - CHRE_STATUS_NOT_FOUND if this nanoapp is not an active sink of the
+ *    data flow.
+ *  - CHRE_STATUS_DATA_LOSS if the source overwrote the sink's position. This
+ *    status is purely informational. The data flow is still usable, but this
+ *    sink nanoapp's position has been moved forward. This status remains until
+ *    the sink reads data from the data flow.
+ *
+ * @see chreStatus
+ *
+ * @since v1.12
+ */
+uint32_t chreDataFlowSinkGetState(uint64_t hubId, uint32_t dataFlowId);
+
+/**
+ * Returns a const view over the next contiguous block of data, up to
+ * numRequestedBytes. This function returns CHRE_STATUS_OK if the
+ * request was successful, i.e. if the sink is valid on a valid data flow
+ * and there are greater than zero bytes available to consume. *data and
+ * *numBytes will contain the available data to consume if successful, otherwise
+ * they will be unchanged. This data will follow the data previously peeked.
+ *
+ * WARNING: If the source configured this sink to be overwritable, it is
+ * expected that the source may overwrite this sink. The contents of a
+ * peek are only guaranteed to have been valid if the subsequent call to
+ * chreDataFlowSinkRelease() succeeded. chreDataFlowSinkGetState() may
+ * be used to confirm the validity of the data in the middle of a long-running
+ * operation without calling chreDataFlowSinkRelease().
+ *
+ * @param hubId The ID of the hub associated with the data flow.
+ * @param dataFlowId The ID of the data flow on which to get the available
+ *     count.
+ * @param numRequestedBytes The requested number of bytes to peek.
+ * @param data A pointer to a buffer to store the peeked bytes if
+ *     successful, otherwise unchanged. This pointer is only valid in the
+ *     nanoapp event context in which this function is called.
+ * @param numBytes A pointer to an integer to store the number of bytes
+ *     available to peek if successful, otherwise unchanged. This value will
+ *     be less than or equal to numRequestedBytes.
+ * @return one of chreStatus:
+ *  - CHRE_STATUS_OK if the request was successful, i.e. if the sink is
+ *    valid on a valid data flow and there are greater than zero bytes
+ *    available to consume.
+ *  - CHRE_STATUS_INVALID_ARGUMENT if numRequestedBytes is not a multiple of
+ *    the element size.
+ *  - CHRE_STATUS_NOT_FOUND if the sink is not enabled.
+ *
+ * @since v1.12
+ */
+uint32_t chreDataFlowSinkPeek(uint64_t hubId, uint32_t dataFlowId,
+                              uint32_t numRequestedBytes,
+                              const void **data, uint32_t *numBytes);
+
+/**
+ * Releases the first numBytes bytes from the data flow. This function returns
+ * true if the request was successful, i.e. if the sink is valid on a valid
+ * data flow and there are numBytes bytes that can be released after being
+ * consumed.
+ *
+ * NOTE: This invalidates the pointers and associated values previously returned
+ * by chreDataFlowSinkPeek() if the request was successful.
+ *
+ * If numBytes is not a multiple of the element size provided to the sink
+ * nanoapp by the CHRE_DATA_FLOW_SINK_CREATED event, this function will
+ * return CHRE_STATUS_INVALID_ARGUMENT.
+ *
+ * @param hubId The ID of the hub associated with the data flow.
+ * @param dataFlowId The ID of the data flow on which to release the consumed
+ *                   bytes.
+ * @param numBytes The number of bytes to release.
+ *
+ * @return one of chreStatus:
+ *  - CHRE_STATUS_OK if the request was successful.
+ *  - CHRE_STATUS_NOT_FOUND if the sink is not enabled.
+ *  - CHRE_STATUS_INVALID_ARGUMENT if numBytes is not a multiple of the
+ *    element size.
+ *
+ * @since v1.12
+ */
+uint32_t chreDataFlowSinkRelease(uint64_t hubId, uint32_t dataFlowId,
+                                 uint32_t numBytes);
+
+/**
+ * Seeks the sink's read pointer on the given data flow to an offset defined as
+ * the number of bytes behind the current write index. An offset of zero will
+ * seek the sink to the current write index of the source, skipping over any and
+ * all data currently available in the flow.
+ *
+ * NOTE: The sink's read pointer is initialized to the current write index
+ * during sink creation.
+ *
+ * @param hubId The ID of the hub associated with the data flow.
+ * @param dataFlowId The ID of the data flow.
+ * @param offset The number of bytes behind the current write index of which to
+ *     seek the sink.
+ *
+ * @return one of chreStatus:
+ *  - CHRE_STATUS_OK if the request was successful and the sink was
+ *    seeked to the specified offset.
+ *  - CHRE_STATUS_INVALID_ARGUMENT if the offset is not a multiple of the
+ *    element size for a fixed-size data flow, or if the offset is greater
+ *    than the current size of the data flow.
+ *  - CHRE_STATUS_NOT_FOUND if the sink is not enabled.
+ *
+ * @since v1.12
+ */
+uint32_t chreDataFlowSinkSeek(uint64_t hubId, uint32_t dataFlowId,
+                              uint32_t offset);
+
+/**
+ * Retrieve the number of bytes available for this sink to read, i.e. the
+ * distance between the data flow's write index and this sink's read index.
+ *
+ * @param hubId The ID of the hub associated with the data flow.
+ * @param dataFlowId The ID of the data flow.
+ * @param offset A pointer to an integer to store the offset in bytes.
+ *     Cannot be NULL.
+ *
+ * @return one of chreStatus:
+ *  - CHRE_STATUS_OK if the request was successful and offset was populated.
+ *  - CHRE_STATUS_INVALID_ARGUMENT if offset is NULL.
+ *  - CHRE_STATUS_NOT_FOUND if the sink is not enabled.
+ *
+ * @since v1.12
+ */
+uint32_t chreDataFlowSinkGetOffset(uint64_t hubId, uint32_t dataFlowId,
+                                   uint32_t *offset);
 
 #ifdef __cplusplus
 }
