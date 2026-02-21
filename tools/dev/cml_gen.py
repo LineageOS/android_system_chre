@@ -25,6 +25,9 @@ definitions. Finally, it writes a `CMakeLists.txt` file that can be used by IDEs
 such as CLion or by CMake to generate  `compile_commands.json` for code
 completion
 and analysis.
+
+The build command must include the dry-run option (`-n`) and must not specify
+parallel execution greater than 1 (e.g., `-j2`, `-j4`).
 """
 
 import argparse
@@ -33,6 +36,44 @@ import re
 import shlex
 import subprocess
 from shell_util import fatal_error, init_file
+
+
+def _validate_build_command(command: str):
+  """Validates that the build command is safe for parsing.
+
+  Args:
+    command: The build command string.
+  """
+  tokens = shlex.split(command)
+
+  # Check for dry-run option
+  if '-n' not in tokens:
+    fatal_error("The build command must include the '-n' (dry-run) option.")
+
+  # Check for parallel execution
+  for token in tokens:
+    if token.startswith('-j'):
+      if token == '-j':
+        # If -j is separate, the next token might be the number
+        try:
+          idx = tokens.index(token)
+          if idx + 1 < len(tokens):
+            jobs = int(tokens[idx + 1])
+            if jobs > 1:
+              fatal_error('Parallel execution (-j > 1) is not supported.')
+          else:
+            fatal_error('Parallel execution (unlimited jobs) is not supported.')
+        except ValueError:
+          # -j without number means unlimited
+          fatal_error('Parallel execution (unlimited jobs) is not supported.')
+      else:
+        # -jX case
+        try:
+          jobs = int(token[2:])
+          if jobs > 1:
+            fatal_error(f'Parallel execution ({token}) is not supported.')
+        except ValueError:
+          pass  # Not a number, assuming something else starts with -j
 
 
 def _write_header(output, project_name):
@@ -158,28 +199,41 @@ def _convert_to_abs_path(path: str, cwd: str) -> str:
   return os.path.realpath(path)
 
 
-def _update_current_cwd(line: str, current_cwd: str) -> str:
-  """Updates the current working directory based on the build output line.
+def _update_dir_stack(line: str, dir_stack: list[str]) -> str:
+  """Updates the directory stack based on the build output line.
 
-  Tracks directory changes via 'make: Entering directory' or 'make -C',
-  'env -C', etc.
+  Tracks directory changes via 'make: Entering directory' and
+  'make: Leaving directory'.
 
   Args:
     line: A line from the build command's output.
-    current_cwd: The current working directory before processing this line.
+    dir_stack: The directory stack.
 
   Returns:
-    The updated current working directory.
+    The current working directory.
   """
+  current_cwd = dir_stack[-1] if dir_stack else os.getcwd()
+
   # Track current working directory changes via 'make: Entering directory'
   # which is standard when make runs with -w/--print-directory.
   entering_dir_match = re.search(
       r"make(?:\[\d+])?: Entering directory ['\"](.+)['\"]", line
   )
   if entering_dir_match:
-    updated_cwd = _convert_to_abs_path(entering_dir_match.group(1), current_cwd)
-    print(f'Updated current_cwd to: {updated_cwd}', flush=True)
-    return updated_cwd
+    new_dir = _convert_to_abs_path(entering_dir_match.group(1), current_cwd)
+    dir_stack.append(new_dir)
+    print(f'Entering directory: {new_dir}', flush=True)
+    return new_dir
+
+  # Track leaving directory
+  leaving_dir_match = re.search(
+      r"make(?:\[\d+])?: Leaving directory ['\"](.+)['\"]", line
+  )
+  if leaving_dir_match:
+    if len(dir_stack) > 1:
+      left_dir = dir_stack.pop()
+      print(f'Leaving directory: {left_dir}', flush=True)
+    return dir_stack[-1] if dir_stack else os.getcwd()
 
   try:
     tokens = shlex.split(line)
@@ -219,7 +273,9 @@ def _update_current_cwd(line: str, current_cwd: str) -> str:
         print(f'Updated current_cwd to: {updated_cwd}', flush=True)
       i += 1
 
-  return updated_cwd
+  if updated_cwd != current_cwd:
+    dir_stack.append(updated_cwd)
+  return dir_stack[-1] if dir_stack else os.getcwd()
 
 
 def _parse_compilation_output(args: argparse.Namespace, result: list[str]):
@@ -239,13 +295,13 @@ def _parse_compilation_output(args: argparse.Namespace, result: list[str]):
   macros = dict()
   flags = dict()
   output_file = os.path.join(args.output_path, 'CMakeLists.txt')
-  current_cwd = args.src_path
+  dir_stack = [args.src_path]
 
   init_file(output_file)
   with open(output_file, 'w') as output:
     _write_header(output, args.project_name)
     for line in result:
-      current_cwd = _update_current_cwd(line, current_cwd)
+      current_cwd = _update_dir_stack(line, dir_stack)
 
       # Only parse lines that appear to be compilation commands for a source file.
       if ' -c ' not in line or ' -o ' not in line:
@@ -366,6 +422,8 @@ def main():
   args = arg_parser.parse_args()
   args.output_path = os.path.expanduser(args.output_path)
   args.src_path = os.path.expanduser(args.src_path)
+
+  _validate_build_command(args.command)
 
   print(args)
   print('command: ' + args.command)

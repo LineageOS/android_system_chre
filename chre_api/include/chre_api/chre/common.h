@@ -201,6 +201,73 @@ struct chreBatchCompleteEvent {
     uint8_t reserved[2];
 };
 
+/**
+ * Status codes for CHRE operations. Corresponds to pw::Status codes.
+ *
+ * Backing type: uint32_t.
+ */
+enum chreStatus {
+  /** The operation completed successfully. */
+  CHRE_STATUS_OK = 0,
+
+  /** The operation was cancelled. */
+  CHRE_STATUS_CANCELLED = 1,
+
+  /** An unknown error occurred. */
+  CHRE_STATUS_UNKNOWN = 2,
+
+  /** The operation was rejected because of an invalid argument. */
+  CHRE_STATUS_INVALID_ARGUMENT = 3,
+
+  /** The operation expired before completion. */
+  CHRE_STATUS_DEADLINE_EXCEEDED = 4,
+
+  /** The requested entity was not found. */
+  CHRE_STATUS_NOT_FOUND = 5,
+
+  /** The entity that we attempted to create already exists. */
+  CHRE_STATUS_ALREADY_EXISTS = 6,
+
+  /** The caller does not have permission to execute the specified operation. */
+  CHRE_STATUS_PERMISSION_DENIED = 7,
+
+  /** The resource has been exhausted. */
+  CHRE_STATUS_RESOURCE_EXHAUSTED = 8,
+
+  /**
+   * The operation was rejected because the system is not in a state required
+   * for the operation's execution.
+   */
+  CHRE_STATUS_FAILED_PRECONDITION = 9,
+
+  /** The operation was aborted. */
+  CHRE_STATUS_ABORTED = 10,
+
+  /** The operation was attempted past the valid range. */
+  CHRE_STATUS_OUT_OF_RANGE = 11,
+
+  /** The operation is not implemented. */
+  CHRE_STATUS_UNIMPLEMENTED = 12,
+
+  /** Internal errors. */
+  CHRE_STATUS_INTERNAL = 13,
+
+  /**
+   * The service is currently unavailable. This is most likely a transient
+   * condition, which can be corrected by retrying with a backoff.
+   */
+  CHRE_STATUS_UNAVAILABLE = 14,
+
+  /** Unrecoverable data loss or corruption. */
+  CHRE_STATUS_DATA_LOSS = 15,
+
+  /**
+   * The request does not have valid authentication credentials for the
+   * operation.
+   */
+  CHRE_STATUS_UNAUTHENTICATED = 16,
+};
+
 #ifdef __cplusplus
 }
 #endif

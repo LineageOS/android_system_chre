@@ -247,7 +247,7 @@ chre_make() {
   if [[ $1 == "-C" ]]; then
     shift
     make clean && \
-    python3 $CHRE_DEV_SCRIPT_PATH/cml_gen.py -c "make -n $CHRE_BUILD_TARGET" -o out/$CHRE_BUILD_TARGET "$@" && \
+    python3 $CHRE_DEV_SCRIPT_PATH/cml_gen.py -c "make -j1 -n $CHRE_BUILD_TARGET" -o out/$CHRE_BUILD_TARGET "$@" && \
     pushd out/$CHRE_BUILD_TARGET > /dev/null
     if [[ $? -eq 0 ]]; then
       cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON . && \
@@ -271,7 +271,7 @@ chre_make() {
   fi
 
   # Making the target
-  make OPT_LEVEL=s $CHRE_BUILD_TARGET || return 1
+  make OPT_LEVEL=s -j$(nproc) $CHRE_BUILD_TARGET || return 1
 
   # Getting the .so file
   local so_files=(./out/$CHRE_BUILD_TARGET/*.so)
