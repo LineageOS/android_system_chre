@@ -878,9 +878,9 @@ void EventLoop::setCycleWakeupBucketsTimer() {
   }
 
   auto callback = [](uint16_t /*type*/, void * /*data*/, void * /*extraData*/) {
-    EventLoopManagerSingleton::get()
-        ->getEventLoop()
-        .handleNanoappWakeupBuckets();
+    EventLoop *eventLoop = getCurrentEventLoop();
+    CHRE_ASSERT(eventLoop != nullptr);
+    eventLoop->handleNanoappWakeupBuckets();
   };
   mCycleWakeupBucketsHandle =
       EventLoopManagerSingleton::get()->setDelayedCallback(
