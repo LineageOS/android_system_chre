@@ -73,17 +73,14 @@ bool shouldAcceptMessageToHostFromNanoapp(Nanoapp *nanoapp, void *messageData,
 
 }  // namespace
 
-HostCommsManager::HostCommsManager(EventLoop *eventLoop)
+HostCommsManager::HostCommsManager()
 #ifdef CHRE_RELIABLE_MESSAGE_SUPPORT_ENABLED
     : mDuplicateMessageDetector(kReliableMessageDuplicateDetectorTimeout),
-      mTransactionManager(*this,
-                          EventLoopManagerSingleton::get()->getTimerPool(),
-                          kReliableMessageRetryWaitTime, eventLoop,
-                          kReliableMessageMaxAttempts) {
-#else
-{
-  UNUSED_VAR(eventLoop);
+      mTransactionManager(
+          *this, EventLoopManagerSingleton::get()->getTimerPool(),
+          kReliableMessageRetryWaitTime, kReliableMessageMaxAttempts)
 #endif  // CHRE_RELIABLE_MESSAGE_SUPPORT_ENABLED
+{
 }
 
 // TODO(b/346345637): rename this to align it with the message delivery status
@@ -100,10 +97,24 @@ bool HostCommsManager::completeTransaction(
                             ->getHostCommsManager()
                             .handleMessageDeliveryStatusSync(txnId, err);
                       };
+  uint32_t messageSequenceNumber = transactionId;
+  MessageToHost *message = findMessageToHostBySeq(messageSequenceNumber);
+  if (message == nullptr) {
+    LOGE("Message not found for transaction ID %" PRIu32, transactionId);
+    return false;
+  }
+  EventLoop *eventLoop =
+      EventLoopManagerSingleton::get()->getEventLoopByAppId(message->appId);
+  if (eventLoop == nullptr) {
+    LOGE("Couldn't complete transaction %" PRIu32
+         ": event loop not found for app ID 0x%016" PRIx64,
+         messageSequenceNumber, message->appId);
+    return false;
+  }
   EventLoopManagerSingleton::get()->deferCallback(
       SystemCallbackType::ReliableMessageEvent,
       NestedDataPtr<uint32_t>(transactionId), callback,
-      NestedDataPtr<uint8_t>(errorCode));
+      NestedDataPtr<uint8_t>(errorCode), eventLoop);
   return true;
 #else
   return false;
@@ -219,6 +230,7 @@ bool HostCommsManager::sendMessageToHostFromNanoapp(
       LockGuard<Mutex> lock(mTransactionManagerMutex);
 #endif  // CHRE_MULTI_THREADING_ENABLED
       success = mTransactionManager.add(nanoapp->getInstanceId(),
+                                        getCurrentEventLoop(),
                                         &msgToHost->messageSequenceNumber);
     }
 #endif  // CHRE_RELIABLE_MESSAGE_SUPPORT_ENABLED
@@ -436,10 +448,10 @@ void HostCommsManager::freeMessageToHost(MessageToHost *msgToHost) {
 
 void HostCommsManager::onTransactionAttempt(uint32_t messageSequenceNumber,
                                             uint16_t nanoappInstanceId) {
+  EventLoop *eventLoop = getCurrentEventLoop();
+  CHRE_ASSERT(eventLoop != nullptr);
   MessageToHost *message = findMessageToHostBySeq(messageSequenceNumber);
-  Nanoapp *nanoapp =
-      EventLoopManagerSingleton::get()->getEventLoop().findNanoappByInstanceId(
-          nanoappInstanceId);
+  Nanoapp *nanoapp = eventLoop->findNanoappByInstanceId(nanoappInstanceId);
   if (message == nullptr || nanoapp == nullptr) {
     LOGE("Attempted to send reliable message %" PRIu32 " from nanoapp %" PRIu16
          " but couldn't find:%s%s",
@@ -480,14 +492,15 @@ void HostCommsManager::handleDuplicateAndSendMessageDeliveryStatus(
 void HostCommsManager::handleMessageDeliveryStatusSync(
     uint32_t messageSequenceNumber, uint8_t errorCode)
     CHRE_REQUIRES(getMultiThreadingApiMutex()) {
-  EventLoop &eventLoop = EventLoopManagerSingleton::get()->getEventLoop();
+  EventLoop *eventLoop = getCurrentEventLoop();
+  CHRE_ASSERT(eventLoop != nullptr);
   uint16_t nanoappInstanceId;
   MessageToHost *message = findMessageToHostBySeq(messageSequenceNumber);
   if (message == nullptr) {
     LOGW("Got message delivery status for unexpected seq %" PRIu32,
          messageSequenceNumber);
-  } else if (!eventLoop.findNanoappInstanceIdByAppId(message->appId,
-                                                     &nanoappInstanceId)) {
+  } else if (!eventLoop->findNanoappInstanceIdByAppId(message->appId,
+                                                      &nanoappInstanceId)) {
     // Expected if we unloaded the nanoapp while a message was in flight
     LOGW("Got message delivery status seq %" PRIu32
          " but couldn't find nanoapp 0x%" PRIx64,
@@ -499,8 +512,8 @@ void HostCommsManager::handleMessageDeliveryStatusSync(
     asyncResult.cookie = message->cookie;
 
     onMessageToHostCompleteInternal(message);
-    eventLoop.distributeEventSync(CHRE_EVENT_RELIABLE_MSG_ASYNC_RESULT,
-                                  &asyncResult, nanoappInstanceId);
+    eventLoop->distributeEventSync(CHRE_EVENT_RELIABLE_MSG_ASYNC_RESULT,
+                                   &asyncResult, nanoappInstanceId);
   }
 }
 

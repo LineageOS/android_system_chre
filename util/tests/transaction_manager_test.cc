@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <map>
 
+#include "chre/core/event_loop.h"
 #include "chre/core/timer_pool.h"
 #include "chre/platform/linux/system_time.h"
 #include "chre/util/system/system_callback_type.h"
@@ -122,13 +123,11 @@ class TransactionManagerTest : public testing::Test {
  public:
  protected:
   TxnMgr defaultTxnMgr() {
-    return TxnMgr(mFakeCb, mTimerPool, kTimeout, /*eventLoop=*/nullptr,
-                  kMaxAttempts);
+    return TxnMgr(mFakeCb, mTimerPool, kTimeout, kMaxAttempts);
   }
 
   TxnMgrF defaultTxnMgrF() {
-    return TxnMgrF(mFakeCb, mFakeTimerPool, kTimeout, /*eventLoop=*/nullptr,
-                   kMaxAttempts);
+    return TxnMgrF(mFakeCb, mFakeTimerPool, kTimeout, kMaxAttempts);
   }
 
   static constexpr uint32_t kTimerId = 1;
@@ -138,6 +137,7 @@ class TransactionManagerTest : public testing::Test {
   FakeTransactionManagerCallback mFakeCb;
   MockTransactionManagerCallback mMockCb;
   SystemTimeOverride mTime = SystemTimeOverride(0);
+  EventLoop mEventLoop;
 };
 
 TEST_F(TransactionManagerTest, StartSingleTransaction) {
@@ -148,7 +148,7 @@ TEST_F(TransactionManagerTest, StartSingleTransaction) {
       .WillOnce(Return(kTimerId));
 
   uint32_t id;
-  EXPECT_TRUE(tm.add(/*groupId=*/0, &id));
+  EXPECT_TRUE(tm.add(/*groupId=*/0, &mEventLoop, &id));
 
   ASSERT_EQ(mFakeCb.mTries.size(), 1);
   EXPECT_EQ(mFakeCb.mTries[0], id);
@@ -163,7 +163,7 @@ TEST_F(TransactionManagerTest, RemoveSingleTransaction) {
       .WillOnce(Return(kTimerId));
 
   uint32_t id;
-  ASSERT_TRUE(tm.add(/*groupId=*/0, &id));
+  ASSERT_TRUE(tm.add(/*groupId=*/0, &mEventLoop, &id));
 
   EXPECT_CALL(mTimerPool, cancelSystemTimer(kTimerId))
       .Times(1)
@@ -178,7 +178,7 @@ TEST_F(TransactionManagerTest, SingleTransactionSuccessOnRetry) {
   TxnMgrF tm = defaultTxnMgrF();
 
   uint32_t id;
-  ASSERT_TRUE(tm.add(0, &id));
+  ASSERT_TRUE(tm.add(0, &mEventLoop, &id));
   EXPECT_TRUE(mFakeTimerPool.invokeNextTimer(mTime));
   EXPECT_EQ(mFakeCb.mTries.size(), 2);
 
@@ -194,7 +194,7 @@ TEST_F(TransactionManagerTest, SingleTransactionTimeout) {
   TxnMgrF tm = defaultTxnMgrF();
 
   uint32_t id;
-  ASSERT_TRUE(tm.add(0, &id));
+  ASSERT_TRUE(tm.add(0, &mEventLoop, &id));
   size_t count = 0;
   while (mFakeTimerPool.invokeNextTimer(mTime) && count++ < kMaxAttempts * 2);
   EXPECT_EQ(count, kMaxAttempts);
@@ -213,8 +213,8 @@ TEST_F(TransactionManagerTest, TwoTransactionsDifferentGroups) {
 
   uint32_t id1;
   uint32_t id2;
-  EXPECT_TRUE(tm.add(/*groupId=*/0, &id1));
-  EXPECT_TRUE(tm.add(/*groupId=*/1, &id2));
+  EXPECT_TRUE(tm.add(/*groupId=*/0, &mEventLoop, &id1));
+  EXPECT_TRUE(tm.add(/*groupId=*/1, &mEventLoop, &id2));
 
   // Both should start
   ASSERT_EQ(mFakeCb.mTries.size(), 2);
@@ -228,8 +228,8 @@ TEST_F(TransactionManagerTest, TwoTransactionsSameGroup) {
 
   uint32_t id1;
   uint32_t id2;
-  EXPECT_TRUE(tm.add(/*groupId=*/0, &id1));
-  EXPECT_TRUE(tm.add(/*groupId=*/0, &id2));
+  EXPECT_TRUE(tm.add(/*groupId=*/0, &mEventLoop, &id1));
+  EXPECT_TRUE(tm.add(/*groupId=*/0, &mEventLoop, &id2));
 
   // Only the first should start
   ASSERT_EQ(mFakeCb.mTries.size(), 1);
@@ -252,8 +252,8 @@ TEST_F(TransactionManagerTest, TwoTransactionsSameGroupTimeout) {
 
   uint32_t id1;
   uint32_t id2;
-  EXPECT_TRUE(tm.add(/*groupId=*/0, &id1));
-  EXPECT_TRUE(tm.add(/*groupId=*/0, &id2));
+  EXPECT_TRUE(tm.add(/*groupId=*/0, &mEventLoop, &id1));
+  EXPECT_TRUE(tm.add(/*groupId=*/0, &mEventLoop, &id2));
 
   // Time out the first transaction, which should kick off the second
   for (size_t i = 0; i < kMaxAttempts; i++) {
@@ -282,8 +282,8 @@ TEST_F(TransactionManagerTest, TwoTransactionsSameGroupRemoveReverseOrder) {
 
   uint32_t id1;
   uint32_t id2;
-  EXPECT_TRUE(tm.add(/*groupId=*/0, &id1));
-  EXPECT_TRUE(tm.add(/*groupId=*/0, &id2));
+  EXPECT_TRUE(tm.add(/*groupId=*/0, &mEventLoop, &id1));
+  EXPECT_TRUE(tm.add(/*groupId=*/0, &mEventLoop, &id2));
 
   // Only the first should start
   ASSERT_EQ(mFakeCb.mTries.size(), 1);
@@ -305,9 +305,9 @@ TEST_F(TransactionManagerTest, MultipleTimeouts) {
 
   // Timeout both in a single callback
   uint32_t ids[2];
-  EXPECT_TRUE(tm.add(/*groupId=*/0, &ids[0]));
+  EXPECT_TRUE(tm.add(/*groupId=*/0, &mEventLoop, &ids[0]));
   mTime.update(kTimeout.toRawNanoseconds() / 2);
-  EXPECT_TRUE(tm.add(/*groupId=*/1, &ids[1]));
+  EXPECT_TRUE(tm.add(/*groupId=*/1, &mEventLoop, &ids[1]));
   EXPECT_TRUE(mFakeTimerPool.invokeNextTimer(mTime, kTimeout));
   EXPECT_EQ(mFakeCb.mTries.size(), 4);
 
@@ -331,17 +331,16 @@ TEST_F(TransactionManagerTest, MultipleTimeouts) {
 }
 
 TEST_F(TransactionManagerTest, CallbackUsesCorrectGroupId) {
-  TxnMgrF tm(mMockCb, mFakeTimerPool, kTimeout, /*eventLoop=*/nullptr,
-             /*maxAttempts=*/1);
+  TxnMgrF tm(mMockCb, mFakeTimerPool, kTimeout, /*maxAttempts=*/1);
 
   EXPECT_CALL(mMockCb, onTransactionAttempt(_, 1)).Times(1);
   EXPECT_CALL(mMockCb, onTransactionAttempt(_, 2)).Times(1);
   EXPECT_CALL(mMockCb, onTransactionAttempt(_, 3)).Times(1);
 
   uint32_t id;
-  tm.add(1, &id);
-  tm.add(2, &id);
-  tm.add(3, &id);
+  tm.add(1, &mEventLoop, &id);
+  tm.add(2, &mEventLoop, &id);
+  tm.add(3, &mEventLoop, &id);
 
   EXPECT_CALL(mMockCb, onTransactionFailure(_, 1)).Times(1);
   EXPECT_CALL(mMockCb, onTransactionFailure(_, 2)).Times(1);

@@ -120,10 +120,8 @@ class HostCommsManager : public HostLink, private TransactionManagerCallback {
  public:
   /**
    * Initializes the HostCommsManager.
-   *
-   * @param eventLoop The event loop to use for deferring callbacks.
    */
-  HostCommsManager(EventLoop *eventLoop);
+  HostCommsManager();
 
   /**
    * Completes a reliable message transaction.

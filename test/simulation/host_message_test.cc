@@ -30,6 +30,9 @@ namespace {
 constexpr uint32_t kMessageType = 0x87654321;
 constexpr uint16_t kHostEndpoint = 0;
 
+CREATE_CHRE_TEST_EVENT(SEND_RELIABLE_MESSAGE, 1);
+CREATE_CHRE_TEST_EVENT(SEND_RELIABLE_MESSAGE_RESULT, 2);
+
 class App : public TestNanoapp {
  public:
   explicit App(TestNanoappInfo info = {}) : TestNanoapp(info) {}
@@ -43,11 +46,41 @@ class App : public TestNanoapp {
                                                   message->messageType);
         break;
       }
+      case CHRE_EVENT_RELIABLE_MSG_ASYNC_RESULT: {
+        auto event = static_cast<const chreAsyncResult *>(eventData);
+        if (event->cookie != &mCookie) {
+          LOGE("Unexpected cookie: %p, expected %p", event->cookie, &mCookie);
+          TestEventQueueSingleton::get()->pushEvent(
+              CHRE_EVENT_RELIABLE_MSG_ASYNC_RESULT,
+              /* success= */ false);
+        } else {
+          TestEventQueueSingleton::get()->pushEvent(
+              CHRE_EVENT_RELIABLE_MSG_ASYNC_RESULT, event->success);
+        }
+        break;
+      }
+      case CHRE_EVENT_TEST_EVENT: {
+        auto event = static_cast<const TestEvent *>(eventData);
+        switch (event->type) {
+          case SEND_RELIABLE_MESSAGE:
+            bool success = chreSendReliableMessageAsync(
+                /* messageData= */ nullptr,
+                /* messageSize= */ 0, kMessageType, kHostEndpoint,
+                /* messagePermissions= */ 0,
+                /* freeCallback= */ nullptr, &mCookie);
+            TestEventQueueSingleton::get()->pushEvent(
+                SEND_RELIABLE_MESSAGE_RESULT, success);
+        }
+        break;
+      }
       default:
         LOGE("Unknown event 0x%" PRIx16, eventType);
         break;
     }
   }
+
+ private:
+  uint32_t mCookie;
 };
 
 /**
@@ -75,17 +108,53 @@ void doRunHostMessageToNanoappTest(TestBase *test,
   EXPECT_EQ(messageType, kMessageType);
 }
 
-TEST_F(SingleThreadTestBase, HostMessageToNanoapp) {
+class HostMessageTest : public SingleThreadTestBase {};
+class HostMessageTestMultiThread : public MultiThreadTestBase {};
+
+TEST_F(HostMessageTest, HostMessageToNanoapp) {
   doRunHostMessageToNanoappTest(this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
 }
 
-TEST_F(MultiThreadTestBase, HostMessageToNanoapp) {
+TEST_F(HostMessageTestMultiThread, HostMessageToNanoapp) {
   doRunHostMessageToNanoappTest(this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
 }
 
-TEST_F(MultiThreadTestBase, HostMessageToNanoappForeground) {
+TEST_F(HostMessageTestMultiThread, HostMessageToNanoappForeground) {
   doRunHostMessageToNanoappTest(this,
                                 NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
+}
+
+class ReliableMessageTest : public SingleThreadTestBase {};
+class ReliableMessageTestMultiThread : public MultiThreadTestBase {};
+
+void doNanoappReliableSendMessageTest(TestBase *test,
+                                      int8_t requestedThreadPriority) {
+  TestNanoappInfo info;
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId = test->loadNanoapp(MakeUnique<App>(info));
+  sendEventToNanoapp(appId, SEND_RELIABLE_MESSAGE);
+  bool success;
+  test->waitForEvent(SEND_RELIABLE_MESSAGE_RESULT, &success);
+  EXPECT_TRUE(success);
+
+  // The host link implementation automatically completes the transaction.
+  test->waitForEvent(CHRE_EVENT_RELIABLE_MSG_ASYNC_RESULT, &success);
+  EXPECT_TRUE(success);
+}
+
+TEST_F(ReliableMessageTest, NanoappReliableSendMessage) {
+  doNanoappReliableSendMessageTest(this,
+                                   NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(ReliableMessageTestMultiThread, NanoappReliableSendMessage) {
+  doNanoappReliableSendMessageTest(this,
+                                   NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(ReliableMessageTestMultiThread, NanoappReliableSendMessageForeground) {
+  doNanoappReliableSendMessageTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
 }
 
 }  // namespace
