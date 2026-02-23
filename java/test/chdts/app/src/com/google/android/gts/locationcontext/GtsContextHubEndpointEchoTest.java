@@ -19,12 +19,14 @@ import android.chre.flags.Flags;
 import android.platform.test.annotations.RequiresFlagsEnabled;
 import android.platform.test.flag.junit.CheckFlagsRule;
 import android.platform.test.flag.junit.DeviceFlagsValueProvider;
+import android.os.Build;
 
 import com.android.compatibility.common.util.GmsTest;
 
 import com.google.android.chre.test.endpoint.ContextHubEndpointEchoExecutor;
 import com.google.android.utils.chre.ContextHubHostTestUtil;
 
+import org.junit.Assume;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
@@ -135,6 +137,7 @@ public class GtsContextHubEndpointEchoTest extends GtsContextHubServiceTestBase 
     @GmsTest(requirement = "GMS-6.17-001")
     @RequiresFlagsEnabled(Flags.FLAG_GET_HUBS_API)
     public void testGetHubs() throws Exception {
+        Assume.assumeTrue(Build.VERSION.SDK_INT >= Build.VERSION_CODES.CINNAMON_BUN);
         mExecutor.testGetHubs();
     }
 
