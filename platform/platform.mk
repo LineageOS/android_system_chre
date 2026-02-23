@@ -98,6 +98,7 @@ SLPI_QSH_CFLAGS += -DCHRE_SLPI_SEE
 SLPI_SRCS += platform/shared/assert.cc
 SLPI_SRCS += platform/shared/chre_api_audio.cc
 SLPI_SRCS += platform/shared/chre_api_core.cc
+SLPI_SRCS += platform/shared/chre_api_data_flow.cc
 SLPI_SRCS += platform/shared/chre_api_gnss.cc
 SLPI_SRCS += platform/shared/chre_api_msg.cc
 SLPI_SRCS += platform/shared/chre_api_re.cc

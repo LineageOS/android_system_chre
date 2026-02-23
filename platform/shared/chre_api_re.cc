@@ -38,6 +38,12 @@ DLL_EXPORT uint32_t chreGetCapabilities() {
 
 #ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
   capabilities |= CHRE_CAPABILITIES_GENERIC_ENDPOINT_MESSAGES;
+
+  // Data flow support depends on message router support.
+#ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
+  capabilities |= CHRE_CAPABILITIES_DATA_FLOW;
+#endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
+
 #endif  // CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
 
   return capabilities;

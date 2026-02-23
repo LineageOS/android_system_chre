@@ -175,6 +175,18 @@ pw_add_library(chre.platform.shared.chre_api_msg STATIC
     chre.util.system
 )
 
+# Implements chre_api/chre/data.h's:
+# TODO
+pw_add_library(chre.platform.shared.chre_api_data STATIC
+  SOURCES
+    chre_api_data_flow.cc
+  PRIVATE_DEPS
+    chre.chre_api.facade
+    chre.core
+    chre.util
+    chre.util.system
+)
+
 # Implements chre_api/chre/re.h's:
 # - uint32_t chreGetCapabilities()
 # - uint32_t chreGetMessageToHostMaxSize()
