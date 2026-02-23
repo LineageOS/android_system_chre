@@ -17,8 +17,8 @@
 // IWYU pragma: private, include "chre_api/chre.h"
 // IWYU pragma: friend chre/.*\.h
 
-#ifndef _CHRE_DATA_H_
-#define _CHRE_DATA_H_
+#ifndef _CHRE_DATA_FLOW_H_
+#define _CHRE_DATA_FLOW_H_
 
 /**
  * @file
@@ -44,18 +44,18 @@
  * - Source nanoapp:
  *  - Responds to the request and creates a sink
  *  - The sink handle is sent to the sink nanoapp by the platform.
- *  - Receives the CHRE_EVENT_DATA_SINK_CONFIGURE_DONE event, indicating the
- *    sink was successfully created and notified
+ *  - Receives the CHRE_EVENT_DATA_FLOW_SINK_CONFIGURE_DONE event, indicating
+ *    the sink was successfully created and notified
  *
  * - Sink nanoapp:
- *  - Receives the CHRE_EVENT_DATA_SINK_CREATED event
+ *  - Receives the CHRE_EVENT_DATA_FLOW_SINK_CREATED event
  *  - Calls chreDataFlowSinkEnable() to enable the sink
  *
  * - Source nanoapp:
  *  - Pushes data into the data flow
  *
  * - Sink nanoapp:
- *  - Receives the CHRE_EVENT_DATA_ALERT event, indicating data is
+ *  - Receives the CHRE_EVENT_DATA_FLOW_ALERT event, indicating data is
  *    available (only if never notify was NOT selected) or an underlying change
  *    in the underlying data flow
  *  - Alternatively may at any time use the sink API to poll the data flow
@@ -63,7 +63,7 @@
  *
  * - Either nanoapp:
  *  - Can disable the sink
- *  - Both nanoaps receive a CHRE_EVENT_DATA_SINK_STOPPED event, indicating
+ *  - Both nanoaps receive a CHRE_EVENT_DATA_FLOW_SINK_STOPPED event, indicating
  *    a state change in the underlying data flow (sink is gone)
  *
  * - Source nanoapp:
@@ -96,20 +96,20 @@ extern "C" {
  */
 enum chreDataFlowSinkNewDataAlertPolicy {
   /** The sink will never be alerted. */
-  CHRE_DATA_SINK_NEW_DATA_ALERT_POLICY_NEVER = 0x0,
+  CHRE_DATA_FLOW_SINK_NEW_DATA_ALERT_POLICY_NEVER = 0x0,
 
   /**
    * The sink will be alerted opportunistically, e.g. when the system or
    * source deems that the sink can be alerted with minimal power impact.
    */
-  CHRE_DATA_SINK_NEW_DATA_ALERT_POLICY_OPPORTUNISTIC = 0x1,
+  CHRE_DATA_FLOW_SINK_NEW_DATA_ALERT_POLICY_OPPORTUNISTIC = 0x1,
 
   /**
    * The sink will be alerted when the data flow has reached the high water
    * mark. The high water mark is provided when configuring the data flow
    * sink.
    */
-  CHRE_DATA_SINK_NEW_DATA_ALERT_POLICY_HIGH_WATER_MARK = 0x2,
+  CHRE_DATA_FLOW_SINK_NEW_DATA_ALERT_POLICY_HIGH_WATER_MARK = 0x2,
 
   /**
    * The sink will be alerted periodically, with the period specified by
@@ -119,7 +119,7 @@ enum chreDataFlowSinkNewDataAlertPolicy {
    * available when the new data alert is due, then no new data alert will be
    * sent.
    */
-  CHRE_DATA_SINK_NEW_DATA_ALERT_POLICY_PERIODIC = 0x3,
+  CHRE_DATA_FLOW_SINK_NEW_DATA_ALERT_POLICY_PERIODIC = 0x3,
 
   /**
    * The sink will be alerted when data is available in the data flow,
@@ -127,7 +127,7 @@ enum chreDataFlowSinkNewDataAlertPolicy {
    * new data alerts or throttle new data alerts to optimize performance or
    * power consumption.
    */
-  CHRE_DATA_SINK_NEW_DATA_ALERT_POLICY_STREAMING = 0x4,
+  CHRE_DATA_FLOW_SINK_NEW_DATA_ALERT_POLICY_STREAMING = 0x4,
 };
 
 /**
@@ -138,10 +138,10 @@ enum chreDataFlowSinkNewDataAlertPolicy {
  */
 enum chreDataFlowSinkOverwritePolicy {
   /** The sink can be overwritten. */
-  CHRE_DATA_SINK_OVERWRITE_POLICY_ALLOWED = 0x0,
+  CHRE_DATA_FLOW_SINK_OVERWRITE_POLICY_ALLOWED = 0x0,
 
   /** The sink can never be overwritten. */
-  CHRE_DATA_SINK_OVERWRITE_POLICY_DISALLOWED = 0x1,
+  CHRE_DATA_FLOW_SINK_OVERWRITE_POLICY_DISALLOWED = 0x1,
 };
 
 /** The data flow sink policy for a data flow sink. */
@@ -154,11 +154,11 @@ struct chreDataFlowSinkPolicy {
 
   /**
    * The data associated with the new data alert policy. See the table:
-   *  - CHRE_DATA_SINK_NEW_DATA_ALERT_POLICY_OPPORTUNISTIC
+   *  - CHRE_DATA_FLOW_SINK_NEW_DATA_ALERT_POLICY_OPPORTUNISTIC
    *    - newDataAlertPolicyData = low watermark value
-   *  - CHRE_DATA_SINK_NEW_DATA_ALERT_POLICY_HIGH_WATER_MARK
+   *  - CHRE_DATA_FLOW_SINK_NEW_DATA_ALERT_POLICY_HIGH_WATER_MARK
    *    - newDataAlertPolicyData = high watermark value
-   *  - CHRE_DATA_SINK_NEW_DATA_ALERT_POLICY_PERIODIC
+   *  - CHRE_DATA_FLOW_SINK_NEW_DATA_ALERT_POLICY_PERIODIC
    *    - newDataAlertPolicyData = period in milliseconds
    *  - For all other values, this parameter is set to 0 and ignored.
    */
@@ -191,7 +191,7 @@ struct chreDataFlowCreatedInfo {
 
   /**
    * The supportable domains of the sinks of this data flow, a bitmask of
-   * CHRE_DATA_SINK_DOMAIN_* values.
+   * CHRE_DATA_FLOW_SINK_DOMAIN_* values.
    */
   uint32_t sinkDomains;
 
@@ -216,7 +216,7 @@ struct chreDataFlowStoppedInfo {
 };
 
 /**
- * Data provided in the CHRE_EVENT_DATA_SINK_CONFIGURE_DONE event.
+ * Data provided in the CHRE_EVENT_DATA_FLOW_SINK_CONFIGURE_DONE event.
  */
 struct chreDataFlowSinkConfigureInfo {
   /** The status of the data flow sink creation request, one of chreStatus. */
@@ -236,7 +236,7 @@ struct chreDataFlowSinkConfigureInfo {
 };
 
 /**
- * Data provided in the CHRE_EVENT_DATA_SINK_CREATED event.
+ * Data provided in the CHRE_EVENT_DATA_FLOW_SINK_CREATED event.
  */
 struct chreDataFlowSinkInfo {
   /** The message hub ID of the source that created this sink. */
@@ -256,21 +256,21 @@ struct chreDataFlowSinkInfo {
 
   /**
    * The minimum alignment of each element in bytes. If
-   * CHRE_DATA_ELEMENT_ALIGNMENT_UNALIGNED, the data flow will have no alignment
-   * requirements.
+   * CHRE_DATA_FLOW_ELEMENT_ALIGNMENT_UNALIGNED, the data flow will have no
+   * alignment requirements.
    */
   uint32_t alignment;
 
   /**
    * If this data flow sink was created with a message, this will be non-NULL
    * and contain the message, else it will be NULL. If this is received from a
-   * CHRE_EVENT_DATA_SINK_STOPPED event, this will be NULL.
+   * CHRE_EVENT_DATA_FLOW_SINK_STOPPED event, this will be NULL.
    */
   struct chreMsgMessageFromEndpointData *messageFromEndpointData;
 };
 
 /**
- * Data provided in the CHRE_EVENT_DATA_ALERT event.
+ * Data provided in the CHRE_EVENT_DATA_FLOW_ALERT event.
  */
 struct chreDataFlowNewDataAlert {
   /** The message hub ID associated with this data flow. */
@@ -283,15 +283,15 @@ struct chreDataFlowNewDataAlert {
 /**
  * Data flow sink domains, a bitmask of uint32_t.
  *
- * @defgroup CHRE_DATA sink domains
+ * @defgroup CHRE_DATA_FLOW sink domains
  * @{
  */
 
-#define CHRE_DATA_SINK_DOMAIN_INVALID        (UINT32_C(0))
-#define CHRE_DATA_SINK_DOMAIN_LOCAL_NANOAPP  (UINT32_C(1) << 0)
-#define CHRE_DATA_SINK_DOMAIN_HOST_AVAILABLE (UINT32_C(1) << 1)
-#define CHRE_DATA_SINK_DOMAIN_VENDOR_START   (UINT32_C(1) << 21)
-#define CHRE_DATA_SINK_DOMAIN_VENDOR_END     (UINT32_C(1) << 31)
+#define CHRE_DATA_FLOW_SINK_DOMAIN_INVALID        (UINT32_C(0))
+#define CHRE_DATA_FLOW_SINK_DOMAIN_LOCAL_NANOAPP  (UINT32_C(1) << 0)
+#define CHRE_DATA_FLOW_SINK_DOMAIN_HOST_AVAILABLE (UINT32_C(1) << 1)
+#define CHRE_DATA_FLOW_SINK_DOMAIN_VENDOR_START   (UINT32_C(1) << 21)
+#define CHRE_DATA_FLOW_SINK_DOMAIN_VENDOR_END     (UINT32_C(1) << 31)
 
 /** @} */
 
@@ -303,7 +303,7 @@ struct chreDataFlowNewDataAlert {
  *
  * @see chreDataFlowCreateAsync
  */
-#define CHRE_DATA_MIN_AVERAGE_WRITE_INTERVAL_LOW UINT64_C(0)
+#define CHRE_DATA_FLOW_MIN_AVERAGE_WRITE_INTERVAL_LOW UINT64_C(0)
 
 /**
  * Special value for the minimum average write interval parameter (provided when
@@ -313,7 +313,7 @@ struct chreDataFlowNewDataAlert {
  *
  * @see chreDataFlowCreateAsync
  */
-#define CHRE_DATA_MIN_AVERAGE_WRITE_INTERVAL_HIGH UINT64_MAX
+#define CHRE_DATA_FLOW_MIN_AVERAGE_WRITE_INTERVAL_HIGH UINT64_MAX
 
 /**
  * Special value for the maximum average write bandwidth parameter (provided
@@ -323,7 +323,7 @@ struct chreDataFlowNewDataAlert {
  *
  * @see chreDataFlowCreateAsync
  */
-#define CHRE_DATA_MAX_AVERAGE_WRITE_BANDWIDTH_LOW UINT32_C(0)
+#define CHRE_DATA_FLOW_MAX_AVERAGE_WRITE_BANDWIDTH_LOW UINT32_C(0)
 
 /**
  * Special value for the maximum average write bandwidth parameter (provided
@@ -333,20 +333,20 @@ struct chreDataFlowNewDataAlert {
  *
  * @see chreDataFlowCreateAsync
  */
-#define CHRE_DATA_MAX_AVERAGE_WRITE_BANDWIDTH_HIGH UINT32_MAX
+#define CHRE_DATA_FLOW_MAX_AVERAGE_WRITE_BANDWIDTH_HIGH UINT32_MAX
 
 /**
  * Invalid and reserved data flow and sink IDs.
  *
- * @defgroup CHRE_DATA IDs
+ * @defgroup CHRE_DATA_FLOW IDs
  * @{
  */
 
-#define CHRE_DATA_ID_INVALID  UINT32_C(0)
-#define CHRE_DATA_ID_RESERVED UINT32_C(-1)
+#define CHRE_DATA_FLOW_ID_INVALID  UINT32_C(0)
+#define CHRE_DATA_FLOW_ID_RESERVED UINT32_C(-1)
 
-#define CHRE_DATA_SINK_ID_INVALID  UINT32_C(0)
-#define CHRE_DATA_SINK_ID_RESERVED UINT32_C(-1)
+#define CHRE_DATA_FLOW_SINK_ID_INVALID  UINT32_C(0)
+#define CHRE_DATA_FLOW_SINK_ID_RESERVED UINT32_C(-1)
 
 /** @} */
 
@@ -354,19 +354,19 @@ struct chreDataFlowNewDataAlert {
  * Used to signal a data flow has variable size elements.
  * @see chreDataFlowCreateAsync
  */
-#define CHRE_DATA_ELEMENT_SIZE_VARIABLE UINT32_C(0)
+#define CHRE_DATA_FLOW_ELEMENT_SIZE_VARIABLE UINT32_C(0)
 
 /**
  * Used to signal that the elements within a data flow have no alignment
  * requirements.
  * @see chreDataFlowCreateAsync
  */
-#define CHRE_DATA_ELEMENT_ALIGNMENT_UNALIGNED UINT32_C(0)
+#define CHRE_DATA_FLOW_ELEMENT_ALIGNMENT_UNALIGNED UINT32_C(0)
 
 /**
  * Used to signal a data flow can grow dynamically, with CHRE setting the size.
  */
-#define CHRE_DATA_DYNAMIC_MAX_SIZE UINT32_C(-1)
+#define CHRE_DATA_FLOW_DYNAMIC_MAX_SIZE UINT32_C(-1)
 
 /**
  * Produce an event ID in the block of IDs reserved for data flow events.
@@ -374,12 +374,13 @@ struct chreDataFlowNewDataAlert {
  * Valid input range is [0, 15]. Do not add new events with ID > 15
  * (see chre/event.h)
  *
- * @param offset Index into DATA event ID block; valid range is [0, 15].
+ * @param offset Index into DATA_FLOW event ID block; valid range is [0, 15].
  *
- * @defgroup CHRE_DATA_EVENT_ID
+ * @defgroup CHRE_DATA_FLOW_EVENT_ID
  * @{
  */
-#define CHRE_DATA_EVENT_ID(offset) (CHRE_EVENT_DATA_FIRST_EVENT + (offset))
+#define CHRE_DATA_FLOW_EVENT_ID(offset) \
+    (CHRE_EVENT_DATA_FLOW_FIRST_EVENT + (offset))
 
 /**
  * nanoappHandleEvent argument: struct chreDataFlowCreatedInfo.
@@ -388,14 +389,14 @@ struct chreDataFlowNewDataAlert {
  *
  * @see chreDataFlowCreateAsync
  */
-#define CHRE_EVENT_DATA_FLOW_CREATED CHRE_DATA_EVENT_ID(0)
+#define CHRE_EVENT_DATA_FLOW_CREATED CHRE_DATA_FLOW_EVENT_ID(0)
 
 /**
  * nanoappHandleEvent argument: struct chreDataFlowStoppedInfo.
  *
  * Event sent when a data flow is destroyed.
  */
-#define CHRE_EVENT_DATA_FLOW_STOPPED CHRE_DATA_EVENT_ID(1)
+#define CHRE_EVENT_DATA_FLOW_STOPPED CHRE_DATA_FLOW_EVENT_ID(1)
 
 /**
  * nanoappHandleEvent argument: struct chreDataFlowSinkConfigureInfo.
@@ -404,7 +405,7 @@ struct chreDataFlowNewDataAlert {
  *
  * @see chreDataFlowSourceAddSinkAsync
  */
-#define CHRE_EVENT_DATA_SINK_CONFIGURE_DONE CHRE_DATA_EVENT_ID(2)
+#define CHRE_EVENT_DATA_FLOW_SINK_CONFIGURE_DONE CHRE_DATA_FLOW_EVENT_ID(2)
 
 /**
  * nanoappHandleEvent argument: struct chreDataFlowSinkInfo.
@@ -416,7 +417,7 @@ struct chreDataFlowNewDataAlert {
  *
  * @see chreDataFlowSinkEnable
  */
-#define CHRE_EVENT_DATA_SINK_CREATED CHRE_DATA_EVENT_ID(3)
+#define CHRE_EVENT_DATA_FLOW_SINK_CREATED CHRE_DATA_FLOW_EVENT_ID(3)
 
 /**
  * nanoappHandleEvent argument: struct chreDataFlowSinkInfo.
@@ -425,14 +426,14 @@ struct chreDataFlowNewDataAlert {
  *
  * @see chreDataFlowSinkDisable
  */
-#define CHRE_EVENT_DATA_SINK_STOPPED CHRE_DATA_EVENT_ID(4)
+#define CHRE_EVENT_DATA_FLOW_SINK_STOPPED CHRE_DATA_FLOW_EVENT_ID(4)
 
 /**
  * nanoappHandleEvent argument: struct chreDataFlowNewDataAlert.
  *
  * Event sent when data is available in the data flow for consumption.
  */
-#define CHRE_EVENT_DATA_ALERT CHRE_DATA_EVENT_ID(5)
+#define CHRE_EVENT_DATA_FLOW_ALERT CHRE_DATA_FLOW_EVENT_ID(5)
 
 // NOTE: Do not add new events with ID > 15
 /** @} */
@@ -454,8 +455,8 @@ struct chreDataFlowNewDataAlert {
  * supply values that represent the desired performance and power attributes for
  * the lifetime of the flow.
  *
- * @param sinkDomains A bitmask of CHRE_DATA_SINK_DOMAIN_* values, indicating
- *     the sink domains that this data flow must be able to support.
+ * @param sinkDomains A bitmask of CHRE_DATA_FLOW_SINK_DOMAIN_* values,
+ *     indicating the sink domains that this data flow must be able to support.
  * @param minAverageWriteIntervalNs The expected minimum average (sustained)
  *     interval between successive writes to the data flow, in nanoseconds.
  *     This guides the platform towards selecting a memory region with suitable
@@ -469,10 +470,10 @@ struct chreDataFlowNewDataAlert {
  *     Primarily relevant when the destination endpoint is an Android
  *     application. Refer to CHRE_MESSAGE_PERMISSION_* values.
  * @param elementSize The size of each element in bytes. If
- *     CHRE_DATA_ELEMENT_SIZE_VARIABLE, the data flow will have variable
+ *     CHRE_DATA_FLOW_ELEMENT_SIZE_VARIABLE, the data flow will have variable
  *     size elements.
  * @param alignment The alignment of each element in bytes. If
- *     CHRE_DATA_ELEMENT_ALIGNMENT_UNALIGNED, the data flow will have no
+ *     CHRE_DATA_FLOW_ELEMENT_ALIGNMENT_UNALIGNED, the data flow will have no
  *     alignment requirements and elements will be packed, with no padding
  *     inserted to ensure alignment. In this case, special care must be taken on
  *     both the source and all sinks to ensure that safe methods for unaligned
@@ -483,7 +484,7 @@ struct chreDataFlowNewDataAlert {
  * @param maxElementCount The maximum number of elements to allocate for the
  *     data flow. Must be greater than or equal to minElementCount. The data
  *     flow will dynamically grow up to this size as needed. If this is
- *     CHRE_DATA_DYNAMIC_MAX_SIZE, then the data flow will be created with
+ *     CHRE_DATA_FLOW_DYNAMIC_MAX_SIZE, then the data flow will be created with
  *     a maximum size determined by CHRE. Note that the data flow may not be
  *     able to grow to this max size if other data flows in the same region grow
  *     to their maximum sizes and the region cannot accommodate more elements.
@@ -531,10 +532,11 @@ uint32_t chreDataFlowDestroy(uint32_t dataFlowId);
  * Creates a sink on the data flow owned by the nanoapp. This function returns
  * CHRE_STATUS_OK if the request to create the sink was successfully queued for
  * processing by the platform. This source nanoapp will receive the
- * CHRE_EVENT_DATA_SINK_CONFIGURE_DONE event with a status indicating whether
- * the sink was successfully created and notified or an error status otherwise.
- * On sink creation, the sink handle is sent to the specified endpoint. A
- * nanoapp sink will receive the CHRE_EVENT_DATA_SINK_CREATED event.
+ * CHRE_EVENT_DATA_FLOW_SINK_CONFIGURE_DONE event with a status indicating
+ * whether the sink was successfully created and notified or an error status
+ * otherwise. On sink creation, the sink handle is sent to the specified
+ * endpoint. A nanoapp sink will receive the CHRE_EVENT_DATA_FLOW_SINK_CREATED
+ * event.
  *
  * @param hubId The sink's message hub ID.
  * @param endpointId The sink's endpoint ID.
@@ -542,8 +544,8 @@ uint32_t chreDataFlowDestroy(uint32_t dataFlowId);
  * @param sinkPolicy The sink policy for the sink. Must be non-NULL.
  * @return one of chreStatus:
  *  - CHRE_STATUS_OK if this nanoapp will receive the
- *    CHRE_EVENT_DATA_SINK_CONFIGURE_DONE event with a status indicating the
- *    request was successful.
+ *    CHRE_EVENT_DATA_FLOW_SINK_CONFIGURE_DONE event with a status indicating
+ *    the request was successful.
  *  - CHRE_STATUS_INVALID_ARGUMENT if sinkPolicy is NULL.
  *  - CHRE_STATUS_FAILED_PRECONDITION if the sink cannot be added to the
  *    data flow because it cannot access the domain in which the data flow was
@@ -595,8 +597,8 @@ uint32_t chreDataFlowSourceAddSinkAsync(uint64_t hubId,
  *     non-NULL, and if message is NULL, this must be NULL.
  * @return one of chreStatus:
  *  - CHRE_STATUS_OK if the request was successfully queued for processing. The
- *    nanoapp will receive a CHRE_EVENT_DATA_SINK_CONFIGURE_DONE event with a
- *    status indicating whether the sink was successfully created and notified
+ *    nanoapp will receive a CHRE_EVENT_DATA_FLOW_SINK_CONFIGURE_DONE event with
+ *    a status indicating whether the sink was successfully created and notified
  *    or an error status otherwise.
  *  - CHRE_STATUS_ALREADY_EXISTS if a sink already exists on the data flow.
  *  - CHRE_STATUS_INVALID_ARGUMENT if sinkPolicy is NULL or if the constraints
@@ -661,8 +663,8 @@ uint32_t chreDataFlowSourceConfigureSink(uint64_t hubId,
  * @param numBytes The number of bytes for which to reserve space.
  * @param data A pointer to the reserved memory if successful, otherwise
  *     NULL.
- * @param reservedBytes A pointer to an integer to store the number of bytes that
- *     were successfully reserved.
+ * @param reservedBytes A pointer to an integer to store the number of bytes
+ *     that were successfully reserved.
  * @return One of chreStatus:
  *  - CHRE_STATUS_OK on success.
  *  - CHRE_STATUS_PERMISSION_DENIED if the data flow is not owned by this
@@ -779,7 +781,7 @@ uint32_t chreDataFlowSourceGetCapacity(uint32_t dataFlowId, uint32_t *capacity);
  * status otherwise. If the sink is enabled, the nanoapp will receive data
  * flow events for this data flow and can start using the data flow sink
  * API. This function should be called during the handling of the
- * CHRE_EVENT_DATA_SINK_CREATED event.
+ * CHRE_EVENT_DATA_FLOW_SINK_CREATED event.
  *
  * @param hubId The ID of the hub associated with the data flow source.
  * @param dataFlowId The ID of the data flow on which to enable the sink.
@@ -803,8 +805,9 @@ uint32_t chreDataFlowSinkEnable(uint64_t hubId, uint32_t dataFlowId);
  * chreDataFlowSinkEnable() will fail. To re-enable the sink, the source must
  * re-create the sink in the same manner as when it was first created.
  *
- * If the source is a nanoapp, it will receive a CHRE_EVENT_DATA_SINK_STOPPED
- * event, indicating this sink has been disabled.
+ * If the source is a nanoapp, it will receive a
+ * CHRE_EVENT_DATA_FLOW_SINK_STOPPED event, indicating this sink has been
+ * disabled.
  *
  * @param hubId The ID of the hub associated with the data flow source.
  * @param dataFlowId The ID of the data flow on which to disable the sink.
@@ -956,4 +959,4 @@ uint32_t chreDataFlowSinkGetOffset(uint64_t hubId, uint32_t dataFlowId,
 }
 #endif
 
-#endif /* _CHRE_DATA_H_ */
+#endif /* _CHRE_DATA_FLOW_H_ */
