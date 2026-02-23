@@ -23,8 +23,11 @@
 #include <memory>
 #include <set>
 #include <unordered_map>
+#include <unordered_set>
+#include <variant>
 #include <vector>
 
+#include <aidl/android/hardware/contexthub/DataFlowAlertFds.h>
 #include <aidl/android/hardware/contexthub/DataFlowId.h>
 #include <aidl/android/hardware/contexthub/DataFlowInfo.h>
 #include <aidl/android/hardware/contexthub/DataFlowSinkContext.h>
@@ -42,6 +45,7 @@
 
 namespace android::hardware::contexthub::common::implementation {
 
+using ::aidl::android::hardware::contexthub::DataFlowAlertFds;
 using ::aidl::android::hardware::contexthub::DataFlowId;
 using ::aidl::android::hardware::contexthub::DataFlowInfo;
 using ::aidl::android::hardware::contexthub::DataFlowSinkContext;
@@ -62,15 +66,13 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
    * Function to forward a data flow alert to an offload endpoint.
    *
    * @param dataFlow The ID of the data flow.
-   * @param sender The endpoint that sent the alert.
    * @param receiver The endpoint that should receive the alert.
    * @param waking True if the alert is waking.
    * @return pw::OkStatus() on success, otherwise:
    *   - pw::Status::NotFound() if the data flow or endpoints are not found.
    *   - pw::Status::Internal() if the alert could not be sent.
    */
-  using SendAlertFn =
-      std::function<pw::Status(DataFlowId, EndpointId, EndpointId, bool)>;
+  using SendAlertFn = std::function<pw::Status(DataFlowId, EndpointId, bool)>;
 
   /** Entry in the list of data flows associated with a pruned endpoint. */
   struct PrunedEndpointDataFlowEntry {
@@ -78,8 +80,8 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
     std::vector<EndpointId> endpoints;
     bool isSource;
 
-    PrunedEndpointDataFlowEntry(DataFlowId _dataFlowId, bool _isSource)
-        : dataFlowId(_dataFlowId), isSource(_isSource) {}
+    PrunedEndpointDataFlowEntry(DataFlowId dataFlowId, bool isSource)
+        : dataFlowId(dataFlowId), isSource(isSource) {}
   };
 
   DataFlowManager(const std::shared_ptr<RegionAllocator> &regionAllocator,
@@ -176,6 +178,33 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
       uint32_t metadataOffset, uint32_t sinkMetadataOffset) EXCLUDES(mLock);
 
   /**
+   * Verifies that the given endpoint is present on the given data flow.
+   *
+   * @param dataFlowId The ID of the data flow.
+   * @param endpointId The ID of the endpoint.
+   * @param isHost True if the endpoint is a host endpoint.
+   * @return pw::OkStatus() on success, otherwise:
+   *   - pw::Status::NotFound() if the data flow or endpoint is not found.
+   */
+  pw::Status verifyEndpointOnDataFlow(DataFlowId dataFlowId,
+                                      EndpointId endpointId, bool isHost)
+      EXCLUDES(mLock);
+
+  /**
+   * Sends an alert to one or more host endpoints on a data flow.
+   *
+   * @param dataFlowId The ID of the data flow.
+   * @param endpointIds The IDs of the endpoints to receive the alert.
+   * @param isWaking True if the alert is waking.
+   * @return pw::OkStatus() on success, otherwise:
+   *   - pw::Status::NotFound() if the data flow or endpoint is not found.
+   *   - pw::Status::InvalidArgument() if the endpoint is not a host endpoint.
+   */
+  pw::Status alertHostEndpoints(DataFlowId dataFlowId,
+                                const std::vector<EndpointId> &endpointIds,
+                                bool isWaking) EXCLUDES(mLock);
+
+  /**
    * Removes a data flow, releasing any associated resources.
    *
    * @param id The ID of the data flow to clear state for.
@@ -203,13 +232,13 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
   /**
    * Removes all state associated with the given endpoint.
    *
-   * @param endpoint The endpoint to remove.
+   * @param endpointId The endpoint to remove.
    * @return the list of associated data flows for which endpoints should be
    * notified, otherwise:
    *   - pw::Status::NotFound() if the endpoint is not found.
    */
   pw::Result<std::vector<PrunedEndpointDataFlowEntry>> pruneEndpoint(
-      EndpointId endpoint) EXCLUDES(mLock);
+      EndpointId endpointId) EXCLUDES(mLock);
 
  protected:
   // Data associated with a host hub.
@@ -230,7 +259,38 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
              bool _isHostSource);
   };
 
+  // Data associated with an endpoint.
+  struct Endpoint {
+    // Map of data flow id to the pair of sink metadata region id and ref count.
+    // Only relevant for endpoints that are offload sinks.
+    using MetadataRegionMap = std::map<DataFlowId, std::pair<int32_t, size_t>>;
+    // Map of data flow id to alert fds and outstanding wake count. Only
+    // relevant for endpoints on the host.
+    using AlertFdAndWakeCountMap =
+        std::map<DataFlowId, std::pair<DataFlowAlertFds, uint64_t>>;
+
+    std::unordered_set<DataFlow *> dataFlows;
+    std::variant<MetadataRegionMap, AlertFdAndWakeCountMap> map;
+    bool isHost;
+
+    // Constructor for host endpoints.
+    Endpoint(DataFlow *dataFlow, DataFlowAlertFds alertFds)
+        : dataFlows{dataFlow}, isHost(true) {
+      map.emplace<AlertFdAndWakeCountMap>().emplace(
+          std::piecewise_construct, std::forward_as_tuple(dataFlow->id),
+          std::forward_as_tuple(std::move(alertFds), 0));
+    }
+
+    // Constructor for offload endpoints.
+    Endpoint(DataFlow *dataFlow) : dataFlows{dataFlow}, isHost(false) {
+      map.emplace<MetadataRegionMap>();
+    }
+  };
+
+  // Convenience type for the map of data flows.
   using DataFlowMap = std::map<DataFlowId, std::unique_ptr<DataFlow>>;
+  // Convenience type for the map of endpoints.
+  using EndpointMap = std::map<EndpointId, Endpoint>;
 
   // DataFlowEpollWaiter::Callback interface
   void onAlert(DataFlowId dataFlowId, EndpointId endpointId,
@@ -250,27 +310,57 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
   // Removes a sink from a data flow, releasing any associated resources. This
   // may result in the removal of an offload source data flow that has no more
   // host sinks.
-  pw::Result<EndpointId> removeSinkLocked(DataFlowMap::iterator it,
-                                          EndpointId sink) REQUIRES(mLock);
+  pw::Result<EndpointId> removeSinkLocked(DataFlowMap::iterator dataFlowIt,
+                                          EndpointMap::iterator sinkIt)
+      REQUIRES(mLock);
 
-  // Removes the association between the given endpoint and data flow.
-  void removeEndpointDataFlowAssociationLocked(EndpointId endpoint,
+  // Removes the association between the given endpoint and data flow. If the
+  // endpoint has no more data flows, removes it from the map.
+  void removeEndpointDataFlowAssociationLocked(EndpointMap::iterator endpointIt,
                                                DataFlow *dataFlow)
       REQUIRES(mLock);
 
   // Allocates or retrieves the metadata region for an offload sink.
   pw::Result<SharedDataRegion> getOffloadSinkMetadataRegionLocked(
-      EndpointId sinkId, DataFlow *dataFlow) REQUIRES(mLock);
+      EndpointId sinkId, DataFlow *dataFlow, Endpoint &sink) REQUIRES(mLock);
+
+  // Releases any resources associated with an endpoint on a data flow.
+  void releaseEndpointResourcesLocked(EndpointMap::iterator endpointIt,
+                                      DataFlow *dataFlow) REQUIRES(mLock);
 
   // Removes the reference to the metadata region for the given data flow,
   // releasing it if there are no more references.
-  void unlinkOffloadSinkMetadataRegionLocked(EndpointId sinkId,
-                                             DataFlow *dataFlow)
+  void unlinkOffloadSinkMetadataRegionLocked(Endpoint &sink, DataFlow *dataFlow)
       REQUIRES(mLock);
 
   // Looks up and decrements the use count for a host allocated region.
   void decrementHostRegionUseCountLocked(DataFlowId dataFlowId,
                                          int32_t regionId) REQUIRES(mLock);
+
+  // Looks up a data flow associated with an endpoint for callback handling.
+  pw::Result<std::pair<DataFlow *, Endpoint *>> lookupDataFlowAndEndpointLocked(
+      DataFlowId dataFlowId, EndpointId endpointId) REQUIRES(mLock);
+
+  // Looks up an endpoint in the map. Fatal if not found.
+  EndpointMap::iterator getEndpointLocked(EndpointId endpointId)
+      REQUIRES(mLock);
+
+  // Retrieves the alert fd and wake count for an endpoint on a data flow.
+  // Fatal if not found.
+  std::pair<DataFlowAlertFds, uint64_t> &getAlertFdsAndWakeCountMapLocked(
+      EndpointId endpointId, Endpoint &endpoint, DataFlowId dataFlowId)
+      REQUIRES(mLock);
+
+  // Increases the wake count for a host endpoint on a data flow. Only returns
+  // true and updates the wake count if the wakelock was successfully taken.
+  bool incrementWakeCountLocked(EndpointId endpointId, DataFlowId dataFlowId,
+                                uint64_t &wakeCount) REQUIRES(mLock);
+
+  // Decreases the wake count for a host endpoint on a data flow. Only updates
+  // the wake count if the wakelock was successfully released.
+  void decreaseWakeCountLocked(EndpointId endpointId, DataFlowId dataFlowId,
+                               uint64_t &wakeCount, size_t decrease)
+      REQUIRES(mLock);
 
   std::mutex mLock;
 
@@ -284,12 +374,8 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
   std::unordered_map<int64_t, HostHubData> mIdToHostHubData GUARDED_BY(mLock);
   // Map of all host endpoint associated data flows.
   DataFlowMap mIdToDataFlow GUARDED_BY(mLock);
-  // Map of endpoint to associated data flows.
-  std::map<EndpointId, std::set<DataFlow *>> mEndpointToDataFlows
-      GUARDED_BY(mLock);
-  // Map of regions allocated for offload sink metadata.
-  std::map<EndpointId, std::map<DataFlowId, std::pair<int32_t, size_t>>>
-      mOffloadSinkToDataFlowToMetadataRegionIdAndRefCount GUARDED_BY(mLock);
+  // Map of endpoint id to associated data.
+  EndpointMap mIdToEndpoint GUARDED_BY(mLock);
 };
 
 }  // namespace android::hardware::contexthub::common::implementation

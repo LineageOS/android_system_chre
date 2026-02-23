@@ -17,6 +17,7 @@
 #include "data_flow_manager.h"
 
 #include <sys/eventfd.h>
+#include <unistd.h>
 
 #include <cstdint>
 #include <memory>
@@ -24,6 +25,7 @@
 
 #include <aidl/android/hardware/contexthub/DataFlowAlertFds.h>
 #include <aidl/android/hardware/contexthub/DataFlowInfo.h>
+#include <aidl/android/hardware/contexthub/DataFlowSinkContext.h>
 #include <aidl/android/hardware/contexthub/DataFlowSinkRegistrationParams.h>
 #include <aidl/android/hardware/contexthub/EndpointId.h>
 #include <aidl/android/hardware/contexthub/SharedDataRegionRequirements.h>
@@ -31,6 +33,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "android/binder_auto_utils.h"
 #include "data_flow_epoll_waiter.h"
 #include "pw_result/result.h"
 #include "pw_status/status.h"
@@ -42,6 +45,7 @@ namespace {
 
 using ::aidl::android::hardware::contexthub::DataFlowAlertFds;
 using ::aidl::android::hardware::contexthub::DataFlowInfo;
+using ::aidl::android::hardware::contexthub::DataFlowSinkContext;
 using ::aidl::android::hardware::contexthub::DataFlowSinkRegistrationParams;
 using ::aidl::android::hardware::contexthub::EndpointId;
 using ::aidl::android::hardware::contexthub::SharedDataRegionRequirements;
@@ -52,6 +56,13 @@ using ::testing::Return;
 constexpr int64_t kHubId = 123;
 constexpr int32_t kRegionId = 1;
 constexpr int64_t kSinkHubId = 456;
+constexpr int32_t kPrimaryRegionId = 10;
+constexpr int32_t kSinkMetadataRegionId = 11;
+
+#define ASSERT_RESULT_OK_AND_ASSIGN(lhs, rhs) \
+  auto rhs_ = (rhs);                          \
+  ASSERT_TRUE(rhs_.ok());                     \
+  lhs = std::move(rhs_.value());
 
 class MockRegionAllocator : public RegionAllocator {
  public:
@@ -96,6 +107,9 @@ class TestableDataFlowManager : public DataFlowManager {
   void setEpollWaiter(std::unique_ptr<DataFlowEpollWaiter> epollWaiter) {
     mEpollWaiter = std::move(epollWaiter);
   }
+
+  using DataFlowManager::onAlert;
+  using DataFlowManager::onWakingAck;
 };
 
 class DataFlowManagerTest : public ::testing::Test {
@@ -105,9 +119,8 @@ class DataFlowManagerTest : public ::testing::Test {
     mWakelockManager = std::make_shared<MockWakelockManager>();
     mDataFlowManager = std::make_unique<TestableDataFlowManager>(
         mRegionAllocator, mWakelockManager,
-        [this](DataFlowId dataFlowId, EndpointId sender, EndpointId receiver,
-               bool waking) {
-          return sendAlert(dataFlowId, sender, receiver, waking);
+        [this](DataFlowId dataFlowId, EndpointId receiver, bool waking) {
+          return sendAlert(dataFlowId, receiver, waking);
         });
     auto epollWaiter = std::make_unique<MockDataFlowEpollWaiter>();
     mEpollWaiter = epollWaiter.get();
@@ -127,8 +140,67 @@ class DataFlowManagerTest : public ::testing::Test {
     EXPECT_EQ(result.value().id, regionId);
   }
 
-  MOCK_METHOD(pw::Status, sendAlert,
-              (DataFlowId, EndpointId, EndpointId, bool));
+  DataFlowAlertFds createAlertFds(bool isHost) {
+    DataFlowAlertFds fds;
+    fds.waking = ndk::ScopedFileDescriptor(eventfd(0, EFD_NONBLOCK));
+    fds.nonWaking = ndk::ScopedFileDescriptor(eventfd(0, EFD_NONBLOCK));
+    fds.halAck =
+        ndk::ScopedFileDescriptor(isHost ? eventfd(0, EFD_NONBLOCK) : -1);
+    return fds;
+  }
+
+  pw::Result<DataFlowId> createHostSourceDataFlow(EndpointId source,
+                                                  int32_t regionId) {
+    allocateRegion(regionId);
+    DataFlowInfo info{.region = {.id = regionId},
+                      .alertFds = createAlertFds(true)};
+
+    EXPECT_CALL(*mEpollWaiter, addTriggers(_, _, _))
+        .WillOnce(Return(pw::OkStatus()));
+
+    return mDataFlowManager->addHostSourceDataFlow(source, info);
+  }
+
+  void addOffloadSink(DataFlowId flowId, EndpointId source, EndpointId sink,
+                      int32_t regionId) {
+    DataFlowSinkRegistrationParams params{
+        .context = {.id = flowId, .alertFds = createAlertFds(false)},
+        .sourceId = source,
+        .sinkId = sink,
+    };
+
+    EXPECT_CALL(*mRegionAllocator, consumerRequiresSeparateRegion(sink.hubId))
+        .WillRepeatedly(Return(false));
+    EXPECT_CALL(*mRegionAllocator, getRegionInfo(regionId))
+        .WillOnce(
+            Invoke([](int32_t id) { return SharedDataRegion{.id = id}; }));
+    EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, sink, _))
+        .WillOnce(Return(pw::OkStatus()));
+
+    ASSERT_TRUE(mDataFlowManager->addOffloadSink(params).ok());
+  }
+
+  pw::Result<DataFlowSinkContext> createOffloadSourceDataFlowAndHostSink(
+      DataFlowId flowId, EndpointId source, EndpointId sink,
+      int32_t primaryRegionId, int32_t sinkMetadataRegionId) {
+    EXPECT_CALL(*mRegionAllocator, getRegionInfo(primaryRegionId))
+        .WillRepeatedly(Invoke([](int32_t id) {
+          return pw::Result<SharedDataRegion>(SharedDataRegion{.id = id});
+        }));
+    EXPECT_CALL(*mRegionAllocator, getRegionInfo(sinkMetadataRegionId))
+        .WillRepeatedly(Invoke([](int32_t id) {
+          return pw::Result<SharedDataRegion>(SharedDataRegion{.id = id});
+        }));
+    EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, source, _))
+        .WillOnce(Return(pw::OkStatus()));
+    EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, sink, _))
+        .WillOnce(Return(pw::OkStatus()));
+
+    return mDataFlowManager->addHostSink(flowId, source, sink, primaryRegionId,
+                                         sinkMetadataRegionId, 0, 0);
+  }
+
+  MOCK_METHOD(pw::Status, sendAlert, (DataFlowId, EndpointId, bool));
 
   std::shared_ptr<MockRegionAllocator> mRegionAllocator;
   std::shared_ptr<MockWakelockManager> mWakelockManager;
@@ -174,14 +246,9 @@ TEST_F(DataFlowManagerTest, ReleaseRegionRegionNotFound) {
 }
 
 TEST_F(DataFlowManagerTest, ReleaseRegionInUse) {
-  allocateRegion(kRegionId);
   EndpointId source{.id = 1, .hubId = kHubId};
-  DataFlowInfo info{.region = {.id = kRegionId}};
-
-  EXPECT_CALL(*mEpollWaiter, addTriggers(_, _, _))
-      .WillOnce(Return(pw::OkStatus()));
-
-  auto flowId = mDataFlowManager->addHostSourceDataFlow(source, info).value();
+  ASSERT_RESULT_OK_AND_ASSIGN(DataFlowId flowId,
+                              createHostSourceDataFlow(source, kRegionId));
 
   EXPECT_EQ(mDataFlowManager->releaseRegion(kHubId, kRegionId),
             pw::Status::FailedPrecondition());
@@ -200,21 +267,16 @@ TEST_F(DataFlowManagerTest, ReleaseRegionInUse) {
 }
 
 TEST_F(DataFlowManagerTest, AddHostSourceDataFlowSuccess) {
-  allocateRegion(kRegionId);
   EndpointId source{.id = 1, .hubId = kHubId};
-  DataFlowInfo info{.region = {.id = kRegionId}};
-
-  EXPECT_CALL(*mEpollWaiter, addTriggers(_, _, _))
-      .WillOnce(Return(pw::OkStatus()));
-
-  auto result = mDataFlowManager->addHostSourceDataFlow(source, info);
-  ASSERT_TRUE(result.ok());
-  EXPECT_EQ(result.value().hubId, kHubId);
+  ASSERT_RESULT_OK_AND_ASSIGN(DataFlowId flowId,
+                              createHostSourceDataFlow(source, kRegionId));
+  EXPECT_EQ(flowId.hubId, kHubId);
 }
 
 TEST_F(DataFlowManagerTest, AddHostSourceDataFlowRegionNotAllocated) {
   EndpointId source{.id = 1, .hubId = kHubId};
-  DataFlowInfo info{.region = {.id = kRegionId}};
+  DataFlowInfo info{.region = {.id = kRegionId},
+                    .alertFds = createAlertFds(true)};
 
   auto result = mDataFlowManager->addHostSourceDataFlow(source, info);
   EXPECT_EQ(result.status(), pw::Status::NotFound());
@@ -223,7 +285,8 @@ TEST_F(DataFlowManagerTest, AddHostSourceDataFlowRegionNotAllocated) {
 TEST_F(DataFlowManagerTest, AddHostSourceDataFlowWrongRegionId) {
   allocateRegion(kRegionId);
   EndpointId source{.id = 1, .hubId = kHubId};
-  DataFlowInfo info{.region = {.id = kRegionId + 1}};
+  DataFlowInfo info{.region = {.id = kRegionId + 1},
+                    .alertFds = createAlertFds(true)};
 
   auto result = mDataFlowManager->addHostSourceDataFlow(source, info);
   EXPECT_EQ(result.status(), pw::Status::NotFound());
@@ -232,7 +295,8 @@ TEST_F(DataFlowManagerTest, AddHostSourceDataFlowWrongRegionId) {
 TEST_F(DataFlowManagerTest, AddHostSourceDataFlowTriggerFailure) {
   allocateRegion(kRegionId);
   EndpointId source{.id = 1, .hubId = kHubId};
-  DataFlowInfo info{.region = {.id = kRegionId}};
+  DataFlowInfo info{.region = {.id = kRegionId},
+                    .alertFds = createAlertFds(true)};
 
   EXPECT_CALL(*mEpollWaiter, addTriggers(_, _, _))
       .WillOnce(Return(pw::Status::Internal()));
@@ -242,43 +306,22 @@ TEST_F(DataFlowManagerTest, AddHostSourceDataFlowTriggerFailure) {
 }
 
 TEST_F(DataFlowManagerTest, AddOffloadSinkSuccess) {
-  allocateRegion(kRegionId);
   EndpointId source{.id = 1, .hubId = kHubId};
-  DataFlowInfo info{.region = {.id = kRegionId}};
-  EXPECT_CALL(*mEpollWaiter, addTriggers(_, _, _))
-      .WillOnce(Return(pw::OkStatus()));
-  auto flowId = mDataFlowManager->addHostSourceDataFlow(source, info).value();
+  ASSERT_RESULT_OK_AND_ASSIGN(DataFlowId flowId,
+                              createHostSourceDataFlow(source, kRegionId));
 
   EndpointId sink{.id = 2, .hubId = kSinkHubId};
-  DataFlowSinkRegistrationParams params{
-      .context = {.id = flowId},
-      .sourceId = source,
-      .sinkId = sink,
-  };
-
-  EXPECT_CALL(*mRegionAllocator, consumerRequiresSeparateRegion(kSinkHubId))
-      .WillRepeatedly(Return(false));
-  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kRegionId))
-      .WillOnce(Invoke([](int32_t id) { return SharedDataRegion{.id = id}; }));
-  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, sink, _))
-      .WillOnce(Return(pw::OkStatus()));
-
-  auto result = mDataFlowManager->addOffloadSink(params);
-  ASSERT_TRUE(result.ok());
-  EXPECT_EQ(result.value().second.id, kRegionId);
+  addOffloadSink(flowId, source, sink, kRegionId);
 }
 
 TEST_F(DataFlowManagerTest, AddOffloadSinkSeparateRegion) {
-  allocateRegion(kRegionId);
   EndpointId source{.id = 1, .hubId = kHubId};
-  DataFlowInfo info{.region = {.id = kRegionId}};
-  EXPECT_CALL(*mEpollWaiter, addTriggers(_, _, _))
-      .WillOnce(Return(pw::OkStatus()));
-  auto flowId = mDataFlowManager->addHostSourceDataFlow(source, info).value();
+  ASSERT_RESULT_OK_AND_ASSIGN(DataFlowId flowId,
+                              createHostSourceDataFlow(source, kRegionId));
 
   EndpointId sink{.id = 2, .hubId = kSinkHubId};
   DataFlowSinkRegistrationParams params{
-      .context = {.id = flowId},
+      .context = {.id = flowId, .alertFds = createAlertFds(false)},
       .sourceId = source,
       .sinkId = sink,
   };
@@ -298,16 +341,13 @@ TEST_F(DataFlowManagerTest, AddOffloadSinkSeparateRegion) {
 }
 
 TEST_F(DataFlowManagerTest, AddOffloadSinkFailures) {
-  allocateRegion(kRegionId);
   EndpointId source{.id = 1, .hubId = kHubId};
-  DataFlowInfo info{.region = {.id = kRegionId}};
-  EXPECT_CALL(*mEpollWaiter, addTriggers(_, _, _))
-      .WillOnce(Return(pw::OkStatus()));
-  auto flowId = mDataFlowManager->addHostSourceDataFlow(source, info).value();
+  ASSERT_RESULT_OK_AND_ASSIGN(DataFlowId flowId,
+                              createHostSourceDataFlow(source, kRegionId));
 
   EndpointId sink{.id = 2, .hubId = kSinkHubId};
   DataFlowSinkRegistrationParams params{
-      .context = {.id = flowId},
+      .context = {.id = flowId, .alertFds = createAlertFds(false)},
       .sourceId = source,
       .sinkId = sink,
   };
@@ -337,12 +377,9 @@ TEST_F(DataFlowManagerTest, AddOffloadSinkFailures) {
 }
 
 TEST_F(DataFlowManagerTest, RemoveDataFlowHostSource) {
-  allocateRegion(kRegionId);
   EndpointId source{.id = 1, .hubId = kHubId};
-  DataFlowInfo info{.region = {.id = kRegionId}};
-  EXPECT_CALL(*mEpollWaiter, addTriggers(_, _, _))
-      .WillOnce(Return(pw::OkStatus()));
-  auto flowId = mDataFlowManager->addHostSourceDataFlow(source, info).value();
+  ASSERT_RESULT_OK_AND_ASSIGN(DataFlowId flowId,
+                              createHostSourceDataFlow(source, kRegionId));
 
   EXPECT_CALL(*mEpollWaiter, removeTriggers(std::optional<DataFlowId>(flowId),
                                             std::optional<EndpointId>()))
@@ -354,28 +391,12 @@ TEST_F(DataFlowManagerTest, RemoveDataFlowHostSource) {
 }
 
 TEST_F(DataFlowManagerTest, RemoveDataFlowWithSinks) {
-  allocateRegion(kRegionId);
   EndpointId source{.id = 1, .hubId = kHubId};
-  DataFlowInfo info{.region = {.id = kRegionId}};
-  EXPECT_CALL(*mEpollWaiter, addTriggers(_, _, _))
-      .WillOnce(Return(pw::OkStatus()));
-  auto flowId = mDataFlowManager->addHostSourceDataFlow(source, info).value();
+  ASSERT_RESULT_OK_AND_ASSIGN(DataFlowId flowId,
+                              createHostSourceDataFlow(source, kRegionId));
 
   EndpointId sink{.id = 2, .hubId = kSinkHubId};
-  DataFlowSinkRegistrationParams params{
-      .context = {.id = flowId},
-      .sourceId = source,
-      .sinkId = sink,
-  };
-
-  EXPECT_CALL(*mRegionAllocator, consumerRequiresSeparateRegion(kSinkHubId))
-      .WillRepeatedly(Return(false));
-  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kRegionId))
-      .WillOnce(Invoke([](int32_t id) { return SharedDataRegion{.id = id}; }));
-  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, sink, _))
-      .WillOnce(Return(pw::OkStatus()));
-
-  ASSERT_TRUE(mDataFlowManager->addOffloadSink(params).ok());
+  addOffloadSink(flowId, source, sink, kRegionId);
 
   EXPECT_CALL(*mEpollWaiter, removeTriggers(std::optional<DataFlowId>(flowId),
                                             std::optional<EndpointId>()))
@@ -390,30 +411,12 @@ TEST_F(DataFlowManagerTest, AddHostSinkSuccess) {
   DataFlowId flowId{.hubId = kHubId, .id = 1};
   EndpointId source{.id = 1, .hubId = kHubId};
   EndpointId sink{.id = 2, .hubId = kSinkHubId};
-  constexpr int32_t kPrimaryRegionId = 10;
-  constexpr int32_t kSinkMetadataRegionId = 11;
 
-  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kPrimaryRegionId))
-      .WillOnce(Invoke([](int32_t) {
-        return pw::Result<SharedDataRegion>(
-            SharedDataRegion{.id = kPrimaryRegionId});
-      }));
-  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kSinkMetadataRegionId))
-      .WillOnce(Invoke([](int32_t) {
-        return pw::Result<SharedDataRegion>(
-            SharedDataRegion{.id = kSinkMetadataRegionId});
-      }));
-  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, source, _))
-      .WillOnce(Return(pw::OkStatus()));
-  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, sink, _))
-      .WillOnce(Return(pw::OkStatus()));
-
-  auto result = mDataFlowManager->addHostSink(
-      flowId, source, sink, kPrimaryRegionId, kSinkMetadataRegionId,
-      /* metadataOffset= */ 0,
-      /* sinkMetadataOffset= */ 0);
-  ASSERT_TRUE(result.ok());
-  EXPECT_EQ(result.value().id, flowId);
+  ASSERT_RESULT_OK_AND_ASSIGN(
+      DataFlowSinkContext context,
+      createOffloadSourceDataFlowAndHostSink(
+          flowId, source, sink, kPrimaryRegionId, kSinkMetadataRegionId));
+  EXPECT_EQ(context.id, flowId);
 
   EXPECT_CALL(*mEpollWaiter, removeTriggers(std::optional<DataFlowId>(flowId),
                                             std::optional<EndpointId>()))
@@ -429,29 +432,11 @@ TEST_F(DataFlowManagerTest, AddHostSinkExistingDataFlow) {
   EndpointId source{.id = 1, .hubId = kHubId};
   EndpointId sink1{.id = 2, .hubId = kSinkHubId};
   EndpointId sink2{.id = 3, .hubId = kSinkHubId};
-  constexpr int32_t kPrimaryRegionId = 10;
-  constexpr int32_t kSinkMetadataRegionId = 11;
 
-  // Add first sink
-  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kPrimaryRegionId))
-      .WillRepeatedly(Invoke([](int32_t) {
-        return pw::Result<SharedDataRegion>(
-            SharedDataRegion{.id = kPrimaryRegionId});
-      }));
-  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kSinkMetadataRegionId))
-      .WillRepeatedly(Invoke([](int32_t) {
-        return pw::Result<SharedDataRegion>(
-            SharedDataRegion{.id = kSinkMetadataRegionId});
-      }));
-  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, source, _))
-      .WillOnce(Return(pw::OkStatus()));
-  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, sink1, _))
-      .WillOnce(Return(pw::OkStatus()));
-
-  ASSERT_TRUE(mDataFlowManager
-                  ->addHostSink(flowId, source, sink1, kPrimaryRegionId,
-                                kSinkMetadataRegionId, 0, 0)
-                  .ok());
+  ASSERT_RESULT_OK_AND_ASSIGN(
+      DataFlowSinkContext context,
+      createOffloadSourceDataFlowAndHostSink(
+          flowId, source, sink1, kPrimaryRegionId, kSinkMetadataRegionId));
 
   // Add second sink
   EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, sink2, _))
@@ -476,8 +461,6 @@ TEST_F(DataFlowManagerTest, AddHostSinkFailures) {
   DataFlowId flowId{.hubId = kHubId, .id = 1};
   EndpointId source{.id = 1, .hubId = kHubId};
   EndpointId sink{.id = 2, .hubId = kSinkHubId};
-  constexpr int32_t kPrimaryRegionId = 10;
-  constexpr int32_t kSinkMetadataRegionId = 11;
 
   // Region not found
   EXPECT_CALL(*mRegionAllocator, getRegionInfo(kPrimaryRegionId))
@@ -488,27 +471,10 @@ TEST_F(DataFlowManagerTest, AddHostSinkFailures) {
                 .status(),
             pw::Status::NotFound());
 
-  // Existing data flow checks
-  // First setup a valid data flow
-  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kPrimaryRegionId))
-      .WillRepeatedly(Invoke([](int32_t) {
-        return pw::Result<SharedDataRegion>(
-            SharedDataRegion{.id = kPrimaryRegionId});
-      }));
-  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kSinkMetadataRegionId))
-      .WillRepeatedly(Invoke([](int32_t) {
-        return pw::Result<SharedDataRegion>(
-            SharedDataRegion{.id = kSinkMetadataRegionId});
-      }));
-  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, source, _))
-      .WillOnce(Return(pw::OkStatus()));
-  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, sink, _))
-      .WillOnce(Return(pw::OkStatus()));
-
-  ASSERT_TRUE(mDataFlowManager
-                  ->addHostSink(flowId, source, sink, kPrimaryRegionId,
-                                kSinkMetadataRegionId, 0, 0)
-                  .ok());
+  ASSERT_RESULT_OK_AND_ASSIGN(
+      DataFlowSinkContext context,
+      createOffloadSourceDataFlowAndHostSink(
+          flowId, source, sink, kPrimaryRegionId, kSinkMetadataRegionId));
 
   // Source mismatch
   EndpointId wrongSource{.id = 99, .hubId = kHubId};
@@ -538,8 +504,6 @@ TEST_F(DataFlowManagerTest, AddHostSinkTriggerFailure) {
   DataFlowId flowId{.hubId = kHubId, .id = 1};
   EndpointId source{.id = 1, .hubId = kHubId};
   EndpointId sink{.id = 2, .hubId = kSinkHubId};
-  constexpr int32_t kPrimaryRegionId = 10;
-  constexpr int32_t kSinkMetadataRegionId = 11;
 
   EXPECT_CALL(*mRegionAllocator, getRegionInfo(kPrimaryRegionId))
       .WillRepeatedly(Invoke([](int32_t) {
@@ -581,28 +545,12 @@ TEST_F(DataFlowManagerTest, AddHostSinkTriggerFailure) {
 }
 
 TEST_F(DataFlowManagerTest, RemoveSinkSuccess) {
-  allocateRegion(kRegionId);
   EndpointId source{.id = 1, .hubId = kHubId};
-  DataFlowInfo info{.region = {.id = kRegionId}};
-  EXPECT_CALL(*mEpollWaiter, addTriggers(_, _, _))
-      .WillOnce(Return(pw::OkStatus()));
-  auto flowId = mDataFlowManager->addHostSourceDataFlow(source, info).value();
+  ASSERT_RESULT_OK_AND_ASSIGN(DataFlowId flowId,
+                              createHostSourceDataFlow(source, kRegionId));
 
   EndpointId sink{.id = 2, .hubId = kSinkHubId};
-  DataFlowSinkRegistrationParams params{
-      .context = {.id = flowId},
-      .sourceId = source,
-      .sinkId = sink,
-  };
-
-  EXPECT_CALL(*mRegionAllocator, consumerRequiresSeparateRegion(kSinkHubId))
-      .WillRepeatedly(Return(false));
-  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kRegionId))
-      .WillOnce(Invoke([](int32_t id) { return SharedDataRegion{.id = id}; }));
-  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, sink, _))
-      .WillOnce(Return(pw::OkStatus()));
-
-  ASSERT_TRUE(mDataFlowManager->addOffloadSink(params).ok());
+  addOffloadSink(flowId, source, sink, kRegionId);
 
   // Expect removal of triggers for the sink
   EXPECT_CALL(*mEpollWaiter, removeTriggers(std::optional<DataFlowId>(flowId),
@@ -623,12 +571,9 @@ TEST_F(DataFlowManagerTest, RemoveSinkDataFlowNotFound) {
 }
 
 TEST_F(DataFlowManagerTest, RemoveSinkSinkNotFound) {
-  allocateRegion(kRegionId);
   EndpointId source{.id = 1, .hubId = kHubId};
-  DataFlowInfo info{.region = {.id = kRegionId}};
-  EXPECT_CALL(*mEpollWaiter, addTriggers(_, _, _))
-      .WillOnce(Return(pw::OkStatus()));
-  auto flowId = mDataFlowManager->addHostSourceDataFlow(source, info).value();
+  ASSERT_RESULT_OK_AND_ASSIGN(DataFlowId flowId,
+                              createHostSourceDataFlow(source, kRegionId));
 
   EndpointId sink{.id = 2, .hubId = kSinkHubId};
 
@@ -637,12 +582,9 @@ TEST_F(DataFlowManagerTest, RemoveSinkSinkNotFound) {
 }
 
 TEST_F(DataFlowManagerTest, PruneEndpointSource) {
-  allocateRegion(kRegionId);
   EndpointId source{.id = 1, .hubId = kHubId};
-  DataFlowInfo info{.region = {.id = kRegionId}};
-  EXPECT_CALL(*mEpollWaiter, addTriggers(_, _, _))
-      .WillOnce(Return(pw::OkStatus()));
-  auto flowId = mDataFlowManager->addHostSourceDataFlow(source, info).value();
+  ASSERT_RESULT_OK_AND_ASSIGN(DataFlowId flowId,
+                              createHostSourceDataFlow(source, kRegionId));
 
   // Expect removal of triggers for the flow (source)
   EXPECT_CALL(*mEpollWaiter, removeTriggers(std::optional<DataFlowId>(flowId),
@@ -662,28 +604,12 @@ TEST_F(DataFlowManagerTest, PruneEndpointSource) {
 }
 
 TEST_F(DataFlowManagerTest, PruneEndpointSourceWithSink) {
-  allocateRegion(kRegionId);
   EndpointId source{.id = 1, .hubId = kHubId};
-  DataFlowInfo info{.region = {.id = kRegionId}};
-  EXPECT_CALL(*mEpollWaiter, addTriggers(_, _, _))
-      .WillOnce(Return(pw::OkStatus()));
-  auto flowId = mDataFlowManager->addHostSourceDataFlow(source, info).value();
+  ASSERT_RESULT_OK_AND_ASSIGN(DataFlowId flowId,
+                              createHostSourceDataFlow(source, kRegionId));
 
   EndpointId sink{.id = 2, .hubId = kSinkHubId};
-  DataFlowSinkRegistrationParams params{
-      .context = {.id = flowId},
-      .sourceId = source,
-      .sinkId = sink,
-  };
-
-  EXPECT_CALL(*mRegionAllocator, consumerRequiresSeparateRegion(kSinkHubId))
-      .WillRepeatedly(Return(false));
-  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kRegionId))
-      .WillOnce(Invoke([](int32_t id) { return SharedDataRegion{.id = id}; }));
-  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, sink, _))
-      .WillOnce(Return(pw::OkStatus()));
-
-  ASSERT_TRUE(mDataFlowManager->addOffloadSink(params).ok());
+  addOffloadSink(flowId, source, sink, kRegionId);
 
   // Expect removal of triggers for the flow
   EXPECT_CALL(*mEpollWaiter, removeTriggers(std::optional<DataFlowId>(flowId),
@@ -703,28 +629,12 @@ TEST_F(DataFlowManagerTest, PruneEndpointSourceWithSink) {
 }
 
 TEST_F(DataFlowManagerTest, PruneEndpointSink) {
-  allocateRegion(kRegionId);
   EndpointId source{.id = 1, .hubId = kHubId};
-  DataFlowInfo info{.region = {.id = kRegionId}};
-  EXPECT_CALL(*mEpollWaiter, addTriggers(_, _, _))
-      .WillOnce(Return(pw::OkStatus()));
-  auto flowId = mDataFlowManager->addHostSourceDataFlow(source, info).value();
+  ASSERT_RESULT_OK_AND_ASSIGN(DataFlowId flowId,
+                              createHostSourceDataFlow(source, kRegionId));
 
   EndpointId sink{.id = 2, .hubId = kSinkHubId};
-  DataFlowSinkRegistrationParams params{
-      .context = {.id = flowId},
-      .sourceId = source,
-      .sinkId = sink,
-  };
-
-  EXPECT_CALL(*mRegionAllocator, consumerRequiresSeparateRegion(kSinkHubId))
-      .WillRepeatedly(Return(false));
-  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kRegionId))
-      .WillOnce(Invoke([](int32_t id) { return SharedDataRegion{.id = id}; }));
-  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, sink, _))
-      .WillOnce(Return(pw::OkStatus()));
-
-  ASSERT_TRUE(mDataFlowManager->addOffloadSink(params).ok());
+  addOffloadSink(flowId, source, sink, kRegionId);
 
   // Expect removal of triggers for the sink
   EXPECT_CALL(*mEpollWaiter, removeTriggers(std::optional<DataFlowId>(flowId),
@@ -753,28 +663,11 @@ TEST_F(DataFlowManagerTest, RemoveSinkHostSinkSuccess) {
   DataFlowId flowId{.hubId = kHubId, .id = 1};
   EndpointId source{.id = 1, .hubId = kHubId};
   EndpointId sink{.id = 2, .hubId = kSinkHubId};
-  constexpr int32_t kPrimaryRegionId = 10;
-  constexpr int32_t kSinkMetadataRegionId = 11;
 
-  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kPrimaryRegionId))
-      .WillOnce(Invoke([](int32_t) {
-        return pw::Result<SharedDataRegion>(
-            SharedDataRegion{.id = kPrimaryRegionId});
-      }));
-  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kSinkMetadataRegionId))
-      .WillOnce(Invoke([](int32_t) {
-        return pw::Result<SharedDataRegion>(
-            SharedDataRegion{.id = kSinkMetadataRegionId});
-      }));
-  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, source, _))
-      .WillOnce(Return(pw::OkStatus()));
-  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, sink, _))
-      .WillOnce(Return(pw::OkStatus()));
-
-  ASSERT_TRUE(mDataFlowManager
-                  ->addHostSink(flowId, source, sink, kPrimaryRegionId,
-                                kSinkMetadataRegionId, 0, 0)
-                  .ok());
+  ASSERT_RESULT_OK_AND_ASSIGN(
+      DataFlowSinkContext context,
+      createOffloadSourceDataFlowAndHostSink(
+          flowId, source, sink, kPrimaryRegionId, kSinkMetadataRegionId));
 
   // Expect removal of triggers for the flow, because this is the last host sink
   // on an offload data flow.
@@ -796,29 +689,11 @@ TEST_F(DataFlowManagerTest, RemoveSinkHostSinkNotLast) {
   EndpointId source{.id = 1, .hubId = kHubId};
   EndpointId sink1{.id = 2, .hubId = kSinkHubId};
   EndpointId sink2{.id = 3, .hubId = kSinkHubId};
-  constexpr int32_t kPrimaryRegionId = 10;
-  constexpr int32_t kSinkMetadataRegionId = 11;
 
-  // Add first sink
-  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kPrimaryRegionId))
-      .WillRepeatedly(Invoke([](int32_t) {
-        return pw::Result<SharedDataRegion>(
-            SharedDataRegion{.id = kPrimaryRegionId});
-      }));
-  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kSinkMetadataRegionId))
-      .WillRepeatedly(Invoke([](int32_t) {
-        return pw::Result<SharedDataRegion>(
-            SharedDataRegion{.id = kSinkMetadataRegionId});
-      }));
-  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, source, _))
-      .WillOnce(Return(pw::OkStatus()));
-  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, sink1, _))
-      .WillOnce(Return(pw::OkStatus()));
-
-  ASSERT_TRUE(mDataFlowManager
-                  ->addHostSink(flowId, source, sink1, kPrimaryRegionId,
-                                kSinkMetadataRegionId, 0, 0)
-                  .ok());
+  ASSERT_RESULT_OK_AND_ASSIGN(
+      DataFlowSinkContext context,
+      createOffloadSourceDataFlowAndHostSink(
+          flowId, source, sink1, kPrimaryRegionId, kSinkMetadataRegionId));
 
   // Add second sink
   EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, sink2, _))
@@ -857,28 +732,11 @@ TEST_F(DataFlowManagerTest, PruneEndpointHostSink) {
   DataFlowId flowId{.hubId = kHubId, .id = 1};
   EndpointId source{.id = 1, .hubId = kHubId};
   EndpointId sink{.id = 2, .hubId = kSinkHubId};
-  constexpr int32_t kPrimaryRegionId = 10;
-  constexpr int32_t kSinkMetadataRegionId = 11;
 
-  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kPrimaryRegionId))
-      .WillOnce(Invoke([](int32_t) {
-        return pw::Result<SharedDataRegion>(
-            SharedDataRegion{.id = kPrimaryRegionId});
-      }));
-  EXPECT_CALL(*mRegionAllocator, getRegionInfo(kSinkMetadataRegionId))
-      .WillOnce(Invoke([](int32_t) {
-        return pw::Result<SharedDataRegion>(
-            SharedDataRegion{.id = kSinkMetadataRegionId});
-      }));
-  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, source, _))
-      .WillOnce(Return(pw::OkStatus()));
-  EXPECT_CALL(*mEpollWaiter, addTriggers(flowId, sink, _))
-      .WillOnce(Return(pw::OkStatus()));
-
-  ASSERT_TRUE(mDataFlowManager
-                  ->addHostSink(flowId, source, sink, kPrimaryRegionId,
-                                kSinkMetadataRegionId, 0, 0)
-                  .ok());
+  ASSERT_RESULT_OK_AND_ASSIGN(
+      DataFlowSinkContext context,
+      createOffloadSourceDataFlowAndHostSink(
+          flowId, source, sink, kPrimaryRegionId, kSinkMetadataRegionId));
 
   // Pruning the endpoint should trigger removal of the flow since it's the last
   // host sink on an offload data flow.
@@ -896,6 +754,266 @@ TEST_F(DataFlowManagerTest, PruneEndpointHostSink) {
   // Data flow should be gone
   EXPECT_EQ(mDataFlowManager->removeDataFlow(flowId).status(),
             pw::Status::NotFound());
+}
+
+TEST_F(DataFlowManagerTest, VerifyHostSourceDataFlowSource) {
+  EndpointId hostSource{.id = 1, .hubId = kHubId};
+  ASSERT_RESULT_OK_AND_ASSIGN(DataFlowId flowId,
+                              createHostSourceDataFlow(hostSource, kRegionId));
+
+  EXPECT_EQ(mDataFlowManager->verifyEndpointOnDataFlow(flowId, hostSource,
+                                                       /*isHost=*/true),
+            pw::OkStatus());
+  EXPECT_EQ(mDataFlowManager->verifyEndpointOnDataFlow(flowId, hostSource,
+                                                       /*isHost=*/false),
+            pw::Status::NotFound());
+}
+
+TEST_F(DataFlowManagerTest, VerifyHostSourceDataFlowSink) {
+  EndpointId hostSource{.id = 1, .hubId = kHubId};
+  ASSERT_RESULT_OK_AND_ASSIGN(DataFlowId flowId,
+                              createHostSourceDataFlow(hostSource, kRegionId));
+  EndpointId offloadSink{.id = 2, .hubId = kSinkHubId};
+  addOffloadSink(flowId, hostSource, offloadSink, kRegionId);
+
+  EXPECT_EQ(mDataFlowManager->verifyEndpointOnDataFlow(flowId, offloadSink,
+                                                       /*isHost=*/false),
+            pw::OkStatus());
+  EXPECT_EQ(mDataFlowManager->verifyEndpointOnDataFlow(flowId, offloadSink,
+                                                       /*isHost=*/true),
+            pw::Status::NotFound());
+}
+
+TEST_F(DataFlowManagerTest, VerifyOffloadSourceDataFlowSource) {
+  DataFlowId offloadFlowId{.hubId = kSinkHubId, .id = 100};
+  EndpointId offloadSource{.id = 3, .hubId = kSinkHubId};
+  EndpointId hostSink{.id = 4, .hubId = kHubId};
+
+  ASSERT_RESULT_OK_AND_ASSIGN(DataFlowSinkContext context,
+                              createOffloadSourceDataFlowAndHostSink(
+                                  offloadFlowId, offloadSource, hostSink,
+                                  kPrimaryRegionId, kSinkMetadataRegionId));
+
+  EXPECT_EQ(mDataFlowManager->verifyEndpointOnDataFlow(
+                offloadFlowId, offloadSource, /*isHost=*/false),
+            pw::OkStatus());
+  EXPECT_EQ(mDataFlowManager->verifyEndpointOnDataFlow(
+                offloadFlowId, offloadSource, /*isHost=*/true),
+            pw::Status::NotFound());
+}
+
+TEST_F(DataFlowManagerTest, VerifyOffloadSourceDataFlowSink) {
+  DataFlowId offloadFlowId{.hubId = kSinkHubId, .id = 100};
+  EndpointId offloadSource{.id = 3, .hubId = kSinkHubId};
+  EndpointId hostSink{.id = 4, .hubId = kHubId};
+
+  ASSERT_RESULT_OK_AND_ASSIGN(DataFlowSinkContext context,
+                              createOffloadSourceDataFlowAndHostSink(
+                                  offloadFlowId, offloadSource, hostSink,
+                                  kPrimaryRegionId, kSinkMetadataRegionId));
+
+  EXPECT_EQ(mDataFlowManager->verifyEndpointOnDataFlow(offloadFlowId, hostSink,
+                                                       /*isHost=*/true),
+            pw::OkStatus());
+  EXPECT_EQ(mDataFlowManager->verifyEndpointOnDataFlow(offloadFlowId, hostSink,
+                                                       /*isHost=*/false),
+            pw::Status::NotFound());
+}
+
+TEST_F(DataFlowManagerTest, VerifyEndpointOnDataFlowFailure) {
+  EndpointId hostSource{.id = 1, .hubId = kHubId};
+  ASSERT_RESULT_OK_AND_ASSIGN(DataFlowId flowId,
+                              createHostSourceDataFlow(hostSource, kRegionId));
+  EndpointId randomEndpoint{.id = 99, .hubId = kHubId};
+
+  EXPECT_EQ(mDataFlowManager->verifyEndpointOnDataFlow(flowId, randomEndpoint,
+                                                       /*isHost=*/true),
+            pw::Status::NotFound());
+}
+
+TEST_F(DataFlowManagerTest, AlertHostEndpointsWaking) {
+  DataFlowId flowId{.hubId = kHubId, .id = 1};
+  EndpointId source{.id = 1, .hubId = kHubId};
+  EndpointId sink{.id = 2, .hubId = kSinkHubId};
+
+  ASSERT_RESULT_OK_AND_ASSIGN(
+      DataFlowSinkContext sinkContext,
+      createOffloadSourceDataFlowAndHostSink(
+          flowId, source, sink, kPrimaryRegionId, kSinkMetadataRegionId));
+
+  EXPECT_CALL(*mWakelockManager,
+              increaseWakeCount(WakelockManager::Usage::kDataFlow, 1))
+      .WillOnce(Return(pw::OkStatus()));
+
+  EXPECT_EQ(mDataFlowManager->alertHostEndpoints(flowId, {sink},
+                                                 /*isWaking=*/true),
+            pw::OkStatus());
+
+  uint64_t counter;
+  ASSERT_EQ(read(sinkContext.alertFds.waking.get(), &counter, sizeof(counter)),
+            sizeof(counter));
+  EXPECT_EQ(counter, 1);
+}
+
+TEST_F(DataFlowManagerTest, AlertHostEndpointsNonWaking) {
+  DataFlowId flowId{.hubId = kHubId, .id = 1};
+  EndpointId source{.id = 1, .hubId = kHubId};
+  EndpointId sink{.id = 2, .hubId = kSinkHubId};
+
+  ASSERT_RESULT_OK_AND_ASSIGN(
+      DataFlowSinkContext sinkContext,
+      createOffloadSourceDataFlowAndHostSink(
+          flowId, source, sink, kPrimaryRegionId, kSinkMetadataRegionId));
+
+  EXPECT_EQ(mDataFlowManager->alertHostEndpoints(flowId, {sink},
+                                                 /*isWaking=*/false),
+            pw::OkStatus());
+
+  uint64_t counter;
+  ASSERT_EQ(
+      read(sinkContext.alertFds.nonWaking.get(), &counter, sizeof(counter)),
+      sizeof(counter));
+  EXPECT_EQ(counter, 1);
+}
+
+TEST_F(DataFlowManagerTest, AlertHostEndpointsInvalidArgument) {
+  EndpointId hostSource{.id = 1, .hubId = kHubId};
+  ASSERT_RESULT_OK_AND_ASSIGN(DataFlowId hostFlowId,
+                              createHostSourceDataFlow(hostSource, kRegionId));
+
+  EXPECT_EQ(mDataFlowManager->alertHostEndpoints(hostFlowId, {hostSource},
+                                                 /*isWaking=*/true),
+            pw::Status::InvalidArgument());
+}
+
+TEST_F(DataFlowManagerTest, AlertHostEndpointsDataFlowNotFound) {
+  DataFlowId unknownFlowId{.hubId = 999, .id = 999};
+  EndpointId hostSource{.id = 1, .hubId = kHubId};
+
+  EXPECT_EQ(mDataFlowManager->alertHostEndpoints(unknownFlowId, {hostSource},
+                                                 /*isWaking=*/true),
+            pw::Status::NotFound());
+}
+
+TEST_F(DataFlowManagerTest, AlertHostEndpointsEndpointNotFound) {
+  DataFlowId offloadFlowId{.hubId = kSinkHubId, .id = 100};
+  EndpointId offloadSource{.id = 3, .hubId = kSinkHubId};
+  EndpointId hostSink{.id = 4, .hubId = kHubId};
+  ASSERT_RESULT_OK_AND_ASSIGN(DataFlowSinkContext context,
+                              createOffloadSourceDataFlowAndHostSink(
+                                  offloadFlowId, offloadSource, hostSink,
+                                  kPrimaryRegionId, kSinkMetadataRegionId));
+
+  EndpointId unknownEndpoint{.id = 99, .hubId = kHubId};
+  EXPECT_EQ(
+      mDataFlowManager->alertHostEndpoints(offloadFlowId, {unknownEndpoint},
+                                           /*isWaking=*/true),
+      pw::OkStatus());
+}
+
+TEST_F(DataFlowManagerTest, OnAlertSuccess) {
+  EndpointId source{.id = 1, .hubId = kHubId};
+  ASSERT_RESULT_OK_AND_ASSIGN(DataFlowId flowId,
+                              createHostSourceDataFlow(source, kRegionId));
+
+  EXPECT_CALL(*this, sendAlert(flowId, source, true))
+      .WillOnce(Return(pw::OkStatus()));
+
+  mDataFlowManager->onAlert(flowId, source, true);
+}
+
+TEST_F(DataFlowManagerTest, OnAlertFailure) {
+  EndpointId source{.id = 1, .hubId = kHubId};
+  ASSERT_RESULT_OK_AND_ASSIGN(DataFlowId flowId,
+                              createHostSourceDataFlow(source, kRegionId));
+
+  EXPECT_CALL(*this, sendAlert(flowId, source, false))
+      .WillOnce(Return(pw::Status::Internal()));
+
+  mDataFlowManager->onAlert(flowId, source, false);
+}
+
+TEST_F(DataFlowManagerTest, OnAlertUnknownEndpoint) {
+  EndpointId source{.id = 1, .hubId = kHubId};
+  ASSERT_RESULT_OK_AND_ASSIGN(DataFlowId flowId,
+                              createHostSourceDataFlow(source, kRegionId));
+  EndpointId unknown{.id = 99, .hubId = kHubId};
+
+  mDataFlowManager->onAlert(flowId, unknown, true);
+}
+
+TEST_F(DataFlowManagerTest, OnWakingAckSuccess) {
+  DataFlowId flowId{.hubId = kHubId, .id = 1};
+  EndpointId source{.id = 1, .hubId = kHubId};
+  EndpointId sink{.id = 2, .hubId = kSinkHubId};
+  ASSERT_RESULT_OK_AND_ASSIGN(
+      DataFlowSinkContext context,
+      createOffloadSourceDataFlowAndHostSink(
+          flowId, source, sink, kPrimaryRegionId, kSinkMetadataRegionId));
+
+  // Simulate waking alert to increment wake count
+  EXPECT_CALL(*mWakelockManager,
+              increaseWakeCount(WakelockManager::Usage::kDataFlow, 1))
+      .WillOnce(Return(pw::OkStatus()));
+  EXPECT_EQ(mDataFlowManager->alertHostEndpoints(flowId, {sink},
+                                                 /*isWaking=*/true),
+            pw::OkStatus());
+
+  EXPECT_CALL(*mWakelockManager,
+              decreaseWakeCount(WakelockManager::Usage::kDataFlow, 1))
+      .WillOnce(Return(pw::OkStatus()));
+
+  mDataFlowManager->onWakingAck(flowId, sink, 1);
+}
+
+TEST_F(DataFlowManagerTest, OnWakingAckPartial) {
+  DataFlowId flowId{.hubId = kHubId, .id = 1};
+  EndpointId source{.id = 1, .hubId = kHubId};
+  EndpointId sink{.id = 2, .hubId = kSinkHubId};
+  ASSERT_RESULT_OK_AND_ASSIGN(
+      DataFlowSinkContext context,
+      createOffloadSourceDataFlowAndHostSink(
+          flowId, source, sink, kPrimaryRegionId, kSinkMetadataRegionId));
+
+  // Simulate waking alert
+  EXPECT_CALL(*mWakelockManager,
+              increaseWakeCount(WakelockManager::Usage::kDataFlow, 1))
+      .WillOnce(Return(pw::OkStatus()));
+  EXPECT_EQ(mDataFlowManager->alertHostEndpoints(flowId, {sink},
+                                                 /*isWaking=*/true),
+            pw::OkStatus());
+
+  // Decrement only what was acked (1 out of 1 in this test, but logic should
+  // hold)
+  EXPECT_CALL(*mWakelockManager,
+              decreaseWakeCount(WakelockManager::Usage::kDataFlow, 1))
+      .WillOnce(Return(pw::OkStatus()));
+  mDataFlowManager->onWakingAck(flowId, sink, 1);
+}
+
+TEST_F(DataFlowManagerTest, OnWakingAckZero) {
+  DataFlowId flowId{.hubId = kHubId, .id = 1};
+  EndpointId source{.id = 1, .hubId = kHubId};
+  EndpointId sink{.id = 2, .hubId = kSinkHubId};
+  ASSERT_RESULT_OK_AND_ASSIGN(
+      DataFlowSinkContext context,
+      createOffloadSourceDataFlowAndHostSink(
+          flowId, source, sink, kPrimaryRegionId, kSinkMetadataRegionId));
+
+  mDataFlowManager->onWakingAck(flowId, sink, 0);
+}
+
+TEST_F(DataFlowManagerTest, OnWakingAckUnknownEndpoint) {
+  DataFlowId flowId{.hubId = kHubId, .id = 1};
+  EndpointId source{.id = 1, .hubId = kHubId};
+  EndpointId sink{.id = 2, .hubId = kSinkHubId};
+  ASSERT_RESULT_OK_AND_ASSIGN(
+      DataFlowSinkContext context,
+      createOffloadSourceDataFlowAndHostSink(
+          flowId, source, sink, kPrimaryRegionId, kSinkMetadataRegionId));
+
+  EndpointId unknown{.id = 99, .hubId = kHubId};
+  mDataFlowManager->onWakingAck(flowId, unknown, 1);
 }
 
 }  // namespace

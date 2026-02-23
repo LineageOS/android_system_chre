@@ -18,17 +18,18 @@
 
 #include "data_flow_manager.h"
 
+#include <errno.h>
 #include <sys/eventfd.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cinttypes>
 #include <cstdint>
 #include <memory>
 #include <mutex>
-#include <optional>
+#include <utility>
 #include <vector>
 
-#include <aidl/android/hardware/contexthub/DataFlowAlertFds.h>
 #include <utils/Log.h>
 
 #include "android/binder_auto_utils.h"
@@ -36,11 +37,11 @@
 #include "pw_result/result.h"
 #include "pw_status/status.h"
 #include "pw_status/try.h"
+#include "region_allocator.h"
+#include "wakelock_manager.h"
 
 namespace android::hardware::contexthub::common::implementation {
 namespace {
-
-using ::aidl::android::hardware::contexthub::DataFlowAlertFds;
 
 pw::Result<DataFlowAlertFds> createAlertFds(bool isHostEndpoint) {
   DataFlowAlertFds fds{
@@ -50,7 +51,7 @@ pw::Result<DataFlowAlertFds> createAlertFds(bool isHostEndpoint) {
           isHostEndpoint ? eventfd(0, EFD_NONBLOCK) : -1)};
   if (fds.waking.get() < 0 || fds.nonWaking.get() < 0 ||
       (isHostEndpoint && fds.halAck.get() < 0)) {
-    ALOGE("Failed to create alert fds");
+    ALOGE("Failed to create alert fds with code %d", errno);
     return pw::Status::Internal();
   }
   return fds;
@@ -70,6 +71,18 @@ DataFlowAlertFds dupAlertFds(const DataFlowAlertFds &fds, bool isHostEndpoint) {
     LOG_ALWAYS_FATAL("Failed to dup alert fds");
   }
   return dupFds;
+}
+
+pw::Status sendAlert(const DataFlowAlertFds &alertFds, bool isWaking) {
+  const uint64_t kOne = 1;
+  ssize_t result = TEMP_FAILURE_RETRY(
+      write(isWaking ? alertFds.waking.get() : alertFds.nonWaking.get(), &kOne,
+            sizeof(kOne)));
+  if (result != sizeof(kOne)) {
+    ALOGE("Failed to send alert with code %d", errno);
+    return pw::Status::Internal();
+  }
+  return pw::OkStatus();
 }
 
 }  // namespace
@@ -110,8 +123,7 @@ pw::Status DataFlowManager::releaseRegion(int64_t hubId, int32_t regionId) {
   if (regionIt == it->second.regionToUseCount.end()) {
     ALOGE("Region %" PRId32 " not found for hub 0x%" PRIx64, regionId, hubId);
     return pw::Status::NotFound();
-  }
-  if (regionIt->second > 0) {
+  } else if (regionIt->second > 0) {
     ALOGE("Region %" PRId32 " is still in use by hub 0x%" PRIx64, regionId,
           hubId);
     return pw::Status::FailedPrecondition();
@@ -137,14 +149,19 @@ pw::Result<DataFlowId> DataFlowManager::addHostSourceDataFlow(
           source.hubId);
     return pw::Status::NotFound();
   }
-  DataFlowId id = {.hubId = source.hubId, .id = hubIt->second.nextDataFlowId};
-  PW_TRY(mEpollWaiter->addTriggers(id, source, info.alertFds));
+  DataFlowId dataFlowId = {.hubId = source.hubId,
+                           .id = hubIt->second.nextDataFlowId};
+  PW_TRY(mEpollWaiter->addTriggers(dataFlowId, source, info.alertFds));
   hubIt->second.nextDataFlowId++;
   regionIt->second++;
-  auto &dataFlow = mIdToDataFlow[id] =
-      std::make_unique<DataFlow>(id, source, info, /* isHostSource= */ true);
-  mEndpointToDataFlows[source].insert(dataFlow.get());
-  return id;
+  auto &dataFlow = mIdToDataFlow[dataFlowId] = std::make_unique<DataFlow>(
+      dataFlowId, source, info, /* isHostSource= */ true);
+  mIdToEndpoint.emplace(
+      std::piecewise_construct, std::forward_as_tuple(source),
+      std::forward_as_tuple(
+          dataFlow.get(),
+          dupAlertFds(info.alertFds, /* isHostEndpoint= */ true)));
+  return dataFlowId;
 }
 
 pw::Result<std::pair<DataFlowInfo, SharedDataRegion>>
@@ -162,8 +179,7 @@ DataFlowManager::addOffloadSink(const DataFlowSinkRegistrationParams &params) {
     ALOGE("Source id mismatch for data flow (0x%" PRIx64 ", %" PRId32 ")",
           dataFlowId.hubId, dataFlowId.id);
     return pw::Status::InvalidArgument();
-  }
-  if (dataFlow->sinks.contains(params.sinkId)) {
+  } else if (dataFlow->sinks.contains(params.sinkId)) {
     ALOGE("Sink (0x%" PRIx64 ", 0x%" PRIx64
           ") already registered on data flow (0x%" PRIx64 ", %" PRId32 ")",
           params.sinkId.hubId, params.sinkId.id, dataFlowId.hubId,
@@ -172,16 +188,17 @@ DataFlowManager::addOffloadSink(const DataFlowSinkRegistrationParams &params) {
   }
   PW_TRY(mEpollWaiter->addTriggers(dataFlowId, params.sinkId,
                                    params.context.alertFds));
+  Endpoint sink(dataFlow.get());
   PW_TRY_ASSIGN(
       auto region,
-      getOffloadSinkMetadataRegionLocked(params.sinkId, dataFlow.get())
+      getOffloadSinkMetadataRegionLocked(params.sinkId, dataFlow.get(), sink)
           .or_else([this, &dataFlowId, &params](pw::Status status) {
             mEpollWaiter->removeTriggers(dataFlowId, params.sinkId)
                 .IgnoreError();
             return status;
           }));
   dataFlow->sinks.insert(params.sinkId);
-  mEndpointToDataFlows[params.sinkId].insert(dataFlow.get());
+  mIdToEndpoint.emplace(params.sinkId, std::move(sink));
   return std::make_pair(
       DataFlowInfo{.region = {.id = dataFlow->info.region.id},
                    .metadataOffsetBytes = dataFlow->info.metadataOffsetBytes},
@@ -213,14 +230,12 @@ pw::Result<DataFlowSinkContext> DataFlowManager::addHostSink(
       ALOGE("Source id mismatch for data flow (0x%" PRIx64 ", %" PRId32 ")",
             dataFlowId.hubId, dataFlowId.id);
       return pw::Status::AlreadyExists();
-    }
-    if (dataFlowIt->second->sinks.contains(sink)) {
+    } else if (dataFlowIt->second->sinks.contains(sink)) {
       ALOGE("Sink (0x%" PRIx64 ", 0x%" PRIx64
             ") already registered on data flow (0x%" PRIx64 ", %" PRId32 ")",
             sink.hubId, sink.id, dataFlowId.hubId, dataFlowId.id);
       return pw::Status::AlreadyExists();
-    }
-    if (dataFlowIt->second->info.metadataOffsetBytes != metadataOffset) {
+    } else if (dataFlowIt->second->info.metadataOffsetBytes != metadataOffset) {
       ALOGE("Metadata offset mismatch for data flow (0x%" PRIx64 ", %" PRId32
             ")",
             dataFlowId.hubId, dataFlowId.id);
@@ -239,8 +254,69 @@ pw::Result<DataFlowSinkContext> DataFlowManager::addHostSink(
     return status;
   }
   dataFlow.sinks.insert(sink);
-  mEndpointToDataFlows[sink].insert(&dataFlow);
+  mIdToEndpoint.emplace(
+      std::piecewise_construct, std::forward_as_tuple(sink),
+      std::forward_as_tuple(&dataFlow,
+                            dupAlertFds(context.alertFds,
+                                        /* isHostEndpoint= */ true)));
   return context;
+}
+
+pw::Status DataFlowManager::verifyEndpointOnDataFlow(DataFlowId dataFlowId,
+                                                     EndpointId endpointId,
+                                                     bool isHost) {
+  std::lock_guard lock(mLock);
+  PW_TRY_ASSIGN(auto dataFlowAndEndpoint,
+                lookupDataFlowAndEndpointLocked(dataFlowId, endpointId));
+  if (dataFlowAndEndpoint.second->isHost != isHost) {
+    ALOGE("Endpoint (0x%" PRIx64 ", 0x%" PRIx64 ") is not a %s endpoint",
+          endpointId.hubId, endpointId.id, isHost ? "host" : "offload");
+    return pw::Status::NotFound();
+  }
+  return pw::OkStatus();
+}
+
+pw::Status DataFlowManager::alertHostEndpoints(
+    DataFlowId dataFlowId, const std::vector<EndpointId> &endpointIds,
+    bool isWaking) {
+  std::lock_guard lock(mLock);
+  auto dataFlowIt = mIdToDataFlow.find(dataFlowId);
+  if (dataFlowIt == mIdToDataFlow.end()) {
+    ALOGE("Data flow (0x%" PRIx64 ", %" PRId32 ") not found", dataFlowId.hubId,
+          dataFlowId.id);
+    return pw::Status::NotFound();
+  } else if (dataFlowIt->second->isHostSource) {
+    ALOGE(
+        "alertHostEndpoints() called on data flow with a host source "
+        "(0x%" PRIx64 ", %" PRId32 ")",
+        dataFlowId.hubId, dataFlowId.id);
+    return pw::Status::InvalidArgument();
+  }
+  for (const auto &endpointId : endpointIds) {
+    if (!dataFlowIt->second->sinks.contains(endpointId)) {
+      ALOGW("Sink (0x%" PRIx64 ", 0x%" PRIx64
+            ") not found on data flow (0x%" PRIx64 ", %" PRId32 ")",
+            endpointId.hubId, endpointId.id, dataFlowId.hubId, dataFlowId.id);
+      continue;
+    }
+    auto &endpoint = getEndpointLocked(endpointId)->second;
+    auto &[alertFds, outstandingWakeCount] =
+        getAlertFdsAndWakeCountMapLocked(endpointId, endpoint, dataFlowId);
+    bool decrementWakeCountOnFailure =
+        isWaking &&
+        !incrementWakeCountLocked(endpointId, dataFlowId, outstandingWakeCount);
+    if (auto status = sendAlert(alertFds, isWaking); !status.ok()) {
+      ALOGE("Failed to send alert for data flow (0x%" PRIx64 ", %" PRId32
+            ") to endpoint (0x%" PRIx64 ", 0x%" PRIx64 ") with %d",
+            dataFlowId.hubId, dataFlowId.id, endpointId.hubId, endpointId.id,
+            status.code());
+      if (decrementWakeCountOnFailure) {
+        decreaseWakeCountLocked(endpointId, dataFlowId, outstandingWakeCount,
+                                /*decrease=*/1);
+      }
+    }
+  }
+  return pw::OkStatus();
 }
 
 pw::Result<std::vector<EndpointId>> DataFlowManager::removeDataFlow(
@@ -262,41 +338,42 @@ pw::Result<EndpointId> DataFlowManager::removeSink(DataFlowId dataFlowId,
     ALOGE("Data flow (0x%" PRIx64 ", %" PRId32 ") not found", dataFlowId.hubId,
           dataFlowId.id);
     return pw::Status::NotFound();
-  }
-  if (!dataFlowIt->second->sinks.contains(sink)) {
+  } else if (!dataFlowIt->second->sinks.contains(sink)) {
     ALOGE("Sink (0x%" PRIx64 ", 0x%" PRIx64
           ") not found on data flow (0x%" PRIx64 ", %" PRId32 ")",
           sink.hubId, sink.id, dataFlowId.hubId, dataFlowId.id);
     return pw::Status::NotFound();
   }
-  return removeSinkLocked(dataFlowIt, sink);
+  return removeSinkLocked(dataFlowIt, getEndpointLocked(sink));
 }
 
 pw::Result<std::vector<DataFlowManager::PrunedEndpointDataFlowEntry>>
-DataFlowManager::pruneEndpoint(EndpointId endpoint) {
+DataFlowManager::pruneEndpoint(EndpointId endpointId) {
   std::lock_guard lock(mLock);
-  auto endpointNode = mEndpointToDataFlows.extract(endpoint);
-  if (endpointNode.empty()) {
-    ALOGE("Endpoint (0x%" PRIx64 ", 0x%" PRIx64 ") not found", endpoint.hubId,
-          endpoint.id);
+  auto endpointIt = mIdToEndpoint.find(endpointId);
+  if (endpointIt == mIdToEndpoint.end()) {
+    ALOGE("Endpoint (0x%" PRIx64 ", 0x%" PRIx64 ") not found", endpointId.hubId,
+          endpointId.id);
     return pw::Status::NotFound();
   }
   std::vector<PrunedEndpointDataFlowEntry> prunedDataFlows;
-  for (auto *dataFlow : endpointNode.mapped()) {
-    auto &entry = prunedDataFlows.emplace_back(dataFlow->id,
-                                               dataFlow->source == endpoint);
-    auto dataFlowIt = mIdToDataFlow.find(dataFlow->id);
+  for (auto *dataFlow : endpointIt->second.dataFlows) {
+    prunedDataFlows.emplace_back(dataFlow->id, dataFlow->source == endpointId);
+  }
+  for (auto &entry : prunedDataFlows) {
+    auto dataFlowIt = mIdToDataFlow.find(entry.dataFlowId);
     if (dataFlowIt == mIdToDataFlow.end()) {
-      LOG_ALWAYS_FATAL(
-          "Data flow (0x%" PRIx64 ", %" PRId32
-          ") associated with endpoint (0x%" PRIx64 ", 0x%" PRIx64 ") not found",
-          dataFlow->id.hubId, dataFlow->id.id, endpoint.hubId, endpoint.id);
+      LOG_ALWAYS_FATAL("Data flow (0x%" PRIx64 ", %" PRId32
+                       ") associated with endpoint (0x%" PRIx64 ", 0x%" PRIx64
+                       ") not found",
+                       entry.dataFlowId.hubId, entry.dataFlowId.id,
+                       endpointId.hubId, endpointId.id);
     }
     if (entry.isSource) {
       PW_TRY_ASSIGN(entry.endpoints, removeDataFlowLocked(dataFlowIt));
     } else {
       PW_TRY_ASSIGN(entry.endpoints.emplace_back(),
-                    removeSinkLocked(dataFlowIt, endpoint));
+                    removeSinkLocked(dataFlowIt, endpointIt));
     }
   }
   return prunedDataFlows;
@@ -317,15 +394,43 @@ DataFlowManager::DataFlow::DataFlow(DataFlowId _id, EndpointId _source,
   }
 }
 
-void DataFlowManager::onAlert(DataFlowId /* dataFlowId */,
-                              EndpointId /* endpointId */, bool /* waking */) {
-  // TODO(b/463163051): Implement this.
+void DataFlowManager::onAlert(DataFlowId dataFlowId, EndpointId endpointId,
+                              bool waking) {
+  {
+    std::lock_guard lock(mLock);
+    if (!lookupDataFlowAndEndpointLocked(dataFlowId, endpointId).ok()) {
+      ALOGW("Could not find data flow and/or endpoint for alert");
+      return;
+    }
+  }
+  if (auto status = mSendAlertFn(dataFlowId, endpointId, waking);
+      !status.ok()) {
+    ALOGW("Failed to send alert for data flow (0x%" PRIx64 ", %" PRId32
+          ") to endpoint (0x%" PRIx64 ", 0x%" PRIx64 ") with %d",
+          dataFlowId.hubId, dataFlowId.id, endpointId.hubId, endpointId.id,
+          status.code());
+  }
 }
 
-void DataFlowManager::onWakingAck(DataFlowId /* dataFlowId */,
-                                  EndpointId /* endpointId */,
-                                  uint64_t /* wakeCount */) {
-  // TODO(b/463163051): Implement this.
+void DataFlowManager::onWakingAck(DataFlowId dataFlowId, EndpointId endpointId,
+                                  uint64_t wakeCount) {
+  std::lock_guard lock(mLock);
+  auto result = lookupDataFlowAndEndpointLocked(dataFlowId, endpointId);
+  if (!result.ok()) {
+    ALOGW("Could not find data flow and/or endpoint for waking ack");
+    return;
+  }
+  auto &endpoint = *result.value().second;
+  if (!endpoint.isHost) {
+    ALOGW("Waking ack for non-host endpoint (0x%" PRIx64 ", 0x%" PRIx64 ")",
+          endpointId.hubId, endpointId.id);
+    return;
+  }
+  auto &outstandingWakeCount =
+      getAlertFdsAndWakeCountMapLocked(endpointId, endpoint, dataFlowId).second;
+  decreaseWakeCountLocked(
+      endpointId, dataFlowId, outstandingWakeCount,
+      /*decrease=*/std::min(outstandingWakeCount, wakeCount));
 }
 
 pw::Result<DataFlowManager::DataFlowMap::iterator>
@@ -334,11 +439,11 @@ DataFlowManager::addOffloadSourceDataFlowLocked(DataFlowId dataFlowId,
                                                 DataFlowInfo &info) {
   PW_TRY_ASSIGN(info.alertFds, createAlertFds(/* isHostEndpoint= */ false));
   PW_TRY(mEpollWaiter->addTriggers(dataFlowId, source, info.alertFds));
-  auto itAndInserted = mIdToDataFlow.insert(
+  auto [dataFlowIt, _] = mIdToDataFlow.insert(
       {dataFlowId, std::make_unique<DataFlow>(dataFlowId, source, info,
                                               /* isHostSource= */ false)});
-  mEndpointToDataFlows[source].insert(itAndInserted.first->second.get());
-  return itAndInserted.first;
+  mIdToEndpoint.emplace(source, dataFlowIt->second.get());
+  return dataFlowIt;
 }
 
 pw::Result<std::vector<EndpointId>> DataFlowManager::removeDataFlowLocked(
@@ -347,14 +452,14 @@ pw::Result<std::vector<EndpointId>> DataFlowManager::removeDataFlowLocked(
   if (dataFlow->isHostSource) {
     decrementHostRegionUseCountLocked(dataFlowId, it->second->info.region.id);
   }
-  removeEndpointDataFlowAssociationLocked(dataFlow->source, dataFlow.get());
+  removeEndpointDataFlowAssociationLocked(getEndpointLocked(dataFlow->source),
+                                          dataFlow.get());
   std::vector<EndpointId> endpointsToNotify;
-  for (const auto &sink : dataFlow->sinks) {
-    if (dataFlow->isHostSource) {
-      unlinkOffloadSinkMetadataRegionLocked(sink, dataFlow.get());
-    }
-    endpointsToNotify.push_back(sink);
-    removeEndpointDataFlowAssociationLocked(sink, dataFlow.get());
+  for (const auto &sinkId : dataFlow->sinks) {
+    auto sinkIt = getEndpointLocked(sinkId);
+    releaseEndpointResourcesLocked(sinkIt, dataFlow.get());
+    endpointsToNotify.push_back(sinkId);
+    removeEndpointDataFlowAssociationLocked(sinkIt, dataFlow.get());
   }
   if (auto status =
           mEpollWaiter->removeTriggers(dataFlowId, /* endpointId= */ {});
@@ -368,48 +473,46 @@ pw::Result<std::vector<EndpointId>> DataFlowManager::removeDataFlowLocked(
 }
 
 pw::Result<EndpointId> DataFlowManager::removeSinkLocked(
-    DataFlowMap::iterator it, EndpointId sink) {
-  auto &[dataFlowId, dataFlow] = *it;
+    DataFlowMap::iterator dataFlowIt, EndpointMap::iterator sinkIt) {
+  auto &[dataFlowId, dataFlow] = *dataFlowIt;
   // If this is the only sink remaining for an offload data flow, remove it.
   if (!dataFlow->isHostSource && dataFlow->sinks.size() == 1) {
     auto source = dataFlow->source;
-    PW_TRY(removeDataFlowLocked(it).status());
+    PW_TRY(removeDataFlowLocked(dataFlowIt).status());
     return source;
   }
-  if (dataFlow->isHostSource) {
-    unlinkOffloadSinkMetadataRegionLocked(sink, dataFlow.get());
-  }
-  removeEndpointDataFlowAssociationLocked(sink, dataFlow.get());
-  auto status = mEpollWaiter->removeTriggers(dataFlowId, sink);
+  releaseEndpointResourcesLocked(sinkIt, dataFlow.get());
+  auto &sinkId = sinkIt->first;
+  auto status = mEpollWaiter->removeTriggers(dataFlowId, sinkId);
   if (!status.ok()) {
     ALOGE("Failed to remove triggers for sink (0x%" PRIx64 ", 0x%" PRIx64
           ") on data flow (0x%" PRIx64 ", %" PRId32 ") with %d",
-          sink.hubId, sink.id, dataFlowId.hubId, dataFlowId.id, status.code());
+          sinkId.hubId, sinkId.id, dataFlowId.hubId, dataFlowId.id,
+          status.code());
   }
-  dataFlow->sinks.erase(sink);
+  dataFlow->sinks.erase(sinkId);
+  removeEndpointDataFlowAssociationLocked(sinkIt, dataFlow.get());
   return dataFlow->source;
 }
 
 void DataFlowManager::removeEndpointDataFlowAssociationLocked(
-    EndpointId endpoint, DataFlow *dataFlow) {
-  auto endpointFlowsIt = mEndpointToDataFlows.find(endpoint);
-  if (endpointFlowsIt != mEndpointToDataFlows.end()) {
-    endpointFlowsIt->second.erase(dataFlow);
-    if (endpointFlowsIt->second.empty()) {
-      mEndpointToDataFlows.erase(endpointFlowsIt);
-    }
+    EndpointMap::iterator endpointIt, DataFlow *dataFlow) {
+  auto &endpoint = endpointIt->second;
+  endpoint.dataFlows.erase(dataFlow);
+  if (endpoint.dataFlows.empty()) {
+    mIdToEndpoint.erase(endpointIt);
   }
 }
 
 pw::Result<SharedDataRegion>
 DataFlowManager::getOffloadSinkMetadataRegionLocked(EndpointId sinkId,
-                                                    DataFlow *dataFlow) {
+                                                    DataFlow *dataFlow,
+                                                    Endpoint &sink) {
   SharedDataRegion region;
   if (mRegionAllocator->consumerRequiresSeparateRegion(sinkId.hubId)) {
-    auto &dataFlowToMetadataRegionIdAndRefCount =
-        mOffloadSinkToDataFlowToMetadataRegionIdAndRefCount[sinkId];
-    auto it = dataFlowToMetadataRegionIdAndRefCount.find(dataFlow->id);
-    if (it != dataFlowToMetadataRegionIdAndRefCount.end()) {
+    auto &metadataRegionMap = std::get<Endpoint::MetadataRegionMap>(sink.map);
+    auto it = metadataRegionMap.find(dataFlow->id);
+    if (it != metadataRegionMap.end()) {
       PW_TRY_ASSIGN(region, mRegionAllocator->getRegionInfo(it->second.first));
       it->second.second++;
     } else {
@@ -420,7 +523,7 @@ DataFlowManager::getOffloadSinkMetadataRegionLocked(EndpointId sinkId,
           region,
           mRegionAllocator->allocateRegion(SharedDataRegionRequirements{
               .sizeBytes = getpagesize(), .targetHubIds = {sinkId.hubId}}));
-      dataFlowToMetadataRegionIdAndRefCount[dataFlow->id] = {region.id, 1};
+      metadataRegionMap[dataFlow->id] = {region.id, 1};
     }
   } else {
     PW_TRY_ASSIGN(region,
@@ -429,32 +532,35 @@ DataFlowManager::getOffloadSinkMetadataRegionLocked(EndpointId sinkId,
   return region;
 }
 
+void DataFlowManager::releaseEndpointResourcesLocked(
+    EndpointMap::iterator endpointIt, DataFlow *dataFlow) {
+  auto &[endpointId, endpoint] = *endpointIt;
+  if (endpoint.isHost) {
+    auto &outstandingWakeCount =
+        getAlertFdsAndWakeCountMapLocked(endpointId, endpoint, dataFlow->id)
+            .second;
+    decreaseWakeCountLocked(endpointId, dataFlow->id, outstandingWakeCount,
+                            outstandingWakeCount);
+  } else {
+    unlinkOffloadSinkMetadataRegionLocked(endpoint, dataFlow);
+  }
+}
+
 void DataFlowManager::unlinkOffloadSinkMetadataRegionLocked(
-    EndpointId sinkId, DataFlow *dataFlow) {
-  if (mRegionAllocator->consumerRequiresSeparateRegion(sinkId.hubId)) {
-    // Reduce the ref count on the sink's metadata region, releasing it if
-    // there are no more references.
-    auto dataFlowsIt =
-        mOffloadSinkToDataFlowToMetadataRegionIdAndRefCount.find(sinkId);
-    if (dataFlowsIt !=
-        mOffloadSinkToDataFlowToMetadataRegionIdAndRefCount.end()) {
-      auto regionIt = dataFlowsIt->second.find(dataFlow->id);
-      if (regionIt != dataFlowsIt->second.end()) {
-        regionIt->second.second--;
-        if (regionIt->second.second == 0) {
-          auto status = mRegionAllocator->releaseRegion(regionIt->second.first);
-          if (!status.ok()) {
-            ALOGE("Failed to release sink metadata region %" PRId32
-                  " for data flow (0x%" PRIx64 ", %" PRId32 "): %d",
-                  regionIt->second.first, dataFlow->id.hubId, dataFlow->id.id,
-                  status.code());
-          }
-          dataFlowsIt->second.erase(regionIt);
-        }
+    Endpoint &sink, DataFlow *dataFlow) {
+  auto &metadataRegionMap = std::get<Endpoint::MetadataRegionMap>(sink.map);
+  auto regionIt = metadataRegionMap.find(dataFlow->id);
+  if (regionIt != metadataRegionMap.end()) {
+    regionIt->second.second--;
+    if (regionIt->second.second == 0) {
+      auto status = mRegionAllocator->releaseRegion(regionIt->second.first);
+      if (!status.ok()) {
+        ALOGE("Failed to release sink metadata region %" PRId32
+              " for data flow (0x%" PRIx64 ", %" PRId32 "): %d",
+              regionIt->second.first, dataFlow->id.hubId, dataFlow->id.id,
+              status.code());
       }
-      if (dataFlowsIt->second.empty()) {
-        mOffloadSinkToDataFlowToMetadataRegionIdAndRefCount.erase(dataFlowsIt);
-      }
+      metadataRegionMap.erase(regionIt);
     }
   }
 }
@@ -472,6 +578,95 @@ void DataFlowManager::decrementHostRegionUseCountLocked(DataFlowId dataFlowId,
                      regionId, dataFlowId.hubId);
   }
   regionIt->second--;
+}
+
+pw::Result<std::pair<DataFlowManager::DataFlow *, DataFlowManager::Endpoint *>>
+DataFlowManager::lookupDataFlowAndEndpointLocked(DataFlowId dataFlowId,
+                                                 EndpointId endpointId) {
+  auto dataFlowIt = mIdToDataFlow.find(dataFlowId);
+  if (dataFlowIt == mIdToDataFlow.end()) {
+    ALOGW("Could not find data flow (0x%" PRIx64 ", %" PRId32 ") on callback",
+          dataFlowId.hubId, dataFlowId.id);
+    return pw::Status::NotFound();
+  }
+  auto *dataFlow = dataFlowIt->second.get();
+  auto endpointIt = mIdToEndpoint.find(endpointId);
+  if (endpointIt == mIdToEndpoint.end()) {
+    ALOGW("Could not find endpoint (0x%" PRIx64 ", 0x%" PRIx64 ") on callback",
+          endpointId.hubId, endpointId.id);
+    return pw::Status::NotFound();
+  } else if (!endpointIt->second.dataFlows.contains(dataFlow)) {
+    ALOGW("Cannot find association between endpoint (0x%" PRIx64 ", 0x%" PRIx64
+          ") and data flow (0x%" PRIx64 ", %" PRId32 ") on callback",
+          endpointId.hubId, endpointId.id, dataFlowId.hubId, dataFlowId.id);
+    return pw::Status::NotFound();
+  }
+  return std::make_pair(dataFlow, &endpointIt->second);
+}
+
+DataFlowManager::EndpointMap::iterator DataFlowManager::getEndpointLocked(
+    EndpointId endpointId) {
+  auto endpointIt = mIdToEndpoint.find(endpointId);
+  if (endpointIt == mIdToEndpoint.end()) {
+    LOG_ALWAYS_FATAL("Endpoint (0x%" PRIx64 ", 0x%" PRIx64 ") not found",
+                     endpointId.hubId, endpointId.id);
+  }
+  return endpointIt;
+}
+
+std::pair<DataFlowAlertFds, uint64_t> &
+DataFlowManager::getAlertFdsAndWakeCountMapLocked(EndpointId endpointId,
+                                                  Endpoint &endpoint,
+                                                  DataFlowId dataFlowId) {
+  auto &alertFdAndWakeCountMap =
+      std::get<Endpoint::AlertFdAndWakeCountMap>(endpoint.map);
+  auto it = alertFdAndWakeCountMap.find(dataFlowId);
+  if (it == alertFdAndWakeCountMap.end()) {
+    LOG_ALWAYS_FATAL(
+        "Could not find alert fds for data flow (0x%" PRIx64 ", %" PRId32
+        ") on endpoint (0x%" PRIx64 ", 0x%" PRIx64 ")",
+        dataFlowId.hubId, dataFlowId.id, endpointId.hubId, endpointId.id);
+  }
+  return it->second;
+}
+
+bool DataFlowManager::incrementWakeCountLocked(EndpointId endpointId,
+                                               DataFlowId dataFlowId,
+                                               uint64_t &wakeCount) {
+  auto status =
+      mWakelockManager->increaseWakeCount(WakelockManager::Usage::kDataFlow, 1);
+  if (!status.ok()) {
+    ALOGW(
+        "Failed to increase wake count for waking alert to endpoint "
+        "(0x%" PRIx64 ", 0x%" PRIx64 ") on data flow (0x%" PRIx64 ", %" PRId32
+        ") with %d",
+        endpointId.hubId, endpointId.id, dataFlowId.hubId, dataFlowId.id,
+        status.code());
+  } else {
+    wakeCount++;
+  }
+  return status.ok();
+}
+
+void DataFlowManager::decreaseWakeCountLocked(EndpointId endpointId,
+                                              DataFlowId dataFlowId,
+                                              uint64_t &wakeCount,
+                                              size_t decrease) {
+  if (decrease == 0) {
+    return;
+  }
+  auto status = mWakelockManager->decreaseWakeCount(
+      WakelockManager::Usage::kDataFlow, decrease);
+  if (!status.ok()) {
+    ALOGE(
+        "Failed to decrease wake count for waking alert to endpoint "
+        "(0x%" PRIx64 ", 0x%" PRIx64 ") on data flow (0x%" PRIx64 ", %" PRId32
+        ") with %d",
+        endpointId.hubId, endpointId.id, dataFlowId.hubId, dataFlowId.id,
+        status.code());
+  } else {
+    wakeCount -= decrease;
+  }
 }
 
 }  // namespace android::hardware::contexthub::common::implementation
