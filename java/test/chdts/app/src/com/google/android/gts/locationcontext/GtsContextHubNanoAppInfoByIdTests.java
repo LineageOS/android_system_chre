@@ -21,6 +21,7 @@ import com.android.compatibility.common.util.GmsTest;
 
 import com.google.android.chre.test.chqts.ContextHubInfoByIdTestExecutor;
 import com.google.android.chre.test.chqts.ContextHubTestConstants.TestNames;
+import com.google.android.utils.chre.ContextHubHostTestUtil;
 
 import org.junit.After;
 import org.junit.Before;
@@ -46,6 +47,8 @@ public class GtsContextHubNanoAppInfoByIdTests
     private final ContextHubInfoByIdTestExecutor mExecutor;
 
     private static final int STANDARD_TIMEOUT = 5; // seconds
+
+    private static final long GENERAL_TEST_NANOAPP_ID = 0x476f6f6754000000L;
 
     /**
      * Provides the parameters for the parameterized tests.
@@ -74,9 +77,15 @@ public class GtsContextHubNanoAppInfoByIdTests
     public GtsContextHubNanoAppInfoByIdTests(TestNames testName) {
         // Initializes the test executor with the context hub details, the nanoapp binary,
         // and the specific test name for this parameterized run.
-        mExecutor = new ContextHubInfoByIdTestExecutor(getContextHubManager(),
-                getContextHubInfo(),
-                createNanoAppBinary(getContextHubInfo(), "general_test.napp"), testName);
+        if (ContextHubHostTestUtil.isStaticNanoappsMode()) {
+            mExecutor = new ContextHubInfoByIdTestExecutor(getContextHubManager(),
+                    getContextHubInfo(),
+                    GENERAL_TEST_NANOAPP_ID, testName);
+        } else {
+            mExecutor = new ContextHubInfoByIdTestExecutor(getContextHubManager(),
+                    getContextHubInfo(),
+                    createNanoAppBinary(getContextHubInfo(), "general_test.napp"), testName);
+        }
     }
 
     @Before

@@ -423,4 +423,21 @@ public class ContextHubHostTestUtil {
             return 0;
         }
     }
+
+    /**
+     * Returns true if the test should bypass dynamic loading and run in static nanoapp mode.
+     */
+    public static boolean isStaticNanoappsMode() {
+        Bundle extras = InstrumentationRegistry.getArguments();
+        if (extras == null || !extras.containsKey("static_nanoapps")) {
+            return false;
+        }
+        String value = extras.getString("static_nanoapps");
+
+        if (TextUtils.isEmpty(value)) {
+            Log.w(TAG, "static_nanoapps flag supplied but empty");
+            return false;
+        }
+        return Boolean.parseBoolean(value);
+    }
 }

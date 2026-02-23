@@ -20,6 +20,7 @@ import static com.google.android.utils.chre.ContextHubHostTestUtil.createNanoApp
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 
 import com.google.android.chre.test.chqts.ContextHubEstimatedHostTimeTestExecutor;
+import com.google.android.utils.chre.ContextHubHostTestUtil;
 
 import org.junit.After;
 import org.junit.Before;
@@ -37,12 +38,20 @@ public class GtsContextHubEstimatedHostTimeTest extends GtsContextHubTestBase {
 
     private final ContextHubEstimatedHostTimeTestExecutor mExecutor;
     private static final long TIMEOUT_SECONDS = 5;
+    private static final long GENERAL_TEST_NANOAPP_ID = 0x476f6f6754000000L;
 
     public GtsContextHubEstimatedHostTimeTest() {
-        mExecutor =
-                new ContextHubEstimatedHostTimeTestExecutor(getContextHubManager(),
-                        getContextHubInfo(),
-                        createNanoAppBinary(getContextHubInfo(), "general_test.napp"));
+        if (ContextHubHostTestUtil.isStaticNanoappsMode()) {
+            mExecutor = new ContextHubEstimatedHostTimeTestExecutor(
+                    getContextHubManager(),
+                    getContextHubInfo(),
+                    GENERAL_TEST_NANOAPP_ID);
+        } else {
+            mExecutor = new ContextHubEstimatedHostTimeTestExecutor(
+                    getContextHubManager(),
+                    getContextHubInfo(),
+                    createNanoAppBinary(getContextHubInfo(), "general_test.napp"));
+        }
     }
 
     @Before
