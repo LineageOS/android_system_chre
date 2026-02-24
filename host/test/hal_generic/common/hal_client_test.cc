@@ -170,10 +170,6 @@ class HalClientForTest : public HalClient {
   }
 
  protected:
-  bool isNewConnectInBackgroundEnabled() const override {
-    return true;
-  }
-
   HalError initConnection() override {
     mIsHalConnected = mContextHub != nullptr;
     return HalError::SUCCESS;  // Always succeed for test

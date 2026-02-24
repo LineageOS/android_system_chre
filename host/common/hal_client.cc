@@ -19,7 +19,6 @@
 #endif
 
 #include "chre_host/hal_client.h"
-#include "android_chre_flags.h"
 #include "chre_host/log.h"
 
 #include <android-base/properties.h>
@@ -45,10 +44,6 @@ constexpr std::chrono::milliseconds kWatchdogSleepInterval{500};
 
 constexpr std::chrono::seconds kBgConnectionFutureTimeout{1};
 }  // namespace
-
-bool HalClient::isNewConnectInBackgroundEnabled() const {
-  return flags::hal_client_new_connect_in_background();
-}
 
 HalClient::HalClient(const std::shared_ptr<IContextHubCallback> &callback,
                      int32_t contextHubId)
@@ -211,65 +206,55 @@ HalError HalClient::initConnection() {
  *          queued are called.
  */
 bool HalClient::connectInBackground(BackgroundConnectionCallback &callback) {
-  if (isNewConnectInBackgroundEnabled()) {
-    size_t numOfPendingCallbacks;
-    {
-      std::lock_guard lock(mBgConnectionMutex);
-      if (!mBgConnectionFuture.valid()) {
-        // First call. Launch the connecting async task.
-        mPendingBgConnectionCallbacks.push_back(&callback);
-        // Policy std::launch::async is required to avoid lazy evaluation which
-        // can postpone the execution until get() of the future returned by
-        // std::async is called.
-        mBgConnectionFuture = std::async(std::launch::async, [this]() {
-          connect();
-          std::vector<BackgroundConnectionCallback *> callbacks;
-          {
-            std::lock_guard lock(mBgConnectionMutex);
-            callbacks.swap(mPendingBgConnectionCallbacks);
-          }
+  size_t numOfPendingCallbacks;
+  {
+    std::lock_guard lock(mBgConnectionMutex);
+    if (!mBgConnectionFuture.valid()) {
+      // First call. Launch the connecting async task.
+      mPendingBgConnectionCallbacks.push_back(&callback);
+      // Policy std::launch::async is required to avoid lazy evaluation which
+      // can postpone the execution until get() of the future returned by
+      // std::async is called.
+      mBgConnectionFuture = std::async(std::launch::async, [this]() {
+        connect();
+        std::vector<BackgroundConnectionCallback *> callbacks;
+        {
+          std::lock_guard lock(mBgConnectionMutex);
+          callbacks.swap(mPendingBgConnectionCallbacks);
+        }
 
-          for (int i = 0; i < callbacks.size(); ++i) {
-            LOGD("Invoking %d/%zu onInitialization callbacks for %s", i + 1,
-                 callbacks.size(), mClientName.c_str());
-            callbacks[i]->onInitialization(mIsHalConnected);
-          }
-        });
-        return true;
-      }
-
-      numOfPendingCallbacks = mPendingBgConnectionCallbacks.size();
-      if (numOfPendingCallbacks > 0 &&
-          numOfPendingCallbacks < kMaxPendingConnectionCallbacks) {
-        LOGD(
-            "A background HalClient connection is already in progress for %s. "
-            "Queuing callback #%zu",
-            mClientName.c_str(), numOfPendingCallbacks + 1);
-        mPendingBgConnectionCallbacks.push_back(&callback);
-        return true;
-      }
-    }
-
-    if (numOfPendingCallbacks == 0) {
-      LOGD("Hal is already %s. Invoking the callback directly",
-           mIsHalConnected ? "connected" : "disconnected");
-      callback.onInitialization(mIsHalConnected);
+        for (int i = 0; i < callbacks.size(); ++i) {
+          LOGD("Invoking %d/%zu onInitialization callbacks for %s", i + 1,
+               callbacks.size(), mClientName.c_str());
+          callbacks[i]->onInitialization(mIsHalConnected);
+        }
+      });
       return true;
     }
 
-    LOGE("Too many pending bg connecting requests from %s. Dropped",
-         mClientName.c_str());
-    callback.onInitialization(false);
-    return false;
-  } else {
-    std::lock_guard lock(mBackgroundConnectionFuturesLock);
-    // Policy std::launch::async is required to avoid lazy evaluation which
-    // can postpone the execution until get() of the future returned by
-    // std::async is called.
-    mBackgroundConnectionFutures.emplace_back(std::async(
-        std::launch::async, [&] { callback.onInitialization(connect()); }));
+    numOfPendingCallbacks = mPendingBgConnectionCallbacks.size();
+    if (numOfPendingCallbacks > 0 &&
+        numOfPendingCallbacks < kMaxPendingConnectionCallbacks) {
+      LOGD(
+          "A background HalClient connection is already in progress for %s. "
+          "Queuing callback #%zu",
+          mClientName.c_str(), numOfPendingCallbacks + 1);
+      mPendingBgConnectionCallbacks.push_back(&callback);
+      return true;
+    }
   }
-  return true;
+
+  if (numOfPendingCallbacks == 0) {
+    LOGD("Hal is already %s. Invoking the callback directly",
+         mIsHalConnected ? "connected" : "disconnected");
+    callback.onInitialization(mIsHalConnected);
+    return true;
+  }
+
+  LOGE("Too many pending bg connecting requests from %s. Dropped",
+       mClientName.c_str());
+  callback.onInitialization(false);
+  return false;
 }
 
 void HalClient::onHalDisconnected(void *cookie) {
@@ -377,24 +362,10 @@ void HalClient::tryReconnectEndpoints(HalClient *halClient) {
 }
 
 HalClient::~HalClient() {
-  if (HalClient::isNewConnectInBackgroundEnabled()) {
+  {
     std::lock_guard bgConnectionLock(mBgConnectionMutex);
     if (mBgConnectionFuture.valid()) {
       while (mBgConnectionFuture.wait_for(kBgConnectionFutureTimeout) !=
-             std::future_status::ready) {
-        LOGE(
-            "Failed to finish a background connection in time when HalClient "
-            "is being destructed. Waiting...");
-      }
-    }
-  } else {
-    std::lock_guard bgConnectionLock(mBackgroundConnectionFuturesLock);
-    for (const auto &future : mBackgroundConnectionFutures) {
-      // Calling std::thread.join() has chance to hang if the background thread
-      // being joined is still waiting for connecting to the service. Therefore,
-      // waiting for the thread to finish here instead and logging the timeout
-      // every second until system kills the process to report the abnormality.
-      while (future.wait_for(kBgConnectionFutureTimeout) !=
              std::future_status::ready) {
         LOGE(
             "Failed to finish a background connection in time when HalClient "
