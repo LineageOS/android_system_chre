@@ -336,12 +336,14 @@ void PlatformSensorManagerBase::fillAccelerometerEvent(
             ? mapAndroidAccuracyToChre(event.acceleration.status)
             : CHRE_SENSOR_ACCURACY_UNRELIABLE;
     chreEvent.threeAxisData->header.reserved = 0;
+    chreEvent.lastEventTimestamp = event.timestamp;
   }
   // Fill in data for accelerometer
   size_t index = chreEvent.currentIndex;
   ++chreEvent.currentIndex;
   chreEvent.threeAxisData->readings[index].timestampDelta =
-      event.timestamp - chreEvent.threeAxisData->header.baseTimestamp;
+      event.timestamp - chreEvent.lastEventTimestamp;
+  chreEvent.lastEventTimestamp = event.timestamp;
   if (event.type == ASENSOR_TYPE_ACCELEROMETER) {
     chreEvent.threeAxisData->readings[index].v[0] = event.acceleration.x;
     chreEvent.threeAxisData->readings[index].v[1] = event.acceleration.y;
@@ -374,12 +376,14 @@ void PlatformSensorManagerBase::fillBarometerEvent(const ASensorEvent &event,
     chreEvent.floatData->header.baseTimestamp = event.timestamp;
     chreEvent.floatData->header.accuracy = CHRE_SENSOR_ACCURACY_UNRELIABLE;
     chreEvent.floatData->header.reserved = 0;
+    chreEvent.lastEventTimestamp = event.timestamp;
   }
-  // Fill in data for accelerometer
+  // Fill in data for barometer
   size_t index = chreEvent.currentIndex;
   ++chreEvent.currentIndex;
   chreEvent.floatData->readings[index].timestampDelta =
-      event.timestamp - chreEvent.floatData->header.baseTimestamp;
+      event.timestamp - chreEvent.lastEventTimestamp;
+  chreEvent.lastEventTimestamp = event.timestamp;
   chreEvent.floatData->readings[index].pressure = event.pressure;
 }
 

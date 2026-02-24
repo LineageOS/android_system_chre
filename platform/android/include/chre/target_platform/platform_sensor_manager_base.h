@@ -71,6 +71,9 @@ class PlatformSensorManagerBase {
     size_t dataSize = 0;
     // The index used to fill in the chre event.
     size_t currentIndex = 0;
+    // The timestamp of the last events, used to fill timestampDelta in CHRE
+    // events.
+    uint64_t lastEventTimestamp = 0;
   };
 
   static void fillAccelerometerEvent(const ASensorEvent &event,
