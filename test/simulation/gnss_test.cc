@@ -18,6 +18,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <thread>
 
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/settings.h"
@@ -36,6 +37,7 @@ namespace chre {
 namespace {
 
 class GnssTest : public SingleThreadTestBase {};
+class GnssTestMultiThread : public MultiThreadTestBase {};
 
 /**
  * Wait for the predicate to become true with a timeout.
@@ -46,7 +48,7 @@ bool waitForCondition(const std::function<bool()> &predicate,
                       std::chrono::milliseconds timeout) {
   constexpr std::chrono::milliseconds kSleepDuration(100);
   bool result;
-  std::chrono::milliseconds time;
+  std::chrono::milliseconds time(0);
   while (!(result = predicate()) && time < timeout) {
     std::this_thread::sleep_for(kSleepDuration);
     time += kSleepDuration;
@@ -55,7 +57,8 @@ bool waitForCondition(const std::function<bool()> &predicate,
 }
 
 // ref b/228669574
-TEST_F(GnssTest, GnssSubscriptionWithSettingChange) {
+void doGnssSubscriptionWithSettingChangeTest(TestBase *test,
+                                             int8_t requestedThreadPriority) {
   CREATE_CHRE_TEST_EVENT(LOCATION_REQUEST, 0);
 
   struct LocationRequest {
@@ -65,9 +68,7 @@ TEST_F(GnssTest, GnssSubscriptionWithSettingChange) {
 
   class App : public TestNanoapp {
    public:
-    App()
-        : TestNanoapp(
-              TestNanoappInfo{.perms = NanoappPermissions::CHRE_PERMS_GNSS}) {}
+    explicit App(TestNanoappInfo info) : TestNanoapp(info) {}
 
     bool start() override {
       chreUserSettingConfigureEvents(CHRE_USER_SETTING_LOCATION,
@@ -126,7 +127,10 @@ TEST_F(GnssTest, GnssSubscriptionWithSettingChange) {
     uint32_t mCookie;
   };
 
-  uint64_t appId = loadNanoapp(MakeUnique<App>());
+  TestNanoappInfo info;
+  info.perms = NanoappPermissions::CHRE_PERMS_GNSS;
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId = test->loadNanoapp(MakeUnique<App>(info));
 
   bool success;
   EXPECT_FALSE(chrePalGnssIsLocationEnabled());
@@ -134,18 +138,18 @@ TEST_F(GnssTest, GnssSubscriptionWithSettingChange) {
 
   LocationRequest request{.enable = true, .cookie = 0x123};
   sendEventToNanoapp(appId, LOCATION_REQUEST, request);
-  waitForEvent(LOCATION_REQUEST, &success);
+  test->waitForEvent(LOCATION_REQUEST, &success);
   EXPECT_TRUE(success);
   chrePalGnssStartSendingLocationEvents();
   uint32_t cookie;
-  waitForEvent(CHRE_EVENT_GNSS_ASYNC_RESULT, &cookie);
+  test->waitForEvent(CHRE_EVENT_GNSS_ASYNC_RESULT, &cookie);
   EXPECT_EQ(cookie, request.cookie);
   EXPECT_TRUE(chrePalGnssIsLocationEnabled());
 
   EventLoopManagerSingleton::get()->getSettingManager().postSettingChange(
       Setting::LOCATION, false /* enabled */);
 
-  waitForEvent(CHRE_EVENT_SETTING_CHANGED_LOCATION);
+  test->waitForEvent(CHRE_EVENT_SETTING_CHANGED_LOCATION);
 
   // Wait for the setting change to propagate to GNSS.
   EXPECT_TRUE(waitForCondition([]() { return !chrePalGnssIsLocationEnabled(); },
@@ -154,7 +158,7 @@ TEST_F(GnssTest, GnssSubscriptionWithSettingChange) {
   EventLoopManagerSingleton::get()->getSettingManager().postSettingChange(
       Setting::LOCATION, true /* enabled */);
 
-  waitForEvent(CHRE_EVENT_SETTING_CHANGED_LOCATION);
+  test->waitForEvent(CHRE_EVENT_SETTING_CHANGED_LOCATION);
 
   // Wait for the setting change to propagate to GNSS.
   EXPECT_TRUE(waitForCondition([]() { return chrePalGnssIsLocationEnabled(); },
@@ -162,16 +166,32 @@ TEST_F(GnssTest, GnssSubscriptionWithSettingChange) {
 
   request.enable = false;
   sendEventToNanoapp(appId, LOCATION_REQUEST, request);
-  waitForEvent(LOCATION_REQUEST, &success);
+  test->waitForEvent(LOCATION_REQUEST, &success);
   EXPECT_TRUE(success);
   chrePalGnssStartSendingLocationEvents();
-  waitForEvent(CHRE_EVENT_GNSS_ASYNC_RESULT, &cookie);
+  test->waitForEvent(CHRE_EVENT_GNSS_ASYNC_RESULT, &cookie);
   EXPECT_EQ(cookie, request.cookie);
   EXPECT_FALSE(chrePalGnssIsLocationEnabled());
   chrePalGnssDelaySendingLocationEvents(false);
 }
 
-TEST_F(GnssTest, GnssCanSubscribeAndUnsubscribeToLocation) {
+TEST_F(GnssTest, GnssSubscriptionWithSettingChange) {
+  doGnssSubscriptionWithSettingChangeTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(GnssTestMultiThread, GnssSubscriptionWithSettingChange) {
+  doGnssSubscriptionWithSettingChangeTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(GnssTestMultiThread, GnssSubscriptionWithSettingChangeForeground) {
+  doGnssSubscriptionWithSettingChangeTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
+}
+
+void doGnssCanSubscribeAndUnsubscribeToLocationTest(
+    TestBase *test, int8_t requestedThreadPriority) {
   CREATE_CHRE_TEST_EVENT(LOCATION_REQUEST, 0);
 
   struct LocationRequest {
@@ -181,9 +201,7 @@ TEST_F(GnssTest, GnssCanSubscribeAndUnsubscribeToLocation) {
 
   class App : public TestNanoapp {
    public:
-    App()
-        : TestNanoapp(
-              TestNanoappInfo{.perms = NanoappPermissions::CHRE_PERMS_GNSS}) {}
+    explicit App(TestNanoappInfo info) : TestNanoapp(info) {}
 
     void handleEvent(uint32_t, uint16_t eventType,
                      const void *eventData) override {
@@ -225,30 +243,49 @@ TEST_F(GnssTest, GnssCanSubscribeAndUnsubscribeToLocation) {
     uint32_t mCookie;
   };
 
-  uint64_t appId = loadNanoapp(MakeUnique<App>());
+  TestNanoappInfo info;
+  info.perms = NanoappPermissions::CHRE_PERMS_GNSS;
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId = test->loadNanoapp(MakeUnique<App>(info));
 
   bool success;
   EXPECT_FALSE(chrePalGnssIsLocationEnabled());
 
   LocationRequest request{.enable = true, .cookie = 0x123};
   sendEventToNanoapp(appId, LOCATION_REQUEST, request);
-  waitForEvent(LOCATION_REQUEST, &success);
+  test->waitForEvent(LOCATION_REQUEST, &success);
   EXPECT_TRUE(success);
   uint32_t cookie;
-  waitForEvent(CHRE_EVENT_GNSS_ASYNC_RESULT, &cookie);
+  test->waitForEvent(CHRE_EVENT_GNSS_ASYNC_RESULT, &cookie);
   EXPECT_EQ(cookie, request.cookie);
   EXPECT_TRUE(chrePalGnssIsLocationEnabled());
 
   request.enable = false;
   sendEventToNanoapp(appId, LOCATION_REQUEST, request);
-  waitForEvent(LOCATION_REQUEST, &success);
+  test->waitForEvent(LOCATION_REQUEST, &success);
   EXPECT_TRUE(success);
-  waitForEvent(CHRE_EVENT_GNSS_ASYNC_RESULT, &cookie);
+  test->waitForEvent(CHRE_EVENT_GNSS_ASYNC_RESULT, &cookie);
   EXPECT_EQ(cookie, request.cookie);
   EXPECT_FALSE(chrePalGnssIsLocationEnabled());
 }
 
-TEST_F(GnssTest, GnssUnsubscribeToLocationOnUnload) {
+TEST_F(GnssTest, GnssCanSubscribeAndUnsubscribeToLocation) {
+  doGnssCanSubscribeAndUnsubscribeToLocationTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(GnssTestMultiThread, GnssCanSubscribeAndUnsubscribeToLocation) {
+  doGnssCanSubscribeAndUnsubscribeToLocationTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(GnssTestMultiThread, GnssCanSubscribeAndUnsubscribeToLocationForeground) {
+  doGnssCanSubscribeAndUnsubscribeToLocationTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
+}
+
+void doGnssUnsubscribeToLocationOnUnloadTest(TestBase *test,
+                                             int8_t requestedThreadPriority) {
   CREATE_CHRE_TEST_EVENT(LOCATION_REQUEST, 0);
 
   struct LocationRequest {
@@ -258,9 +295,7 @@ TEST_F(GnssTest, GnssUnsubscribeToLocationOnUnload) {
 
   class App : public TestNanoapp {
    public:
-    App()
-        : TestNanoapp(
-              TestNanoappInfo{.perms = NanoappPermissions::CHRE_PERMS_GNSS}) {}
+    explicit App(TestNanoappInfo info) : TestNanoapp(info) {}
 
     void handleEvent(uint32_t, uint16_t eventType,
                      const void *eventData) override {
@@ -299,25 +334,44 @@ TEST_F(GnssTest, GnssUnsubscribeToLocationOnUnload) {
     uint32_t mCookie;
   };
 
-  uint64_t appId = loadNanoapp(MakeUnique<App>());
+  TestNanoappInfo info;
+  info.perms = NanoappPermissions::CHRE_PERMS_GNSS;
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId = test->loadNanoapp(MakeUnique<App>(info));
 
   EXPECT_FALSE(chrePalGnssIsLocationEnabled());
 
   LocationRequest request{.enable = true, .cookie = 0x123};
   sendEventToNanoapp(appId, LOCATION_REQUEST, request);
   bool success;
-  waitForEvent(LOCATION_REQUEST, &success);
+  test->waitForEvent(LOCATION_REQUEST, &success);
   EXPECT_TRUE(success);
   uint32_t cookie;
-  waitForEvent(CHRE_EVENT_GNSS_ASYNC_RESULT, &cookie);
+  test->waitForEvent(CHRE_EVENT_GNSS_ASYNC_RESULT, &cookie);
   EXPECT_EQ(cookie, request.cookie);
   EXPECT_TRUE(chrePalGnssIsLocationEnabled());
 
-  unloadNanoapp(appId);
+  test->unloadNanoapp(appId);
   EXPECT_FALSE(chrePalGnssIsLocationEnabled());
 }
 
-TEST_F(GnssTest, GnssCanSubscribeAndUnsubscribeToMeasurement) {
+TEST_F(GnssTest, GnssUnsubscribeToLocationOnUnload) {
+  doGnssUnsubscribeToLocationOnUnloadTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(GnssTestMultiThread, GnssUnsubscribeToLocationOnUnload) {
+  doGnssUnsubscribeToLocationOnUnloadTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(GnssTestMultiThread, GnssUnsubscribeToLocationOnUnloadForeground) {
+  doGnssUnsubscribeToLocationOnUnloadTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
+}
+
+void doGnssCanSubscribeAndUnsubscribeToMeasurementTest(
+    TestBase *test, int8_t requestedThreadPriority) {
   CREATE_CHRE_TEST_EVENT(MEASUREMENT_REQUEST, 0);
 
   struct MeasurementRequest {
@@ -327,9 +381,7 @@ TEST_F(GnssTest, GnssCanSubscribeAndUnsubscribeToMeasurement) {
 
   class App : public TestNanoapp {
    public:
-    App()
-        : TestNanoapp(
-              TestNanoappInfo{.perms = NanoappPermissions::CHRE_PERMS_GNSS}) {}
+    explicit App(TestNanoappInfo info) : TestNanoapp(info) {}
 
     void handleEvent(uint32_t, uint16_t eventType,
                      const void *eventData) override {
@@ -371,30 +423,50 @@ TEST_F(GnssTest, GnssCanSubscribeAndUnsubscribeToMeasurement) {
     uint32_t mCookie;
   };
 
-  uint64_t appId = loadNanoapp(MakeUnique<App>());
+  TestNanoappInfo info;
+  info.perms = NanoappPermissions::CHRE_PERMS_GNSS;
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId = test->loadNanoapp(MakeUnique<App>(info));
 
   bool success;
   EXPECT_FALSE(chrePalGnssIsLocationEnabled());
 
   MeasurementRequest request{.enable = true, .cookie = 0x123};
   sendEventToNanoapp(appId, MEASUREMENT_REQUEST, request);
-  waitForEvent(MEASUREMENT_REQUEST, &success);
+  test->waitForEvent(MEASUREMENT_REQUEST, &success);
   EXPECT_TRUE(success);
   uint32_t cookie;
-  waitForEvent(CHRE_EVENT_GNSS_ASYNC_RESULT, &cookie);
+  test->waitForEvent(CHRE_EVENT_GNSS_ASYNC_RESULT, &cookie);
   EXPECT_EQ(cookie, request.cookie);
   EXPECT_TRUE(chrePalGnssIsMeasurementEnabled());
 
   request.enable = false;
   sendEventToNanoapp(appId, MEASUREMENT_REQUEST, request);
-  waitForEvent(MEASUREMENT_REQUEST, &success);
+  test->waitForEvent(MEASUREMENT_REQUEST, &success);
   EXPECT_TRUE(success);
-  waitForEvent(CHRE_EVENT_GNSS_ASYNC_RESULT, &cookie);
+  test->waitForEvent(CHRE_EVENT_GNSS_ASYNC_RESULT, &cookie);
   EXPECT_EQ(cookie, request.cookie);
   EXPECT_FALSE(chrePalGnssIsMeasurementEnabled());
 }
 
-TEST_F(GnssTest, GnssUnsubscribeToMeasurementOnUnload) {
+TEST_F(GnssTest, GnssCanSubscribeAndUnsubscribeToMeasurement) {
+  doGnssCanSubscribeAndUnsubscribeToMeasurementTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(GnssTestMultiThread, GnssCanSubscribeAndUnsubscribeToMeasurement) {
+  doGnssCanSubscribeAndUnsubscribeToMeasurementTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(GnssTestMultiThread,
+       GnssCanSubscribeAndUnsubscribeToMeasurementForeground) {
+  doGnssCanSubscribeAndUnsubscribeToMeasurementTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
+}
+
+void doGnssUnsubscribeToMeasurementOnUnloadTest(
+    TestBase *test, int8_t requestedThreadPriority) {
   CREATE_CHRE_TEST_EVENT(MEASUREMENT_REQUEST, 0);
 
   struct MeasurementRequest {
@@ -404,9 +476,7 @@ TEST_F(GnssTest, GnssUnsubscribeToMeasurementOnUnload) {
 
   class App : public TestNanoapp {
    public:
-    App()
-        : TestNanoapp(
-              TestNanoappInfo{.perms = NanoappPermissions::CHRE_PERMS_GNSS}) {}
+    explicit App(TestNanoappInfo info) : TestNanoapp(info) {}
 
     void handleEvent(uint32_t, uint16_t eventType,
                      const void *eventData) override {
@@ -445,32 +515,49 @@ TEST_F(GnssTest, GnssUnsubscribeToMeasurementOnUnload) {
     uint32_t mCookie;
   };
 
-  uint64_t appId = loadNanoapp(MakeUnique<App>());
+  TestNanoappInfo info;
+  info.perms = NanoappPermissions::CHRE_PERMS_GNSS;
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId = test->loadNanoapp(MakeUnique<App>(info));
 
   EXPECT_FALSE(chrePalGnssIsLocationEnabled());
 
   MeasurementRequest request{.enable = true, .cookie = 0x123};
   sendEventToNanoapp(appId, MEASUREMENT_REQUEST, request);
   bool success;
-  waitForEvent(MEASUREMENT_REQUEST, &success);
+  test->waitForEvent(MEASUREMENT_REQUEST, &success);
   EXPECT_TRUE(success);
   uint32_t cookie;
-  waitForEvent(CHRE_EVENT_GNSS_ASYNC_RESULT, &cookie);
+  test->waitForEvent(CHRE_EVENT_GNSS_ASYNC_RESULT, &cookie);
   EXPECT_EQ(cookie, request.cookie);
   EXPECT_TRUE(chrePalGnssIsMeasurementEnabled());
 
-  unloadNanoapp(appId);
+  test->unloadNanoapp(appId);
   EXPECT_FALSE(chrePalGnssIsMeasurementEnabled());
 }
 
-TEST_F(GnssTest, GnssCanSubscribeAndUnsubscribeToPassiveListener) {
+TEST_F(GnssTest, GnssUnsubscribeToMeasurementOnUnload) {
+  doGnssUnsubscribeToMeasurementOnUnloadTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(GnssTestMultiThread, GnssUnsubscribeToMeasurementOnUnload) {
+  doGnssUnsubscribeToMeasurementOnUnloadTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(GnssTestMultiThread, GnssUnsubscribeToMeasurementOnUnloadForeground) {
+  doGnssUnsubscribeToMeasurementOnUnloadTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
+}
+
+void doGnssCanSubscribeAndUnsubscribeToPassiveListenerTest(
+    TestBase *test, int8_t requestedThreadPriority) {
   CREATE_CHRE_TEST_EVENT(LISTENER_REQUEST, 0);
 
   class App : public TestNanoapp {
    public:
-    App()
-        : TestNanoapp(
-              TestNanoappInfo{.perms = NanoappPermissions::CHRE_PERMS_GNSS}) {}
+    explicit App(TestNanoappInfo info) : TestNanoapp(info) {}
 
     void handleEvent(uint32_t, uint16_t eventType,
                      const void *eventData) override {
@@ -492,30 +579,48 @@ TEST_F(GnssTest, GnssCanSubscribeAndUnsubscribeToPassiveListener) {
     }
   };
 
-  uint64_t appId = loadNanoapp(MakeUnique<App>());
+  TestNanoappInfo info;
+  info.perms = NanoappPermissions::CHRE_PERMS_GNSS;
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId = test->loadNanoapp(MakeUnique<App>(info));
 
   bool success;
   EXPECT_FALSE(chrePalGnssIsPassiveLocationListenerEnabled());
 
   sendEventToNanoapp(appId, LISTENER_REQUEST, true);
-  waitForEvent(LISTENER_REQUEST, &success);
+  test->waitForEvent(LISTENER_REQUEST, &success);
   EXPECT_TRUE(success);
   EXPECT_TRUE(chrePalGnssIsPassiveLocationListenerEnabled());
 
   sendEventToNanoapp(appId, LISTENER_REQUEST, false);
-  waitForEvent(LISTENER_REQUEST, &success);
+  test->waitForEvent(LISTENER_REQUEST, &success);
   EXPECT_TRUE(success);
   EXPECT_FALSE(chrePalGnssIsPassiveLocationListenerEnabled());
 }
 
-TEST_F(GnssTest, GnssUnsubscribeToPassiveListenerOnUnload) {
+TEST_F(GnssTest, GnssCanSubscribeAndUnsubscribeToPassiveListener) {
+  doGnssCanSubscribeAndUnsubscribeToPassiveListenerTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(GnssTestMultiThread, GnssCanSubscribeAndUnsubscribeToPassiveListener) {
+  doGnssCanSubscribeAndUnsubscribeToPassiveListenerTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(GnssTestMultiThread,
+       GnssCanSubscribeAndUnsubscribeToPassiveListenerForeground) {
+  doGnssCanSubscribeAndUnsubscribeToPassiveListenerTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
+}
+
+void doGnssUnsubscribeToPassiveListenerOnUnloadTest(
+    TestBase *test, int8_t requestedThreadPriority) {
   CREATE_CHRE_TEST_EVENT(LISTENER_REQUEST, 0);
 
   class App : public TestNanoapp {
    public:
-    App()
-        : TestNanoapp(
-              TestNanoappInfo{.perms = NanoappPermissions::CHRE_PERMS_GNSS}) {}
+    explicit App(TestNanoappInfo info) : TestNanoapp(info) {}
 
     void handleEvent(uint32_t, uint16_t eventType,
                      const void *eventData) override {
@@ -536,18 +641,37 @@ TEST_F(GnssTest, GnssUnsubscribeToPassiveListenerOnUnload) {
     }
   };
 
-  uint64_t appId = loadNanoapp(MakeUnique<App>());
+  TestNanoappInfo info;
+  info.perms = NanoappPermissions::CHRE_PERMS_GNSS;
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId = test->loadNanoapp(MakeUnique<App>(info));
 
   EXPECT_FALSE(chrePalGnssIsPassiveLocationListenerEnabled());
 
   sendEventToNanoapp(appId, LISTENER_REQUEST, true);
   bool success;
-  waitForEvent(LISTENER_REQUEST, &success);
+  test->waitForEvent(LISTENER_REQUEST, &success);
   EXPECT_TRUE(success);
   EXPECT_TRUE(chrePalGnssIsPassiveLocationListenerEnabled());
 
-  unloadNanoapp(appId);
+  test->unloadNanoapp(appId);
   EXPECT_FALSE(chrePalGnssIsPassiveLocationListenerEnabled());
+}
+
+TEST_F(GnssTest, GnssUnsubscribeToPassiveListenerOnUnload) {
+  doGnssUnsubscribeToPassiveListenerOnUnloadTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(GnssTestMultiThread, GnssUnsubscribeToPassiveListenerOnUnload) {
+  doGnssUnsubscribeToPassiveListenerOnUnloadTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(GnssTestMultiThread,
+       GnssUnsubscribeToPassiveListenerOnUnloadForeground) {
+  doGnssUnsubscribeToPassiveListenerOnUnloadTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
 }
 
 }  // namespace

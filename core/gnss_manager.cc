@@ -530,9 +530,10 @@ bool GnssSession::stateTransitionIsRequired(bool requestedState,
 bool GnssSession::updateRequests(bool enable, Milliseconds minInterval,
                                  uint16_t instanceId) {
   bool success = true;
-  Nanoapp *nanoapp =
-      EventLoopManagerSingleton::get()->getEventLoop().findNanoappByInstanceId(
-          instanceId);
+  EventLoop *eventLoop =
+      EventLoopManagerSingleton::get()->getEventLoopByInstanceId(instanceId);
+  CHRE_ASSERT(eventLoop != nullptr);
+  Nanoapp *nanoapp = eventLoop->findNanoappByInstanceId(instanceId);
   if (nanoapp == nullptr) {
     LOGW("Failed to update GNSS session request list for non-existent nanoapp");
   } else {
