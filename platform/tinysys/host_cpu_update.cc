@@ -20,7 +20,6 @@
 
 void chreNotifyHostWakeSuspend(bool isAwake) {
   chre::EventLoopManagerSingleton::get()
-      ->getEventLoop()
-      .getPowerControlManager()
+      ->getPowerControlManager()
       .onHostWakeSuspendEvent(isAwake);
 }

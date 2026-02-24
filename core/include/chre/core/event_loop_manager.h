@@ -615,6 +615,13 @@ class EventLoopManager : public NonCopyable {
   }
 
   /**
+   * @return The global power control manager.
+   */
+  PowerControlManager &getPowerControlManager() {
+    return mPowerControlManager;
+  }
+
+  /**
    * Performs second-stage initialization of things that are not necessarily
    * required at construction time but need to be completed prior to executing
    * any nanoapps.
@@ -858,6 +865,9 @@ Same as chreBleGetFilterCapabilities, but must be called with the global API
   //! A global mutex used to synchronize concurrent CHRE API calls across
   //! potentially multiple threads, or no-op if multi-threading is not enabled.
   MultiThreadingApiMutex mGlobalApiMutex;
+
+  //! The object which manages power related controls.
+  PowerControlManager mPowerControlManager;
 };
 
 //! Provide an alias to the EventLoopManager singleton.

@@ -177,10 +177,13 @@ void EventLoop::run() {
     // mEvents.pop() will be a blocking call if mEvents.empty()
     Event *event = mEvents.pop();
     // Need size() + 1 since the to-be-processed event has already been removed.
-    mPowerControlManager.preEventLoopProcess(mEvents.size() + 1);
+    EventLoopManagerSingleton::get()
+        ->getPowerControlManager()
+        .preEventLoopProcess(mEvents.size() + 1);
     distributeEvent(event);
-
-    mPowerControlManager.postEventLoopProcess(mEvents.size());
+    EventLoopManagerSingleton::get()
+        ->getPowerControlManager()
+        .postEventLoopProcess(mEvents.size());
   }
 
   // Purge the main queue of events pending distribution. All nanoapps should be
@@ -567,6 +570,10 @@ std::optional<EndpointInfo> EventLoop::getEndpointInfo(uint64_t appId) {
              : std::make_optional(getEndpointInfoFromNanoappLocked(*app));
 }
 
+PowerControlManager &EventLoop::getPowerControlManager() {
+  return EventLoopManagerSingleton::get()->getPowerControlManager();
+}
+
 void EventLoop::loadStaticNanoapps(
     pw::span<const StaticNanoappInitFunction> initList) {
   for (auto &initFunc : initList) {
@@ -871,9 +878,9 @@ void EventLoop::setCycleWakeupBucketsTimer() {
   }
 
   auto callback = [](uint16_t /*type*/, void * /*data*/, void * /*extraData*/) {
-    EventLoopManagerSingleton::get()
-        ->getEventLoop()
-        .handleNanoappWakeupBuckets();
+    EventLoop *eventLoop = getCurrentEventLoop();
+    CHRE_ASSERT(eventLoop != nullptr);
+    eventLoop->handleNanoappWakeupBuckets();
   };
   mCycleWakeupBucketsHandle =
       EventLoopManagerSingleton::get()->setDelayedCallback(

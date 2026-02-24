@@ -386,10 +386,8 @@ void HostCommsManager::deliverNanoappMessageFromHost(
 
 bool HostCommsManager::doSendMessageToHostFromNanoapp(
     Nanoapp *nanoapp, MessageToHost *msgToHost) {
-  bool hostWasAwake = EventLoopManagerSingleton::get()
-                          ->getEventLoop()
-                          .getPowerControlManager()
-                          .hostIsAwake();
+  bool hostWasAwake =
+      EventLoopManagerSingleton::get()->getPowerControlManager().hostIsAwake();
   bool wokeHost = !hostWasAwake && !mIsNanoappBlamedForWakeup;
   msgToHost->toHostData.wokeHost = wokeHost;
 

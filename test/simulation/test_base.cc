@@ -63,7 +63,7 @@ void TestBase::SetUpBase(pw::span<EventLoop> eventLoops) {
       pw::bind_member<&MockBtOffload::sendToHost>(&mMockBtOffload),
       pw::bind_member<&MockBtOffload::sendToController>(&mMockBtOffload),
       /*le_acl_credits_to_reserve=*/2,
-      /*br_edr_acl_credits_to_reserve=*/0);
+      /*br_edr_acl_credits_to_reserve=*/0, &mPwAllocator);
 
   initBleSocketManager(mProxyHost.value());
   chre::initCommon(eventLoops);

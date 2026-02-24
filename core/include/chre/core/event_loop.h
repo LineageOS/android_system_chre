@@ -436,9 +436,7 @@ class EventLoop : public NonCopyable {
    * Returns a reference to the power control manager. This allows power
    * controls from subsystems outside the event loops.
    */
-  PowerControlManager &getPowerControlManager() {
-    return mPowerControlManager;
-  }
+  PowerControlManager &getPowerControlManager();
 
   inline uint32_t getMaxEventQueueSize() const {
     return mEventQueueUsage.getMax();
@@ -525,9 +523,6 @@ class EventLoop : public NonCopyable {
 
   //! Set to the nanoapp we are in the process of unloading in unloadNanoapp()
   Nanoapp *mStoppingNanoapp = nullptr;
-
-  //! The object which manages power related controls.
-  PowerControlManager mPowerControlManager;
 
   //! The stats collection used to collect event queue usage
   StatsContainer<uint32_t> mEventQueueUsage;
