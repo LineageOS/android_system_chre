@@ -434,7 +434,7 @@ void BasicWifiTest::handleChreWifiAsyncEvent(const chreAsyncResult *result) {
     // In cases where APs under-report their capabilities, it is possible that
     // our ranging requests will unexpectedly succeed. We should still not let
     // them unexpectedly fail though.
-    if (!result->success && !mExpectedRangingAsyncResult.value()) {
+    if (!result->success && mExpectedRangingAsyncResult.value()) {
       EXPECT_FAIL_RETURN("Unexpected ranging async result failure");
     }
     mExpectedRangingAsyncResult.reset();
