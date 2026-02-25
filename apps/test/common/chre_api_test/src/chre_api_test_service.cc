@@ -186,7 +186,7 @@ bool ChreApiTestService::validateInputAndCallChreBleStartScanAsyncV1_9(
 
   auto genericFilters = chre::MakeUniqueArray<chreBleGenericFilter[]>(
       request.filter.genericFilters_count);
-  if (genericFilters.isNull()) {
+  if (request.filter.genericFilters_count != 0 && genericFilters.isNull()) {
     LOG_OOM();
     return false;
   }
@@ -198,7 +198,8 @@ bool ChreApiTestService::validateInputAndCallChreBleStartScanAsyncV1_9(
   auto broadcasterAddressFilters =
       chre::MakeUniqueArray<chreBleBroadcasterAddressFilter[]>(
           request.filter.broadcasterAddressFilters_count);
-  if (broadcasterAddressFilters.isNull()) {
+  if (request.filter.broadcasterAddressFilters_count != 0 &&
+      broadcasterAddressFilters.isNull()) {
     LOG_OOM();
     return false;
   }
