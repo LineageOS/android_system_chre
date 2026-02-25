@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 
-#define LOG_TAG "CHRE.DataFlowEpollWaiter"
-
 #include "data_flow_epoll_waiter.h"
 
 #include <sys/epoll.h>
@@ -34,8 +32,9 @@
 #include <aidl/android/hardware/contexthub/DataFlowId.h>
 #include <aidl/android/hardware/contexthub/EndpointId.h>
 #include <android-base/macros.h>
+#include <android-base/thread_annotations.h>
 #include <android-base/unique_fd.h>
-#include <utils/Log.h>
+#include <chre_host/log.h>
 
 #include "pw_result/result.h"
 #include "pw_status/status.h"
@@ -49,8 +48,8 @@ pw::Status addTrigger(int epollFd, int fd, bool waking) {
   struct epoll_event event = {.events = events, .data = {.fd = fd}};
   int rv = epoll_ctl(epollFd, EPOLL_CTL_ADD, fd, &event);
   if (rv < 0) {
-    ALOGE("Failed to register DataFlowEpollWaiter trigger on %d: %s", fd,
-          strerror(errno));
+    LOGE("Failed to register DataFlowEpollWaiter trigger on %d: %s", fd,
+         strerror(errno));
     return pw::Status::Internal();
   }
   return pw::OkStatus();
@@ -58,8 +57,8 @@ pw::Status addTrigger(int epollFd, int fd, bool waking) {
 
 void removeTrigger(int epollFd, int fd) {
   if (epoll_ctl(epollFd, EPOLL_CTL_DEL, fd, nullptr) < 0) {
-    ALOGE("Failed to remove DataFlowEpollWaiter trigger on %d: %s", fd,
-          strerror(errno));
+    LOGE("Failed to remove DataFlowEpollWaiter trigger on %d: %s", fd,
+         strerror(errno));
   }
 }
 
@@ -73,7 +72,7 @@ DataFlowEpollWaiterReal::create(Callback &callback) {
   }
   base::unique_fd haltFd(eventfd(0, EFD_NONBLOCK));
   if (!haltFd.ok()) {
-    ALOGE("Failed to create DataFlowEpollWaiter haltFd: %s", strerror(errno));
+    LOGE("Failed to create DataFlowEpollWaiter haltFd: %s", strerror(errno));
     return pw::Status::Internal();
   }
   PW_TRY(addTrigger(epollFd, haltFd, /*waking=*/false));
@@ -114,8 +113,8 @@ pw::Status DataFlowEpollWaiterReal::addTriggers(
       Trigger{.dataFlowId = dataFlowId, .endpointId = endpointId});
   auto it = mDataFlowEndpointToTrigger.find({dataFlowId, endpointId});
   if (it != mDataFlowEndpointToTrigger.end()) {
-    ALOGE("Trigger already registered for endpoint (%s), data flow (%s)",
-          endpointId.toString().c_str(), dataFlowId.toString().c_str());
+    LOGE("Trigger already registered for endpoint (%s), data flow (%s)",
+         endpointId.toString().c_str(), dataFlowId.toString().c_str());
     return pw::Status::AlreadyExists();
   }
   bool isHostEndpoint = alertFds.halAck.get() >= 0;
@@ -128,8 +127,8 @@ pw::Status DataFlowEpollWaiterReal::addTriggers(
     mFdToTrigger[trigger->alertFds.halAck.get()] = trigger.get();
   } else {
     if (alertFds.waking.get() < 0 || alertFds.nonWaking.get() < 0) {
-      ALOGE("Invalid alertFds for embedded endpoint (%s), data flow (%s)",
-            endpointId.toString().c_str(), dataFlowId.toString().c_str());
+      LOGE("Invalid alertFds for embedded endpoint (%s), data flow (%s)",
+           endpointId.toString().c_str(), dataFlowId.toString().c_str());
       return pw::Status::InvalidArgument();
     }
     // For an embedded endpoint, register and map triggers for the waking and
@@ -156,12 +155,13 @@ pw::Status DataFlowEpollWaiterReal::removeTriggers(
     std::optional<DataFlowId> dataFlowId,
     std::optional<EndpointId> endpointId) {
   if (!dataFlowId && !endpointId) {
-    ALOGE("At least one of dataFlowId or endpointId must be provided");
+    LOGE("At least one of dataFlowId or endpointId must be provided");
     return pw::Status::InvalidArgument();
   }
   std::lock_guard lock(mLock);
   auto removeCount =
       mTriggers.remove_if([&](const std::unique_ptr<Trigger> &trigger) {
+        base::ScopedLockAssertion lockAssertion(mLock);
         if ((dataFlowId && trigger->dataFlowId != *dataFlowId) ||
             (endpointId && trigger->endpointId != *endpointId)) {
           return false;
@@ -194,14 +194,14 @@ void DataFlowEpollWaiterReal::epollWaitLoop() {
                                            events.size(),
                                            /*timeout=*/-1));
     if (rv <= 0) {
-      ALOGE("DataFlowEpollWaiter epoll_wait() failed: %s", strerror(errno));
+      LOGE("DataFlowEpollWaiter epoll_wait() failed: %s", strerror(errno));
       mEpollFd.reset();
       return;
     }
     // Check for a halt event before processing any other events.
     for (auto i = 0; i < rv; ++i) {
       if (events[i].data.fd == mHaltFd.get()) {
-        ALOGI("DataFlowEpollWaiter epoll_wait() halted");
+        LOGI("DataFlowEpollWaiter epoll_wait() halted");
         mEpollFd.reset();
         return;
       }
@@ -226,7 +226,7 @@ void DataFlowEpollWaiterReal::processEvent(int fd) {
     std::lock_guard lock(mLock);
     auto it = mFdToTrigger.find(fd);
     if (it == mFdToTrigger.end()) {
-      ALOGE("DataFlowEpollWaiter epoll_wait() found unknown fd: %d", fd);
+      LOGE("DataFlowEpollWaiter epoll_wait() found unknown fd: %d", fd);
       return;
     }
     Trigger &trigger = *it->second;
@@ -237,8 +237,8 @@ void DataFlowEpollWaiterReal::processEvent(int fd) {
       ssize_t bytesRead =
           TEMP_FAILURE_RETRY(read(fd, &wakeCount, sizeof(wakeCount)));
       if (bytesRead != sizeof(wakeCount)) {
-        ALOGE("Failed to read DataFlowEpollWaiter halAck fd: %s",
-              strerror(errno));
+        LOGE("Failed to read DataFlowEpollWaiter halAck fd: %s",
+             strerror(errno));
         return;
       }
     } else {

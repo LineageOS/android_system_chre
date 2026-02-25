@@ -31,15 +31,21 @@
 #include <aidl/android/hardware/contexthub/IContextHub.h>
 #include <android-base/thread_annotations.h>
 
+#include "aidl/android/hardware/contexthub/DataFlowSinkRegistrationParams.h"
+#include "data_flow_manager.h"
 #include "pw_result/result.h"
 #include "pw_status/status.h"
 
 namespace android::hardware::contexthub::common::implementation {
 
+using ::aidl::android::hardware::contexthub::DataFlowId;
+using ::aidl::android::hardware::contexthub::DataFlowInfo;
+using ::aidl::android::hardware::contexthub::DataFlowSinkRegistrationParams;
 using ::aidl::android::hardware::contexthub::EndpointId;
 using ::aidl::android::hardware::contexthub::EndpointInfo;
 using ::aidl::android::hardware::contexthub::HubInfo;
 using ::aidl::android::hardware::contexthub::IEndpointCallback;
+using ::aidl::android::hardware::contexthub::IEndpointCommunication;
 using ::aidl::android::hardware::contexthub::Message;
 using ::aidl::android::hardware::contexthub::MessageDeliveryStatus;
 using ::aidl::android::hardware::contexthub::Reason;
@@ -150,6 +156,66 @@ class MessageHubManager {
      */
     pw::Status handleMessageDeliveryStatus(uint16_t sessionId,
                                            const MessageDeliveryStatus &status)
+        EXCLUDES(mManager.mLock);
+
+    /**
+     * Adds a data flow whose source is an endpoint on this hub to this hub.
+     *
+     * @param source The source endpoint.
+     * @param info The data flow info.
+     * @return The data flow id on success.
+     */
+    pw::Result<DataFlowId> addDataFlow(const EndpointId &source,
+                                       const DataFlowInfo &info)
+        EXCLUDES(mManager.mLock);
+
+    /**
+     * Adds an embedded endpoint as a sink on a data flow added to this hub.
+     *
+     * If a session id is provided in the registration parameters, verifies that
+     * the session is open between the two endpoints.
+     *
+     * @param params The parameters for sink registration.
+     * @return A copy of the DataFlowSinkRegistrationParams with all of the
+     * fields populated except for any file descriptors.
+     */
+    pw::Result<DataFlowSinkRegistrationParams> addSinkToDataFlow(
+        const DataFlowSinkRegistrationParams &params,
+        const std::shared_ptr<
+            IEndpointCommunication::IRegisterOffloadSinkCallback> &callback)
+        EXCLUDES(mManager.mLock);
+
+    /**
+     * Handles a request to add an endpoint on this hub as a sink on a data flow
+     * with an embedded source endpoint.
+     *
+     * If a session id is provided in the registration params, verifies that the
+     * session is open between the two endpoints.
+     *
+     * @param params The parameters for sink registration.
+     * @return pw::OkStatus() on success.
+     */
+    pw::Status handleAddSink(DataFlowSinkRegistrationParams &params)
+        EXCLUDES(mManager.mLock);
+
+    /**
+     * Removes a data flow added to this hub.
+     *
+     * @param dataFlowId The data flow id.
+     * @return The list of endpoints to notify on success.
+     */
+    pw::Result<std::vector<EndpointId>> removeDataFlow(
+        const DataFlowId &dataFlowId) EXCLUDES(mManager.mLock);
+
+    /**
+     * Removes an endpoint on this hub from an embedded source data flow.
+     *
+     * @param dataFlowId The data flow id.
+     * @param endpoint The endpoint to remove from the data flow.
+     * @return The embedded source endpoint to notify.
+     */
+    pw::Result<EndpointId> removeSink(const DataFlowId &dataFlowId,
+                                      const EndpointId &endpoint)
         EXCLUDES(mManager.mLock);
 
     /**
@@ -265,15 +331,25 @@ class MessageHubManager {
     bool mUnlinked GUARDED_BY(mManager.mLock) = false;
   };
 
-  // Callback registered to pass up the id of a host hub which disconnected.
+  /**
+   * Callback registered to pass up the id of a host hub which disconnected.
+   * This callback is invoked with no locks held and given a function argument
+   * that calls back into MessageHubManager. This allows ContextHubV4Impl to do
+   * any higher level synchronization before invoking the argument.
+   *
+   * @param unlinkFn Function to unlink the host hub from the manager and return
+   * its id.
+   */
   using HostHubDownCb =
       std::function<void(std::function<pw::Result<int64_t>()> unlinkFn)>;
 
   // The base session id for sessions initiated from host endpoints.
   static constexpr uint16_t kHostSessionIdBase = 0x8000;
 
-  explicit MessageHubManager(HostHubDownCb cb)
-      : mHostHubDownCb(std::move(cb)),
+  explicit MessageHubManager(
+      const std::shared_ptr<DataFlowManager> &dataFlowManager, HostHubDownCb cb)
+      : mDataFlowManager(dataFlowManager),
+        mHostHubDownCb(std::move(cb)),
         mDeathRecipient(std::make_unique<RealDeathRecipient>()) {}
   ~MessageHubManager() = default;
 
@@ -383,6 +459,26 @@ class MessageHubManager {
    */
   std::vector<EndpointInfo> getEmbeddedEndpoints() const EXCLUDES(mLock);
 
+  /**
+   * Removes state for an embedded source data flow.
+   *
+   * Notifies any host-side sinks on the data flow.
+   *
+   * @param dataFlowId The data flow id
+   */
+  void removeEmbeddedSourceDataFlow(DataFlowId dataFlowId) EXCLUDES(mLock);
+
+  /**
+   * Removes state for an embedded sink on a host source data flow.
+   *
+   * Notifies the source endpoint of the data flow.
+   *
+   * @param dataFlowId The data flow id
+   * @param sink The sink endpoint to remove
+   */
+  void removeDataFlowEmbeddedSink(DataFlowId dataFlowId, EndpointId sink)
+      EXCLUDES(mLock);
+
  private:
   friend class MessageHubManagerTest;
 
@@ -444,9 +540,11 @@ class MessageHubManager {
   static void onClientDeath(void *cookie);
 
   // Constructor used by tests to inject a mock DeathRecipient.
-  MessageHubManager(std::unique_ptr<DeathRecipient> deathRecipient,
+  MessageHubManager(const std::shared_ptr<DataFlowManager> &dataFlowManager,
+                    std::unique_ptr<DeathRecipient> deathRecipient,
                     HostHubDownCb cb)
-      : mHostHubDownCb(std::move(cb)),
+      : mDataFlowManager(dataFlowManager),
+        mHostHubDownCb(std::move(cb)),
         mDeathRecipient(std::move(deathRecipient)) {}
 
   // Adds an embedded endpoint to the cache.
@@ -461,6 +559,9 @@ class MessageHubManager {
   // Returns a pointer to an embedded endpoint entry if it exists.
   pw::Result<std::pair<EndpointInfo, bool> *> lookupEmbeddedEndpointLocked(
       const EndpointId &id) REQUIRES(mLock);
+
+  // DataFlowManager instance shared with the ContextHubV4Impl.
+  std::shared_ptr<DataFlowManager> mDataFlowManager;
 
   // Callback to pass up the id of a host hub for a client that disconnected.
   HostHubDownCb mHostHubDownCb;

@@ -31,7 +31,9 @@
 #include <chre_host/generated/host_messages_generated.h>
 #include <flatbuffers/flatbuffers.h>
 
+#include "data_flow_manager.h"
 #include "message_hub_manager.h"
+#include "pw_status/status.h"
 #include "region_allocator.h"
 #include "wakelock_manager.h"
 
@@ -62,13 +64,19 @@ class ContextHubV4Impl {
   using SendMessageFn =
       std::function<bool(const flatbuffers::FlatBufferBuilder &builder)>;
   ContextHubV4Impl(SendMessageFn sendMessageFn,
-                   std::shared_ptr<RegionAllocator> regionAllocator,
-                   std::unique_ptr<WakelockManager> wakelockManager)
-      : mManager(std::bind(&ContextHubV4Impl::unlinkDeadHostHub, this,
+                   const std::shared_ptr<RegionAllocator> &regionAllocator,
+                   const std::shared_ptr<WakelockManager> &wakelockManager)
+      : mDataFlowManager(std::make_shared<DataFlowManager>(
+            regionAllocator, wakelockManager,
+            std::bind(&ContextHubV4Impl::sendDataFlowAlert, this,
+                      std::placeholders::_1, std::placeholders::_2,
+                      std::placeholders::_3))),
+        mManager(mDataFlowManager,
+                 std::bind(&ContextHubV4Impl::unlinkDeadHostHub, this,
                            std::placeholders::_1)),
         mSendMessageFn(std::move(sendMessageFn)),
         mRegionAllocator(regionAllocator),
-        mWakelockManager(std::move(wakelockManager)) {}
+        mWakelockManager(wakelockManager) {}
   explicit ContextHubV4Impl(SendMessageFn sendMessageFn)
       : ContextHubV4Impl(std::move(sendMessageFn), /*regionAllocator=*/{},
                          /*wakelockManager=*/{}) {}
@@ -137,15 +145,22 @@ class ContextHubV4Impl {
   // Callback invoked when a HAL client associated with a host hub goes down.
   void unlinkDeadHostHub(std::function<pw::Result<int64_t>()> unlinkFn);
 
+  // Callback used by DataFlowManager to forward alerts from host endpoints to
+  // offload endpoints. Expected to be called under locks, so this method will
+  // not take any locks.
+  pw::Status sendDataFlowAlert(DataFlowId dataFlowId, EndpointId recipient,
+                               bool waking);
+
   // Log error and close a session.
   void handleSessionFailure(
       const std::shared_ptr<MessageHubManager::HostHub> &hub, uint16_t session,
       pw::Status status);
 
+  std::shared_ptr<DataFlowManager> mDataFlowManager;
   MessageHubManager mManager;
   SendMessageFn mSendMessageFn;
   std::shared_ptr<RegionAllocator> mRegionAllocator;
-  std::unique_ptr<WakelockManager> mWakelockManager;
+  std::shared_ptr<WakelockManager> mWakelockManager;
 
   // This lock is required to be held around any operation which modifies the
   // sets of host hubs or endpoints known by mManager and then sends an update
