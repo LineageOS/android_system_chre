@@ -34,6 +34,7 @@ pw_add_library(chre.core STATIC
     include/chre/core/host_endpoint_manager.h
     include/chre/core/ble_l2cap_coc_socket_data.h
     include/chre/core/ble_socket_manager.h
+    include/chre/core/bt_socket_data.h
   PUBLIC_INCLUDES
     include
   PUBLIC_DEPS
