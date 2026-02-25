@@ -79,12 +79,17 @@ public class ContextHubEndpointDataFlowExecutor {
     private static final int DATA_FLOW_ELEMENT_ALIGNMENT = 1;
 
     private static final int ECHO_DATA_SIZE_BYTES = 10;
+    private static final int ECHO_DATA_NUM_ITERATIONS = 10;
 
     private static final int TIMEOUT_SECONDS = 5;
 
     @NonNull private final ContextHubManager mContextHubManager;
     @Nullable private final ContextHubInfo mContextHubInfo;
     @Nullable private final NanoAppBinary mNanoAppBinary;
+
+    private HubEndpoint mHubEndpoint = null;
+    private final TestLifecycleCallback mLifecycleCallback = new TestLifecycleCallback();
+    private final TestDataFlowCallback mDataFlowCallback = new TestDataFlowCallback();
 
     static class TestLifecycleCallback implements HubEndpointLifecycleCallback {
         private static final int TIMEOUT_SESSION_OPEN_SECONDS = 5;
@@ -160,10 +165,28 @@ public class ContextHubEndpointDataFlowExecutor {
 
     static class TestDataFlowCallback implements DataFlowCallback {
         private final ArrayBlockingQueue<DataFlowData> mData = new ArrayBlockingQueue<>(1);
-        private final ArrayBlockingQueue<DataFlowSink> mSinkQueue = new ArrayBlockingQueue<>(1);
-        private HubEndpointInfo mSourceInfo = null;
+        private final ArrayBlockingQueue<SinkAndSourceInfo> mSinkQueue =
+                new ArrayBlockingQueue<>(1);
         private HubEndpointSession mSession = null;
         private HubMessage mMessage = null;
+
+        static class SinkAndSourceInfo {
+            public DataFlowSink mSink;
+            public HubEndpointInfo mSourceInfo;
+            public HubEndpointSession mSession;
+            public HubMessage mMessage;
+
+            SinkAndSourceInfo(
+                    DataFlowSink sink,
+                    HubEndpointInfo sourceInfo,
+                    HubEndpointSession session,
+                    HubMessage message) {
+                mSession = session;
+                mMessage = message;
+                mSink = sink;
+                mSourceInfo = sourceInfo;
+            }
+        }
 
         @Override
         public void onReceivedDataFlowSink(
@@ -171,21 +194,10 @@ public class ContextHubEndpointDataFlowExecutor {
                 HubEndpointInfo source,
                 HubEndpointSession session,
                 HubMessage msg) {
-            Log.i(TAG, "onReceivedDataFlowSink");
-            assertThat(session == null).isEqualTo(msg == null);
-            assertThat(session).isEqualTo(mSession);
-            assertThat(msg).isEqualTo(mMessage);
-
-            if (mSourceInfo != null && mSourceInfo.getIdentifier().equals(source.getIdentifier())) {
-                mSinkQueue.add(sink);
-            } else {
-                Log.w(
-                        TAG,
-                        "Received data flow sink for unexpected source: "
-                                + source
-                                + " expected: "
-                                + mSourceInfo);
-            }
+            Log.i(TAG, "onReceivedDataFlowSink: Started: sink=" + sink + " source=" + source
+                    + " session=" + session + " msg=" + msg);
+            mSinkQueue.add(new SinkAndSourceInfo(sink, source, session, msg));
+            Log.i(TAG, "onReceivedDataFlowSink: Finished");
         }
 
         @Override
@@ -216,9 +228,20 @@ public class ContextHubEndpointDataFlowExecutor {
 
         DataFlowSink waitForNewSink(HubEndpointInfo sourceInfo) {
             try {
-                DataFlowSink sink = mSinkQueue.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
-                assertThat(sink).isNotNull();
-                return sink;
+                SinkAndSourceInfo sinkAndSourceInfo =
+                        mSinkQueue.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                assertThat(sinkAndSourceInfo).isNotNull();
+                assertThat(sinkAndSourceInfo.mSink).isNotNull();
+                assertThat(sinkAndSourceInfo.mSourceInfo).isNotNull();
+                assertThat(sinkAndSourceInfo.mSourceInfo).isEqualTo(sourceInfo);
+                assertThat(sinkAndSourceInfo.mSession == null)
+                        .isEqualTo(sinkAndSourceInfo.mMessage == null);
+                if (sinkAndSourceInfo.mSession != null) {
+                    assertThat(sinkAndSourceInfo.mSession).isEqualTo(mSession);
+                    assertThat(sinkAndSourceInfo.mMessage.getMessageBody())
+                            .isEqualTo(mMessage.getMessageBody());
+                }
+                return sinkAndSourceInfo.mSink;
             } catch (InterruptedException e) {
                 Assert.fail("InterruptedException in waitForNewSink: " + e.getMessage());
                 return null;
@@ -236,16 +259,19 @@ public class ContextHubEndpointDataFlowExecutor {
             }
         }
 
-        void setSourceInfo(HubEndpointInfo sourceInfo) {
-            mSourceInfo = sourceInfo;
-        }
-
         void setSession(HubEndpointSession session) {
             mSession = session;
         }
 
         void setMessage(HubMessage message) {
             mMessage = message;
+        }
+
+        void reset() {
+            mSession = null;
+            mMessage = null;
+            mData.clear();
+            mSinkQueue.clear();
         }
     }
 
@@ -263,11 +289,34 @@ public class ContextHubEndpointDataFlowExecutor {
 
     /** Initialization code that should be called in e.g. @Before. */
     public void init() {
+        if (mHubEndpoint == null) {
+            // For this test, we use a non-default executor, since the TestDataFlowCallback
+            // will perform a blocking read on callback execution, which can block the dataflow
+            // Looper if they are both running on the same thread.
+            ScheduledThreadPoolExecutor executor =
+                    new ScheduledThreadPoolExecutor(/* corePoolSize= */ 1);
+
+            HubEndpoint endpoint =
+                    registerDefaultEndpoint(
+                            mLifecycleCallback,
+                            /* messageCallback= */ null,
+                            mDataFlowCallback,
+                            /* executor= */ executor,
+                            Collections.emptyList());
+            assertThat(endpoint).isNotNull();
+            mHubEndpoint = endpoint;
+        }
+
         // TODO(b/468415989): Add nanoapp loading when ready
     }
 
     /** Deinitialization code that should be called in e.g. @After. */
     public void deinit() {
+        if (mHubEndpoint != null) {
+            checkApiSupport((manager) -> manager.unregisterEndpoint(mHubEndpoint));
+            mHubEndpoint = null;
+        }
+
         // TODO(b/468415989): Add nanoapp unloading when ready
     }
 
@@ -292,40 +341,26 @@ public class ContextHubEndpointDataFlowExecutor {
      *
      * @param overSession Whether to send a message to the offload endpoint when sharing the data
      *     flow.
+     * @param useFixedSizeDataFlow Whether to use a fixed-size data flow source. If false, a
+     *     variable-size data flow source will be used.
      */
-    public void testDataFlow(boolean overSession) {
-        // Register the endpoint
-        TestLifecycleCallback lifecycleCallback = new TestLifecycleCallback();
-        TestDataFlowCallback dataFlowCallback = new TestDataFlowCallback();
-
-        // For this test, we use a non-default executor, since the TestDataFlowCallback
-        // will perform a blocking read on callback execution, which can block the dataflow Looper
-        // if they are both running on the same thread.
-        ScheduledThreadPoolExecutor executor =
-                new ScheduledThreadPoolExecutor(/* corePoolSize= */ 1);
-        HubEndpoint endpoint =
-                registerDefaultEndpoint(
-                        lifecycleCallback,
-                        /* messageCallback= */ null,
-                        dataFlowCallback,
-                        /* executor= */ executor,
-                        Collections.emptyList());
-        assertThat(endpoint).isNotNull();
-
+    public void testDataFlow(boolean overSession, boolean useFixedSizeDataFlow) {
         List<HubDiscoveryInfo> infoList = new ArrayList<>();
         checkApiSupport(
                 (manager) -> infoList.addAll(manager.findEndpoints(ECHO_SERVICE_DESCRIPTOR)));
         for (HubDiscoveryInfo info : infoList) {
-            doTestDataFlow(info, endpoint, lifecycleCallback, dataFlowCallback, overSession);
+            doTestDataFlow(
+                    info,
+                    overSession,
+                    useFixedSizeDataFlow);
         }
-
-        // Unregister the endpoint
-        checkApiSupport((manager) -> manager.unregisterEndpoint(endpoint));
     }
 
-    private void doTestDataFlow(HubDiscoveryInfo info, HubEndpoint endpoint,
-                                TestLifecycleCallback lifecycleCallback,
-                                TestDataFlowCallback dataFlowCallback, boolean overSession) {
+    private void doTestDataFlow(
+            HubDiscoveryInfo info,
+            boolean overSession,
+            boolean useFixedSizeDataFlow) {
+        mDataFlowCallback.reset();
         printHubDiscoveryInfo(info);
 
         // Only run this test if we find an Echo service hosted on a hub that supports
@@ -340,32 +375,35 @@ public class ContextHubEndpointDataFlowExecutor {
                 break;
             }
         }
-        assertWithMessage("Hub 0x" + id.getHub() + " not found in getHubs()")
+        assertWithMessage("Hub 0x" + Long.toHexString(id.getHub()) + " not found in getHubs()")
                 .that(dataFlowSupported)
                 .isPresent();
         if (!dataFlowSupported.get()) {
-            Log.d(TAG, "Data flow not supported on hub 0x" + id.getHub() + ", skipping");
+            Log.d(TAG, "Data flow not supported on hub 0x" + Long.toHexString(id.getHub())
+                    + ", skipping");
             return;
         }
 
         HubEndpointInfo offloadEndpointInfo = info.getHubEndpointInfo();
         assertThat(offloadEndpointInfo).isNotNull();
-        dataFlowCallback.setSourceInfo(offloadEndpointInfo);
 
         HubEndpointSession session = null;
         if (overSession) {
             checkApiSupport(
-                (manager) -> manager.openSession(endpoint, offloadEndpointInfo));
-            session = lifecycleCallback.waitForEndpointSession();
-            dataFlowCallback.setSession(session);
+                (manager) -> manager.openSession(mHubEndpoint, offloadEndpointInfo));
+            session = mLifecycleCallback.waitForEndpointSession();
+            mDataFlowCallback.setSession(session);
         }
 
         // Create the data flow and add the offload endpoint as a sink
         DataFlowDataConfig dataConfig =
-                DataFlowDataConfig.createFixedSize(
-                        DATA_FLOW_ELEMENT_SIZE, DATA_FLOW_ELEMENT_ALIGNMENT);
+                useFixedSizeDataFlow
+                        ? DataFlowDataConfig.createFixedSize(
+                                DATA_FLOW_ELEMENT_SIZE, DATA_FLOW_ELEMENT_ALIGNMENT)
+                        : DataFlowDataConfig.createVariableSizeAligned(
+                                DATA_FLOW_ELEMENT_ALIGNMENT);
         DataFlowSource source =
-                endpoint.createDataFlowSource(
+                mHubEndpoint.createDataFlowSource(
                         Collections.singleton(offloadEndpointInfo.getIdentifier().getHub()),
                         dataConfig,
                         MIN_CAPACITY_BYTES,
@@ -376,7 +414,7 @@ public class ContextHubEndpointDataFlowExecutor {
             HubMessage message = new HubMessage.Builder(1234, new byte[] {1, 2, 3, 4, 5})
                     .setResponseRequired(true)
                     .build();
-            dataFlowCallback.setMessage(message);
+            mDataFlowCallback.setMessage(message);
 
             ContextHubTransaction<Void> txn = source.shareDataFlowOverSession(
                     offloadEndpointInfo,
@@ -402,7 +440,7 @@ public class ContextHubEndpointDataFlowExecutor {
         }
 
         // Wait for the sink to be created for us
-        DataFlowSink sink = dataFlowCallback.waitForNewSink(offloadEndpointInfo);
+        DataFlowSink sink = mDataFlowCallback.waitForNewSink(offloadEndpointInfo);
         assertThat(sink).isNotNull();
 
         // Send data to the sink and confirm it echos back to us
@@ -413,23 +451,50 @@ public class ContextHubEndpointDataFlowExecutor {
         dataBuffer.rewind();
         DataFlowData data = new DataFlowData(dataBuffer, dataConfig);
 
-        for (int i = 0; i < ECHO_DATA_SIZE_BYTES; ++i) {
-            source.push(data, /* canOverwrite= */ false);
+        DataFlowData data2 = null;
+        ByteBuffer dataBuffer2 = null;
+        if (!useFixedSizeDataFlow) {
+            dataBuffer2 = ByteBuffer.allocate(ECHO_DATA_SIZE_BYTES * 2);
+            for (int i = 0; i < ECHO_DATA_SIZE_BYTES * 2; ++i) {
+                dataBuffer2.put((byte) i);
+            }
+            dataBuffer2.rewind();
+            data2 = new DataFlowData(dataBuffer2, dataConfig);
+        }
 
-            DataFlowData echo = dataFlowCallback.waitForNewData(sink);
+        for (int i = 0; i < ECHO_DATA_NUM_ITERATIONS; ++i) {
+            Log.i(TAG, "Pushing data to source: " + i);
+            if (useFixedSizeDataFlow) {
+                source.push(data, /* canOverwrite= */ false);
+            } else {
+                source.push(i % 2 == 0 ? data : data2, /* canOverwrite= */ false);
+            }
+
+            DataFlowData echo = mDataFlowCallback.waitForNewData(sink);
             assertThat(echo).isNotNull();
             List<ByteBuffer> buffers = echo.getBuffers();
             assertThat(buffers).isNotEmpty();
             ByteBuffer echoBuffer = buffers.get(0);
             assertThat(echoBuffer).isNotNull();
-            assertThat(echoBuffer.capacity()).isEqualTo(dataBuffer.capacity());
-            assertThat(echoBuffer).isEqualTo(dataBuffer);
+            if (useFixedSizeDataFlow || i % 2 == 0) {
+                assertThat(echoBuffer.capacity()).isEqualTo(dataBuffer.capacity());
+                assertThat(echoBuffer.capacity()).isEqualTo(ECHO_DATA_SIZE_BYTES);
+                for (int j = 0; j < ECHO_DATA_SIZE_BYTES; ++j) {
+                    assertThat(echoBuffer.get(i)).isEqualTo(dataBuffer.get(i));
+                }
+            } else {
+                assertThat(echoBuffer.capacity()).isEqualTo(dataBuffer2.capacity());
+                assertThat(echoBuffer.capacity()).isEqualTo(ECHO_DATA_SIZE_BYTES * 2);
+                for (int j = 0; j < ECHO_DATA_SIZE_BYTES * 2; ++j) {
+                    assertThat(echoBuffer.get(i)).isEqualTo(dataBuffer2.get(i));
+                }
+            }
         }
 
         if (overSession) {
             assertThat(session).isNotNull();
             session.close();
-            lifecycleCallback.waitForCloseSession();
+            mLifecycleCallback.waitForCloseSession();
         }
     }
 

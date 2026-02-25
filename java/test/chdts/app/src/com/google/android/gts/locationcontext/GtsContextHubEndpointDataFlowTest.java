@@ -58,7 +58,7 @@ public class GtsContextHubEndpointDataFlowTest extends GtsContextHubServiceTestB
     @GmsTest(requirement = "GMS-6.17-001")
     @RequiresFlagsEnabled(Flags.FLAG_FMCQ_API)
     public void testDataFlow() throws Exception {
-        mExecutor.testDataFlow(/* overSession= */ false);
+        mExecutor.testDataFlow(/* overSession= */ false, /* useFixedSizeDataFlow= */ true);
     }
 
     @Test
@@ -66,7 +66,25 @@ public class GtsContextHubEndpointDataFlowTest extends GtsContextHubServiceTestB
     @RequiresFlagsEnabled({Flags.FLAG_FMCQ_API})
     public void testDataFlowOverSession() throws Exception {
         if (Flags.fmcqShareDataFlowMessageFix()) {
-            mExecutor.testDataFlow(/* overSession= */ true);
+            mExecutor.testDataFlow(/* overSession= */ true, /* useFixedSizeDataFlow= */ true);
+        }
+    }
+
+    @Test
+    @GmsTest(requirement = "GMS-6.17-001")
+    @RequiresFlagsEnabled(Flags.FLAG_FMCQ_API)
+    public void testVariableSizeDataFlow() throws Exception {
+        if (Flags.fmcqSupportVariableSizedDataFlowFix()) {
+            mExecutor.testDataFlow(/* overSession= */ false, /* useFixedSizeDataFlow= */ false);
+        }
+    }
+
+    @Test
+    @GmsTest(requirement = "GMS-6.17-001")
+    @RequiresFlagsEnabled(Flags.FLAG_FMCQ_API)
+    public void testVariableSizeDataFlowOverSession() throws Exception {
+        if (Flags.fmcqShareDataFlowMessageFix() && Flags.fmcqSupportVariableSizedDataFlowFix()) {
+            mExecutor.testDataFlow(/* overSession= */ true, /* useFixedSizeDataFlow= */ false);
         }
     }
 

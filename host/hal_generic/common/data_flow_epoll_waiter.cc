@@ -65,8 +65,8 @@ void removeTrigger(int epollFd, int fd) {
 
 }  // namespace
 
-pw::Result<std::unique_ptr<DataFlowEpollWaiter>> DataFlowEpollWaiter::create(
-    Callback &callback) {
+pw::Result<std::unique_ptr<DataFlowEpollWaiter>>
+DataFlowEpollWaiterReal::create(Callback &callback) {
   base::unique_fd epollFd(epoll_create1(EPOLL_CLOEXEC));
   if (!epollFd.ok()) {
     return pw::Status::Internal();
@@ -77,19 +77,19 @@ pw::Result<std::unique_ptr<DataFlowEpollWaiter>> DataFlowEpollWaiter::create(
     return pw::Status::Internal();
   }
   PW_TRY(addTrigger(epollFd, haltFd, /*waking=*/false));
-  return std::unique_ptr<DataFlowEpollWaiter>(
-      new DataFlowEpollWaiter(std::move(epollFd), std::move(haltFd), callback));
+  return std::unique_ptr<DataFlowEpollWaiter>(new DataFlowEpollWaiterReal(
+      std::move(epollFd), std::move(haltFd), callback));
 }
 
-DataFlowEpollWaiter::DataFlowEpollWaiter(base::unique_fd epollFd,
-                                         base::unique_fd haltFd,
-                                         Callback &callback)
+DataFlowEpollWaiterReal::DataFlowEpollWaiterReal(base::unique_fd epollFd,
+                                                 base::unique_fd haltFd,
+                                                 Callback &callback)
     : mEpollFd(std::move(epollFd)),
       mHaltFd(std::move(haltFd)),
       mCallback(callback),
-      mEpollThread(&DataFlowEpollWaiter::epollWaitLoop, this) {}
+      mEpollThread(&DataFlowEpollWaiterReal::epollWaitLoop, this) {}
 
-DataFlowEpollWaiter::~DataFlowEpollWaiter() {
+DataFlowEpollWaiterReal::~DataFlowEpollWaiterReal() {
   // Signal the epoll thread to exit.
   const uint64_t kNotZero = 1;
   ssize_t bytesWritten =
@@ -106,9 +106,9 @@ DataFlowEpollWaiter::~DataFlowEpollWaiter() {
   }
 }
 
-pw::Status DataFlowEpollWaiter::addTriggers(DataFlowId dataFlowId,
-                                            EndpointId endpointId,
-                                            const DataFlowAlertFds &alertFds) {
+pw::Status DataFlowEpollWaiterReal::addTriggers(
+    DataFlowId dataFlowId, EndpointId endpointId,
+    const DataFlowAlertFds &alertFds) {
   std::lock_guard lock(mLock);
   auto trigger = std::make_unique<Trigger>(
       Trigger{.dataFlowId = dataFlowId, .endpointId = endpointId});
@@ -152,7 +152,7 @@ pw::Status DataFlowEpollWaiter::addTriggers(DataFlowId dataFlowId,
   return pw::OkStatus();
 }
 
-pw::Status DataFlowEpollWaiter::removeTriggers(
+pw::Status DataFlowEpollWaiterReal::removeTriggers(
     std::optional<DataFlowId> dataFlowId,
     std::optional<EndpointId> endpointId) {
   if (!dataFlowId && !endpointId) {
@@ -183,7 +183,7 @@ pw::Status DataFlowEpollWaiter::removeTriggers(
   return removeCount > 0 ? pw::OkStatus() : pw::Status::NotFound();
 }
 
-void DataFlowEpollWaiter::epollWaitLoop() {
+void DataFlowEpollWaiterReal::epollWaitLoop() {
   std::vector<struct epoll_event> events;
   while (true) {
     {
@@ -216,7 +216,7 @@ void DataFlowEpollWaiter::epollWaitLoop() {
   }
 }
 
-void DataFlowEpollWaiter::processEvent(int fd) {
+void DataFlowEpollWaiterReal::processEvent(int fd) {
   DataFlowId dataFlowId;
   EndpointId endpointId;
   bool isHalAck = false;

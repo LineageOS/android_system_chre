@@ -78,18 +78,15 @@ class TransactionManager : public NonCopyable {
    * @param timerPool TimerPool-like object to use for retry timers
    * @param timeout How long to wait for remove() to be called after
    *        onTransactionAttempt() before trying again or failing
-   * @param eventLoop The event loop to post timer callbacks to.
    * @param maxAttempts Maximum number of times to try the transaction before
    *        giving up
    */
   TransactionManager(TransactionManagerCallback &cb, TimerPoolType &timerPool,
-                     Nanoseconds timeout, EventLoop *eventLoop,
-                     uint8_t maxAttempts = 3)
+                     Nanoseconds timeout, uint8_t maxAttempts = 3)
       : kTimeout(timeout),
         kMaxAttempts(maxAttempts),
         mTimerPool(timerPool),
-        mCb(cb),
-        mEventLoop(eventLoop) {
+        mCb(cb) {
     CHRE_ASSERT(timeout.toRawNanoseconds() > 0);
   }
 
@@ -110,11 +107,12 @@ class TransactionManager : public NonCopyable {
    * onTransactionFailed().
    *
    * @param groupId ID used to serialize groups of transactions
+   * @param eventLoop The event loop to use for invoking callbacks
    * @param[out] transactionId Assigned ID, set prior to calling
    *         onTransactionAttempt()
    * @return false if kMaxTransactions are pending, true otherwise
    */
-  bool add(uint16_t groupId, uint32_t *transactionId);
+  bool add(uint16_t groupId, EventLoop *eventLoop, uint32_t *transactionId);
 
   /**
    * Complete a transaction, by removing it from the active set of transactions.
@@ -139,10 +137,12 @@ class TransactionManager : public NonCopyable {
  private:
   //! Stores transaction-related data.
   struct Transaction {
-    Transaction(uint32_t id_, uint16_t groupId_) : id(id_), groupId(groupId_) {}
+    Transaction(uint32_t id_, uint16_t groupId_, EventLoop *eventLoop_)
+        : id(id_), groupId(groupId_), eventLoop(eventLoop_) {}
 
     uint32_t id;
     uint16_t groupId;
+    EventLoop *eventLoop = nullptr;
 
     //! Counts up by 1 on each attempt, 0 when pending first attempt
     uint8_t attemptCount = 0;
@@ -172,9 +172,6 @@ class TransactionManager : public NonCopyable {
 
   TimerPoolType &mTimerPool;
   TransactionManagerCallback &mCb;
-
-  //! The event loop to post timer callbacks to.
-  EventLoop *mEventLoop;
 
   //! Delayed assignment to start at a pseudo-random value
   Optional<uint32_t> mNextTransactionId;
@@ -217,11 +214,11 @@ class TransactionManager : public NonCopyable {
   void updateTimer();
 
   //! Sets the timer to expire after a delay
-  void setTimer(Nanoseconds delay);
+  void setTimer(Nanoseconds delay, EventLoop *eventLoop);
 
   //! Sets the timer to expire at the given time, or effectively immediately if
   //! expiry is in the past
-  void setTimerAbsolute(Nanoseconds expiry);
+  void setTimerAbsolute(Nanoseconds expiry, EventLoop *eventLoop);
 
   //! Processes any timed out transactions and reset the timer as needed
   void handleTimerExpiry();

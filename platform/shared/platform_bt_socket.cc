@@ -20,8 +20,6 @@
 #include "chre/core/event_loop_manager.h"
 #include "chre/platform/log.h"
 #include "chre/platform/shared/memory.h"
-#include "chre/util/macros.h"
-#include "chre/util/unique_ptr.h"
 #include "pw_multibuf/from_span.h"
 #include "pw_status/status.h"
 
@@ -119,11 +117,9 @@ void PlatformBtSocketBase::handleRxSocketPacket(
    * TODO(b/429237573): Support enqueueing high power events on CHRE's event
    * queue and remove forceDramAccess call.
    */
-  EventLoopManagerSingleton::get()
-      ->getBleSocketManager()
-      .handlePlatformSocketPacket(
-          mId, reinterpret_cast<const uint8_t *>(packet->data()),
-          static_cast<uint16_t>(packet->size()));
+  BleSocketManager::handlePlatformSocketPacket(
+      mId, reinterpret_cast<const uint8_t *>(packet->data()),
+      static_cast<uint16_t>(packet->size()));
   forceDramAccess();
 }
 
@@ -172,9 +168,7 @@ void PlatformBtSocketBase::handleSocketEvent(
    * TODO(b/429237573): Support enqueueing high power events on CHRE's event
    * queue and remove forceDramAccess call.
    */
-  EventLoopManagerSingleton::get()
-      ->getBleSocketManager()
-      .handlePlatformSocketEvent(mId, platformEvent);
+  BleSocketManager::handlePlatformSocketEvent(mId, platformEvent);
   forceDramAccess();
 }
 
@@ -204,7 +198,7 @@ int32_t PlatformBtSocket::sendSocketPacket(
   // this scenario, it is the responsibility of the nanoapp to free the data.
   // The nanoapp may choose to hold on to the data until it receives a
   // CHRE_EVENT_BLE_SOCKET_SEND_AVAILABLE event when it can re-attempt the send.
-  if (mL2capCoc.value().IsWriteAvailable() == pw::Status::Unavailable()) {
+  if (mL2capCoc->IsWriteAvailable() == pw::Status::Unavailable()) {
     return CHRE_BLE_SOCKET_SEND_STATUS_QUEUE_FULL;
   }
 
@@ -228,8 +222,8 @@ int32_t PlatformBtSocket::sendSocketPacket(
   if (context == nullptr) {
     LOG_OOM();
     if (freeCallback != nullptr) {
-      EventLoopManagerSingleton::get()->getBleSocketManager().freeSocketPacket(
-          mAppId, const_cast<void *>(data), length, freeCallback);
+      BleSocketManager::freeSocketPacket(mAppId, const_cast<void *>(data),
+                                         length, freeCallback);
     }
     return CHRE_BLE_SOCKET_SEND_STATUS_FAILURE;
   }
@@ -239,9 +233,9 @@ int32_t PlatformBtSocket::sendSocketPacket(
   // PW requires the deleter's size must not exceed 4 on a 32-bit system hence
   // the parameters are wrapped in a SocketSendContext
   auto deleter = [context](pw::ByteSpan byteSpan) {
-    EventLoopManagerSingleton::get()->getBleSocketManager().freeSocketPacket(
-        context->appId, byteSpan.data(), static_cast<uint16_t>(byteSpan.size()),
-        context->freeCallback);
+    BleSocketManager::freeSocketPacket(context->appId, byteSpan.data(),
+                                       static_cast<uint16_t>(byteSpan.size()),
+                                       context->freeCallback);
     // Call after enqueuing free socket packet event on CHRE's event loop queue
     // TODO(b/429237573): Support enqueueing high power events on CHRE's event
     // queue
@@ -256,13 +250,13 @@ int32_t PlatformBtSocket::sendSocketPacket(
     LOG_OOM();
     memoryFree(context);
     if (freeCallback != nullptr) {
-      EventLoopManagerSingleton::get()->getBleSocketManager().freeSocketPacket(
-          mAppId, const_cast<void *>(data), length, freeCallback);
+      BleSocketManager::freeSocketPacket(mAppId, const_cast<void *>(data),
+                                         length, freeCallback);
     }
     return CHRE_BLE_SOCKET_SEND_STATUS_FAILURE;
   }
   pw::bluetooth::proxy::StatusWithMultiBuf statusWithMultiBuf =
-      mL2capCoc.value().Write(std::move(*multibuf));
+      mL2capCoc->Write(std::move(*multibuf));
   // Nothing should write to the channel except CHRE so the IsWriteAvailable
   // check should ensure that there is space in the queue
   CHRE_ASSERT(statusWithMultiBuf.status != pw::Status::Unavailable());

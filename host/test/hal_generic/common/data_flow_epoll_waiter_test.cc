@@ -49,7 +49,7 @@ class MockCallback : public DataFlowEpollWaiter::Callback {
 class DataFlowEpollWaiterTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    auto result = DataFlowEpollWaiter::create(mCallback);
+    auto result = DataFlowEpollWaiterReal::create(mCallback);
     ASSERT_TRUE(result.ok());
     mWaiter = std::move(*result);
   }

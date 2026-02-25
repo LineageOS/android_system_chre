@@ -27,9 +27,14 @@ void HostLink::flushMessagesSentByNanoapp(uint64_t /* appId */) {
 
 bool HostLink::sendMessage(const MessageToHost *message) {
   // Just drop the message since we do not have a real host to send the message
-  EventLoopManagerSingleton::get()
-      ->getHostCommsManager()
-      .onMessageToHostComplete(message);
+  if (message->isReliable) {
+    EventLoopManagerSingleton::get()->getHostCommsManager().completeTransaction(
+        message->messageSequenceNumber, CHRE_ERROR_NONE);
+  } else {
+    EventLoopManagerSingleton::get()
+        ->getHostCommsManager()
+        .onMessageToHostComplete(message);
+  }
   return true;
 }
 

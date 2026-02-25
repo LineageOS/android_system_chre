@@ -106,7 +106,6 @@ class EventLoopManager : public NonCopyable {
       : mEventLoops(checkEventLoops(eventLoops)),
         mBleSocketManager(bleSocketManager),
         mGnssManager(gnssManager),
-        mHostCommsManager(&getEventLoop()),
         mWifiRequestManager(wifiRequestManager),
         mWwanRequestManager(wwanRequestManager),
         mChreMessageHubManager(chreMessageHubManager),

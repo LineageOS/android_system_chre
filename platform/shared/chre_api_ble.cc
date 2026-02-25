@@ -160,7 +160,7 @@ chreBleSocketSend(uint64_t socketId, const void *data, uint16_t length,
     LOGE("Nanoapp 0x%" PRIx64 " does not have CHRE_PERMS_BLE permission",
          nanoapp->getAppId());
     if (freeCallback != nullptr) {
-      EventLoopManagerSingleton::get()->getBleSocketManager().freeSocketPacket(
+      chre::BleSocketManager::freeSocketPacket(
           nanoapp->getAppId(), const_cast<void *>(data), length, freeCallback);
     }
     return CHRE_BLE_SOCKET_SEND_STATUS_FAILURE;

@@ -35,9 +35,10 @@ TransactionManager<kMaxTransactions, TimerPoolType>::~TransactionManager() {
 }
 
 template <size_t kMaxTransactions, class TimerPoolType>
-bool TransactionManager<kMaxTransactions, TimerPoolType>::add(uint16_t groupId,
-                                                              uint32_t *id) {
+bool TransactionManager<kMaxTransactions, TimerPoolType>::add(
+    uint16_t groupId, EventLoop *eventLoop, uint32_t *id) {
   CHRE_ASSERT(id != nullptr);
+  CHRE_ASSERT(eventLoop != nullptr);
   CHRE_ASSERT(!mInCallback);
 
   if (mTransactions.full()) {
@@ -49,11 +50,12 @@ bool TransactionManager<kMaxTransactions, TimerPoolType>::add(uint16_t groupId,
     mNextTransactionId = generatePseudoRandomId();
   }
   *id = (mNextTransactionId.value())++;
-  mTransactions.emplace(*id, groupId);
+  mTransactions.emplace(*id, groupId, eventLoop);
 
   maybeStartLastTransaction();
   if (mTransactions.size() == 1) {
-    setTimerAbsolute(mTransactions.back().timeout);
+    setTimerAbsolute(mTransactions.back().timeout,
+                     mTransactions.back().eventLoop);
   }
   return true;
 }
@@ -145,33 +147,36 @@ void TransactionManager<kMaxTransactions, TimerPoolType>::updateTimer() {
     mTimerHandle = CHRE_TIMER_INVALID;
   } else {
     Nanoseconds nextTimeout(UINT64_MAX);
+    EventLoop *nextEventLoop = nullptr;
     for (const Transaction &transaction : mTransactions) {
       if (transaction.timeout < nextTimeout) {
         nextTimeout = transaction.timeout;
+        nextEventLoop = transaction.eventLoop;
       }
     }
     // If we hit this assert, we only have transactions that haven't been
     // started yet
     CHRE_ASSERT(nextTimeout.toRawNanoseconds() != UINT64_MAX);
-    setTimerAbsolute(nextTimeout);
+    setTimerAbsolute(nextTimeout, nextEventLoop);
   }
 }
 
 template <size_t kMaxTransactions, class TimerPoolType>
 void TransactionManager<kMaxTransactions, TimerPoolType>::setTimer(
-    Nanoseconds duration) {
+    Nanoseconds duration, EventLoop *eventLoop) {
+  CHRE_ASSERT(eventLoop != nullptr);
   mTimerHandle = mTimerPool.setSystemTimer(
       duration, onTimerExpired, SystemCallbackType::TransactionManagerTimeout,
-      /*data=*/this, mEventLoop);
+      /*data=*/this, eventLoop);
 }
 
 template <size_t kMaxTransactions, class TimerPoolType>
 void TransactionManager<kMaxTransactions, TimerPoolType>::setTimerAbsolute(
-    Nanoseconds expiry) {
+    Nanoseconds expiry, EventLoop *eventLoop) {
   constexpr Nanoseconds kMinDelay(100);
   Nanoseconds now = SystemTime::getMonotonicTime();
   Nanoseconds delay = (expiry > now) ? expiry - now : kMinDelay;
-  setTimer(delay);
+  setTimer(delay, eventLoop);
 }
 
 template <size_t kMaxTransactions, class TimerPoolType>
@@ -189,6 +194,7 @@ void TransactionManager<kMaxTransactions, TimerPoolType>::handleTimerExpiry() {
   //   update the timer
   Nanoseconds now = SystemTime::getMonotonicTime();
   Nanoseconds nextTimeout(UINT64_MAX);
+  EventLoop *nextEventLoop = nullptr;
   for (size_t i = 0; i < mTransactions.size(); /* ++i at end of scope */) {
     Transaction &transaction = mTransactions[i];
     if (transaction.timeout <= now) {
@@ -209,12 +215,13 @@ void TransactionManager<kMaxTransactions, TimerPoolType>::handleTimerExpiry() {
     }
     if (transaction.timeout < nextTimeout) {
       nextTimeout = transaction.timeout;
+      nextEventLoop = transaction.eventLoop;
     }
     ++i;
   }
 
   if (!mTransactions.empty()) {
-    setTimerAbsolute(nextTimeout);
+    setTimerAbsolute(nextTimeout, nextEventLoop);
   }
 }
 
