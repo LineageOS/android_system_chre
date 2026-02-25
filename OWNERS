@@ -1,11 +1,11 @@
 # Bug component: 156070
 bduddie@google.com
 arthuri@google.com
-ccteng@google.com
 crsabotta@google.com
 leiju@google.com
 matthewsedam@google.com
 madhaviyengar@google.com
+yixuanwang@google.com
 
 per-file *.cmake,.../*.cmake,CMakeLists.txt,.../CMakeLists.txt=file:cmake_OWNERS
 per-file cmake_OWNERS=file:cmake_OWNERS
