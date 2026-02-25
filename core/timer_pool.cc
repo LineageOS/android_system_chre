@@ -283,7 +283,8 @@ bool TimerPool::handleExpiredTimersAndScheduleNextLocked() {
         success = EventLoopManagerSingleton::get()->deferCallback(
             currentTimerRequest.callbackType,
             const_cast<void *>(currentTimerRequest.cookie),
-            currentTimerRequest.systemCallback, currentTimerRequest.eventLoop);
+            currentTimerRequest.systemCallback, /* extraData= */ nullptr,
+            currentTimerRequest.eventLoop);
       } else {
         success = EventLoopManagerSingleton::get()->deferCallback(
             SystemCallbackType::TimerPoolTimerExpired,

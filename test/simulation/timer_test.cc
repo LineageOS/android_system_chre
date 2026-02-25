@@ -20,6 +20,7 @@
 
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/settings.h"
+#include "chre/platform/context.h"
 #include "chre/platform/log.h"
 #include "chre/util/time.h"
 #include "chre_api/chre/event.h"
@@ -33,22 +34,29 @@
 
 namespace chre {
 
+CREATE_CHRE_TEST_EVENT(START_TIMER, 0);
+CREATE_CHRE_TEST_EVENT(STOP_TIMER, 1);
+CREATE_CHRE_TEST_EVENT(DELAYED_CALLBACK, 2);
+
 // TimerTest is required to access private members of the TimerPool.
-class TimerTest : public SingleThreadTestBase {
- protected:
-  bool hasNanoappTimers(TimerPool &pool, uint16_t instanceId) {
+class TimerTest {
+ public:
+  static bool hasNanoappTimers(TimerPool &pool, uint16_t instanceId) {
     return pool.hasNanoappTimers(instanceId);
   }
 };
 
 namespace {
 
-TEST_F(TimerTest, SetupAndCancelPeriodicTimer) {
-  CREATE_CHRE_TEST_EVENT(START_TIMER, 0);
-  CREATE_CHRE_TEST_EVENT(STOP_TIMER, 1);
+class TimerTestSingleThread : public SingleThreadTestBase {};
+class TimerTestMultiThread : public MultiThreadTestBase {};
 
+void doSetupAndCancelPeriodicTimerTest(TestBase *test,
+                                       int8_t requestedThreadPriority) {
   class App : public TestNanoapp {
    public:
+    explicit App(TestNanoappInfo info = {}) : TestNanoapp(info) {}
+
     void handleEvent(uint32_t, uint16_t eventType,
                      const void *eventData) override {
       switch (eventType) {
@@ -88,43 +96,47 @@ TEST_F(TimerTest, SetupAndCancelPeriodicTimer) {
     int mCount = 0;
   };
 
-  uint64_t appId = loadNanoapp(MakeUnique<App>());
+  TestNanoappInfo info;
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId = test->loadNanoapp(MakeUnique<App>(info));
 
   TimerPool &timerPool = EventLoopManagerSingleton::get()->getTimerPool();
 
   uint16_t instanceId;
-  EXPECT_TRUE(EventLoopManagerSingleton::get()
-                  ->getEventLoop()
-                  .findNanoappInstanceIdByAppId(appId, &instanceId));
+  EventLoop *eventLoop =
+      test->getEventLoopForRequestedPriority(requestedThreadPriority);
+  EXPECT_TRUE(eventLoop->findNanoappInstanceIdByAppId(appId, &instanceId));
 
   uint32_t handle;
   sendEventToNanoapp(appId, START_TIMER);
-  waitForEvent(START_TIMER, &handle);
+  test->waitForEvent(START_TIMER, &handle);
   EXPECT_NE(handle, CHRE_TIMER_INVALID);
-  EXPECT_TRUE(hasNanoappTimers(timerPool, instanceId));
+  EXPECT_TRUE(TimerTest::hasNanoappTimers(timerPool, instanceId));
 
-  waitForEvent(CHRE_EVENT_TIMER);
+  test->waitForEvent(CHRE_EVENT_TIMER);
 
   bool success;
 
   // Cancelling an active timer should be successful.
   sendEventToNanoapp(appId, STOP_TIMER, handle);
-  waitForEvent(STOP_TIMER, &success);
+  test->waitForEvent(STOP_TIMER, &success);
   EXPECT_TRUE(success);
-  EXPECT_FALSE(hasNanoappTimers(timerPool, instanceId));
+  EXPECT_FALSE(TimerTest::hasNanoappTimers(timerPool, instanceId));
 
   // Cancelling an inactive time should return false.
   sendEventToNanoapp(appId, STOP_TIMER, handle);
-  waitForEvent(STOP_TIMER, &success);
+  test->waitForEvent(STOP_TIMER, &success);
   EXPECT_FALSE(success);
 }
 
-TEST_F(TimerTest, CancelPeriodicTimerOnUnload) {
-  CREATE_CHRE_TEST_EVENT(START_TIMER, 0);
-
+void doCancelPeriodicTimerOnUnloadTest(TestBase *test,
+                                       int8_t requestedThreadPriority) {
   class App : public TestNanoapp {
    public:
-    void handleEvent(uint32_t, uint16_t eventType, const void *eventData) {
+    explicit App(TestNanoappInfo info = {}) : TestNanoapp(info) {}
+
+    void handleEvent(uint32_t, uint16_t eventType,
+                     const void *eventData) override {
       switch (eventType) {
         case CHRE_EVENT_TIMER: {
           auto data = static_cast<const uint32_t *>(eventData);
@@ -156,25 +168,96 @@ TEST_F(TimerTest, CancelPeriodicTimerOnUnload) {
     int mCount = 0;
   };
 
-  uint64_t appId = loadNanoapp(MakeUnique<App>());
+  TestNanoappInfo info;
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId = test->loadNanoapp(MakeUnique<App>(info));
 
   TimerPool &timerPool = EventLoopManagerSingleton::get()->getTimerPool();
 
   uint16_t instanceId;
-  EXPECT_TRUE(EventLoopManagerSingleton::get()
-                  ->getEventLoop()
-                  .findNanoappInstanceIdByAppId(appId, &instanceId));
+  EventLoop *eventLoop =
+      test->getEventLoopForRequestedPriority(requestedThreadPriority);
+  EXPECT_TRUE(eventLoop->findNanoappInstanceIdByAppId(appId, &instanceId));
 
   uint32_t handle;
   sendEventToNanoapp(appId, START_TIMER);
-  waitForEvent(START_TIMER, &handle);
+  test->waitForEvent(START_TIMER, &handle);
   EXPECT_NE(handle, CHRE_TIMER_INVALID);
-  EXPECT_TRUE(hasNanoappTimers(timerPool, instanceId));
+  EXPECT_TRUE(TimerTest::hasNanoappTimers(timerPool, instanceId));
 
-  waitForEvent(CHRE_EVENT_TIMER);
+  test->waitForEvent(CHRE_EVENT_TIMER);
 
-  unloadNanoapp(appId);
-  EXPECT_FALSE(hasNanoappTimers(timerPool, instanceId));
+  test->unloadNanoapp(appId);
+  EXPECT_FALSE(TimerTest::hasNanoappTimers(timerPool, instanceId));
+}
+
+TEST_F(TimerTestSingleThread, SetupAndCancelPeriodicTimer) {
+  doSetupAndCancelPeriodicTimerTest(this,
+                                    NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(TimerTestMultiThread, SetupAndCancelPeriodicTimer) {
+  doSetupAndCancelPeriodicTimerTest(this,
+                                    NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(TimerTestMultiThread, SetupAndCancelPeriodicTimerForeground) {
+  doSetupAndCancelPeriodicTimerTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
+}
+
+TEST_F(TimerTestSingleThread, CancelPeriodicTimerOnUnload) {
+  doCancelPeriodicTimerOnUnloadTest(this,
+                                    NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(TimerTestMultiThread, CancelPeriodicTimerOnUnload) {
+  doCancelPeriodicTimerOnUnloadTest(this,
+                                    NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(TimerTestMultiThread, CancelPeriodicTimerOnUnloadForeground) {
+  doCancelPeriodicTimerOnUnloadTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
+}
+
+void delayedCallback(uint16_t /*type*/, void *data, void * /*extraData*/) {
+  EventLoop *expectedEventLoop = static_cast<EventLoop *>(data);
+  EventLoop *currentEventLoop = getCurrentEventLoop();
+  bool correctThread = currentEventLoop == expectedEventLoop;
+  if (!correctThread) {
+    LOGE("Delayed callback executed in the wrong thread: expected %p, got %p",
+         expectedEventLoop, currentEventLoop);
+  }
+  TestEventQueueSingleton::get()->pushEvent(DELAYED_CALLBACK, correctThread);
+}
+
+void doDelayedCallbackTest(TestBase *test, int8_t requestedThreadPriority) {
+  EventLoop *eventLoop =
+      test->getEventLoopForRequestedPriority(requestedThreadPriority);
+  Nanoseconds delay = Nanoseconds(kOneMillisecondInNanoseconds);
+  TimerHandle handle = EventLoopManagerSingleton::get()->setDelayedCallback(
+      SystemCallbackType::TimerPoolTick, eventLoop, delayedCallback, delay,
+      eventLoop);
+
+  bool correctThread;
+  test->waitForEvent(DELAYED_CALLBACK, &correctThread);
+  if (!correctThread) {
+    test->printEventLoopInfo();
+  }
+  ASSERT_TRUE(correctThread);
+}
+
+TEST_F(TimerTestSingleThread, DelayedCallback) {
+  doDelayedCallbackTest(this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(TimerTestMultiThread, DelayedCallback) {
+  doDelayedCallbackTest(this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(TimerTestMultiThread, DelayedCallbackForeground) {
+  doDelayedCallbackTest(this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
 }
 
 }  // namespace

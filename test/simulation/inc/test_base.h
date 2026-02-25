@@ -122,6 +122,11 @@ class TestBase : public testing::Test {
   virtual EventLoop *getEventLoopForRequestedPriority(
       int8_t requestedThreadPriority) = 0;
 
+  /**
+   * Prints the event loop information for debugging purposes.
+   */
+  virtual void printEventLoopInfo() = 0;
+
   uint64_t loadNanoapp(UniquePtr<TestNanoapp> app) {
     EventLoop *eventLoop =
         getEventLoopForRequestedPriority(app->requestedThreadPriority());
@@ -161,6 +166,9 @@ class TestBase : public testing::Test {
  * A base class for all CHRE simulated tests that only requires a single thread.
  */
 class SingleThreadTestBase : public TestBase {
+ public:
+  void printEventLoopInfo() override;
+
  protected:
   void SetUp() override;
   void TearDown() override;
@@ -179,6 +187,9 @@ class SingleThreadTestBase : public TestBase {
  */
 template <size_t kNumEventLoops = 2>
 class MultiThreadTestBaseT : public TestBase {
+ public:
+  void printEventLoopInfo() override;
+
  protected:
   void SetUp() override;
   void TearDown() override;

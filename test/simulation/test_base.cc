@@ -209,6 +209,13 @@ TEST_F(SingleThreadTestBase, PostEventWithNullEventIsHandledGracefully) {
   EXPECT_FALSE(success);
 }
 
+void SingleThreadTestBase::printEventLoopInfo() {
+  LOGD("SingleThreadTestBase::printEventLoopInfo:");
+  LOGD("  EventLoop (all priorities): %p",
+       getEventLoopForRequestedPriority(
+           NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL));
+}
+
 void SingleThreadTestBase::SetUp() {
   mEventLoop.emplace();
   pw::span<EventLoop> span(&mEventLoop.value(), 1);
@@ -250,6 +257,20 @@ void MultiThreadTestBaseT<kNumEventLoops>::TearDown() {
     chreThread.join();
   }
   TestBase::TearDown();
+}
+
+template <size_t kNumEventLoops>
+void MultiThreadTestBaseT<kNumEventLoops>::printEventLoopInfo() {
+  LOGD("MultiThreadTestBase::printEventLoopInfo:");
+  for (size_t i = 0; i < kNumEventLoops; ++i) {
+    const char *priorityType = "";
+    if (i == 0) {
+      priorityType = " (Normal)";
+    } else if (i == 1) {
+      priorityType = " (Foreground)";
+    }
+    LOGD("  EventLoop[%zu]%s: %p", i, priorityType, getEventLoop(i));
+  }
 }
 
 TEST_F(MultiThreadTestBase, CanLoadAndStartMultiThreadNanoapp) {
