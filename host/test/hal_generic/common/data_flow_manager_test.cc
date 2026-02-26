@@ -384,7 +384,8 @@ TEST_F(DataFlowManagerTest, RemoveDataFlowHostSource) {
 
   auto result = mDataFlowManager->removeDataFlow(flowId);
   ASSERT_TRUE(result.ok());
-  EXPECT_TRUE(result.value().empty());
+  EXPECT_EQ(result.value().first, source);
+  EXPECT_TRUE(result.value().second.empty());
 }
 
 TEST_F(DataFlowManagerTest, RemoveDataFlowWithSinks) {
@@ -401,7 +402,8 @@ TEST_F(DataFlowManagerTest, RemoveDataFlowWithSinks) {
 
   auto result = mDataFlowManager->removeDataFlow(flowId);
   ASSERT_TRUE(result.ok());
-  EXPECT_THAT(result.value(), ::testing::ElementsAre(sink));
+  EXPECT_EQ(result.value().first, source);
+  EXPECT_THAT(result.value().second, ::testing::ElementsAre(sink));
 }
 
 TEST_F(DataFlowManagerTest, AddHostSinkSuccess) {
@@ -421,7 +423,8 @@ TEST_F(DataFlowManagerTest, AddHostSinkSuccess) {
 
   auto removeResult = mDataFlowManager->removeDataFlow(flowId);
   ASSERT_TRUE(removeResult.ok());
-  EXPECT_THAT(removeResult.value(), ::testing::ElementsAre(sink));
+  EXPECT_EQ(removeResult.value().first, source);
+  EXPECT_THAT(removeResult.value().second, ::testing::ElementsAre(sink));
 }
 
 TEST_F(DataFlowManagerTest, AddHostSinkExistingDataFlow) {
@@ -450,7 +453,8 @@ TEST_F(DataFlowManagerTest, AddHostSinkExistingDataFlow) {
 
   auto removeResult = mDataFlowManager->removeDataFlow(flowId);
   ASSERT_TRUE(removeResult.ok());
-  EXPECT_THAT(removeResult.value(),
+  EXPECT_EQ(removeResult.value().first, source);
+  EXPECT_THAT(removeResult.value().second,
               ::testing::UnorderedElementsAre(sink1, sink2));
 }
 

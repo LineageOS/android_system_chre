@@ -560,6 +560,17 @@ class MessageHubManager {
   pw::Result<std::pair<EndpointInfo, bool> *> lookupEmbeddedEndpointLocked(
       const EndpointId &id) REQUIRES(mLock);
 
+  // Removes data flow state for an embedded endpoint and sends notifications to
+  // any relevant host endpoints.
+  void pruneEmbeddedEndpointDataFlowStateLocked(const EndpointId &endpoint)
+      REQUIRES(mLock);
+
+  // Returns a map of hub id to a pair of the HostHub and the subset of the
+  // provided endpoints that are on the hub.
+  std::unordered_map<int64_t, std::pair<HostHub *, std::vector<EndpointId>>>
+  mapEndpointsByHostHubIdLocked(const std::vector<EndpointId> &endpoints)
+      REQUIRES(mLock);
+
   // DataFlowManager instance shared with the ContextHubV4Impl.
   std::shared_ptr<DataFlowManager> mDataFlowManager;
 

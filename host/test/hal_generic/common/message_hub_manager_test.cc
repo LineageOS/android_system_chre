@@ -23,6 +23,7 @@
 
 #include <aidl/android/hardware/contexthub/IContextHub.h>
 
+#include "android/binder_auto_utils.h"
 #include "chre/platform/log.h"
 #include "data_flow_manager.h"
 #include "gmock/gmock.h"
@@ -40,6 +41,7 @@ using ::aidl::android::hardware::contexthub::EndpointInfo;
 using ::aidl::android::hardware::contexthub::ErrorCode;
 using ::aidl::android::hardware::contexthub::HubInfo;
 using ::aidl::android::hardware::contexthub::IEndpointCallback;
+using ::aidl::android::hardware::contexthub::IEndpointCommunication;
 using ::aidl::android::hardware::contexthub::Message;
 using ::aidl::android::hardware::contexthub::MessageDeliveryStatus;
 using ::aidl::android::hardware::contexthub::Reason;
@@ -52,6 +54,7 @@ using ::testing::_;
 using ::testing::AllOf;
 using ::testing::AnyNumber;
 using ::testing::Ge;
+using ::testing::Invoke;
 using ::testing::IsEmpty;
 using ::testing::IsNull;
 using ::testing::Le;
@@ -59,6 +62,18 @@ using ::testing::NiceMock;
 using ::testing::Return;
 using ::testing::SizeIs;
 using ::testing::UnorderedElementsAreArray;
+
+class MockRegisterOffloadSinkCallback
+    : public IEndpointCommunication::IRegisterOffloadSinkCallback {
+ public:
+  MOCK_METHOD(ScopedAStatus, addSinkInRegion,
+              (const std::optional<SharedDataRegion> &, int64_t *), (override));
+
+  MOCK_METHOD(SpAIBinder, asBinder, (), (override));
+  MOCK_METHOD(bool, isRemote, (), (override));
+  MOCK_METHOD(ScopedAStatus, getInterfaceVersion, (int32_t *), (override));
+  MOCK_METHOD(ScopedAStatus, getInterfaceHash, (std::string *), (override));
+};
 
 class MockEndpointCallback : public IEndpointCallback {
  public:
@@ -133,8 +148,8 @@ class MockDataFlowManager : public DataFlowManager {
                int32_t primaryRegionId, int32_t sinkMetadataRegionId,
                uint32_t metadataOffset, uint32_t sinkMetadataOffset),
               (override));
-  MOCK_METHOD(pw::Result<std::vector<EndpointId>>, removeDataFlow,
-              (DataFlowId flowId), (override));
+  MOCK_METHOD((pw::Result<std::pair<EndpointId, std::vector<EndpointId>>>),
+              removeDataFlow, (DataFlowId flowId), (override));
   MOCK_METHOD(pw::Result<EndpointId>, removeSink,
               (DataFlowId flowId, EndpointId sink), (override));
   MOCK_METHOD(
@@ -766,6 +781,342 @@ TEST_F(MessageHubManagerTest, HandleMessageDeliveryStatusForUnknownSession) {
   MessageDeliveryStatus status{.errorCode = ErrorCode::TRANSIENT_ERROR};
   EXPECT_CALL(*mHostHubCb, onMessageDeliveryStatusReceived(_, _)).Times(0);
   EXPECT_FALSE(mHostHub->handleMessageDeliveryStatus(1, status).ok());
+}
+
+TEST_F(MessageHubManagerTest, AddHostSourceDataFlow) {
+  setupDefaultHubs();
+
+  DataFlowInfo info;
+  DataFlowId dataFlowId{.hubId = kHub1Id, .id = 1};
+  EXPECT_CALL(*mDataFlowManager, addHostSourceDataFlow(kEndpoint1_1Info.id, _))
+      .WillOnce(Return(dataFlowId));
+
+  auto result = mHostHub->addDataFlow(kEndpoint1_1Info.id, info);
+  ASSERT_TRUE(result.ok());
+  EXPECT_EQ(result->id, dataFlowId.id);
+  EXPECT_EQ(result->hubId, dataFlowId.hubId);
+}
+
+TEST_F(MessageHubManagerTest, AddHostSourceDataFlowInvalidEndpoint) {
+  setupDefaultHubs();
+
+  DataFlowInfo info;
+  EXPECT_NE(mHostHub->addDataFlow(kEndpoint2_1Info.id, info).status(),
+            pw::OkStatus());
+}
+
+TEST_F(MessageHubManagerTest, AddSinkToHostSourceDataFlow) {
+  setupDefaultHubs();
+
+  // Host Endpoint 1 (Source) -> Embedded Endpoint 1 (Sink)
+  DataFlowSinkRegistrationParams params;
+  params.context.id = {.hubId = kHub1Id, .id = 1};
+  params.sourceId = kEndpoint1_1Info.id;
+  params.sinkId = kEndpoint2_1Info.id;
+  params.sessionId = IEndpointCommunication::SESSION_ID_INVALID;
+
+  EXPECT_CALL(*mDataFlowManager, addOffloadSink(_))
+      .WillOnce(Invoke([](const DataFlowSinkRegistrationParams &) {
+        return std::make_pair(DataFlowInfo(),
+                              std::optional<SharedDataRegion>());
+      }));
+
+  const int32_t kSinkMetadataOffsetBytes = 1024;
+  auto callback = SharedRefBase::make<MockRegisterOffloadSinkCallback>();
+  EXPECT_CALL(*callback, addSinkInRegion(_, _))
+      .WillOnce(Invoke([](const std::optional<SharedDataRegion> &,
+                          int64_t *metadataOffsetBytes) {
+        *metadataOffsetBytes = kSinkMetadataOffsetBytes;
+        return ndk::ScopedAStatus::ok();
+      }));
+
+  auto result = mHostHub->addSinkToDataFlow(params, callback);
+  ASSERT_TRUE(result.ok());
+  EXPECT_EQ(result->context.id.id, params.context.id.id);
+  EXPECT_EQ(result->context.metadataOffsetBytes, kSinkMetadataOffsetBytes);
+}
+
+TEST_F(MessageHubManagerTest, AddSinkToHostSourceDataFlowWithRegion) {
+  setupDefaultHubs();
+
+  // Host Endpoint 1 (Source) -> Embedded Endpoint 1 (Sink)
+  DataFlowSinkRegistrationParams params;
+  params.context.id = {.hubId = kHub1Id, .id = 1};
+  params.sourceId = kEndpoint1_1Info.id;
+  params.sinkId = kEndpoint2_1Info.id;
+  params.sessionId = IEndpointCommunication::SESSION_ID_INVALID;
+
+  std::optional<SharedDataRegion> region = SharedDataRegion{.id = 2};
+  EXPECT_CALL(*mDataFlowManager, addOffloadSink(_))
+      .WillOnce(Invoke([](const DataFlowSinkRegistrationParams &) {
+        return std::make_pair(DataFlowInfo(), std::optional<SharedDataRegion>(
+                                                  SharedDataRegion{.id = 2}));
+      }));
+
+  const int32_t kSinkMetadataOffsetBytes = 1024;
+  auto callback = SharedRefBase::make<MockRegisterOffloadSinkCallback>();
+  EXPECT_CALL(*callback, addSinkInRegion(_, _))
+      .WillOnce(Invoke([](const std::optional<SharedDataRegion> &region,
+                          int64_t *metadataOffsetBytes) {
+        EXPECT_EQ(region->id, 2);
+        *metadataOffsetBytes = kSinkMetadataOffsetBytes;
+        return ndk::ScopedAStatus::ok();
+      }));
+
+  auto result = mHostHub->addSinkToDataFlow(params, callback);
+  ASSERT_TRUE(result.ok());
+  EXPECT_EQ(result->context.id.id, params.context.id.id);
+  EXPECT_EQ(result->context.metadataOffsetBytes, kSinkMetadataOffsetBytes);
+  EXPECT_TRUE(result->context.sinkMetadataRegion.has_value());
+  EXPECT_EQ(result->context.sinkMetadataRegion->id, 2);
+}
+
+TEST_F(MessageHubManagerTest, AddSinkToHostSourceDataFlowWithSession) {
+  auto sessionId = setupDefaultHubsAndSession();
+
+  // Host Endpoint 1 (Source) -> Embedded Endpoint 1 (Sink)
+  DataFlowSinkRegistrationParams params;
+  params.context.id = {.hubId = kHub1Id, .id = 1};
+  params.sourceId = kEndpoint1_1Info.id;
+  params.sinkId = kEndpoint2_1Info.id;
+  params.sessionId = sessionId;
+
+  EXPECT_CALL(*mDataFlowManager, addOffloadSink(_))
+      .WillOnce(Invoke([](const DataFlowSinkRegistrationParams &) {
+        return std::make_pair(DataFlowInfo(),
+                              std::optional<SharedDataRegion>());
+      }));
+
+  const int32_t kSinkMetadataOffsetBytes = 1024;
+  auto callback = SharedRefBase::make<MockRegisterOffloadSinkCallback>();
+  EXPECT_CALL(*callback, addSinkInRegion(_, _))
+      .WillOnce(Invoke([](const std::optional<SharedDataRegion> &,
+                          int64_t *metadataOffsetBytes) {
+        *metadataOffsetBytes = kSinkMetadataOffsetBytes;
+        return ndk::ScopedAStatus::ok();
+      }));
+
+  auto result = mHostHub->addSinkToDataFlow(params, callback);
+  ASSERT_TRUE(result.ok());
+  EXPECT_EQ(result->context.id.id, params.context.id.id);
+  EXPECT_EQ(result->context.metadataOffsetBytes, kSinkMetadataOffsetBytes);
+}
+
+TEST_F(MessageHubManagerTest, AddSinkToHostSourceDataFlowUnknownSession) {
+  auto sessionId = setupDefaultHubsAndSession();
+
+  // Host Endpoint 1 (Source) -> Embedded Endpoint 1 (Sink)
+  DataFlowSinkRegistrationParams params;
+  params.context.id = {.hubId = kHub1Id, .id = 1};
+  params.sourceId = kEndpoint1_1Info.id;
+  params.sinkId = kEndpoint2_1Info.id;
+  params.sessionId = sessionId + 1;
+
+  auto callback = SharedRefBase::make<MockRegisterOffloadSinkCallback>();
+  EXPECT_EQ(mHostHub->addSinkToDataFlow(params, callback).status(),
+            pw::Status::NotFound());
+}
+
+TEST_F(MessageHubManagerTest, AddSinkToHostSourceDataFlowInvalidEndpoints) {
+  setupDefaultHubs();
+
+  auto callback = SharedRefBase::make<MockRegisterOffloadSinkCallback>();
+
+  // Source not on hub
+  DataFlowSinkRegistrationParams params;
+  params.sourceId = kEndpoint2_1Info.id;
+  params.sinkId = kEndpoint2_1Info.id;
+  EXPECT_EQ(mHostHub->addSinkToDataFlow(params, callback).status(),
+            pw::Status::InvalidArgument());
+
+  // Sink not on embedded hub
+  params.sourceId = kEndpoint1_1Info.id;
+  params.sinkId = kEndpoint1_1Info.id;
+  EXPECT_EQ(mHostHub->addSinkToDataFlow(params, callback).status(),
+            pw::Status::NotFound());
+}
+
+TEST_F(MessageHubManagerTest, RemoveHostSourceDataFlow) {
+  setupDefaultHubs();
+
+  DataFlowId dataFlowId{.hubId = kHub1Id, .id = 1};
+  EXPECT_CALL(*mDataFlowManager, removeDataFlow(dataFlowId))
+      .WillOnce(Return(std::make_pair(
+          EndpointId(), std::vector<EndpointId>{kEndpoint1_1Info.id})));
+
+  auto result = mHostHub->removeDataFlow(dataFlowId);
+  ASSERT_TRUE(result.ok());
+  EXPECT_THAT(*result, UnorderedElementsAreArray({kEndpoint1_1Info.id}));
+}
+
+TEST_F(MessageHubManagerTest, AddHostSinkToEmbeddedSourceDataFlow) {
+  setupDefaultHubs();
+
+  // Embedded Endpoint 1 (Source) -> Host Endpoint 1 (Sink)
+  DataFlowSinkRegistrationParams params;
+  params.context.id = {.hubId = kHub2Id, .id = 1};
+  params.context.info = DataFlowInfo{.region = {.id = 2}};
+  params.context.sinkMetadataRegion = SharedDataRegion{.id = 3};
+  params.sourceId = kEndpoint2_1Info.id;
+  params.sinkId = kEndpoint1_1Info.id;
+  params.sessionId = IEndpointCommunication::SESSION_ID_INVALID;
+
+  EXPECT_CALL(*mDataFlowManager,
+              addHostSink(params.context.id, params.sourceId, params.sinkId,
+                          params.context.info->region.id,
+                          params.context.sinkMetadataRegion->id, _, _))
+      .WillOnce(Invoke([&params](DataFlowId, EndpointId, EndpointId, int32_t,
+                                 int32_t, uint32_t, uint32_t) {
+        // Return a copy of params.context, but we have to construct it because
+        // it's not copyable.
+        DataFlowSinkContext ctx;
+        ctx.id = params.context.id;
+        ctx.info = std::make_optional<DataFlowInfo>();
+        ctx.info->region.id = params.context.info->region.id;
+        ctx.sinkMetadataRegion = std::make_optional<SharedDataRegion>();
+        ctx.sinkMetadataRegion->id = params.context.sinkMetadataRegion->id;
+        return ctx;
+      }));
+  EXPECT_CALL(*mHostHubCb, onDataFlowHostSinkRegistered(_));
+
+  EXPECT_TRUE(mHostHub->handleAddSink(params).ok());
+}
+
+TEST_F(MessageHubManagerTest, AddHostSinkToEmbeddedSourceDataFlowWithSession) {
+  auto sessionId = setupDefaultHubsAndSession();
+
+  // Embedded Endpoint 1 (Source) -> Host Endpoint 1 (Sink)
+  DataFlowSinkRegistrationParams params;
+  params.context.id = {.hubId = kHub2Id, .id = 1};
+  params.context.info = DataFlowInfo{.region = {.id = 2}};
+  params.context.sinkMetadataRegion = SharedDataRegion{.id = 3};
+  params.sourceId = kEndpoint2_1Info.id;
+  params.sinkId = kEndpoint1_1Info.id;
+  params.sessionId = sessionId;
+
+  EXPECT_CALL(*mDataFlowManager,
+              addHostSink(params.context.id, params.sourceId, params.sinkId,
+                          params.context.info->region.id,
+                          params.context.sinkMetadataRegion->id, _, _))
+      .WillOnce(Invoke([&params](DataFlowId, EndpointId, EndpointId, int32_t,
+                                 int32_t, uint32_t, uint32_t) {
+        // Return a copy of params.context, but we have to construct it because
+        // it's not copyable.
+        DataFlowSinkContext ctx;
+        ctx.id = params.context.id;
+        ctx.info = std::make_optional<DataFlowInfo>();
+        ctx.info->region.id = params.context.info->region.id;
+        ctx.sinkMetadataRegion = std::make_optional<SharedDataRegion>();
+        ctx.sinkMetadataRegion->id = params.context.sinkMetadataRegion->id;
+        return ctx;
+      }));
+  EXPECT_CALL(*mHostHubCb, onDataFlowHostSinkRegistered(_));
+
+  EXPECT_TRUE(mHostHub->handleAddSink(params).ok());
+}
+
+TEST_F(MessageHubManagerTest,
+       AddHostSinkToEmbeddedSourceDataFlowUnknownSession) {
+  auto sessionId = setupDefaultHubsAndSession();
+
+  // Embedded Endpoint 1 (Source) -> Host Endpoint 1 (Sink)
+  DataFlowSinkRegistrationParams params;
+  params.context.id = {.hubId = kHub2Id, .id = 1};
+  params.sourceId = kEndpoint2_1Info.id;
+  params.sinkId = kEndpoint1_1Info.id;
+  params.sessionId = sessionId + 1;
+
+  EXPECT_EQ(mHostHub->handleAddSink(params), pw::Status::NotFound());
+}
+
+TEST_F(MessageHubManagerTest,
+       AddHostSinkToEmbeddedSourceDataFlowInvalidEndpoints) {
+  setupDefaultHubs();
+
+  // Sink not on hub
+  DataFlowSinkRegistrationParams params;
+  params.sourceId = kEndpoint2_1Info.id;
+  params.sinkId = kEndpoint2_1Info.id;
+  params.sessionId = IEndpointCommunication::SESSION_ID_INVALID;
+  EXPECT_EQ(mHostHub->handleAddSink(params), pw::Status::InvalidArgument());
+
+  // Source not on embedded hub
+  params.sourceId = kEndpoint1_1Info.id;
+  params.sinkId = kEndpoint1_1Info.id;
+  params.sessionId = IEndpointCommunication::SESSION_ID_INVALID;
+  EXPECT_EQ(mHostHub->handleAddSink(params), pw::Status::NotFound());
+}
+
+TEST_F(MessageHubManagerTest, AddHostSinkToEmbeddedSourceDataFlowMissingData) {
+  setupDefaultHubs();
+
+  // Missing info
+  DataFlowSinkRegistrationParams params;
+  params.context.id = {.hubId = kHub2Id, .id = 1};
+  params.context.sinkMetadataRegion = SharedDataRegion{.id = 3};
+  params.sourceId = kEndpoint2_1Info.id;
+  params.sinkId = kEndpoint1_1Info.id;
+  params.sessionId = IEndpointCommunication::SESSION_ID_INVALID;
+  EXPECT_EQ(mHostHub->handleAddSink(params), pw::Status::InvalidArgument());
+
+  // Missing sink metadata region
+  params.context.info = DataFlowInfo{.region = {.id = 2}};
+  params.context.sinkMetadataRegion.reset();
+  EXPECT_EQ(mHostHub->handleAddSink(params), pw::Status::InvalidArgument());
+}
+
+TEST_F(MessageHubManagerTest, RemoveHostSinkFromEmbeddedSourceDataFlow) {
+  setupDefaultHubs();
+
+  DataFlowId dataFlowId{.hubId = kHub2Id, .id = 1};
+  EXPECT_CALL(*mDataFlowManager, removeSink(dataFlowId, kEndpoint1_1Info.id))
+      .WillOnce(Return(kEndpoint2_1Info.id));
+
+  auto result = mHostHub->removeSink(dataFlowId, kEndpoint1_1Info.id);
+  ASSERT_TRUE(result.ok());
+  EXPECT_EQ(result->id, kEndpoint2_1Info.id.id);
+  EXPECT_EQ(result->hubId, kEndpoint2_1Info.id.hubId);
+}
+
+TEST_F(MessageHubManagerTest,
+       RemoveHostSinkFromEmbeddedSourceDataFlowInvalidEndpoint) {
+  setupDefaultHubs();
+
+  DataFlowId dataFlowId{.hubId = kHub2Id, .id = 1};
+  EXPECT_EQ(mHostHub->removeSink(dataFlowId, kEndpoint2_1Info.id).status(),
+            pw::Status::InvalidArgument());
+}
+
+TEST_F(MessageHubManagerTest, RemoveEmbeddedSourceDataFlow) {
+  setupDefaultHubs();
+
+  DataFlowId dataFlowId{.hubId = kHub2Id, .id = 1};
+  // Host endpoint 1 is a sink on this data flow
+  EXPECT_CALL(*mDataFlowManager, removeDataFlow(dataFlowId))
+      .WillOnce(Return(std::pair<EndpointId, std::vector<EndpointId>>{
+          kEndpoint2_1Info.id, {kEndpoint1_1Info.id}}));
+
+  EXPECT_CALL(*mHostHubCb,
+              onDataFlowOffloadEndpointUnregistered(
+                  dataFlowId, kEndpoint2_1Info.id,
+                  UnorderedElementsAreArray({kEndpoint1_1Info.id})));
+
+  mManager->removeEmbeddedSourceDataFlow(dataFlowId);
+}
+
+TEST_F(MessageHubManagerTest, RemoveEmbeddedSinkFromHostSourceDataFlow) {
+  setupDefaultHubs();
+
+  DataFlowId dataFlowId{.hubId = kHub1Id, .id = 1};
+  EXPECT_CALL(*mDataFlowManager, removeSink(dataFlowId, kEndpoint2_1Info.id))
+      .WillOnce(Return(kEndpoint1_1Info.id));
+
+  EXPECT_CALL(*mHostHubCb,
+              onDataFlowOffloadEndpointUnregistered(
+                  dataFlowId, kEndpoint2_1Info.id,
+                  UnorderedElementsAreArray({kEndpoint1_1Info.id})));
+
+  mManager->removeDataFlowEmbeddedSink(dataFlowId, kEndpoint2_1Info.id);
 }
 
 }  // namespace
