@@ -250,7 +250,9 @@ static void destroy(JNIEnv * /*env*/, jobject /*thiz*/) {
 static jint loadNanoAppFromFile(JNIEnv *env, jobject /*thiz*/,
                                 jstring filename) {
   auto nanoapp = chre::MakeUnique<chre::Nanoapp>();
-  nanoapp->loadFromFile(env->GetStringUTFChars(filename, nullptr));
+  const char *filenameStr = env->GetStringUTFChars(filename, nullptr);
+  nanoapp->loadFromFile(filenameStr);
+  env->ReleaseStringUTFChars(filename, filenameStr);
   return chre::EventLoopManagerSingleton::get()->getEventLoop().startNanoapp(
       std::move(nanoapp));
 }
@@ -271,6 +273,7 @@ static jboolean sendMessage(JNIEnv *env, jobject /*thiz*/, jlong nanoAppId,
   comms_manager.sendMessageToNanoappFromHost(
       nanoAppId, messageType, 0, javaBytes, messageSize, false /*isReliable=*/,
       0 /*messageSequenceNumber*/);
+  env->ReleaseByteArrayElements(message, javaBytes, JNI_ABORT);
   return true;
 }
 

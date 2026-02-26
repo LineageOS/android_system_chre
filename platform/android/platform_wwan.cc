@@ -208,6 +208,8 @@ static void parseNrInfo(JNIEnv *env, jobject cellInfo,
 
     outInfo->CellInfo.nr.cellIdentityNr.mcc = parseStringToInt(env, mccStr);
     outInfo->CellInfo.nr.cellIdentityNr.mnc = parseStringToInt(env, mncStr);
+    env->DeleteLocalRef(mccStr);
+    env->DeleteLocalRef(mncStr);
     chreWwanPackNrNci(env->CallLongMethod(id, getWwanJniCache().nrIdGetNci),
                       &(outInfo->CellInfo.nr.cellIdentityNr));
     outInfo->CellInfo.nr.cellIdentityNr.pci =
@@ -291,6 +293,8 @@ static void parseTdscdmaInfo(JNIEnv *env, jobject cellInfo,
         parseStringToInt(env, mccStr);
     outInfo->CellInfo.tdscdma.cellIdentityTdscdma.mnc =
         parseStringToInt(env, mncStr);
+    env->DeleteLocalRef(mccStr);
+    env->DeleteLocalRef(mncStr);
 
     outInfo->CellInfo.tdscdma.cellIdentityTdscdma.lac =
         env->CallIntMethod(id, getWwanJniCache().tdscdmaIdGetLac);
