@@ -177,6 +177,8 @@ void HostCommsManager::flushNanoappMessages(Nanoapp &nanoapp) {
   // nanoapp) anymore, i.e. onMessageToHostComplete() is called, which lets us
   // free memory for any pending reliable messages
   HostLink::flushMessagesSentByNanoapp(nanoapp.getAppId());
+
+  GlobalApiLockGuard lock;
   freeAllReliableMessagesFromNanoapp(nanoapp);
 }
 
@@ -186,6 +188,7 @@ void HostCommsManager::onMessageToHostComplete(const MessageToHost *message) {
   // We do not call onMessageToHostCompleteInternal for reliable messages
   // until the completion callback is called.
   if (message != nullptr && !message->isReliable) {
+    GlobalApiLockGuard lock;
     onMessageToHostCompleteInternal(message);
   }
 }
@@ -403,8 +406,13 @@ bool HostCommsManager::doSendMessageToHostFromNanoapp(
   bool wokeHost = !hostWasAwake && !mIsNanoappBlamedForWakeup;
   msgToHost->toHostData.wokeHost = wokeHost;
 
-  if (!HostLink::sendMessage(msgToHost)) {
-    return false;
+  {
+    // Temporarily unlock the global API mutex while calling into HostLink,
+    // because it may call back into HostCommsManager.
+    GlobalApiUnlockGuard lock;
+    if (!HostLink::sendMessage(msgToHost)) {
+      return false;
+    }
   }
 
   if (wokeHost) {
@@ -532,19 +540,24 @@ void HostCommsManager::onMessageToHostCompleteInternal(
   // EventLoop context.
   if (msgToHost->toHostData.nanoappFreeFunction == nullptr) {
     mMessagePool.deallocate(msgToHost);
+  } else if (EventLoopManagerSingleton::get()->inEventLoopForNanoapp(
+                 msgToHost->appId)) {
+    // If we're already within the event loop context, it is safe to call the
+    // free callback synchronously.
+    GlobalApiUnlockGuard lock;
+    freeMessageToHost(msgToHost);
   } else {
+    // TODO(b/488037034): Enable thread-safety analysis annotations here.
     auto freeMsgCallback =
-        [](uint16_t /*type*/, void *data,
-           void * /*extraData*/) CHRE_NO_THREAD_SAFETY_ANALYSIS {
-          // TODO(b/475537998): Optimize the global API mutex locking in this
-          // code path.
-          auto *lock = EventLoopManagerSingleton::get()->getGlobalApiMutex();
-          lock->unlock();
-          EventLoopManagerSingleton::get()
-              ->getHostCommsManager()
-              .freeMessageToHost(static_cast<MessageToHost *>(data));
-          lock->lock();
-        };
+        [](uint16_t /*type*/, void *data, void * /*extraData*/)
+            CHRE_NO_THREAD_SAFETY_ANALYSIS {
+              // TODO(b/475537998): Optimize the global API mutex locking in
+              // this code path.
+              GlobalApiUnlockGuard lock;
+              EventLoopManagerSingleton::get()
+                  ->getHostCommsManager()
+                  .freeMessageToHost(static_cast<MessageToHost *>(data));
+            };
 
     if (!EventLoopManagerSingleton::get()->deferCallback(
             SystemCallbackType::MessageToHostComplete, msgToHost,
