@@ -36,6 +36,9 @@ using AidlMessageDeliveryStatus =
     ::aidl::android::hardware::contexthub::MessageDeliveryStatus;
 using AidlReason = ::aidl::android::hardware::contexthub::Reason;
 using AidlService = ::aidl::android::hardware::contexthub::Service;
+using AidlDataFlowId = ::aidl::android::hardware::contexthub::DataFlowId;
+using AidlDataFlowSinkRegistrationParams =
+    ::aidl::android::hardware::contexthub::DataFlowSinkRegistrationParams;
 
 /** Helpers for converting ContextHub V4+ AIDL <-> CHRE flatbuffer messages */
 class HostProtocolHostV4 : public ::chre::HostProtocolCommon {
@@ -158,6 +161,51 @@ class HostProtocolHostV4 : public ::chre::HostProtocolCommon {
   static void encodeEndpointSessionMessageDeliveryStatus(
       flatbuffers::FlatBufferBuilder &builder, int64_t hostHubId,
       uint16_t sessionId, const AidlMessageDeliveryStatus &status);
+
+  /**
+   * Encodes a RegisterDataFlowSink message
+   *
+   * @param builder The builder used to encode the message
+   * @param params The registration parameters
+   */
+  static void encodeRegisterDataFlowSink(
+      flatbuffers::FlatBufferBuilder &builder,
+      const AidlDataFlowSinkRegistrationParams &params);
+
+  /**
+   * Encodes a UnregisterDataFlowSink message
+   *
+   * @param builder The builder used to encode the message
+   * @param dataFlowId The id of the data flow
+   * @param endpointId The id of the endpoint to remove
+   */
+  static void encodeUnregisterDataFlowSink(
+      flatbuffers::FlatBufferBuilder &builder, const AidlDataFlowId &dataFlowId,
+      const AidlEndpointId &endpointId);
+
+  /**
+   * Encodes a DataFlowStopped message
+   *
+   * @param builder The builder used to encode the message
+   * @param dataFlowId The id of the data flow
+   * @param destinationIds The endpoints to notify
+   */
+  static void encodeDataFlowStopped(
+      flatbuffers::FlatBufferBuilder &builder, const AidlDataFlowId &dataFlowId,
+      const std::vector<AidlEndpointId> &destinationIds);
+
+  /**
+   * Encodes a DataFlowAlert message
+   *
+   * @param builder The builder used to encode the message
+   * @param dataFlowId The id of the data flow
+   * @param senderId The id of the sending endpoint
+   * @param receiverIds The endpoints to notify
+   */
+  static void encodeDataFlowAlert(
+      flatbuffers::FlatBufferBuilder &builder, const AidlDataFlowId &dataFlowId,
+      const AidlEndpointId &senderId,
+      const std::vector<AidlEndpointId> &receiverIds);
 
   /**
    * Decodes a GetMessageHubsAndEndpointsResponse message
@@ -288,6 +336,51 @@ class HostProtocolHostV4 : public ::chre::HostProtocolCommon {
       const ::chre::fbs::EndpointSessionMessageDeliveryStatusT &msg,
       int64_t &hubId, uint16_t &sessionId, AidlMessageDeliveryStatus &status);
 
+  /**
+   * Decodes a RegisterDataFlowSink message
+   *
+   * @param msg The message
+   * @param params (out) The registration parameters
+   */
+  static void decodeRegisterDataFlowSink(
+      const ::chre::fbs::RegisterDataFlowSinkT &msg,
+      AidlDataFlowSinkRegistrationParams &params);
+
+  /**
+   * Decodes a UnregisterDataFlowSink message
+   *
+   * @param msg The message
+   * @param dataFlowId (out) The id of the data flow
+   * @param endpointId (out) The id of the endpoint to remove
+   */
+  static void decodeUnregisterDataFlowSink(
+      const ::chre::fbs::UnregisterDataFlowSinkT &msg,
+      AidlDataFlowId &dataFlowId, AidlEndpointId &endpointId);
+
+  /**
+   * Decodes a DataFlowStopped message
+   *
+   * @param msg The message
+   * @param dataFlowId (out) The id of the data flow
+   * @param destinationIds (out) The endpoints to notify
+   */
+  static void decodeDataFlowStopped(
+      const ::chre::fbs::DataFlowStoppedT &msg, AidlDataFlowId &dataFlowId,
+      std::vector<AidlEndpointId> &destinationIds);
+
+  /**
+   * Decodes a DataFlowAlert message
+   *
+   * @param msg The message
+   * @param dataFlowId (out) The id of the data flow
+   * @param senderId (out) The id of the sending endpoint
+   * @param receiverIds (out) The endpoints to notify
+   */
+  static void decodeDataFlowAlert(const ::chre::fbs::DataFlowAlertT &msg,
+                                  AidlDataFlowId &dataFlowId,
+                                  AidlEndpointId &senderId,
+                                  std::vector<AidlEndpointId> &receiverIds);
+
  private:
   static flatbuffers::Offset<::chre::fbs::MessageHub> aidlToFbsMessageHub(
       flatbuffers::FlatBufferBuilder &builder, const AidlHubInfo &info);
@@ -305,6 +398,17 @@ class HostProtocolHostV4 : public ::chre::HostProtocolCommon {
 
   static AidlEndpointId fbsEndpointIdToAidl(
       const ::chre::fbs::EndpointIdT &endpoint);
+
+  static flatbuffers::Offset<::chre::fbs::DataFlowId> aidlToFbsDataFlowId(
+      flatbuffers::FlatBufferBuilder &builder, const AidlDataFlowId &id);
+
+  static AidlDataFlowId fbsDataFlowIdToAidl(
+      const ::chre::fbs::DataFlowIdT &id);
+
+  static flatbuffers::Offset<::chre::fbs::EndpointSessionMessage>
+  aidlToFbsEndpointSessionMessage(flatbuffers::FlatBufferBuilder &builder,
+                                  int64_t hostHubId, uint16_t sessionId,
+                                  const AidlMessage &message);
 };
 
 }  // namespace android::hardware::contexthub::common::implementation
