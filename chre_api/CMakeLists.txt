@@ -19,6 +19,7 @@ pw_add_facade(chre.chre_api INTERFACE
     include/chre_api/chre/gnss.h
     include/chre_api/chre/msg.h
     include/chre_api/chre/nanoapp.h
+    include/chre_api/chre/data_flow.h
     include/chre_api/chre/re.h
     include/chre_api/chre/sensor.h
     include/chre_api/chre/sensor_types.h

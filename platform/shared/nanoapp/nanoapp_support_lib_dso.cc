@@ -711,6 +711,156 @@ bool chreMsgSend(void *message, size_t messageSize, uint32_t messageType,
 
 // End endpoint messaging APIs
 
+// Begin data flow APIs
+
+#if CHRE_NSL_SHOULD_PROVIDE_BACKCOMPAT_FOR(CHRE_API_VERSION_1_12)
+WEAK_SYMBOL
+uint32_t chreDataFlowCreateAsync(
+    uint32_t sinkDomains, uint64_t minAverageWriteIntervalNs,
+    uint32_t maxAverageWriteBandwidthBytesPerSecond, uint32_t sinkPermissions,
+    uint32_t elementSize, uint32_t alignment, uint32_t minElementCount,
+    uint32_t maxElementCount, const char *name) {
+  auto *fptr = CHRE_NSL_LAZY_LOOKUP(chreDataFlowCreateAsync);
+  return fptr != nullptr ? fptr(sinkDomains, minAverageWriteIntervalNs,
+                                maxAverageWriteBandwidthBytesPerSecond,
+                                sinkPermissions, elementSize, alignment,
+                                minElementCount, maxElementCount, name)
+                         : CHRE_STATUS_UNIMPLEMENTED;
+}
+
+WEAK_SYMBOL
+uint32_t chreDataFlowDestroy(uint32_t dataFlowId) {
+  auto *fptr = CHRE_NSL_LAZY_LOOKUP(chreDataFlowDestroy);
+  return fptr != nullptr ? fptr(dataFlowId) : CHRE_STATUS_UNIMPLEMENTED;
+}
+
+WEAK_SYMBOL
+uint32_t chreDataFlowSourceAddSinkAsync(
+    uint64_t hubId, uint64_t endpointId, uint32_t dataFlowId,
+    const struct chreDataFlowSinkPolicy *sinkPolicy) {
+  auto *fptr = CHRE_NSL_LAZY_LOOKUP(chreDataFlowSourceAddSinkAsync);
+  return fptr != nullptr ? fptr(hubId, endpointId, dataFlowId, sinkPolicy)
+                         : CHRE_STATUS_UNIMPLEMENTED;
+}
+
+WEAK_SYMBOL
+uint32_t chreDataFlowSourceAddSinkOverSessionAsync(
+    uint64_t hubId, uint64_t endpointId, uint32_t dataFlowId,
+    const struct chreDataFlowSinkPolicy *sinkPolicy, void *message,
+    size_t messageSize, uint32_t messageType, uint16_t sessionId,
+    uint32_t messagePermissions, chreMessageFreeFunction *freeCallback) {
+  auto *fptr = CHRE_NSL_LAZY_LOOKUP(chreDataFlowSourceAddSinkOverSessionAsync);
+  return fptr != nullptr ? fptr(hubId, endpointId, dataFlowId, sinkPolicy,
+                                message, messageSize, messageType, sessionId,
+                                messagePermissions, freeCallback)
+                         : CHRE_STATUS_UNIMPLEMENTED;
+}
+
+WEAK_SYMBOL
+uint32_t chreDataFlowSourceConfigureSink(
+    uint64_t hubId, uint64_t endpointId, uint32_t dataFlowId,
+    const struct chreDataFlowSinkPolicy *sinkPolicy) {
+  auto *fptr = CHRE_NSL_LAZY_LOOKUP(chreDataFlowSourceConfigureSink);
+  return fptr != nullptr ? fptr(hubId, endpointId, dataFlowId, sinkPolicy)
+                         : CHRE_STATUS_UNIMPLEMENTED;
+}
+
+WEAK_SYMBOL
+uint32_t chreDataFlowSourceReserve(uint32_t dataFlowId, uint32_t numBytes,
+                                   void **data, uint32_t *reservedBytes) {
+  auto *fptr = CHRE_NSL_LAZY_LOOKUP(chreDataFlowSourceReserve);
+  return fptr != nullptr ? fptr(dataFlowId, numBytes, data, reservedBytes)
+                         : CHRE_STATUS_UNIMPLEMENTED;
+}
+
+WEAK_SYMBOL
+uint32_t chreDataFlowSourceCommit(uint32_t dataFlowId, uint32_t numBytes) {
+  auto *fptr = CHRE_NSL_LAZY_LOOKUP(chreDataFlowSourceCommit);
+  return fptr != nullptr ? fptr(dataFlowId, numBytes)
+                         : CHRE_STATUS_UNIMPLEMENTED;
+}
+
+WEAK_SYMBOL
+uint32_t chreDataFlowSourcePush(uint32_t dataFlowId, const void *data,
+                                uint32_t numBytes, bool allOrNothing,
+                                uint32_t *numberOfBytesPushed) {
+  auto *fptr = CHRE_NSL_LAZY_LOOKUP(chreDataFlowSourcePush);
+  return fptr != nullptr ? fptr(dataFlowId, data, numBytes, allOrNothing,
+                                numberOfBytesPushed)
+                         : CHRE_STATUS_UNIMPLEMENTED;
+}
+
+WEAK_SYMBOL
+uint32_t chreDataFlowSourceGetSize(uint32_t dataFlowId, bool includeReserved,
+                                   uint32_t *size) {
+  auto *fptr = CHRE_NSL_LAZY_LOOKUP(chreDataFlowSourceGetSize);
+  return fptr != nullptr ? fptr(dataFlowId, includeReserved, size)
+                         : CHRE_STATUS_UNIMPLEMENTED;
+}
+
+WEAK_SYMBOL
+uint32_t chreDataFlowSourceGetCapacity(uint32_t dataFlowId,
+                                       uint32_t *capacity) {
+  auto *fptr = CHRE_NSL_LAZY_LOOKUP(chreDataFlowSourceGetCapacity);
+  return fptr != nullptr ? fptr(dataFlowId, capacity)
+                         : CHRE_STATUS_UNIMPLEMENTED;
+}
+
+WEAK_SYMBOL
+uint32_t chreDataFlowSinkEnable(uint64_t hubId, uint32_t dataFlowId) {
+  auto *fptr = CHRE_NSL_LAZY_LOOKUP(chreDataFlowSinkEnable);
+  return fptr != nullptr ? fptr(hubId, dataFlowId) : CHRE_STATUS_UNIMPLEMENTED;
+}
+
+WEAK_SYMBOL
+uint32_t chreDataFlowSinkDisable(uint64_t hubId, uint32_t dataFlowId) {
+  auto *fptr = CHRE_NSL_LAZY_LOOKUP(chreDataFlowSinkDisable);
+  return fptr != nullptr ? fptr(hubId, dataFlowId) : CHRE_STATUS_UNIMPLEMENTED;
+}
+
+WEAK_SYMBOL
+uint32_t chreDataFlowSinkGetState(uint64_t hubId, uint32_t dataFlowId) {
+  auto *fptr = CHRE_NSL_LAZY_LOOKUP(chreDataFlowSinkGetState);
+  return fptr != nullptr ? fptr(hubId, dataFlowId) : CHRE_STATUS_UNIMPLEMENTED;
+}
+
+WEAK_SYMBOL
+uint32_t chreDataFlowSinkPeek(uint64_t hubId, uint32_t dataFlowId,
+                              uint32_t numRequestedBytes, const void **data,
+                              uint32_t *numBytes) {
+  auto *fptr = CHRE_NSL_LAZY_LOOKUP(chreDataFlowSinkPeek);
+  return fptr != nullptr
+             ? fptr(hubId, dataFlowId, numRequestedBytes, data, numBytes)
+             : CHRE_STATUS_UNIMPLEMENTED;
+}
+
+WEAK_SYMBOL
+uint32_t chreDataFlowSinkRelease(uint64_t hubId, uint32_t dataFlowId,
+                                 uint32_t numBytes) {
+  auto *fptr = CHRE_NSL_LAZY_LOOKUP(chreDataFlowSinkRelease);
+  return fptr != nullptr ? fptr(hubId, dataFlowId, numBytes)
+                         : CHRE_STATUS_UNIMPLEMENTED;
+}
+
+WEAK_SYMBOL
+uint32_t chreDataFlowSinkSeek(uint64_t hubId, uint32_t dataFlowId,
+                              uint32_t offset) {
+  auto *fptr = CHRE_NSL_LAZY_LOOKUP(chreDataFlowSinkSeek);
+  return fptr != nullptr ? fptr(hubId, dataFlowId, offset)
+                         : CHRE_STATUS_UNIMPLEMENTED;
+}
+
+WEAK_SYMBOL
+uint32_t chreDataFlowSinkGetOffset(uint64_t hubId, uint32_t dataFlowId,
+                                   uint32_t *offset) {
+  auto *fptr = CHRE_NSL_LAZY_LOOKUP(chreDataFlowSinkGetOffset);
+  return fptr != nullptr ? fptr(hubId, dataFlowId, offset)
+                         : CHRE_STATUS_UNIMPLEMENTED;
+}
+#endif  // CHRE_NSL_SHOULD_PROVIDE_BACKCOMPAT_FOR(CHRE_API_VERSION_1_12)
+
+// End data flow APIs
+
 #if CHRE_NSL_SHOULD_PROVIDE_BACKCOMPAT_FOR(CHRE_API_VERSION_1_5)
 WEAK_SYMBOL
 int8_t chreUserSettingGetState(uint8_t setting) {

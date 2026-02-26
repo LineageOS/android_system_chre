@@ -19,7 +19,7 @@ package com.google.android.gts.locationcontext;
 import android.hardware.location.ContextHubInfo;
 import android.hardware.location.NanoAppBinary;
 
-import com.google.android.chre.test.crossvalidator.ChreCrossValidatorWifi;
+import com.google.android.chre.test.chqts.ChreCrossValidatorWifi;
 import com.google.android.utils.chre.ContextHubHostTestUtil;
 
 import org.junit.After;
@@ -40,9 +40,8 @@ public class GtsContextHubCrossValidationWifiTest extends GtsContextHubTestBase 
     public void setUp() {
         ContextHubInfo contextHubInfo = getContextHubInfo();
         NanoAppBinary nappBinary = ContextHubHostTestUtil.createNanoAppBinary(contextHubInfo,
-                "chre_cross_validator_wifi.napp");
-        mCrossValidator = new ChreCrossValidatorWifi(
-                getContextHubManager(), contextHubInfo, nappBinary);
+                "chre_api_test.napp");
+        mCrossValidator = new ChreCrossValidatorWifi(nappBinary);
         mCrossValidator.init();
     }
 

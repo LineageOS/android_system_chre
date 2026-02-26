@@ -339,8 +339,6 @@ class HalClient {
    */
   virtual HalError initConnection();
 
-  [[nodiscard]] virtual bool isNewConnectInBackgroundEnabled() const;
-
   using HostEndpointId = char16_t;
 
   const std::string kAidlServiceName =
@@ -462,11 +460,6 @@ class HalClient {
   // Callbacks that have been queued up while a connection is in progress.
   std::vector<BackgroundConnectionCallback *> mPendingBgConnectionCallbacks
       GUARDED_BY(mBgConnectionMutex);
-
-  // Lock guarding background connection threads.
-  std::mutex mBackgroundConnectionFuturesLock;
-  std::vector<std::future<void>> mBackgroundConnectionFutures
-      GUARDED_BY(mBackgroundConnectionFuturesLock);
 };
 
 }  // namespace android::chre

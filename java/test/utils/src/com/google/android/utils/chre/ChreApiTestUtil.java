@@ -494,6 +494,10 @@ public class ChreApiTestUtil {
                         "ChreWwanGetCapabilities",
                         Empty.parser(),
                         ChreApiTest.Capabilities.parser()),
+                Service.unaryMethod(
+                        "ChreWifiConfigureScanMonitorAsync",
+                        ChreApiTest.ChreWifiConfigureScanMonitorAsyncInput.parser(),
+                        ChreApiTest.Status.parser()),
                 Service.serverStreamingMethod(
                         "ChreBleStartScanSync",
                         ChreApiTest.ChreBleStartScanAsyncInput.parser(),
