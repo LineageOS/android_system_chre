@@ -26,7 +26,7 @@
 #include <aidl/android/hardware/contexthub/BnContextHubCallback.h>
 #include <aidl/android/hardware/contexthub/IContextHub.h>
 #include <aidl/android/hardware/contexthub/NanoappBinary.h>
-#include "chre/platform/shared/host_protocol_common.h"
+#include "chre/platform/shared/host_protocol_consts.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "hal_client_manager.h"

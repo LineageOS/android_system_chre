@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 
+#include "chre/platform/shared/host_protocol_consts.h"
 #include "chre/util/system/napp_permissions.h"
 #include "flatbuffers/flatbuffers.h"
 
@@ -31,12 +32,6 @@ namespace fbs {
 enum class ChreMessage : uint8_t;
 
 }  // namespace fbs
-
-//! On a message sent from CHRE, specifies that the host daemon should determine
-//! which client to send the message to. Usually, this is all clients, but for a
-//! message from a nanoapp, the host daemon can use the endpoint ID to determine
-//! the destination client ID.
-constexpr uint16_t kHostClientIdUnspecified = 0;
 
 /**
  * Functions that are shared between the CHRE and host to assist with

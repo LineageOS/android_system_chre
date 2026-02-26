@@ -16,10 +16,9 @@
 #ifndef ANDROID_HARDWARE_CONTEXTHUB_COMMON_HAL_CLIENT_MANAGER_H_
 #define ANDROID_HARDWARE_CONTEXTHUB_COMMON_HAL_CLIENT_MANAGER_H_
 
-#include "chre/platform/shared/host_protocol_common.h"
+#include "chre/platform/shared/host_protocol_consts.h"
 #include "chre_host/fragmented_load_transaction.h"
 #include "chre_host/log.h"
-#include "chre_host/preloaded_nanoapp_loader.h"
 #include "hal_client_id.h"
 
 #include <sys/types.h>

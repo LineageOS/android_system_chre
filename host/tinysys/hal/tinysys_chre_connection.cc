@@ -18,6 +18,7 @@
 
 #include <android/binder_to_string.h>
 
+#include "chre/platform/shared/host_protocol_consts.h"
 #include "chre_host/concurrent_fixed_capacity_queue.h"
 #include "chre_host/fbs_message_summary.h"
 #include "chre_host/file_stream.h"
