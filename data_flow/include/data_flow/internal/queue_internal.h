@@ -269,7 +269,7 @@ class ProducerBase {
   size_t getMaxBlockCountTarget() const {
     // TODO(b/448384247): Support dynamic sizing.
     return mBlockCount;
-  };
+  }
 
   /**
    * Sets the desired minimum block count.
@@ -288,12 +288,12 @@ class ProducerBase {
   size_t getMinBlockCountTarget() const {
     // TODO(b/448384247): Support dynamic sizing.
     return mBlockCount;
-  };
+  }
 
   /** @return The current block count. */
   size_t getBlockCount() const {
     return mBlockCount;
-  };
+  }
 
   /**
    * Reserve up-to-count contiguous bytes for writing if there is space.
