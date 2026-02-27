@@ -264,6 +264,7 @@ pw::Status HostHub::handleMessageDeliveryStatus(
 
 pw::Result<DataFlowId> HostHub::addDataFlow(const EndpointId &source,
                                             const DataFlowInfo &info) {
+  PW_TRY(mManager.checkDataFlowManager());
   std::lock_guard lock(mManager.mLock);
   PW_TRY(checkValidLocked());
   PW_TRY(endpointExistsLocked(source, /*serviceDescriptor=*/{}));
@@ -274,6 +275,7 @@ pw::Result<DataFlowSinkRegistrationParams> HostHub::addSinkToDataFlow(
     const DataFlowSinkRegistrationParams &params,
     const std::shared_ptr<IEndpointCommunication::IRegisterOffloadSinkCallback>
         &callback) {
+  PW_TRY(mManager.checkDataFlowManager());
   DataFlowSinkRegistrationParams completeParams{
       .context = {.id = params.context.id},
       .sourceId = params.sourceId,
@@ -319,6 +321,7 @@ pw::Result<DataFlowSinkRegistrationParams> HostHub::addSinkToDataFlow(
 }
 
 pw::Status HostHub::handleAddSink(DataFlowSinkRegistrationParams &params) {
+  PW_TRY(mManager.checkDataFlowManager());
   std::lock_guard lock(mManager.mLock);
   PW_TRY(checkValidLocked());
   PW_TRY(endpointExistsLocked(params.sinkId, /*serviceDescriptor=*/{}));
@@ -346,6 +349,7 @@ pw::Status HostHub::handleAddSink(DataFlowSinkRegistrationParams &params) {
 
 pw::Result<std::vector<EndpointId>> HostHub::removeDataFlow(
     const DataFlowId &dataFlowId) {
+  PW_TRY(mManager.checkDataFlowManager());
   std::lock_guard lock(mManager.mLock);
   PW_TRY(checkValidLocked());
   return mManager.mDataFlowManager->removeDataFlow(dataFlowId)
@@ -356,6 +360,7 @@ pw::Result<std::vector<EndpointId>> HostHub::removeDataFlow(
 
 pw::Result<EndpointId> HostHub::removeSink(const DataFlowId &dataFlowId,
                                            const EndpointId &endpoint) {
+  PW_TRY(mManager.checkDataFlowManager());
   std::lock_guard lock(mManager.mLock);
   PW_TRY(checkValidLocked());
   PW_TRY(endpointExistsLocked(endpoint, /*serviceDescriptor=*/{}));
@@ -386,13 +391,15 @@ pw::Status HostHub::unlinkFromManager() {
   std::lock_guard lock(mManager.mLock);
   PW_TRY(checkValidLocked());  // returns early if already unlinked
   // TODO(b/378545373): Release the session id range.
-  // Clear all data flows state for endpoints on this hub.
-  for (const auto &[id, endpoint] : mIdToEndpoint) {
-    if (auto result = mManager.mDataFlowManager->pruneEndpoint(endpoint.id);
-        !result.ok()) {
-      LOGW("Failed to prune data flow state endpoint (%" PRId64 ", %" PRId64
-           ") with %d",
-           endpoint.id.hubId, endpoint.id.id, result.status().code());
+  if (mManager.mDataFlowManager) {
+    // Clear all data flows state for endpoints on this hub.
+    for (const auto &[id, endpoint] : mIdToEndpoint) {
+      if (auto result = mManager.mDataFlowManager->pruneEndpoint(endpoint.id);
+          !result.ok()) {
+        LOGW("Failed to prune data flow state endpoint (%" PRId64 ", %" PRId64
+             ") with %d",
+             endpoint.id.hubId, endpoint.id.id, result.status().code());
+      }
     }
   }
   mManager.mIdToHostHub.erase(kInfo.hubId);
@@ -529,10 +536,12 @@ void MessageHubManager::clearEmbeddedState() {
   }
   mIdToEmbeddedHub.clear();
 
-  // Update data flow state for the removed endpoints and send any relevant
-  // notifications.
-  for (const auto &endpoint : endpoints) {
-    pruneEmbeddedEndpointDataFlowStateLocked(endpoint);
+  if (mDataFlowManager) {
+    // Update data flow state for the removed endpoints and send any relevant
+    // notifications.
+    for (const auto &endpoint : endpoints) {
+      pruneEmbeddedEndpointDataFlowStateLocked(endpoint);
+    }
   }
 
   // For each host hub, close all sessions and send all removed endpoints.
@@ -574,10 +583,12 @@ void MessageHubManager::removeEmbeddedHub(int64_t id) {
   }
   mIdToEmbeddedHub.erase(it);
 
-  // Update data flow state for the removed endpoints and send any relevant
-  // notifications.
-  for (const auto &endpoint : endpoints) {
-    pruneEmbeddedEndpointDataFlowStateLocked(endpoint);
+  if (mDataFlowManager) {
+    // Update data flow state for the removed endpoints and send any relevant
+    // notifications.
+    for (const auto &endpoint : endpoints) {
+      pruneEmbeddedEndpointDataFlowStateLocked(endpoint);
+    }
   }
 
   // For each host hub, determine which sessions if any are now closed and send
@@ -674,9 +685,11 @@ void MessageHubManager::removeEmbeddedEndpoint(const EndpointId &id) {
     return;
   }
 
-  // Update data flow state for the removed endpoint and send any relevant
-  // notifications.
-  pruneEmbeddedEndpointDataFlowStateLocked(id);
+  if (mDataFlowManager) {
+    // Update data flow state for the removed endpoint and send any relevant
+    // notifications.
+    pruneEmbeddedEndpointDataFlowStateLocked(id);
+  }
 
   // For each host hub, determine which sessions if any are now closed and send
   // notifications as appropriate. Also send the removed endpoint notification.
@@ -698,6 +711,9 @@ void MessageHubManager::removeEmbeddedEndpoint(const EndpointId &id) {
 }
 
 void MessageHubManager::removeEmbeddedSourceDataFlow(DataFlowId dataFlowId) {
+  if (!checkDataFlowManager().ok()) {
+    return;
+  }
   std::lock_guard lock(mLock);
   auto hubIt = mIdToEmbeddedHub.find(dataFlowId.hubId);
   if (hubIt == mIdToEmbeddedHub.end()) {
@@ -724,6 +740,9 @@ void MessageHubManager::removeEmbeddedSourceDataFlow(DataFlowId dataFlowId) {
 
 void MessageHubManager::removeDataFlowEmbeddedSink(DataFlowId dataFlowId,
                                                    EndpointId sink) {
+  if (!checkDataFlowManager().ok()) {
+    return;
+  }
   std::lock_guard lock(mLock);
   auto hubIt = mIdToHostHub.find(dataFlowId.hubId);
   if (hubIt == mIdToHostHub.end()) {
@@ -885,6 +904,14 @@ MessageHubManager::mapEndpointsByHostHubIdLocked(
     }
   }
   return hubIdToEndpoints;
+}
+
+pw::Status MessageHubManager::checkDataFlowManager() const {
+  if (!mDataFlowManager) {
+    LOGE("DataFlowManager was not initialized");
+    return pw::Status::FailedPrecondition();
+  }
+  return pw::OkStatus();
 }
 
 }  // namespace android::hardware::contexthub::common::implementation
