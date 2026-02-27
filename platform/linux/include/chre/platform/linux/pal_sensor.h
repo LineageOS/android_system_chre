@@ -17,6 +17,8 @@
 #ifndef CHRE_PLATFORM_LINUX_PAL_SENSOR_H_
 #define CHRE_PLATFORM_LINUX_PAL_SENSOR_H_
 
+#include <stdint.h>
+
 /**
  * @param sensorHandle The handle of the sensor to check.
  * @return whether the sensor with the given handle is active.
