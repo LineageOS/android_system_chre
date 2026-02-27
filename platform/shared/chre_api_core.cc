@@ -166,7 +166,6 @@ DLL_EXPORT bool chreGetNanoappInfoByAppId(uint64_t appId,
   EventLoop *eventLoop =
       EventLoopManagerSingleton::get()->getEventLoopByAppId(appId);
   if (eventLoop == nullptr) {
-    LOGE("No event loop found for app ID=0x%" PRIx64, appId);
     return false;
   } else {
     // Note that populateNanoappInfoForAppId is thread-safe.
@@ -183,8 +182,6 @@ DLL_EXPORT bool chreGetNanoappInfoByInstanceId(uint32_t instanceId,
         EventLoopManagerSingleton::get()->getEventLoopByInstanceId(
             instanceIdUint16);
     if (eventLoop == nullptr) {
-      LOGE("No event loop found for app instance ID=0x%" PRIx16,
-           instanceIdUint16);
       return false;
     } else {
       // Note that populateNanoappInfoForInstanceId is thread-safe.
