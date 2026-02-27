@@ -128,8 +128,8 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
    *   - pw::Status::Internal() if the data flow could not be set up (e.g.
    *     failed to set up alert handling).
    */
-  pw::Result<DataFlowId> addHostSourceDataFlow(EndpointId source,
-                                               const DataFlowInfo &info)
+  virtual pw::Result<DataFlowId> addHostSourceDataFlow(EndpointId source,
+                                                       const DataFlowInfo &info)
       EXCLUDES(mLock);
 
   /**
@@ -137,15 +137,15 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
    *
    * @param params The parameters for the offload sink registration.
    * @return on success, a shallow copy of the previously registered
-   * DataFlowInfo (i.e. without the region fd) and a SharedDataRegion for the
-   * allocation of the sink metadata, otherwise:
+   * DataFlowInfo (i.e. without the region fd) and, if necessary, a
+   * SharedDataRegion for the allocation of the sink metadata, otherwise:
    *   - pw::Status::NotFound() if the data flow is not found.
    *   - pw::Status::AlreadyExists() if the sink is already registered.
    *   - pw::Status::Internal() if the data flow could not be set up (e.g.
    *     failed to set up alert handling).
    */
-  pw::Result<std::pair<DataFlowInfo, SharedDataRegion>> addOffloadSink(
-      const DataFlowSinkRegistrationParams &params) EXCLUDES(mLock);
+  virtual pw::Result<std::pair<DataFlowInfo, std::optional<SharedDataRegion>>>
+  addOffloadSink(const DataFlowSinkRegistrationParams &params) EXCLUDES(mLock);
 
   /**
    * Initializes the state for a host sink on a data flow.
@@ -172,7 +172,7 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
    *   - pw::Status::Internal() if the data flow could not be set up (e.g.
    *     failed to set up alert handling).
    */
-  pw::Result<DataFlowSinkContext> addHostSink(
+  virtual pw::Result<DataFlowSinkContext> addHostSink(
       DataFlowId dataFlowId, EndpointId source, EndpointId sink,
       int32_t primaryRegionId, int32_t sinkMetadataRegionId,
       uint32_t metadataOffset, uint32_t sinkMetadataOffset) EXCLUDES(mLock);
@@ -186,9 +186,9 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
    * @return pw::OkStatus() on success, otherwise:
    *   - pw::Status::NotFound() if the data flow or endpoint is not found.
    */
-  pw::Status verifyEndpointOnDataFlow(DataFlowId dataFlowId,
-                                      EndpointId endpointId, bool isHost)
-      EXCLUDES(mLock);
+  virtual pw::Status verifyEndpointOnDataFlow(DataFlowId dataFlowId,
+                                              EndpointId endpointId,
+                                              bool isHost) EXCLUDES(mLock);
 
   /**
    * Sends an alert to one or more host endpoints on a data flow.
@@ -211,7 +211,7 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
    * @return the list of endpoints to notify, otherwise:
    *   - pw::Status::NotFound() if the data flow is not found.
    */
-  pw::Result<std::vector<EndpointId>> removeDataFlow(DataFlowId id)
+  virtual pw::Result<std::vector<EndpointId>> removeDataFlow(DataFlowId id)
       EXCLUDES(mLock);
 
   /**
@@ -226,8 +226,8 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
    *   - pw::Status::NotFound() if the data flow or sink is not found on the
    *     data flow.
    */
-  pw::Result<EndpointId> removeSink(DataFlowId dataFlowId, EndpointId sink)
-      EXCLUDES(mLock);
+  virtual pw::Result<EndpointId> removeSink(DataFlowId dataFlowId,
+                                            EndpointId sink) EXCLUDES(mLock);
 
   /**
    * Removes all state associated with the given endpoint.
@@ -237,7 +237,7 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
    * notified, otherwise:
    *   - pw::Status::NotFound() if the endpoint is not found.
    */
-  pw::Result<std::vector<PrunedEndpointDataFlowEntry>> pruneEndpoint(
+  virtual pw::Result<std::vector<PrunedEndpointDataFlowEntry>> pruneEndpoint(
       EndpointId endpointId) EXCLUDES(mLock);
 
  protected:
@@ -292,6 +292,9 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
   // Convenience type for the map of endpoints.
   using EndpointMap = std::map<EndpointId, Endpoint>;
 
+  // Constructor for mocking.
+  DataFlowManager() = default;
+
   // DataFlowEpollWaiter::Callback interface
   void onAlert(DataFlowId dataFlowId, EndpointId endpointId,
                bool waking) override;
@@ -320,9 +323,11 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
                                                DataFlow *dataFlow)
       REQUIRES(mLock);
 
-  // Allocates or retrieves the metadata region for an offload sink.
-  pw::Result<SharedDataRegion> getOffloadSinkMetadataRegionLocked(
-      EndpointId sinkId, DataFlow *dataFlow, Endpoint &sink) REQUIRES(mLock);
+  // Allocates or retrieves the metadata region for an offload sink or
+  // std::nullopt if a separate metadata region isn't required.
+  pw::Result<std::optional<SharedDataRegion>>
+  getOffloadSinkMetadataRegionLocked(EndpointId sinkId, DataFlow *dataFlow,
+                                     Endpoint &sink) REQUIRES(mLock);
 
   // Releases any resources associated with an endpoint on a data flow.
   void releaseEndpointResourcesLocked(EndpointMap::iterator endpointIt,

@@ -24,7 +24,7 @@
 #include <aidl/android/hardware/contexthub/IContextHub.h>
 
 #include "chre/platform/log.h"
-
+#include "data_flow_manager.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
@@ -32,6 +32,8 @@ namespace android::hardware::contexthub::common::implementation {
 namespace {
 
 using ::aidl::android::hardware::contexthub::DataFlowId;
+using ::aidl::android::hardware::contexthub::DataFlowInfo;
+using ::aidl::android::hardware::contexthub::DataFlowSinkContext;
 using ::aidl::android::hardware::contexthub::DataFlowSinkRegistrationParams;
 using ::aidl::android::hardware::contexthub::EndpointId;
 using ::aidl::android::hardware::contexthub::EndpointInfo;
@@ -41,6 +43,8 @@ using ::aidl::android::hardware::contexthub::IEndpointCallback;
 using ::aidl::android::hardware::contexthub::Message;
 using ::aidl::android::hardware::contexthub::MessageDeliveryStatus;
 using ::aidl::android::hardware::contexthub::Reason;
+using ::aidl::android::hardware::contexthub::SharedDataRegion;
+using ::aidl::android::hardware::contexthub::SharedDataRegionRequirements;
 using ::ndk::ScopedAStatus;
 using ::ndk::SharedRefBase;
 using ::ndk::SpAIBinder;
@@ -116,6 +120,31 @@ class MockEndpointCallback : public IEndpointCallback {
   }
 };
 
+class MockDataFlowManager : public DataFlowManager {
+ public:
+  MOCK_METHOD(pw::Result<DataFlowId>, addHostSourceDataFlow,
+              (EndpointId endpoint, const DataFlowInfo &info), (override));
+  MOCK_METHOD(
+      (pw::Result<std::pair<DataFlowInfo, std::optional<SharedDataRegion>>>),
+      addOffloadSink, (const DataFlowSinkRegistrationParams &params),
+      (override));
+  MOCK_METHOD(pw::Result<DataFlowSinkContext>, addHostSink,
+              (DataFlowId flowId, EndpointId source, EndpointId sink,
+               int32_t primaryRegionId, int32_t sinkMetadataRegionId,
+               uint32_t metadataOffset, uint32_t sinkMetadataOffset),
+              (override));
+  MOCK_METHOD(pw::Result<std::vector<EndpointId>>, removeDataFlow,
+              (DataFlowId flowId), (override));
+  MOCK_METHOD(pw::Result<EndpointId>, removeSink,
+              (DataFlowId flowId, EndpointId sink), (override));
+  MOCK_METHOD(
+      pw::Result<std::vector<DataFlowManager::PrunedEndpointDataFlowEntry>>,
+      pruneEndpoint, (EndpointId endpoint), (override));
+  MOCK_METHOD(pw::Status, verifyEndpointOnDataFlow,
+              (DataFlowId flowId, EndpointId endpoint, bool isHost),
+              (override));
+};
+
 constexpr int64_t kHub1Id = 0x1, kHub2Id = 0x2;
 constexpr int64_t kEndpoint1Id = 0x1, kEndpoint2Id = 0x2;
 const std::string kTestServiceDescriptor = "test_service";
@@ -144,6 +173,7 @@ class MessageHubManagerTest : public ::testing::Test {
       MessageHubManager::kHostSessionIdBase;
 
   void SetUp() override {
+    mDataFlowManager = std::make_shared<MockDataFlowManager>();
     reinit([](std::function<pw::Result<int64_t>()>) { FAIL(); });
   }
 
@@ -158,8 +188,8 @@ class MessageHubManagerTest : public ::testing::Test {
         .WillByDefault(Return(pw::OkStatus()));
     ON_CALL(*deathRecipient, unlinkCallback(_, _))
         .WillByDefault(Return(pw::OkStatus()));
-    mManager.reset(
-        new MessageHubManager(std::move(deathRecipient), std::move(cb)));
+    mManager.reset(new MessageHubManager(
+        mDataFlowManager, std::move(deathRecipient), std::move(cb)));
   }
 
   void onClientDeath(const std::shared_ptr<HostHub> &hub) {
@@ -207,6 +237,7 @@ class MessageHubManagerTest : public ::testing::Test {
                 (override));
   };
 
+  std::shared_ptr<MockDataFlowManager> mDataFlowManager;
   std::unique_ptr<MessageHubManager> mManager;
   NiceMock<MockDeathRecipient> *mDeathRecipient;
 

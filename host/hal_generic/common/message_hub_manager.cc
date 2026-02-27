@@ -253,6 +253,37 @@ pw::Status HostHub::handleMessageDeliveryStatus(
   return pw::OkStatus();
 }
 
+pw::Result<DataFlowId> HostHub::addDataFlow(const EndpointId & /*source*/,
+                                            const DataFlowInfo & /*info*/) {
+  // TODO(b/463163051): Implement
+  return pw::Status::Unimplemented();
+}
+
+pw::Result<DataFlowSinkRegistrationParams> HostHub::addSinkToDataFlow(
+    const DataFlowSinkRegistrationParams & /*params*/,
+    const std::shared_ptr<IEndpointCommunication::IRegisterOffloadSinkCallback>
+        & /*callback*/) {
+  // TODO(b/463163051): Implement
+  return pw::Status::Unimplemented();
+}
+
+pw::Status HostHub::handleAddSink(DataFlowSinkRegistrationParams & /*params*/) {
+  // TODO(b/463163051): Implement
+  return pw::Status::Unimplemented();
+}
+
+pw::Result<std::vector<EndpointId>> HostHub::removeDataFlow(
+    const DataFlowId & /*dataFlowId*/) {
+  // TODO(b/463163051): Implement
+  return pw::Status::Unimplemented();
+}
+
+pw::Result<EndpointId> HostHub::removeSink(const DataFlowId & /*dataFlowId*/,
+                                           const EndpointId & /*endpoint*/) {
+  // TODO(b/463163051): Implement
+  return pw::Status::Unimplemented();
+}
+
 pw::Status HostHub::unregister() {
   // If unlinkFromManager() fails, onClientDeath() was already called for this
   // and we do not need to unlink the death recipient.
@@ -561,6 +592,16 @@ void MessageHubManager::removeEmbeddedEndpoint(const EndpointId &id) {
     }
     hub->mCallback->onEndpointStopped({id}, Reason::ENDPOINT_GONE);
   }
+}
+
+void MessageHubManager::removeEmbeddedSourceDataFlow(
+    DataFlowId /*dataFlowId*/) {
+  // TODO(b/463163051): Implement
+}
+
+void MessageHubManager::removeDataFlowEmbeddedSink(DataFlowId /*dataFlowId*/,
+                                                   EndpointId /*sink*/) {
+  // TODO(b/463163051): Implement
 }
 
 MessageHubManager::RealDeathRecipient::RealDeathRecipient() {

@@ -574,6 +574,14 @@ void ContextHubV4Impl::onEndpointSessionMessageDeliveryStatus(
   handleSessionFailure(hub, sessionId, status);
 }
 
+pw::Status ContextHubV4Impl::sendDataFlowAlert(DataFlowId /*dataFlowId*/,
+                                               EndpointId /*recipient*/,
+                                               bool /*waking*/) {
+  // TODO(b/463163051): Implement this.
+  LOGE("sendDataFlowAlert not implemented");
+  return pw::Status::Unimplemented();
+}
+
 void ContextHubV4Impl::unlinkDeadHostHub(
     std::function<pw::Result<int64_t>()> unlinkFn) {
   std::lock_guard lock(mHostHubOpLock);  // See header documentation.
