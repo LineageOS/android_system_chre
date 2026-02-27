@@ -7844,9 +7844,10 @@ flatbuffers::Offset<DataFlowStopped> CreateDataFlowStopped(flatbuffers::FlatBuff
 struct DataFlowAlertT : public flatbuffers::NativeTable {
   typedef DataFlowAlert TableType;
   std::unique_ptr<chre::fbs::DataFlowIdT> dataFlowId;
-  std::unique_ptr<chre::fbs::EndpointIdT> senderId;
   std::vector<std::unique_ptr<chre::fbs::EndpointIdT>> receiverIds;
-  DataFlowAlertT() {
+  bool waking;
+  DataFlowAlertT()
+      : waking(false) {
   }
 };
 
@@ -7855,8 +7856,8 @@ struct DataFlowAlert FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   typedef DataFlowAlertBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_DATAFLOWID = 4,
-    VT_SENDERID = 6,
-    VT_RECEIVERIDS = 8
+    VT_RECEIVERIDS = 6,
+    VT_WAKING = 8
   };
   /// Id of the data flow the alert is associated with
   const chre::fbs::DataFlowId *dataFlowId() const {
@@ -7865,13 +7866,6 @@ struct DataFlowAlert FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   chre::fbs::DataFlowId *mutable_dataFlowId() {
     return GetPointer<chre::fbs::DataFlowId *>(VT_DATAFLOWID);
   }
-  /// Id of the sending endpoint
-  const chre::fbs::EndpointId *senderId() const {
-    return GetPointer<const chre::fbs::EndpointId *>(VT_SENDERID);
-  }
-  chre::fbs::EndpointId *mutable_senderId() {
-    return GetPointer<chre::fbs::EndpointId *>(VT_SENDERID);
-  }
   /// Id(s) of the receiving endpoint(s)
   const flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>> *receiverIds() const {
     return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>> *>(VT_RECEIVERIDS);
@@ -7879,15 +7873,22 @@ struct DataFlowAlert FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>> *mutable_receiverIds() {
     return GetPointer<flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>> *>(VT_RECEIVERIDS);
   }
+  /// Whether the alert should be sent in a way that wakes up the destination
+  /// core, takes wakelocks, etc.
+  bool waking() const {
+    return GetField<uint8_t>(VT_WAKING, 0) != 0;
+  }
+  bool mutate_waking(bool _waking) {
+    return SetField<uint8_t>(VT_WAKING, static_cast<uint8_t>(_waking), 0);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, VT_DATAFLOWID) &&
            verifier.VerifyTable(dataFlowId()) &&
-           VerifyOffset(verifier, VT_SENDERID) &&
-           verifier.VerifyTable(senderId()) &&
            VerifyOffset(verifier, VT_RECEIVERIDS) &&
            verifier.VerifyVector(receiverIds()) &&
            verifier.VerifyVectorOfTables(receiverIds()) &&
+           VerifyField<uint8_t>(verifier, VT_WAKING) &&
            verifier.EndTable();
   }
   DataFlowAlertT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -7902,11 +7903,11 @@ struct DataFlowAlertBuilder {
   void add_dataFlowId(flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId) {
     fbb_.AddOffset(DataFlowAlert::VT_DATAFLOWID, dataFlowId);
   }
-  void add_senderId(flatbuffers::Offset<chre::fbs::EndpointId> senderId) {
-    fbb_.AddOffset(DataFlowAlert::VT_SENDERID, senderId);
-  }
   void add_receiverIds(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>>> receiverIds) {
     fbb_.AddOffset(DataFlowAlert::VT_RECEIVERIDS, receiverIds);
+  }
+  void add_waking(bool waking) {
+    fbb_.AddElement<uint8_t>(DataFlowAlert::VT_WAKING, static_cast<uint8_t>(waking), 0);
   }
   explicit DataFlowAlertBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -7923,26 +7924,26 @@ struct DataFlowAlertBuilder {
 inline flatbuffers::Offset<DataFlowAlert> CreateDataFlowAlert(
     flatbuffers::FlatBufferBuilder &_fbb,
     flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId = 0,
-    flatbuffers::Offset<chre::fbs::EndpointId> senderId = 0,
-    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>>> receiverIds = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>>> receiverIds = 0,
+    bool waking = false) {
   DataFlowAlertBuilder builder_(_fbb);
   builder_.add_receiverIds(receiverIds);
-  builder_.add_senderId(senderId);
   builder_.add_dataFlowId(dataFlowId);
+  builder_.add_waking(waking);
   return builder_.Finish();
 }
 
 inline flatbuffers::Offset<DataFlowAlert> CreateDataFlowAlertDirect(
     flatbuffers::FlatBufferBuilder &_fbb,
     flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId = 0,
-    flatbuffers::Offset<chre::fbs::EndpointId> senderId = 0,
-    const std::vector<flatbuffers::Offset<chre::fbs::EndpointId>> *receiverIds = nullptr) {
+    const std::vector<flatbuffers::Offset<chre::fbs::EndpointId>> *receiverIds = nullptr,
+    bool waking = false) {
   auto receiverIds__ = receiverIds ? _fbb.CreateVector<flatbuffers::Offset<chre::fbs::EndpointId>>(*receiverIds) : 0;
   return chre::fbs::CreateDataFlowAlert(
       _fbb,
       dataFlowId,
-      senderId,
-      receiverIds__);
+      receiverIds__,
+      waking);
 }
 
 flatbuffers::Offset<DataFlowAlert> CreateDataFlowAlert(flatbuffers::FlatBufferBuilder &_fbb, const DataFlowAlertT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
@@ -10477,8 +10478,8 @@ inline void DataFlowAlert::UnPackTo(DataFlowAlertT *_o, const flatbuffers::resol
   (void)_o;
   (void)_resolver;
   { auto _e = dataFlowId(); if (_e) _o->dataFlowId = std::unique_ptr<chre::fbs::DataFlowIdT>(_e->UnPack(_resolver)); }
-  { auto _e = senderId(); if (_e) _o->senderId = std::unique_ptr<chre::fbs::EndpointIdT>(_e->UnPack(_resolver)); }
   { auto _e = receiverIds(); if (_e) { _o->receiverIds.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->receiverIds[_i] = std::unique_ptr<chre::fbs::EndpointIdT>(_e->Get(_i)->UnPack(_resolver)); } } }
+  { auto _e = waking(); _o->waking = _e; }
 }
 
 inline flatbuffers::Offset<DataFlowAlert> DataFlowAlert::Pack(flatbuffers::FlatBufferBuilder &_fbb, const DataFlowAlertT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -10490,13 +10491,13 @@ inline flatbuffers::Offset<DataFlowAlert> CreateDataFlowAlert(flatbuffers::FlatB
   (void)_o;
   struct _VectorArgs { flatbuffers::FlatBufferBuilder *__fbb; const DataFlowAlertT* __o; const flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
   auto _dataFlowId = _o->dataFlowId ? CreateDataFlowId(_fbb, _o->dataFlowId.get(), _rehasher) : 0;
-  auto _senderId = _o->senderId ? CreateEndpointId(_fbb, _o->senderId.get(), _rehasher) : 0;
   auto _receiverIds = _o->receiverIds.size() ? _fbb.CreateVector<flatbuffers::Offset<chre::fbs::EndpointId>> (_o->receiverIds.size(), [](size_t i, _VectorArgs *__va) { return CreateEndpointId(*__va->__fbb, __va->__o->receiverIds[i].get(), __va->__rehasher); }, &_va ) : 0;
+  auto _waking = _o->waking;
   return chre::fbs::CreateDataFlowAlert(
       _fbb,
       _dataFlowId,
-      _senderId,
-      _receiverIds);
+      _receiverIds,
+      _waking);
 }
 
 inline MessageContainerT *MessageContainer::UnPack(const flatbuffers::resolver_function_t *_resolver) const {

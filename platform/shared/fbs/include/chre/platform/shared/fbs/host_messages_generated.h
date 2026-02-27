@@ -5608,16 +5608,12 @@ struct DataFlowAlert FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   typedef DataFlowAlertBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_DATAFLOWID = 4,
-    VT_SENDERID = 6,
-    VT_RECEIVERIDS = 8
+    VT_RECEIVERIDS = 6,
+    VT_WAKING = 8
   };
   /// Id of the data flow the alert is associated with
   const chre::fbs::DataFlowId *dataFlowId() const {
     return GetPointer<const chre::fbs::DataFlowId *>(VT_DATAFLOWID);
-  }
-  /// Id of the sending endpoint
-  const chre::fbs::EndpointId *senderId() const {
-    return GetPointer<const chre::fbs::EndpointId *>(VT_SENDERID);
   }
   /// Id(s) of the receiving endpoint(s)
   const flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>> *
@@ -5625,15 +5621,19 @@ struct DataFlowAlert FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     return GetPointer<const flatbuffers::Vector<
         flatbuffers::Offset<chre::fbs::EndpointId>> *>(VT_RECEIVERIDS);
   }
+  /// Whether the alert should be sent in a way that wakes up the destination
+  /// core, takes wakelocks, etc.
+  bool waking() const {
+    return GetField<uint8_t>(VT_WAKING, 0) != 0;
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, VT_DATAFLOWID) &&
            verifier.VerifyTable(dataFlowId()) &&
-           VerifyOffset(verifier, VT_SENDERID) &&
-           verifier.VerifyTable(senderId()) &&
            VerifyOffset(verifier, VT_RECEIVERIDS) &&
            verifier.VerifyVector(receiverIds()) &&
-           verifier.VerifyVectorOfTables(receiverIds()) && verifier.EndTable();
+           verifier.VerifyVectorOfTables(receiverIds()) &&
+           VerifyField<uint8_t>(verifier, VT_WAKING) && verifier.EndTable();
   }
 };
 
@@ -5644,14 +5644,15 @@ struct DataFlowAlertBuilder {
   void add_dataFlowId(flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId) {
     fbb_.AddOffset(DataFlowAlert::VT_DATAFLOWID, dataFlowId);
   }
-  void add_senderId(flatbuffers::Offset<chre::fbs::EndpointId> senderId) {
-    fbb_.AddOffset(DataFlowAlert::VT_SENDERID, senderId);
-  }
   void add_receiverIds(
       flatbuffers::Offset<
           flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>>>
           receiverIds) {
     fbb_.AddOffset(DataFlowAlert::VT_RECEIVERIDS, receiverIds);
+  }
+  void add_waking(bool waking) {
+    fbb_.AddElement<uint8_t>(DataFlowAlert::VT_WAKING,
+                             static_cast<uint8_t>(waking), 0);
   }
   explicit DataFlowAlertBuilder(flatbuffers::FlatBufferBuilder &_fbb)
       : fbb_(_fbb) {
@@ -5668,30 +5669,30 @@ struct DataFlowAlertBuilder {
 inline flatbuffers::Offset<DataFlowAlert> CreateDataFlowAlert(
     flatbuffers::FlatBufferBuilder &_fbb,
     flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId = 0,
-    flatbuffers::Offset<chre::fbs::EndpointId> senderId = 0,
     flatbuffers::Offset<
         flatbuffers::Vector<flatbuffers::Offset<chre::fbs::EndpointId>>>
-        receiverIds = 0) {
+        receiverIds = 0,
+    bool waking = false) {
   DataFlowAlertBuilder builder_(_fbb);
   builder_.add_receiverIds(receiverIds);
-  builder_.add_senderId(senderId);
   builder_.add_dataFlowId(dataFlowId);
+  builder_.add_waking(waking);
   return builder_.Finish();
 }
 
 inline flatbuffers::Offset<DataFlowAlert> CreateDataFlowAlertDirect(
     flatbuffers::FlatBufferBuilder &_fbb,
     flatbuffers::Offset<chre::fbs::DataFlowId> dataFlowId = 0,
-    flatbuffers::Offset<chre::fbs::EndpointId> senderId = 0,
     const std::vector<flatbuffers::Offset<chre::fbs::EndpointId>> *receiverIds =
-        nullptr) {
+        nullptr,
+    bool waking = false) {
   auto receiverIds__ =
       receiverIds
           ? _fbb.CreateVector<flatbuffers::Offset<chre::fbs::EndpointId>>(
                 *receiverIds)
           : 0;
-  return chre::fbs::CreateDataFlowAlert(_fbb, dataFlowId, senderId,
-                                        receiverIds__);
+  return chre::fbs::CreateDataFlowAlert(_fbb, dataFlowId, receiverIds__,
+                                        waking);
 }
 
 /// The top-level container that encapsulates all possible messages. Note that

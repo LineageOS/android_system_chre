@@ -280,11 +280,11 @@ struct DataFlowAlert {
   //! Id of the data flow the alert is associated with.
   DataFlowId dataFlowId;
 
-  //! The sending endpoint.
-  Endpoint sender;
-
   //! The list of receiving endpoints.
   pw::span<Endpoint> receiverEndpoints;
+
+  //! Whether the alert is waking.
+  bool waking;
 };
 
 }  // namespace chre::message

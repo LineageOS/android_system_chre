@@ -593,13 +593,13 @@ class HostProtocolChre : public HostProtocolCommon {
    *
    * @param builder Builder which assembles and stores the message.
    * @param dataFlowId The ID of the data flow the alert is associated with.
-   * @param senderEndpoint The sending endpoint.
    * @param receiverEndpoints The receiving endpoint(s).
+   * @param waking Whether the alert is waking (should wake the core(s) hosting
+   * the receiver(s), take wakelocks, etc)
    */
   static void encodeDataFlowAlert(
       ChreFlatBufferBuilder &builder, const message::DataFlowId &dataFlowId,
-      const message::Endpoint &senderEndpoint,
-      const DynamicVector<message::Endpoint> &receiverEndpoints);
+      const DynamicVector<message::Endpoint> &receiverEndpoints, bool waking);
 };
 
 }  // namespace chre

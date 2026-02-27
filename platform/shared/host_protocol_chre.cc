@@ -855,13 +855,9 @@ void HostProtocolChre::encodeDataFlowStopped(
 
 void HostProtocolChre::encodeDataFlowAlert(
     ChreFlatBufferBuilder &builder, const DataFlowId &dataFlowId,
-    const Endpoint &senderEndpoint,
-    const DynamicVector<Endpoint> &receiverEndpoints) {
+    const DynamicVector<Endpoint> &receiverEndpoints, bool waking) {
   auto fbsDataFlowId = fbs::CreateDataFlowId(
       builder, static_cast<int64_t>(dataFlowId.hubId), dataFlowId.id);
-  auto fbsSenderId = fbs::CreateEndpointId(
-      builder, static_cast<int64_t>(senderEndpoint.messageHubId),
-      static_cast<int64_t>(senderEndpoint.endpointId));
 
   DynamicVector<Offset<fbs::EndpointId>> fbsReceiverIds;
   if (!fbsReceiverIds.reserve(receiverEndpoints.size())) {
@@ -876,8 +872,8 @@ void HostProtocolChre::encodeDataFlowAlert(
   auto receiverIdsVec =
       builder.CreateVector<Offset<fbs::EndpointId>>(fbsReceiverIds);
 
-  auto msg = fbs::CreateDataFlowAlert(builder, fbsDataFlowId, fbsSenderId,
-                                      receiverIdsVec);
+  auto msg =
+      fbs::CreateDataFlowAlert(builder, fbsDataFlowId, receiverIdsVec, waking);
   finalize(builder, fbs::ChreMessage::DataFlowAlert, msg.Union());
 }
 

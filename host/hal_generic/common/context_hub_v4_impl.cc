@@ -672,13 +672,11 @@ void ContextHubV4Impl::onUnregisterDataFlowSink(
 
 void ContextHubV4Impl::onDataFlowAlert(const ::chre::fbs::DataFlowAlertT &msg) {
   DataFlowId dataFlowId;
-  EndpointId ignoreSenderId;
   std::vector<EndpointId> receiverIds;
-  HostProtocolHostV4::decodeDataFlowAlert(msg, dataFlowId, ignoreSenderId,
-                                          receiverIds);
-  // TODO(b/486209064): Add waking capability to the alert.
-  if (auto status = mDataFlowManager->alertHostEndpoints(
-          dataFlowId, receiverIds, /*waking=*/true);
+  bool waking;
+  HostProtocolHostV4::decodeDataFlowAlert(msg, dataFlowId, receiverIds, waking);
+  if (auto status =
+          mDataFlowManager->alertHostEndpoints(dataFlowId, receiverIds, waking);
       !status.ok()) {
     LOGE("Failed to alert host endpoints for data flow (0x%" PRIx64 ", %" PRId32
          ") with %" PRId32,
@@ -696,11 +694,10 @@ void ContextHubV4Impl::onDataFlowStopped(
 
 pw::Status ContextHubV4Impl::sendDataFlowAlert(DataFlowId dataFlowId,
                                                EndpointId recipient,
-                                               bool /*waking*/) {
+                                               bool waking) {
   flatbuffers::FlatBufferBuilder builder;
-  // TODO(b/486209064): Remove sender ID from the flatbuffers and add waking
-  HostProtocolHostV4::encodeDataFlowAlert(builder, dataFlowId, /*senderId=*/{},
-                                          {recipient});
+  HostProtocolHostV4::encodeDataFlowAlert(builder, dataFlowId, {recipient},
+                                          waking);
   if (!mSendMessageFn(builder)) {
     LOGE("Failed to send DataFlowAlert for data flow (0x%" PRIx64 ", %" PRId32
          ") to endpoint (0x%" PRIx64 ", 0x%" PRIx64 ")",
