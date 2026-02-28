@@ -19,6 +19,7 @@
 #include "chre/core/wwan_request_manager.h"
 
 #include "chre/core/event_loop_manager.h"
+#include "chre/platform/context.h"
 #include "chre/platform/fatal_error.h"
 #include "chre/platform/log.h"
 #include "chre/util/system/debug_dump.h"
@@ -99,11 +100,12 @@ void WwanRequestManager::logStateToBuffer(DebugDumpWrapper &debugDump) const {
 
 void WwanRequestManager::handleFreeCellInfoResult(
     chreWwanCellInfoResult *result) {
+  EventLoop *eventLoop = getCurrentEventLoop();
+  CHRE_ASSERT(eventLoop != nullptr);
+
   if (mCellInfoRequestingNanoappInstanceId.has_value()) {
-    Nanoapp *nanoapp =
-        EventLoopManagerSingleton::get()
-            ->getEventLoop()
-            .findNanoappByInstanceId(*mCellInfoRequestingNanoappInstanceId);
+    Nanoapp *nanoapp = eventLoop->findNanoappByInstanceId(
+        *mCellInfoRequestingNanoappInstanceId);
     if (nanoapp != nullptr) {
       nanoapp->unregisterForBroadcastEvent(CHRE_EVENT_WWAN_CELL_INFO_RESULT);
     } else {
