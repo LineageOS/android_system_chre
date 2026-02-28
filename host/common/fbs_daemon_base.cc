@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <fstream>
 
+#include "chre/platform/shared/host_protocol_consts.h"
 #include "chre_host/fbs_daemon_base.h"
 #include "chre_host/log.h"
 #include "chre_host/napp_header.h"

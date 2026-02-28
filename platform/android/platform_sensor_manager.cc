@@ -27,6 +27,7 @@
 #include <dlfcn.h>
 #include <cstdint>
 #include <set>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 
@@ -77,6 +78,15 @@ static std::optional<uint8_t> mapAndroidToChreSensorType(
     default:
       return std::nullopt;
   }
+}
+
+std::string sensorEventToString(const ASensorEvent &event) {
+  std::ostringstream sstream;
+  sstream << "ASensorEvent: version " << event.version << ", sensor "
+          << event.sensor << ", type " << event.type << ", timestamp "
+          << event.timestamp << ", flags " << event.flags
+          << ", data[0]: " << event.data[0];
+  return sstream.str();
 }
 }  // namespace
 
@@ -404,7 +414,8 @@ int PlatformSensorManagerBase::looperCallback(int /*fd*/, int /*events*/,
     // Find the corresponding CHRE sensor handle using the map.
     auto it = manager->mSensorTypeToHandleMap.find(event.type);
     if (it == manager->mSensorTypeToHandleMap.end()) {
-      LOGW("Received event for unknown Android sensor type: %d", event.type);
+      LOGW("Received event for unknown Android sensor type: %d, %s", event.type,
+           sensorEventToString(event).c_str());
       continue;
     }
     // Increase the sample data size of this event group.
@@ -420,7 +431,8 @@ int PlatformSensorManagerBase::looperCallback(int /*fd*/, int /*events*/,
   for (ssize_t i = 0; i < numEvents; ++i) {
     const ASensorEvent &event = eventBuffer[i];
     if (chreEventBySensor.find(event.sensor) == chreEventBySensor.end()) {
-      LOGW("Received events from non-registered sensor: %ld.", event.sensor);
+      LOGW("Received events from non-registered sensor: %ld, %s", event.sensor,
+           sensorEventToString(event).c_str());
       continue;
     }
     Event &chreEvent = chreEventBySensor[event.sensor];

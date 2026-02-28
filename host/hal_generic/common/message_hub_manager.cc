@@ -83,6 +83,15 @@ pw::Result<std::vector<uint16_t>> HostHub::removeEndpoint(
   std::lock_guard lock(mManager.mLock);
   PW_TRY(checkValidLocked());
   if (auto it = mIdToEndpoint.find(id.id); it != mIdToEndpoint.end()) {
+    // Remove any data flow state associated with this endpoint.
+    if (auto result = mManager.mDataFlowManager->pruneEndpoint(id);
+        !result.ok()) {
+      LOGW("Failed to prune endpoint (%" PRId64 ", %" PRId64
+           ") from data flows: %d",
+           id.hubId, id.id, result.status().code());
+    }
+
+    // Remove and return any sessions associated with this endpoint.
     std::vector<uint16_t> sessions;
     for (const auto &[sessionId, session] : mIdToSession) {
       if (session.mHostEndpoint == id) {
@@ -253,35 +262,104 @@ pw::Status HostHub::handleMessageDeliveryStatus(
   return pw::OkStatus();
 }
 
-pw::Result<DataFlowId> HostHub::addDataFlow(const EndpointId & /*source*/,
-                                            const DataFlowInfo & /*info*/) {
-  // TODO(b/463163051): Implement
-  return pw::Status::Unimplemented();
+pw::Result<DataFlowId> HostHub::addDataFlow(const EndpointId &source,
+                                            const DataFlowInfo &info) {
+  std::lock_guard lock(mManager.mLock);
+  PW_TRY(checkValidLocked());
+  PW_TRY(endpointExistsLocked(source, /*serviceDescriptor=*/{}));
+  return mManager.mDataFlowManager->addHostSourceDataFlow(source, info);
 }
 
 pw::Result<DataFlowSinkRegistrationParams> HostHub::addSinkToDataFlow(
-    const DataFlowSinkRegistrationParams & /*params*/,
+    const DataFlowSinkRegistrationParams &params,
     const std::shared_ptr<IEndpointCommunication::IRegisterOffloadSinkCallback>
-        & /*callback*/) {
-  // TODO(b/463163051): Implement
-  return pw::Status::Unimplemented();
+        &callback) {
+  DataFlowSinkRegistrationParams completeParams{
+      .context = {.id = params.context.id},
+      .sourceId = params.sourceId,
+      .sinkId = params.sinkId,
+      .msg = params.msg,
+      .sessionId = params.sessionId};
+  {
+    // Validate the request and add the data flow to state.
+    std::lock_guard lock(mManager.mLock);
+    PW_TRY(checkValidLocked());
+    PW_TRY(endpointExistsLocked(params.sourceId, /*serviceDescriptor=*/{}));
+    PW_TRY(mManager.embeddedEndpointExistsLocked(params.sinkId,
+                                                 /*serviceDescriptor=*/{}));
+    if (params.sessionId != IEndpointCommunication::SESSION_ID_INVALID) {
+      PW_TRY(checkSessionOpenLocked(params.sessionId));
+    }
+    PW_TRY_ASSIGN(auto result,
+                  mManager.mDataFlowManager->addOffloadSink(params));
+    completeParams.context.info = std::move(result.first);
+    completeParams.context.sinkMetadataRegion = std::move(result.second);
+  }
+  // Request the metadata offset from the client outside of locks.
+  auto status =
+      callback->addSinkInRegion(completeParams.context.sinkMetadataRegion,
+                                &completeParams.context.metadataOffsetBytes);
+  std::lock_guard lock(mManager.mLock);
+  if (!status.isOk()) {
+    LOGE("Failed to add sink in region: %s", status.getDescription().c_str());
+    PW_TRY(mManager.mDataFlowManager->removeSink(params.context.id,
+                                                 params.sinkId));
+    return pw::Status::Internal();
+  }
+  // Validate the request again and assemble the complete registration
+  // parameters.
+  PW_TRY(checkValidLocked());
+  PW_TRY(endpointExistsLocked(params.sourceId, /*serviceDescriptor=*/{}));
+  PW_TRY(mManager.embeddedEndpointExistsLocked(params.sinkId,
+                                               /*serviceDescriptor=*/{}));
+  if (params.sessionId != IEndpointCommunication::SESSION_ID_INVALID) {
+    PW_TRY(checkSessionOpenLocked(params.sessionId));
+  }
+  return completeParams;
 }
 
-pw::Status HostHub::handleAddSink(DataFlowSinkRegistrationParams & /*params*/) {
-  // TODO(b/463163051): Implement
-  return pw::Status::Unimplemented();
+pw::Status HostHub::handleAddSink(DataFlowSinkRegistrationParams &params) {
+  std::lock_guard lock(mManager.mLock);
+  PW_TRY(checkValidLocked());
+  PW_TRY(endpointExistsLocked(params.sinkId, /*serviceDescriptor=*/{}));
+  PW_TRY(mManager.embeddedEndpointExistsLocked(params.sourceId,
+                                               /*serviceDescriptor=*/{}));
+  if (params.sessionId != IEndpointCommunication::SESSION_ID_INVALID) {
+    PW_TRY(checkSessionOpenLocked(params.sessionId));
+  }
+  if (!params.context.info || !params.context.sinkMetadataRegion) {
+    LOGE(
+        "Host sink registration params do not include data flow or sink "
+        "metadata region data");
+    return pw::Status::InvalidArgument();
+  }
+  PW_TRY_ASSIGN(
+      params.context,
+      mManager.mDataFlowManager->addHostSink(
+          params.context.id, params.sourceId, params.sinkId,
+          params.context.info->region.id, params.context.sinkMetadataRegion->id,
+          params.context.info->metadataOffsetBytes,
+          params.context.metadataOffsetBytes));
+  mCallback->onDataFlowHostSinkRegistered(params);
+  return pw::OkStatus();
 }
 
 pw::Result<std::vector<EndpointId>> HostHub::removeDataFlow(
-    const DataFlowId & /*dataFlowId*/) {
-  // TODO(b/463163051): Implement
-  return pw::Status::Unimplemented();
+    const DataFlowId &dataFlowId) {
+  std::lock_guard lock(mManager.mLock);
+  PW_TRY(checkValidLocked());
+  return mManager.mDataFlowManager->removeDataFlow(dataFlowId)
+      .transform([](std::pair<EndpointId, std::vector<EndpointId>> &&result) {
+        return std::move(result.second);
+      });
 }
 
-pw::Result<EndpointId> HostHub::removeSink(const DataFlowId & /*dataFlowId*/,
-                                           const EndpointId & /*endpoint*/) {
-  // TODO(b/463163051): Implement
-  return pw::Status::Unimplemented();
+pw::Result<EndpointId> HostHub::removeSink(const DataFlowId &dataFlowId,
+                                           const EndpointId &endpoint) {
+  std::lock_guard lock(mManager.mLock);
+  PW_TRY(checkValidLocked());
+  PW_TRY(endpointExistsLocked(endpoint, /*serviceDescriptor=*/{}));
+  return mManager.mDataFlowManager->removeSink(dataFlowId, endpoint);
 }
 
 pw::Status HostHub::unregister() {
@@ -308,6 +386,15 @@ pw::Status HostHub::unlinkFromManager() {
   std::lock_guard lock(mManager.mLock);
   PW_TRY(checkValidLocked());  // returns early if already unlinked
   // TODO(b/378545373): Release the session id range.
+  // Clear all data flows state for endpoints on this hub.
+  for (const auto &[id, endpoint] : mIdToEndpoint) {
+    if (auto result = mManager.mDataFlowManager->pruneEndpoint(endpoint.id);
+        !result.ok()) {
+      LOGW("Failed to prune data flow state endpoint (%" PRId64 ", %" PRId64
+           ") with %d",
+           endpoint.id.hubId, endpoint.id.id, result.status().code());
+    }
+  }
   mManager.mIdToHostHub.erase(kInfo.hubId);
   mUnlinked = true;
   return pw::OkStatus();
@@ -442,6 +529,12 @@ void MessageHubManager::clearEmbeddedState() {
   }
   mIdToEmbeddedHub.clear();
 
+  // Update data flow state for the removed endpoints and send any relevant
+  // notifications.
+  for (const auto &endpoint : endpoints) {
+    pruneEmbeddedEndpointDataFlowStateLocked(endpoint);
+  }
+
   // For each host hub, close all sessions and send all removed endpoints.
   for (const auto &[hubId, hub] : mIdToHostHub) {
     ::android::base::ScopedLockAssertion lockAssertion(hub->mManager.mLock);
@@ -480,6 +573,12 @@ void MessageHubManager::removeEmbeddedHub(int64_t id) {
     }
   }
   mIdToEmbeddedHub.erase(it);
+
+  // Update data flow state for the removed endpoints and send any relevant
+  // notifications.
+  for (const auto &endpoint : endpoints) {
+    pruneEmbeddedEndpointDataFlowStateLocked(endpoint);
+  }
 
   // For each host hub, determine which sessions if any are now closed and send
   // notifications as appropriate. Also send the list of removed endpoints.
@@ -575,6 +674,10 @@ void MessageHubManager::removeEmbeddedEndpoint(const EndpointId &id) {
     return;
   }
 
+  // Update data flow state for the removed endpoint and send any relevant
+  // notifications.
+  pruneEmbeddedEndpointDataFlowStateLocked(id);
+
   // For each host hub, determine which sessions if any are now closed and send
   // notifications as appropriate. Also send the removed endpoint notification.
   for (auto &[hostHubId, hub] : mIdToHostHub) {
@@ -594,14 +697,51 @@ void MessageHubManager::removeEmbeddedEndpoint(const EndpointId &id) {
   }
 }
 
-void MessageHubManager::removeEmbeddedSourceDataFlow(
-    DataFlowId /*dataFlowId*/) {
-  // TODO(b/463163051): Implement
+void MessageHubManager::removeEmbeddedSourceDataFlow(DataFlowId dataFlowId) {
+  std::lock_guard lock(mLock);
+  auto hubIt = mIdToEmbeddedHub.find(dataFlowId.hubId);
+  if (hubIt == mIdToEmbeddedHub.end()) {
+    LOGW("Could not find embedded source data flow (0x%" PRIx64 ", %" PRId32
+         ")",
+         dataFlowId.hubId, dataFlowId.id);
+    return;
+  }
+  auto result = mDataFlowManager->removeDataFlow(dataFlowId);
+  if (!result.ok()) {
+    LOGW("Could not remove embedded source data flow (0x%" PRIx64 ", %" PRId32
+         ") with status %d",
+         dataFlowId.hubId, dataFlowId.id, result.status().code());
+    return;
+  }
+  auto [source, sinks] = std::move(result.value());
+  auto hubIdToSinks = mapEndpointsByHostHubIdLocked(sinks);
+  for (auto &[hubId, hubAndSinks] : hubIdToSinks) {
+    auto &[hub, sinks] = hubAndSinks;
+    hub->mCallback->onDataFlowOffloadEndpointUnregistered(dataFlowId, source,
+                                                          sinks);
+  }
 }
 
-void MessageHubManager::removeDataFlowEmbeddedSink(DataFlowId /*dataFlowId*/,
-                                                   EndpointId /*sink*/) {
-  // TODO(b/463163051): Implement
+void MessageHubManager::removeDataFlowEmbeddedSink(DataFlowId dataFlowId,
+                                                   EndpointId sink) {
+  std::lock_guard lock(mLock);
+  auto hubIt = mIdToHostHub.find(dataFlowId.hubId);
+  if (hubIt == mIdToHostHub.end()) {
+    LOGW("Could not find hub containing data flow (0x%" PRIx64 ", %" PRId32 ")",
+         dataFlowId.hubId, dataFlowId.id);
+    return;
+  }
+  auto result = mDataFlowManager->removeSink(dataFlowId, sink);
+  if (!result.ok()) {
+    LOGW("Could not remove sink (0x%" PRIx64 ", 0x%" PRIx64
+         ") from data flow (0x%" PRIx64 ", %" PRId32 ") with status %d",
+         sink.hubId, sink.id, dataFlowId.hubId, dataFlowId.id,
+         result.status().code());
+    return;
+  }
+  std::vector<EndpointId> source{*result};
+  hubIt->second->mCallback->onDataFlowOffloadEndpointUnregistered(dataFlowId,
+                                                                  sink, source);
 }
 
 MessageHubManager::RealDeathRecipient::RealDeathRecipient() {
@@ -700,6 +840,51 @@ MessageHubManager::lookupEmbeddedEndpointLocked(const EndpointId &id) {
   LOGW("Could not find remote endpoint (%" PRId64 ", %" PRId64 ")", id.hubId,
        id.id);
   return pw::Status::NotFound();
+}
+
+void MessageHubManager::pruneEmbeddedEndpointDataFlowStateLocked(
+    const EndpointId &endpoint) {
+  auto statusOrPrunedDataFlowResults =
+      mDataFlowManager->pruneEndpoint(endpoint);
+  if (statusOrPrunedDataFlowResults.ok()) {
+    for (const auto &prunedDataFlowEntry :
+         statusOrPrunedDataFlowResults.value()) {
+      auto hubIdToEndpoints =
+          mapEndpointsByHostHubIdLocked(prunedDataFlowEntry.endpoints);
+      for (auto &[hubId, hubAndEndpoints] : hubIdToEndpoints) {
+        auto &[hub, endpoints] = hubAndEndpoints;
+        hub->mCallback->onDataFlowOffloadEndpointUnregistered(
+            prunedDataFlowEntry.dataFlowId, endpoint, endpoints);
+      }
+    }
+  } else {
+    LOGW("Could not prune data flows for endpoint (0x%" PRIx64 ", 0x%" PRIx64
+         ") with status %d",
+         endpoint.hubId, endpoint.id,
+         statusOrPrunedDataFlowResults.status().code());
+  }
+}
+
+std::unordered_map<int64_t, std::pair<HostHub *, std::vector<EndpointId>>>
+MessageHubManager::mapEndpointsByHostHubIdLocked(
+    const std::vector<EndpointId> &endpoints) {
+  std::unordered_map<int64_t, std::pair<HostHub *, std::vector<EndpointId>>>
+      hubIdToEndpoints;
+  for (const auto &endpoint : endpoints) {
+    if (auto it = hubIdToEndpoints.find(endpoint.hubId);
+        it != hubIdToEndpoints.end()) {
+      it->second.second.push_back(endpoint);
+    } else {
+      auto hubIt = mIdToHostHub.find(endpoint.hubId);
+      if (hubIt == mIdToHostHub.end()) {
+        LOG_ALWAYS_FATAL("Expected hub 0x%" PRIx64 " not found",
+                         endpoint.hubId);
+      }
+      hubIdToEndpoints[endpoint.hubId] = std::make_pair(
+          hubIt->second.get(), std::vector<EndpointId>{endpoint});
+    }
+  }
+  return hubIdToEndpoints;
 }
 
 }  // namespace android::hardware::contexthub::common::implementation

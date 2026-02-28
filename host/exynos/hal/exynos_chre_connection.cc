@@ -15,6 +15,7 @@
  */
 
 #include "exynos_chre_connection.h"
+#include "chre/platform/shared/host_protocol_consts.h"
 #include "chre_host/generated/host_messages_generated.h"
 #include "chre_host/host_protocol_host.h"
 

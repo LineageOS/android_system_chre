@@ -22,6 +22,7 @@
 
 #include <optional>
 #include "chre/core/ble_l2cap_coc_socket_data.h"
+#include "chre/core/bt_socket_data.h"
 #include "chre/core/event_loop.h"
 #include "chre/core/nanoapp.h"
 #include "chre/core/settings.h"
@@ -109,8 +110,28 @@ class HostMessageHandlers {
 
   static void handleNanConfigurationUpdate(bool enabled);
 
+  /**
+   * Handles a BT socket open request for a L2CAP CoC socket.
+   *
+   * @param hubId The ID of the hub that originated this message.
+   * @param socketData The data for the L2CAP CoC socket.
+   * @param name The name of the socket.
+   * @param psm The Protocol/Service Multiplexer (PSM) value.
+   */
   static void handleBtSocketOpen(uint64_t hubId,
                                  const BleL2capCocSocketData &socketData,
+                                 const char *name, uint32_t psm);
+
+  /**
+   * Handles a BT socket open request for an RFCOMM socket.
+   *
+   * @param hubId The ID of the hub that originated this message.
+   * @param socketData The data for the RFCOMM socket.
+   * @param name The name of the socket.
+   * @param psm The Protocol/Service Multiplexer (PSM) value.
+   */
+  static void handleBtSocketOpen(uint64_t hubId,
+                                 const BtRfcommChannelSocketData &socketData,
                                  const char *name, uint32_t psm);
 
   static void handleBtSocketCapabilitiesRequest();

@@ -41,10 +41,12 @@
 #include "chre/platform/mutex.h"
 #include "chre/util/always_false.h"
 #include "chre/util/fixed_size_vector.h"
+#include "chre/util/lock_guard.h"
 #include "chre/util/non_copyable.h"
 #include "chre/util/singleton.h"
 #include "chre/util/system/system_callback_type.h"
 #include "chre/util/unique_ptr.h"
+#include "chre/util/unlock_guard.h"
 #include "chre_api/chre/event.h"
 #include "pw_span/span.h"
 
@@ -895,6 +897,18 @@ class GlobalApiLockGuard : public LockGuard<MultiThreadingApiMutex> {
             *EventLoopManagerSingleton::get()->getGlobalApiMutex()) {}
 };
 
+/**
+ * A convenience class to release and re-acquire the global API mutex.
+ * This is useful for temporarily releasing the global lock to call a function
+ * that may re-acquire it.
+ * The lock is released upon construction and re-acquired upon destruction.
+ */
+class GlobalApiUnlockGuard : public UnlockGuard<MultiThreadingApiMutex> {
+ public:
+  GlobalApiUnlockGuard()
+      : UnlockGuard<MultiThreadingApiMutex>(
+            *EventLoopManagerSingleton::get()->getGlobalApiMutex()) {}
+};
 }  // namespace chre
 
 #endif  // CHRE_CORE_EVENT_LOOP_MANAGER_H_

@@ -319,15 +319,19 @@ pw::Status DataFlowManager::alertHostEndpoints(
   return pw::OkStatus();
 }
 
-pw::Result<std::vector<EndpointId>> DataFlowManager::removeDataFlow(
-    DataFlowId id) {
+pw::Result<std::pair<EndpointId, std::vector<EndpointId>>>
+DataFlowManager::removeDataFlow(DataFlowId id) {
   std::lock_guard lock(mLock);
   auto it = mIdToDataFlow.find(id);
   if (it == mIdToDataFlow.end()) {
     LOGE("Data flow (0x%" PRIx64 ", %" PRId32 ") not found", id.hubId, id.id);
     return pw::Status::NotFound();
   }
-  return removeDataFlowLocked(it);
+  auto source = it->second->source;
+  return removeDataFlowLocked(it).transform(
+      [&source](std::vector<EndpointId> endpoints) {
+        return std::make_pair(source, std::move(endpoints));
+      });
 }
 
 pw::Result<EndpointId> DataFlowManager::removeSink(DataFlowId dataFlowId,

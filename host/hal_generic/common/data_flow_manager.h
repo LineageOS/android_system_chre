@@ -211,8 +211,8 @@ class DataFlowManager : protected DataFlowEpollWaiter::Callback {
    * @return the list of endpoints to notify, otherwise:
    *   - pw::Status::NotFound() if the data flow is not found.
    */
-  virtual pw::Result<std::vector<EndpointId>> removeDataFlow(DataFlowId id)
-      EXCLUDES(mLock);
+  virtual pw::Result<std::pair<EndpointId, std::vector<EndpointId>>>
+  removeDataFlow(DataFlowId id) EXCLUDES(mLock);
 
   /**
    * Removes a sink from a data flow, releasing any associated resources.
