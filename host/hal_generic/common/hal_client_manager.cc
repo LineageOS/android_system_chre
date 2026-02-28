@@ -532,6 +532,18 @@ HalClientManager::getNanoappInfoFromPendingLoadTransaction(
       mPendingLoadTransaction->getNanoappInfo());
 }
 
+std::optional<HalClientManager::PendingTransaction>
+HalClientManager::getPendingLoadTransaction() {
+  const std::lock_guard<std::mutex> lock(mLock);
+  return mPendingLoadTransaction;
+}
+
+std::optional<HalClientManager::PendingTransaction>
+HalClientManager::getPendingUnloadTransaction() {
+  const std::lock_guard<std::mutex> lock(mLock);
+  return mPendingUnloadTransaction;
+}
+
 void HalClientManager::resetPendingLoadTransaction() {
   const std::lock_guard<std::mutex> lock(mLock);
   mPendingLoadTransaction.reset();
