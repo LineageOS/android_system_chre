@@ -91,6 +91,7 @@ enum class SystemCallbackType : uint16_t {
   SensorOneShotEvent,
   NanoappSendEventFreeCallback,
   PerformEventLoopAndNanoappDebugDump,
+  WifiScanMonitorAsyncResultEvent,
 };
 
 //! Deferred/delayed callbacks use the event subsystem but are invariably sent

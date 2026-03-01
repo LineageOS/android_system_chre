@@ -34,8 +34,10 @@ namespace chre {
 namespace {
 
 class WifiTest : public SingleThreadTestBase {};
+class WifiTestMultiThread : public MultiThreadTestBase {};
 
-TEST_F(WifiTest, WifiCanSubscribeAndUnsubscribeToScanMonitoring) {
+void doWifiCanSubscribeAndUnsubscribeToScanMonitoringTest(
+    TestBase *test, int8_t requestedThreadPriority) {
   CREATE_CHRE_TEST_EVENT(MONITORING_REQUEST, 0);
 
   struct MonitoringRequest {
@@ -45,9 +47,7 @@ TEST_F(WifiTest, WifiCanSubscribeAndUnsubscribeToScanMonitoring) {
 
   class App : public TestNanoapp {
    public:
-    App()
-        : TestNanoapp(
-              TestNanoappInfo{.perms = NanoappPermissions::CHRE_PERMS_WIFI}) {}
+    explicit App(const TestNanoappInfo &info) : TestNanoapp(info) {}
 
     void handleEvent(uint32_t, uint16_t eventType,
                      const void *eventData) override {
@@ -82,93 +82,132 @@ TEST_F(WifiTest, WifiCanSubscribeAndUnsubscribeToScanMonitoring) {
     uint32_t mCookie;
   };
 
-  uint64_t appId = loadNanoapp(MakeUnique<App>());
+  TestNanoappInfo info;
+  info.perms = NanoappPermissions::CHRE_PERMS_WIFI;
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId = test->loadNanoapp(MakeUnique<App>(info));
 
   EXPECT_FALSE(chrePalWifiIsScanMonitoringActive());
 
   MonitoringRequest request{.enable = true, .cookie = 0x123};
   sendEventToNanoapp(appId, MONITORING_REQUEST, request);
+  bool success;
+  test->waitForEvent(MONITORING_REQUEST, &success);
+  EXPECT_TRUE(success);
   uint32_t cookie;
-  waitForEvent(CHRE_EVENT_WIFI_ASYNC_RESULT, &cookie);
+  test->waitForEvent(CHRE_EVENT_WIFI_ASYNC_RESULT, &cookie);
   EXPECT_EQ(cookie, request.cookie);
   EXPECT_TRUE(chrePalWifiIsScanMonitoringActive());
 
   request = {.enable = false, .cookie = 0x456};
   sendEventToNanoapp(appId, MONITORING_REQUEST, request);
-  bool success;
-  waitForEvent(MONITORING_REQUEST, &success);
+  test->waitForEvent(MONITORING_REQUEST, &success);
   EXPECT_TRUE(success);
-  waitForEvent(CHRE_EVENT_WIFI_ASYNC_RESULT, &cookie);
+  test->waitForEvent(CHRE_EVENT_WIFI_ASYNC_RESULT, &cookie);
   EXPECT_EQ(cookie, request.cookie);
+  EXPECT_FALSE(chrePalWifiIsScanMonitoringActive());
+}
+
+TEST_F(WifiTest, WifiCanSubscribeAndUnsubscribeToScanMonitoring) {
+  doWifiCanSubscribeAndUnsubscribeToScanMonitoringTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(WifiTestMultiThread, WifiCanSubscribeAndUnsubscribeToScanMonitoring) {
+  doWifiCanSubscribeAndUnsubscribeToScanMonitoringTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(WifiTestMultiThread,
+       WifiCanSubscribeAndUnsubscribeToScanMonitoringForeground) {
+  doWifiCanSubscribeAndUnsubscribeToScanMonitoringTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
+}
+
+void doWifiScanMonitoringDisabledOnUnloadTest(TestBase *test,
+                                              int8_t requestedThreadPriority) {
+  CREATE_CHRE_TEST_EVENT(MONITORING_REQUEST, 1);
+
+  struct MonitoringRequest {
+    bool enable;
+    uint32_t cookie;
+  };
+
+  class App : public TestNanoapp {
+   public:
+    explicit App(const TestNanoappInfo &info) : TestNanoapp(info) {}
+
+    void handleEvent(uint32_t, uint16_t eventType,
+                     const void *eventData) override {
+      switch (eventType) {
+        case CHRE_EVENT_WIFI_ASYNC_RESULT: {
+          auto *event = static_cast<const chreAsyncResult *>(eventData);
+          if (event->success) {
+            TestEventQueueSingleton::get()->pushEvent(
+                CHRE_EVENT_WIFI_ASYNC_RESULT,
+                *(static_cast<const uint32_t *>(event->cookie)));
+          }
+          break;
+        }
+
+        case CHRE_EVENT_TEST_EVENT: {
+          auto event = static_cast<const TestEvent *>(eventData);
+          switch (event->type) {
+            case MONITORING_REQUEST:
+              auto request =
+                  static_cast<const MonitoringRequest *>(event->data);
+              mCookie = request->cookie;
+              bool success =
+                  chreWifiConfigureScanMonitorAsync(request->enable, &mCookie);
+              TestEventQueueSingleton::get()->pushEvent(MONITORING_REQUEST,
+                                                        success);
+          }
+        }
+      }
+    }
+
+   protected:
+    uint32_t mCookie;
+  };
+
+  TestNanoappInfo info;
+  info.perms = NanoappPermissions::CHRE_PERMS_WIFI;
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId = test->loadNanoapp(MakeUnique<App>(info));
+
+  EXPECT_FALSE(chrePalWifiIsScanMonitoringActive());
+
+  MonitoringRequest request{.enable = true, .cookie = 0x123};
+  sendEventToNanoapp(appId, MONITORING_REQUEST, request);
+  bool success;
+  test->waitForEvent(MONITORING_REQUEST, &success);
+  EXPECT_TRUE(success);
+  uint32_t cookie;
+  test->waitForEvent(CHRE_EVENT_WIFI_ASYNC_RESULT, &cookie);
+  EXPECT_EQ(cookie, request.cookie);
+  EXPECT_TRUE(chrePalWifiIsScanMonitoringActive());
+
+  test->unloadNanoapp(appId);
   EXPECT_FALSE(chrePalWifiIsScanMonitoringActive());
 }
 
 TEST_F(WifiTest, WifiScanMonitoringDisabledOnUnload) {
-  CREATE_CHRE_TEST_EVENT(MONITORING_REQUEST, 1);
-
-  struct MonitoringRequest {
-    bool enable;
-    uint32_t cookie;
-  };
-
-  class App : public TestNanoapp {
-   public:
-    App()
-        : TestNanoapp(
-              TestNanoappInfo{.perms = NanoappPermissions::CHRE_PERMS_WIFI}) {}
-
-    void handleEvent(uint32_t, uint16_t eventType,
-                     const void *eventData) override {
-      switch (eventType) {
-        case CHRE_EVENT_WIFI_ASYNC_RESULT: {
-          auto *event = static_cast<const chreAsyncResult *>(eventData);
-          if (event->success) {
-            TestEventQueueSingleton::get()->pushEvent(
-                CHRE_EVENT_WIFI_ASYNC_RESULT,
-                *(static_cast<const uint32_t *>(event->cookie)));
-          }
-          break;
-        }
-
-        case CHRE_EVENT_TEST_EVENT: {
-          auto event = static_cast<const TestEvent *>(eventData);
-          switch (event->type) {
-            case MONITORING_REQUEST:
-              auto request =
-                  static_cast<const MonitoringRequest *>(event->data);
-              mCookie = request->cookie;
-              bool success =
-                  chreWifiConfigureScanMonitorAsync(request->enable, &mCookie);
-              TestEventQueueSingleton::get()->pushEvent(MONITORING_REQUEST,
-                                                        success);
-          }
-        }
-      }
-    }
-
-   protected:
-    uint32_t mCookie;
-  };
-
-  uint64_t appId = loadNanoapp(MakeUnique<App>());
-
-  EXPECT_FALSE(chrePalWifiIsScanMonitoringActive());
-
-  MonitoringRequest request{.enable = true, .cookie = 0x123};
-  sendEventToNanoapp(appId, MONITORING_REQUEST, request);
-  bool success;
-  waitForEvent(MONITORING_REQUEST, &success);
-  EXPECT_TRUE(success);
-  uint32_t cookie;
-  waitForEvent(CHRE_EVENT_WIFI_ASYNC_RESULT, &cookie);
-  EXPECT_EQ(cookie, request.cookie);
-  EXPECT_TRUE(chrePalWifiIsScanMonitoringActive());
-
-  unloadNanoapp(appId);
-  EXPECT_FALSE(chrePalWifiIsScanMonitoringActive());
+  doWifiScanMonitoringDisabledOnUnloadTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
 }
 
-TEST_F(WifiTest, WifiScanMonitoringDisabledOnUnloadAndCanBeReEnabled) {
+TEST_F(WifiTestMultiThread, WifiScanMonitoringDisabledOnUnload) {
+  doWifiScanMonitoringDisabledOnUnloadTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(WifiTestMultiThread, WifiScanMonitoringDisabledOnUnloadForeground) {
+  doWifiScanMonitoringDisabledOnUnloadTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
+}
+
+void doWifiScanMonitoringDisabledOnUnloadAndCanBeReEnabledTest(
+    TestBase *test, int8_t requestedThreadPriority) {
   CREATE_CHRE_TEST_EVENT(MONITORING_REQUEST, 1);
 
   struct MonitoringRequest {
@@ -178,9 +217,7 @@ TEST_F(WifiTest, WifiScanMonitoringDisabledOnUnloadAndCanBeReEnabled) {
 
   class App : public TestNanoapp {
    public:
-    App()
-        : TestNanoapp(
-              TestNanoappInfo{.perms = NanoappPermissions::CHRE_PERMS_WIFI}) {}
+    explicit App(const TestNanoappInfo &info) : TestNanoapp(info) {}
 
     void handleEvent(uint32_t, uint16_t eventType,
                      const void *eventData) override {
@@ -215,33 +252,53 @@ TEST_F(WifiTest, WifiScanMonitoringDisabledOnUnloadAndCanBeReEnabled) {
     uint32_t mCookie;
   };
 
-  uint64_t appId = loadNanoapp(MakeUnique<App>());
+  TestNanoappInfo info;
+  info.perms = NanoappPermissions::CHRE_PERMS_WIFI;
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId = test->loadNanoapp(MakeUnique<App>(info));
 
   EXPECT_FALSE(chrePalWifiIsScanMonitoringActive());
 
   MonitoringRequest request{.enable = true, .cookie = 0x123};
   sendEventToNanoapp(appId, MONITORING_REQUEST, request);
   bool success;
-  waitForEvent(MONITORING_REQUEST, &success);
+  test->waitForEvent(MONITORING_REQUEST, &success);
   EXPECT_TRUE(success);
   uint32_t cookie;
-  waitForEvent(CHRE_EVENT_WIFI_ASYNC_RESULT, &cookie);
+  test->waitForEvent(CHRE_EVENT_WIFI_ASYNC_RESULT, &cookie);
   EXPECT_EQ(cookie, request.cookie);
   EXPECT_TRUE(chrePalWifiIsScanMonitoringActive());
 
-  unloadNanoapp(appId);
+  test->unloadNanoapp(appId);
   EXPECT_FALSE(chrePalWifiIsScanMonitoringActive());
 
-  appId = loadNanoapp(MakeUnique<App>());
+  appId = test->loadNanoapp(MakeUnique<App>(info));
   EXPECT_FALSE(chrePalWifiIsScanMonitoringActive());
 
   request = {.enable = true, .cookie = 0x456};
   sendEventToNanoapp(appId, MONITORING_REQUEST, request);
-  waitForEvent(MONITORING_REQUEST, &success);
+  test->waitForEvent(MONITORING_REQUEST, &success);
   EXPECT_TRUE(success);
-  waitForEvent(CHRE_EVENT_WIFI_ASYNC_RESULT, &cookie);
+  test->waitForEvent(CHRE_EVENT_WIFI_ASYNC_RESULT, &cookie);
   EXPECT_EQ(cookie, request.cookie);
   EXPECT_TRUE(chrePalWifiIsScanMonitoringActive());
+}
+
+TEST_F(WifiTest, WifiScanMonitoringDisabledOnUnloadAndCanBeReEnabled) {
+  doWifiScanMonitoringDisabledOnUnloadAndCanBeReEnabledTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(WifiTestMultiThread,
+       WifiScanMonitoringDisabledOnUnloadAndCanBeReEnabled) {
+  doWifiScanMonitoringDisabledOnUnloadAndCanBeReEnabledTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(WifiTestMultiThread,
+       WifiScanMonitoringDisabledOnUnloadAndCanBeReEnabledForeground) {
+  doWifiScanMonitoringDisabledOnUnloadAndCanBeReEnabledTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
 }
 
 TEST_F(MultiThreadTestBase, ScanMonitorAndActiveScan) {
