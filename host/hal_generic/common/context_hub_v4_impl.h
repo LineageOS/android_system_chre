@@ -66,11 +66,8 @@ class ContextHubV4Impl {
   ContextHubV4Impl(SendMessageFn sendMessageFn,
                    const std::shared_ptr<RegionAllocator> &regionAllocator,
                    const std::shared_ptr<WakelockManager> &wakelockManager)
-      : mDataFlowManager(std::make_shared<DataFlowManager>(
-            regionAllocator, wakelockManager,
-            std::bind(&ContextHubV4Impl::sendDataFlowAlert, this,
-                      std::placeholders::_1, std::placeholders::_2,
-                      std::placeholders::_3))),
+      : mDataFlowManager(
+            maybeCreateDataFlowManager(this, regionAllocator, wakelockManager)),
         mManager(mDataFlowManager,
                  std::bind(&ContextHubV4Impl::unlinkDeadHostHub, this,
                            std::placeholders::_1)),
@@ -124,6 +121,11 @@ class ContextHubV4Impl {
  private:
   friend class HostHubInterface;
 
+  static std::shared_ptr<DataFlowManager> maybeCreateDataFlowManager(
+      ContextHubV4Impl *hal,
+      const std::shared_ptr<RegionAllocator> &regionAllocator,
+      const std::shared_ptr<WakelockManager> &wakelockManager);
+
   // Callbacks for each message type from CHRE.
   void onGetMessageHubsAndEndpointsResponse(
       const ::chre::fbs::GetMessageHubsAndEndpointsResponseT &msg);
@@ -141,6 +143,11 @@ class ContextHubV4Impl {
       const ::chre::fbs::EndpointSessionMessageT &msg);
   void onEndpointSessionMessageDeliveryStatus(
       const ::chre::fbs::EndpointSessionMessageDeliveryStatusT &msg);
+  void onRegisterDataFlowSink(const ::chre::fbs::RegisterDataFlowSinkT &msg);
+  void onUnregisterDataFlowSink(
+      const ::chre::fbs::UnregisterDataFlowSinkT &msg);
+  void onDataFlowAlert(const ::chre::fbs::DataFlowAlertT &msg);
+  void onDataFlowStopped(const ::chre::fbs::DataFlowStoppedT &msg);
 
   // Callback invoked when a HAL client associated with a host hub goes down.
   void unlinkDeadHostHub(std::function<pw::Result<int64_t>()> unlinkFn);

@@ -317,47 +317,86 @@ ScopedAStatus HostHubInterface::unregister() {
 }
 
 ScopedAStatus HostHubInterface::allocateSharedDataRegion(
-    const SharedDataRegionRequirements & /*requirements*/,
-    SharedDataRegion * /*region*/) {
-  // TODO(b/463163051): Implement this.
-  LOGE("allocateSharedDataRegion not implemented");
-  return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+    const SharedDataRegionRequirements &requirements,
+    SharedDataRegion *region) {
+  auto result = mHal.mDataFlowManager->allocateRegion(mHub->id(), requirements);
+  if (!result.ok()) {
+    return fromPwStatus(result.status());
+  }
+  *region = std::move(result.value());
+  return ScopedAStatus::ok();
 }
 
-ScopedAStatus HostHubInterface::freeSharedDataRegion(int32_t /*id*/) {
-  // TODO(b/463163051): Implement this.
-  LOGE("freeSharedDataRegion not implemented");
-  return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+ScopedAStatus HostHubInterface::freeSharedDataRegion(int32_t id) {
+  return fromPwStatus(mHal.mDataFlowManager->releaseRegion(mHub->id(), id));
 }
 
 ScopedAStatus HostHubInterface::registerDataFlowHostSource(
-    const EndpointId & /*endpoint*/, const DataFlowInfo & /*info*/,
-    int32_t * /*id*/) {
-  // TODO(b/463163051): Implement this.
-  LOGE("registerDataFlowHostSource not implemented");
-  return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+    const EndpointId &endpoint, const DataFlowInfo &info, int32_t *id) {
+  auto result = mHub->addDataFlow(endpoint, info);
+  if (!result.ok()) {
+    return fromPwStatus(result.status());
+  }
+  *id = result.value().id;
+  return ScopedAStatus::ok();
 }
 
-ScopedAStatus HostHubInterface::unregisterDataFlowHostSource(int32_t /*id*/) {
-  // TODO(b/463163051): Implement this.
-  LOGE("unregisterDataFlowHostSource not implemented");
-  return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+ScopedAStatus HostHubInterface::unregisterDataFlowHostSource(int32_t id) {
+  DataFlowId dataFlowId = {.hubId = mHub->id(), .id = id};
+  auto result = mHub->removeDataFlow(dataFlowId);
+  if (!result.ok()) {
+    return fromPwStatus(result.status());
+  }
+  if (auto &endpoints = result.value(); !endpoints.empty()) {
+    flatbuffers::FlatBufferBuilder builder;
+    HostProtocolHostV4::encodeDataFlowStopped(builder, dataFlowId, endpoints);
+    if (!mHal.mSendMessageFn(builder)) {
+      LOGE("Failed to send encodeDataFlowStopped for (0x%" PRIx64 ", %" PRId32
+           ")",
+           mHub->id(), id);
+    }
+  }
+  return ScopedAStatus::ok();
 }
 
 ScopedAStatus HostHubInterface::registerDataFlowOffloadSink(
-    const DataFlowSinkRegistrationParams & /*params*/,
+    const DataFlowSinkRegistrationParams &params,
     const std::shared_ptr<IEndpointCommunication::IRegisterOffloadSinkCallback>
-        & /*callback*/) {
-  // TODO(b/463163051): Implement this.
-  LOGE("registerDataFlowOffloadSink not implemented");
-  return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+        &callback) {
+  auto result = mHub->addSinkToDataFlow(params, callback);
+  if (!result.ok()) {
+    return fromPwStatus(result.status());
+  }
+  flatbuffers::FlatBufferBuilder builder;
+  HostProtocolHostV4::encodeRegisterDataFlowSink(builder, result.value());
+  if (!mHal.mSendMessageFn(builder)) {
+    LOGE("Failed to send encodeRegisterDataFlowSink for (0x%" PRIx64
+         ", %" PRId32 ")",
+         mHub->id(), params.context.id);
+    // TODO(b/463163051): This should be a MessageHubManager::HostHub method to
+    // be under the outer lock.
+    mHal.mDataFlowManager->removeSink(params.context.id, params.sinkId)
+        .IgnoreError();
+    return ScopedAStatus::fromServiceSpecificError(
+        BnContextHub::EX_CONTEXT_HUB_UNSPECIFIED);
+  }
+  return ScopedAStatus::ok();
 }
 
 ScopedAStatus HostHubInterface::unregisterDataFlowHostSink(
-    const EndpointId & /*sinkId*/, const DataFlowId & /*dataFlowId*/) {
-  // TODO(b/463163051): Implement this.
-  LOGE("unregisterDataFlowHostSink not implemented");
-  return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+    const EndpointId &sinkId, const DataFlowId &dataFlowId) {
+  auto result = mHub->removeSink(dataFlowId, sinkId);
+  if (!result.ok()) {
+    return fromPwStatus(result.status());
+  }
+  flatbuffers::FlatBufferBuilder builder;
+  HostProtocolHostV4::encodeUnregisterDataFlowSink(builder, dataFlowId, sinkId);
+  if (!mHal.mSendMessageFn(builder)) {
+    LOGE("Failed to send encodeUnregisterDataFlowSink for endpoint (0x%" PRIx64
+         ", 0x%" PRIx64 ") on data flow (0x%" PRIx64 ", %" PRId32 ")",
+         sinkId.hubId, sinkId.id, dataFlowId.hubId, dataFlowId.id);
+  }
+  return ScopedAStatus::ok();
 }
 
 bool ContextHubV4Impl::handleMessageFromChre(
@@ -401,6 +440,18 @@ bool ContextHubV4Impl::handleMessageFromChre(
     case ChreMessage::EndpointReady:
       onEndpointReady(*message.AsEndpointReady());
       break;
+    case ChreMessage::RegisterDataFlowSink:
+      onRegisterDataFlowSink(*message.AsRegisterDataFlowSink());
+      break;
+    case ChreMessage::UnregisterDataFlowSink:
+      onUnregisterDataFlowSink(*message.AsUnregisterDataFlowSink());
+      break;
+    case ChreMessage::DataFlowAlert:
+      onDataFlowAlert(*message.AsDataFlowAlert());
+      break;
+    case ChreMessage::DataFlowStopped:
+      onDataFlowStopped(*message.AsDataFlowStopped());
+      break;
     default: {
       LOGW("Got unexpected message type %" PRIu8,
            static_cast<uint8_t>(message.type));
@@ -408,6 +459,25 @@ bool ContextHubV4Impl::handleMessageFromChre(
     }
   }
   return true;
+}
+
+std::shared_ptr<DataFlowManager> ContextHubV4Impl::maybeCreateDataFlowManager(
+    ContextHubV4Impl *hal,
+    const std::shared_ptr<RegionAllocator> &regionAllocator,
+    const std::shared_ptr<WakelockManager> &wakelockManager) {
+  if (!regionAllocator || !wakelockManager) {
+    if (regionAllocator || wakelockManager) {
+      LOGE(
+          "RegionAllocator and WakelockManager must both be non-null or both "
+          "be null");
+    }
+    return nullptr;
+  }
+  return std::make_shared<DataFlowManager>(
+      regionAllocator, wakelockManager,
+      std::bind(&ContextHubV4Impl::sendDataFlowAlert, hal,
+                std::placeholders::_1, std::placeholders::_2,
+                std::placeholders::_3));
 }
 
 void ContextHubV4Impl::onGetMessageHubsAndEndpointsResponse(
@@ -574,12 +644,67 @@ void ContextHubV4Impl::onEndpointSessionMessageDeliveryStatus(
   handleSessionFailure(hub, sessionId, status);
 }
 
-pw::Status ContextHubV4Impl::sendDataFlowAlert(DataFlowId /*dataFlowId*/,
-                                               EndpointId /*recipient*/,
-                                               bool /*waking*/) {
-  // TODO(b/463163051): Implement this.
-  LOGE("sendDataFlowAlert not implemented");
-  return pw::Status::Unimplemented();
+void ContextHubV4Impl::onRegisterDataFlowSink(
+    const ::chre::fbs::RegisterDataFlowSinkT &msg) {
+  DataFlowSinkRegistrationParams params;
+  HostProtocolHostV4::decodeRegisterDataFlowSink(msg, params);
+  std::shared_ptr<HostHub> hub = mManager.getHostHub(params.sinkId.hubId);
+  if (!hub) {
+    LOGW("Unable to find host hub");
+    return;
+  }
+  if (auto status = hub->handleAddSink(params); !status.ok()) {
+    LOGE("Failed to add host sink to embedded source data flow with %" PRId32,
+         status.code());
+    if (params.sessionId != IEndpointCommunication::SESSION_ID_INVALID) {
+      handleSessionFailure(hub, params.sessionId, status);
+    }
+  }
+}
+
+void ContextHubV4Impl::onUnregisterDataFlowSink(
+    const ::chre::fbs::UnregisterDataFlowSinkT &msg) {
+  DataFlowId dataFlowId;
+  EndpointId sinkId;
+  HostProtocolHostV4::decodeUnregisterDataFlowSink(msg, dataFlowId, sinkId);
+  mManager.removeDataFlowEmbeddedSink(dataFlowId, sinkId);
+}
+
+void ContextHubV4Impl::onDataFlowAlert(const ::chre::fbs::DataFlowAlertT &msg) {
+  DataFlowId dataFlowId;
+  std::vector<EndpointId> receiverIds;
+  bool waking;
+  HostProtocolHostV4::decodeDataFlowAlert(msg, dataFlowId, receiverIds, waking);
+  if (auto status =
+          mDataFlowManager->alertHostEndpoints(dataFlowId, receiverIds, waking);
+      !status.ok()) {
+    LOGE("Failed to alert host endpoints for data flow (0x%" PRIx64 ", %" PRId32
+         ") with %" PRId32,
+         dataFlowId.hubId, dataFlowId.id, status.code());
+  }
+}
+
+void ContextHubV4Impl::onDataFlowStopped(
+    const ::chre::fbs::DataFlowStoppedT &msg) {
+  DataFlowId dataFlowId;
+  std::vector<EndpointId> ignoreEndpoints;
+  HostProtocolHostV4::decodeDataFlowStopped(msg, dataFlowId, ignoreEndpoints);
+  mManager.removeEmbeddedSourceDataFlow(dataFlowId);
+}
+
+pw::Status ContextHubV4Impl::sendDataFlowAlert(DataFlowId dataFlowId,
+                                               EndpointId recipient,
+                                               bool waking) {
+  flatbuffers::FlatBufferBuilder builder;
+  HostProtocolHostV4::encodeDataFlowAlert(builder, dataFlowId, {recipient},
+                                          waking);
+  if (!mSendMessageFn(builder)) {
+    LOGE("Failed to send DataFlowAlert for data flow (0x%" PRIx64 ", %" PRId32
+         ") to endpoint (0x%" PRIx64 ", 0x%" PRIx64 ")",
+         dataFlowId.hubId, dataFlowId.id, recipient.hubId, recipient.id);
+    return pw::Status::Internal();
+  }
+  return pw::OkStatus();
 }
 
 void ContextHubV4Impl::unlinkDeadHostHub(

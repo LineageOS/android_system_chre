@@ -199,13 +199,12 @@ class HostProtocolHostV4 : public ::chre::HostProtocolCommon {
    *
    * @param builder The builder used to encode the message
    * @param dataFlowId The id of the data flow
-   * @param senderId The id of the sending endpoint
    * @param receiverIds The endpoints to notify
+   * @param waking Whether the alert is waking
    */
   static void encodeDataFlowAlert(
       flatbuffers::FlatBufferBuilder &builder, const AidlDataFlowId &dataFlowId,
-      const AidlEndpointId &senderId,
-      const std::vector<AidlEndpointId> &receiverIds);
+      const std::vector<AidlEndpointId> &receiverIds, bool waking);
 
   /**
    * Decodes a GetMessageHubsAndEndpointsResponse message
@@ -373,13 +372,13 @@ class HostProtocolHostV4 : public ::chre::HostProtocolCommon {
    *
    * @param msg The message
    * @param dataFlowId (out) The id of the data flow
-   * @param senderId (out) The id of the sending endpoint
    * @param receiverIds (out) The endpoints to notify
+   * @param waking (out) Whether the alert is waking
    */
   static void decodeDataFlowAlert(const ::chre::fbs::DataFlowAlertT &msg,
                                   AidlDataFlowId &dataFlowId,
-                                  AidlEndpointId &senderId,
-                                  std::vector<AidlEndpointId> &receiverIds);
+                                  std::vector<AidlEndpointId> &receiverIds,
+                                  bool &waking);
 
  private:
   static flatbuffers::Offset<::chre::fbs::MessageHub> aidlToFbsMessageHub(

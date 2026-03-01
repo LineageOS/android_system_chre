@@ -571,6 +571,9 @@ class MessageHubManager {
   mapEndpointsByHostHubIdLocked(const std::vector<EndpointId> &endpoints)
       REQUIRES(mLock);
 
+  // Returns pw::OkStatus() iff the data flow manager was initialized.
+  pw::Status checkDataFlowManager() const;
+
   // DataFlowManager instance shared with the ContextHubV4Impl.
   std::shared_ptr<DataFlowManager> mDataFlowManager;
 

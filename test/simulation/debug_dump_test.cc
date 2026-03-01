@@ -104,6 +104,9 @@ TEST_F(MultiThreadTestBase, DebugDumpMultiThreadedTest) {
            kEventLoopDebugDumpFormatString, 1);
   EXPECT_NE(debugDump.find(expectedString), std::string::npos)
       << "Did not find '" << expectedString << "' in debug dump";
+  if (HasFailure()) {
+    LOGD("Debug dump: \n%s", debugDump.c_str());
+  }
 }
 
 }  // namespace

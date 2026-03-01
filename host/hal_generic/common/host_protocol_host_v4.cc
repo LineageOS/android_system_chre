@@ -201,15 +201,13 @@ void HostProtocolHostV4::encodeDataFlowStopped(
 
 void HostProtocolHostV4::encodeDataFlowAlert(
     FlatBufferBuilder &builder, const AidlDataFlowId &dataFlowId,
-    const AidlEndpointId &senderId,
-    const std::vector<AidlEndpointId> &receiverIds) {
+    const std::vector<AidlEndpointId> &receiverIds, bool waking) {
   std::vector<Offset<EndpointId>> fbsReceiverIds;
   for (const auto &id : receiverIds)
     fbsReceiverIds.push_back(aidlToFbsEndpointId(builder, id));
   auto msg = ::chre::fbs::CreateDataFlowAlert(
       builder, aidlToFbsDataFlowId(builder, dataFlowId),
-      aidlToFbsEndpointId(builder, senderId),
-      builder.CreateVector(fbsReceiverIds));
+      builder.CreateVector(fbsReceiverIds), waking);
   finalize(builder, ChreMessage::DataFlowAlert, msg.Union());
 }
 
@@ -362,12 +360,12 @@ void HostProtocolHostV4::decodeDataFlowStopped(
 
 void HostProtocolHostV4::decodeDataFlowAlert(
     const ::chre::fbs::DataFlowAlertT &msg, AidlDataFlowId &dataFlowId,
-    AidlEndpointId &senderId, std::vector<AidlEndpointId> &receiverIds) {
+    std::vector<AidlEndpointId> &receiverIds, bool &waking) {
   dataFlowId = fbsDataFlowIdToAidl(*msg.dataFlowId);
-  senderId = fbsEndpointIdToAidl(*msg.senderId);
   for (const auto &id : msg.receiverIds) {
     receiverIds.push_back(fbsEndpointIdToAidl(*id));
   }
+  waking = msg.waking;
 }
 
 Offset<MessageHub> HostProtocolHostV4::aidlToFbsMessageHub(

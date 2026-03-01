@@ -887,11 +887,12 @@ table DataFlowAlert {
   /// Id of the data flow the alert is associated with
   dataFlowId:DataFlowId;
 
-  /// Id of the sending endpoint
-  senderId:EndpointId;
-
   /// Id(s) of the receiving endpoint(s)
   receiverIds:[EndpointId];
+
+  /// Whether the alert should be sent in a way that wakes up the destination
+  /// core, takes wakelocks, etc.
+  waking:bool;
 }
 
 /// A union that joins together all possible messages. Note that in FlatBuffers,

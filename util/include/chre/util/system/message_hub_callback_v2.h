@@ -23,7 +23,7 @@
 namespace chre::message {
 
 //! The V2 callback used to register a MessageHub with the MessageRouter.
-//! This callback supports all existing functionality as well as notification
+//! This callback supports all existing functionality as well as data flow
 //! APIs.
 //!
 //! @see chre::message::MessageHubCallback

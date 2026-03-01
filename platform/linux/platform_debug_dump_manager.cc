@@ -31,6 +31,7 @@ bool gDebugDumpComplete = false;
 }  // anonymous namespace
 
 std::string getDebugDumpStringBlocking(uint32_t timeoutMs) {
+  LOGD("getDebugDumpStringBlocking: timeoutMs: %d", timeoutMs);
   std::string dump;
   std::unique_lock<std::mutex> lock(gDebugDumpMutex);
   if (gDebugDumpCv.wait_for(lock, std::chrono::milliseconds(timeoutMs),
@@ -46,6 +47,8 @@ PlatformDebugDumpManagerBase::~PlatformDebugDumpManagerBase() {}
 
 void PlatformDebugDumpManager::sendDebugDump(const char *debugStr,
                                              bool complete) {
+  LOGD("sendDebugDump: complete: %d current debug size %zu", complete,
+       gDebugDumpBuffer.size());
   std::lock_guard<std::mutex> lock(gDebugDumpMutex);
   if (gDebugDumpComplete) {
     gDebugDumpBuffer.clear();
