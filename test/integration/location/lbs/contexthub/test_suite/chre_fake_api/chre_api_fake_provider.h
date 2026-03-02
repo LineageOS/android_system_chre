@@ -28,6 +28,7 @@
 #include "location/lbs/contexthub/test_suite/chre_fake_api/chre_api_event_fake.h"
 #include "location/lbs/contexthub/test_suite/chre_fake_api/chre_api_fake_detector.h"
 #include "location/lbs/contexthub/test_suite/chre_fake_api/chre_api_gnss_fake.h"
+#include "location/lbs/contexthub/test_suite/chre_fake_api/chre_api_msg_fake.h"
 #include "location/lbs/contexthub/test_suite/chre_fake_api/chre_api_re_fake.h"
 #include "location/lbs/contexthub/test_suite/chre_fake_api/chre_api_sensor_fake.h"
 #include "location/lbs/contexthub/test_suite/chre_fake_api/chre_api_wifi_fake.h"
@@ -71,23 +72,28 @@ class FakeChreApiProvider {
       std::unique_ptr<ChreApiEventFunctions> api_event_calls) {
     api_event_calls_ = std::move(api_event_calls);
   }
+  void SetChreApiFunctions(
+      std::unique_ptr<ChreApiMsgFunctions> api_msg_calls) {
+    api_msg_calls_ = std::move(api_msg_calls);
+  }
 
   // Sets, resets, and gets the detector instance.
-  ::testing::NiceMock<ChreApiDetector> *GetFakeDetector();
+  ::testing::NiceMock<ChreApiDetector>* GetFakeDetector();
 
   // Retrieves the current static instance.
-  static FakeChreApiProvider *GetInstance();
+  static FakeChreApiProvider* GetInstance();
 
   // Retrieves the current set of functions that will be called when code
   // interacts with the CHRE API.
-  ChreApiReFunctions *GetChreApiReFunctions();
-  ChreApiGnssFunctions *GetChreApiGnssFunctions();
-  ChreApiWifiFunctions *GetChreApiWifiFunctions();
-  ChreApiAudioFunctions *GetChreApiAudioFunctions();
-  ChreApiBleFunctions *GetChreApiBleFunctions();
-  ChreApiWwanFunctions *GetChreApiWwanFunctions();
-  ChreApiSensorFunctions *GetChreApiSensorFunctions();
-  ChreApiEventFunctions *GetChreApiEventFunctions();
+  ChreApiReFunctions* GetChreApiReFunctions();
+  ChreApiGnssFunctions* GetChreApiGnssFunctions();
+  ChreApiWifiFunctions* GetChreApiWifiFunctions();
+  ChreApiAudioFunctions* GetChreApiAudioFunctions();
+  ChreApiBleFunctions* GetChreApiBleFunctions();
+  ChreApiWwanFunctions* GetChreApiWwanFunctions();
+  ChreApiSensorFunctions* GetChreApiSensorFunctions();
+  ChreApiEventFunctions* GetChreApiEventFunctions();
+  ChreApiMsgFunctions* GetChreApiMsgFunctions();
 
   // Resets the implementations of the static instance to the default.
   static void ResetInstance();
@@ -101,6 +107,7 @@ class FakeChreApiProvider {
   static void ResetWwanInstance();
   static void ResetSensorInstance();
   static void ResetEventInstance();
+  static void ResetMsgInstance();
 
  private:
   friend absl::NoDestructor<FakeChreApiProvider>;
@@ -117,6 +124,7 @@ class FakeChreApiProvider {
   std::unique_ptr<ChreApiWwanFunctions> api_wwan_calls_;
   std::unique_ptr<ChreApiSensorFunctions> api_sensor_calls_;
   std::unique_ptr<ChreApiEventFunctions> api_event_calls_;
+  std::unique_ptr<ChreApiMsgFunctions> api_msg_calls_;
 
   // Contains the detector that allows for EXPECT_CALL to execute correctly
   std::unique_ptr<::testing::NiceMock<ChreApiDetector>> chre_api_fake_detector_;
@@ -130,6 +138,7 @@ class FakeChreApiProvider {
   ChreApiWwanFunctions default_api_wwan_calls_;
   ChreApiSensorFunctions default_api_sensor_calls_;
   ChreApiEventFunctions default_api_event_calls_;
+  ChreApiMsgFunctions default_api_msg_calls_;
 };
 
 }  // namespace contexthub

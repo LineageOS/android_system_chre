@@ -103,6 +103,14 @@ ChreApiEventFunctions *FakeChreApiProvider::GetChreApiEventFunctions() {
   return &default_api_event_calls_;
 }
 
+ChreApiMsgFunctions *FakeChreApiProvider::GetChreApiMsgFunctions() {
+  ChreApiMsgFunctions *overridden_functions = api_msg_calls_.get();
+  if (overridden_functions) {
+    return overridden_functions;
+  }
+  return &default_api_msg_calls_;
+}
+
 testing::NiceMock<ChreApiDetector> *FakeChreApiProvider::GetFakeDetector() {
   if (chre_api_fake_detector_ == nullptr) {
     chre_api_fake_detector_ =
@@ -123,6 +131,7 @@ void FakeChreApiProvider::ResetInstance() {
   ResetWwanInstance();
   ResetSensorInstance();
   ResetEventInstance();
+  ResetMsgInstance();
 }
 
 // static
@@ -163,6 +172,11 @@ void FakeChreApiProvider::ResetSensorInstance() {
 // static
 void FakeChreApiProvider::ResetEventInstance() {
   GetInstance()->SetChreApiFunctions(std::unique_ptr<ChreApiEventFunctions>());
+}
+
+// static
+void FakeChreApiProvider::ResetMsgInstance() {
+  GetInstance()->SetChreApiFunctions(std::unique_ptr<ChreApiMsgFunctions>());
 }
 
 }  // namespace contexthub

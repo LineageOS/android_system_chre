@@ -20,6 +20,7 @@ cc_library_static {
         "chre_fake_api/*.cc",
         "chre_fake_api/helpers/*.cc",
         "chre_unit_test.cc",
+        "integration/data_feed/*.cc",
     ],
     include_dirs: [
         "external/abseil-cpp/",
@@ -70,6 +71,7 @@ cc_test_host {
         "chre_fake_api/helpers/sensor_helpers_test.cc",
         "chre_fake_api/helpers/wifi_helpers_test.cc",
         "chre_fake_api/helpers/wwan_helpers_test.cc",
+        "integration/data_feed/fragment_test.cc",
         "nanoapp_unit_test/sample/sample_unit_test.cc",
     ],
     include_dirs: [
