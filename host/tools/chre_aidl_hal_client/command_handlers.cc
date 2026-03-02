@@ -25,6 +25,7 @@
 #include <android/binder_manager.h>
 #include <android/binder_process.h>
 
+#include <cstdlib>
 #include <future>
 #include <stdexcept>
 #include <string>
@@ -63,6 +64,11 @@ std::shared_ptr<ContextHubCallback> gCallback = nullptr;
 std::shared_ptr<IEndpointCallback> gEndpointCallback = nullptr;
 std::shared_ptr<IEndpointCommunication> gCommunication = nullptr;
 
+// 34a3a27e-9b83-4098-b564-e83b0c28d4bb
+constexpr std::array<uint8_t, 16> kUuid = {0x34, 0xa3, 0xa2, 0x7e, 0x9b, 0x83,
+                                           0x40, 0x98, 0xb5, 0x64, 0xe8, 0x3b,
+                                           0x0c, 0x28, 0xd4, 0xbb};
+
 /** Initializes gContextHub and register gCallback. */
 std::shared_ptr<IContextHub> getContextHub() {
   if (gContextHub == nullptr) {
@@ -77,7 +83,7 @@ std::shared_ptr<IContextHub> getContextHub() {
   }
 
   if (gCallback == nullptr) {
-    gCallback = ContextHubCallback::make<ContextHubCallback>();
+    gCallback = ContextHubCallback::make<ContextHubCallback>(kUuid);
     if (!gContextHub->registerCallback(kContextHubId, gCallback).isOk()) {
       throwError("Failed to register the callback");
     }
@@ -175,9 +181,19 @@ void loadNanoapp(std::string &pathAndName) {
   if (!readFileContents(pathAndName.c_str(), soBuffer)) {
     throwError("Failed to open the content of " + pathAndName);
   }
+
   NanoappBinary binary;
   binary.nanoappId = static_cast<int64_t>(header->appId);
-  binary.customBinary = soBuffer;
+  if (NanoappHelper::isNappFile(pathAndName)) {
+    if (soBuffer.size() < sizeof(NanoAppBinaryHeader)) {
+      throwError("File " + pathAndName + " is too small to be a .napp file");
+    }
+    // Skip the header in the buffer
+    binary.customBinary = std::vector<uint8_t>(
+        soBuffer.begin() + sizeof(NanoAppBinaryHeader), soBuffer.end());
+  } else {
+    binary.customBinary = soBuffer;
+  }
   binary.flags = static_cast<int32_t>(header->flags);
   binary.targetChreApiMajorVersion =
       static_cast<int8_t>(header->targetChreApiMajorVersion);
@@ -315,9 +331,10 @@ void executeHalClientCommand(HalClient *halClient,
   }
 }
 
-void connectToHal() {
+void connectToHal(const std::optional<std::string> &uuidStr) {
   if (gCallback == nullptr) {
-    gCallback = ContextHubCallback::make<ContextHubCallback>();
+    gCallback = ContextHubCallback::make<ContextHubCallback>(
+        uuidStr.has_value() ? parseUuid(*uuidStr) : kUuid);
   }
   std::unique_ptr<HalClient> halClient = HalClient::create(gCallback);
   if (halClient == nullptr || !halClient->connect()) {

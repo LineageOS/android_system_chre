@@ -22,11 +22,6 @@ namespace {
 
 using internal::ToString;
 
-// 34a3a27e-9b83-4098-b564-e83b0c28d4bb
-constexpr std::array<uint8_t, 16> kUuid = {0x34, 0xa3, 0xa2, 0x7e, 0x9b, 0x83,
-                                           0x40, 0x98, 0xb5, 0x64, 0xe8, 0x3b,
-                                           0x0c, 0x28, 0xd4, 0xbb};
-
 const std::string kClientName{"ChreAidlHalClient"};
 
 std::string parseTransactionId(int32_t transactionId) {
@@ -60,7 +55,7 @@ ScopedAStatus ContextHubCallback::handleNanoappInfo(
 ScopedAStatus ContextHubCallback::handleContextHubMessage(
     const ContextHubMessage &message,
     const std::vector<std::string> & /*msgContentPerms*/) {
-  std::cout << "Received a message!" << std::endl
+  std::cout << "Received a message (PID " << getpid() << ")!" << std::endl
             << "   From: 0x" << std::hex << message.nanoappId << std::endl
             << "     To: 0x" << static_cast<int>(message.hostEndPoint)
             << std::endl
@@ -76,7 +71,8 @@ ScopedAStatus ContextHubCallback::handleContextHubMessage(
 
 ScopedAStatus ContextHubCallback::handleContextHubAsyncEvent(
     AsyncEventType event) {
-  std::cout << "Received async event " << toString(event) << std::endl;
+  std::cout << "Received async event " << toString(event) << " (PID "
+            << getpid() << ")" << std::endl;
   resetPromise();
   return ScopedAStatus::ok();
 }
@@ -85,7 +81,8 @@ ScopedAStatus ContextHubCallback::handleContextHubAsyncEvent(
 ScopedAStatus ContextHubCallback::handleTransactionResult(int32_t transactionId,
                                                           bool success) {
   std::cout << parseTransactionId(transactionId) << " transaction is "
-            << (success ? "successful" : "failed") << std::endl;
+            << (success ? "successful" : "failed") << " (PID " << getpid()
+            << ")" << std::endl;
   resetPromise();
   return ScopedAStatus::ok();
 }
@@ -104,7 +101,7 @@ ScopedAStatus ContextHubCallback::handleMessageDeliveryStatus(
 }
 
 ScopedAStatus ContextHubCallback::getUuid(std::array<uint8_t, 16> *out_uuid) {
-  *out_uuid = kUuid;
+  *out_uuid = mUuid;
   return ScopedAStatus::ok();
 }
 

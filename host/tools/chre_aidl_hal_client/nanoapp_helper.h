@@ -149,6 +149,14 @@ class NanoappHelper {
    * @param path The directory path to scan for nanoapp header files.
    */
   static void listNanoappsInPath(const std::string &path);
+
+  /**
+   * Checks if the given path points to a .napp file.
+   *
+   * @param path The path to check.
+   * @return true if the path ends with ".napp".
+   */
+  static bool isNappFile(const std::string &path);
 };
 }  // namespace android::chre::chre_aidl_hal_client
 

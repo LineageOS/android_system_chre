@@ -48,7 +48,7 @@ void sendMessageToNanoapp(const std::string &hexHostEndpointId,
 void unloadNanoapp(std::string &appIdOrName);
 
 /** The handler that connects to HAL using hal_client library. */
-void connectToHal();
+void connectToHal(const std::optional<std::string> &uuidStr);
 
 /** Handlers for commands that can only be run after connecting to HAL. */
 void halClientConnectEndpoint(HalClient *halClient,
@@ -101,12 +101,18 @@ struct CommandInfo {
 const std::vector<CommandInfo<DirectCommandFunction>> kAllDirectCommands{
     {.cmd = "connect",
      .numOfArgs = 0,
-     .argsFormat = "",
+     .argsFormat = "[HEX_UUID]",
      .usage = "connect to HAL using hal_client library and keep the session "
               "alive while user can execute other commands. Use 'exit' to "
-              "quit the session.",
+              "quit the session. Optional [HEX_UUID] (32 chars) can be used.",
      .func =
-         [](const std::vector<std::string> & /*cmdLine*/) { connectToHal(); }},
+         [](const std::vector<std::string> &cmdLine) {
+           std::optional<std::string> uuid = std::nullopt;
+           if (cmdLine.size() > 1) {
+             uuid = cmdLine[1];
+           }
+           connectToHal(uuid);
+         }},
 
     {.cmd = "connectEndpoint",
      .numOfArgs = 1,
@@ -210,8 +216,10 @@ const std::vector<CommandInfo<DirectCommandFunction>> kAllDirectCommands{
     {.cmd = "load",
      .numOfArgs = 1,
      .argsFormat = "<APP_NAME | /PATH/TO/APP_NAME>",
-     .usage = "load the nanoapp specified by the name. If an absolute path is "
-              "not provided the default locations are searched.",
+     .usage =
+         "load the nanoapp specified by the name. If an absolute path is "
+         "not provided the default locations are searched. Support both .so "
+         "and .napp formats.",
      // Need a mutable copy for findHeaderAndNormalizePath
      .func =
          [](const std::vector<std::string> &cmdLine) {

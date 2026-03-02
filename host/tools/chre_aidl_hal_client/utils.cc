@@ -15,6 +15,7 @@
  */
 
 #include "utils.h"
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
@@ -39,13 +40,36 @@ bool isValidHexNumber(const std::string &number) {
 char16_t verifyAndConvertEndpointHexId(const std::string &number) {
   // host endpoint id must be a 16-bits long hex number.
   if (isValidHexNumber(number)) {
-    const char16_t convertedNumber =
-        std::stoi(number, /* idx= */ nullptr, /* base= */ 16);
-    if (convertedNumber < std::numeric_limits<uint16_t>::max()) {
-      return convertedNumber;
+    char *end;
+    unsigned long convertedNumber =
+        std::strtoul(number.c_str(), &end, /* base= */ 16);
+    if (*end == '\0' &&
+        convertedNumber <= std::numeric_limits<uint16_t>::max()) {
+      return static_cast<char16_t>(convertedNumber);
     }
   }
   throwError("host endpoint id must be a 16-bits long hex number.");
   return 0;  // code never reached.
+}
+
+std::array<uint8_t, 16> parseUuid(const std::string &hex) {
+  std::string cleanHex = hex;
+  if (hex.substr(0, 2) == "0x" || hex.substr(0, 2) == "0X") {
+    cleanHex = hex.substr(2);
+  }
+  if (cleanHex.length() != 32) {
+    throwError("UUID must be 32 hex characters long.");
+  }
+  std::array<uint8_t, 16> uuid;
+  for (size_t i = 0; i < 16; ++i) {
+    std::string byteStr = cleanHex.substr(i * 2, 2);
+    char *end;
+    unsigned long byteVal = std::strtoul(byteStr.c_str(), &end, /* base= */ 16);
+    if (*end != '\0' || byteVal > 255) {
+      throwError("Invalid UUID hex string.");
+    }
+    uuid[i] = static_cast<uint8_t>(byteVal);
+  }
+  return uuid;
 }
 }  // namespace android::chre::chre_aidl_hal_client

@@ -65,6 +65,9 @@ constexpr auto kTimeOutThresholdInSec = std::chrono::seconds(5);
  */
 class ContextHubCallback final : public BnContextHubCallback {
  public:
+  explicit ContextHubCallback(const std::array<uint8_t, 16> &uuid)
+      : mUuid(uuid) {}
+
   /**
    * See IContextHubCallback.aidl#handleNanoappInfo.
    */
@@ -135,6 +138,9 @@ class ContextHubCallback final : public BnContextHubCallback {
    * callback use their specific promises.
    */
   std::promise<void> promise;
+
+ private:
+  std::array<uint8_t, 16> mUuid;
 };
 }  // namespace android::chre::chre_aidl_hal_client
 
