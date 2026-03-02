@@ -541,42 +541,15 @@ bool MessageRouter::sendMessage(pw::UniquePtr<std::byte[]> &&data,
   {
     LockGuard<Mutex> lock(mMutex);
 
-    std::optional<size_t> index =
-        findSessionIndexLocked(fromMessageHubId, sessionId);
-    if (!index.has_value()) {
-      LOGE("Failed to send message: session with ID %" PRIu16 " not found",
-           sessionId);
+    auto result = verifyMessageSessionLocked(
+        sessionId, fromMessageHubId, fromEndpointId, MESSAGE_HUB_ID_ANY,
+        ENDPOINT_ID_ANY, "Failed to send message");
+    if (!result) {
       return false;
     }
+    session = result->first;
+    sentBySessionInitiator = result->second;
 
-    session = mSessions[*index];
-    if (!session.isActive) {
-      LOGE("Failed to send message: session with ID %" PRIu16 " is inactive",
-           sessionId);
-      return false;
-    }
-
-    Endpoint sender(fromMessageHubId, fromEndpointId);
-    if (fromEndpointId == ENDPOINT_ID_ANY) {
-      if (session.initiator.messageHubId == session.peer.messageHubId) {
-        LOGE("Unable to infer sender endpoint ID: session with ID %" PRIu16
-             " is between endpoints on the same message hub with ID 0x%" PRIx64,
-             sessionId, fromMessageHubId);
-        return false;
-      }
-      sender.endpointId = session.initiator.messageHubId == fromMessageHubId
-                              ? session.initiator.endpointId
-                              : session.peer.endpointId;
-    }
-
-    if (sender != session.initiator && sender != session.peer) {
-      LOGE("Failed to send message: session with ID %" PRIu16
-           " does not contain endpoint with hub ID 0x%" PRIx64
-           " and endpoint ID 0x%" PRIx64,
-           sessionId, fromMessageHubId, fromEndpointId);
-      return false;
-    }
-    sentBySessionInitiator = sender == session.initiator;
     receiverCallback = getCallbackFromMessageHubIdLocked(
         sentBySessionInitiator ? session.peer.messageHubId
                                : session.initiator.messageHubId);
@@ -740,22 +713,168 @@ SessionId MessageRouter::getNextSessionIdLocked() {
 }
 
 bool MessageRouter::registerDataFlowSink(
-    DataFlowSinkRegistration && /*registration*/) {
-  // TODO(b/452707307): Implement data flow sink registration.
+    DataFlowSinkRegistration &&registration) {
+  pw::IntrusivePtr<MessageHubCallbackV2> callback = nullptr;
+  {
+    LockGuard<Mutex> lock(mMutex);
+
+    if (registration.sessionMessage &&
+        !verifyMessageSessionLocked(registration.sessionMessage->sessionId,
+                                    registration.sourceId.messageHubId,
+                                    registration.sourceId.endpointId,
+                                    registration.sinkId.messageHubId,
+                                    registration.sinkId.endpointId,
+                                    "Failed to register data flow sink")) {
+      return false;
+    }
+
+    callback = getCallbackFromMessageHubIdLocked<MessageHubCallbackV2>(
+        registration.sinkId.messageHubId, /* minVersion= */ 2);
+  }
+
+  if (callback != nullptr) {
+    callback->onRegisterDataFlowSink(std::move(registration));
+    return true;
+  }
+
+  LOGE("Failed to register data flow sink: sink hub 0x%" PRIx64
+       " not found or not V2",
+       registration.sinkId.messageHubId);
   return false;
 }
 
 void MessageRouter::reportDataFlowSinkUnregistered(
-    const DataFlowSinkUnregistration & /*unregistration*/) {
-  // TODO(b/452707307): Implement data flow sink unregistration.
+    const DataFlowSinkUnregistration &unregistration) {
+  pw::IntrusivePtr<MessageHubCallbackV2> callback = nullptr;
+  {
+    LockGuard<Mutex> lock(mMutex);
+    callback = getCallbackFromMessageHubIdLocked<MessageHubCallbackV2>(
+        unregistration.endpoint.messageHubId, /* minVersion= */ 2);
+  }
+
+  if (callback != nullptr) {
+    callback->onDataFlowSinkUnregistered(unregistration);
+  }
 }
 
-void MessageRouter::reportDataFlowStopped(const DataFlowStopped & /*stopped*/) {
-  // TODO(b/452707307): Implement data flow stop.
+void MessageRouter::reportDataFlowStopped(const DataFlowStopped &stopped) {
+  if (!stopped.destinationEndpoints.has_value()) {
+    return;
+  }
+  DynamicVector<HubCallbackRecipients> hubs =
+      getHubCallbackRecipientList(stopped.destinationEndpoints.value());
+  for (auto &hub : hubs) {
+    DataFlowStopped hubStopped = stopped;
+    hubStopped.destinationEndpoints =
+        pw::span<Endpoint>(hub.endpoints.data(), hub.endpoints.size());
+    hub.callback->onDataFlowStopped(hubStopped);
+  }
 }
 
-void MessageRouter::reportDataFlowAlert(const DataFlowAlert & /*alert*/) {
-  // TODO(b/452707307): Implement data flow alert.
+void MessageRouter::reportDataFlowAlert(const DataFlowAlert &alert) {
+  DynamicVector<HubCallbackRecipients> hubs =
+      getHubCallbackRecipientList(alert.receiverEndpoints);
+  for (auto &hub : hubs) {
+    DataFlowAlert hubAlert = alert;
+    hubAlert.receiverEndpoints =
+        pw::span<Endpoint>(hub.endpoints.data(), hub.endpoints.size());
+    hub.callback->onDataFlowAlert(hubAlert);
+  }
+}
+
+std::optional<std::pair<Session, bool>>
+MessageRouter::verifyMessageSessionLocked(SessionId sessionId,
+                                          MessageHubId fromMessageHubId,
+                                          EndpointId fromEndpointId,
+                                          MessageHubId toHubId,
+                                          EndpointId toEndpointId,
+                                          const char *errorTag) {
+  std::optional<size_t> index =
+      findSessionIndexLocked(fromMessageHubId, sessionId);
+  if (!index.has_value()) {
+    LOGE("%s: session with ID %" PRIu16 " not found", errorTag, sessionId);
+    return {};
+  }
+
+  Session session = mSessions[*index];
+  if (!session.isActive) {
+    LOGE("%s: session with ID %" PRIu16 " is inactive", errorTag, sessionId);
+    return {};
+  }
+
+  Endpoint sender(fromMessageHubId, fromEndpointId);
+  if (fromEndpointId == ENDPOINT_ID_ANY) {
+    if (session.initiator.messageHubId == session.peer.messageHubId) {
+      LOGE("%s: session with ID %" PRIu16
+           " is between endpoints on the same message hub with ID 0x%" PRIx64
+           " (unable to infer sender endpoint ID)",
+           errorTag, sessionId, fromMessageHubId);
+      return {};
+    }
+    sender.endpointId = session.initiator.messageHubId == fromMessageHubId
+                            ? session.initiator.endpointId
+                            : session.peer.endpointId;
+  }
+
+  if (sender != session.initiator && sender != session.peer) {
+    LOGE("%s: session with ID %" PRIu16
+         " does not contain endpoint with hub ID 0x%" PRIx64
+         " and endpoint ID 0x%" PRIx64,
+         errorTag, sessionId, fromMessageHubId, fromEndpointId);
+    return {};
+  }
+  bool sentBySessionInitiator = sender == session.initiator;
+
+  Endpoint expectedRecipient =
+      sentBySessionInitiator ? session.peer : session.initiator;
+  if ((toEndpointId != ENDPOINT_ID_ANY &&
+       toEndpointId != expectedRecipient.endpointId) ||
+      (toHubId != MESSAGE_HUB_ID_ANY &&
+       toHubId != expectedRecipient.messageHubId)) {
+    LOGE(
+        "%s: recipient mismatch for data flow sink registration over session "
+        "with ID %" PRIu16,
+        errorTag, sessionId);
+    return {};
+  }
+
+  return std::make_pair(session, sentBySessionInitiator);
+}
+
+DynamicVector<MessageRouter::HubCallbackRecipients>
+MessageRouter::getHubCallbackRecipientList(pw::span<const Endpoint> endpoints) {
+  DynamicVector<HubCallbackRecipients> hubs;
+  LockGuard<Mutex> lock(mMutex);
+  for (const Endpoint &endpoint : endpoints) {
+    HubCallbackRecipients *hub = nullptr;
+    for (auto &h : hubs) {
+      if (h.hubId == endpoint.messageHubId) {
+        hub = &h;
+        break;
+      }
+    }
+
+    if (hub == nullptr) {
+      auto callback = getCallbackFromMessageHubIdLocked<MessageHubCallbackV2>(
+          endpoint.messageHubId, /* minVersion= */ 2);
+      if (callback == nullptr) {
+        continue;
+      }
+      HubCallbackRecipients newHub;
+      newHub.hubId = endpoint.messageHubId;
+      newHub.callback = std::move(callback);
+      if (!hubs.push_back(std::move(newHub))) {
+        LOG_OOM();
+        return {};
+      }
+      hub = &hubs.back();
+    }
+    if (!hub->endpoints.push_back(endpoint)) {
+      LOG_OOM();
+      return {};
+    }
+  }
+  return hubs;
 }
 
 }  // namespace chre::message
