@@ -33,20 +33,23 @@ class MessageHubCallbackV2 : public MessageHubCallback {
 
   //! Called when a data flow sink is registered.
   //! @param registration The data flow sink registration information.
-  virtual void onDataFlowSinkRegistered(
-      const DataFlowSinkRegistration &registration) = 0;
+  virtual void onRegisterDataFlowSink(
+      DataFlowSinkRegistration &&registration) = 0;
 
-  //! Called when a data flow sink is unregistered.
-  //! @param unregistration The data flow sink unregistration information.
+  //! Called to report that a data flow sink has been unregistered.
+  //! @param unregistration The data flow sink unregistration information. Only
+  //! valid within the scope of this callback.
   virtual void onDataFlowSinkUnregistered(
       const DataFlowSinkUnregistration &unregistration) = 0;
 
-  //! Called when a data flow is stopped.
-  //! @param stopped The data flow stopped information.
+  //! Called to report that a data flow has stopped.
+  //! @param stopped The data flow stopped information. Only valid within the
+  //! scope of this callback.
   virtual void onDataFlowStopped(const DataFlowStopped &stopped) = 0;
 
-  //! Called when a data flow alert is received.
-  //! @param alert The data flow alert information.
+  //! Called to report a data flow alert.
+  //! @param alert The data flow alert information. Only valid within the scope
+  //! of this callback.
   virtual void onDataFlowAlert(const DataFlowAlert &alert) = 0;
 };
 

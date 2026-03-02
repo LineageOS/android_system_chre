@@ -401,6 +401,118 @@ bool HostProtocolChre::decodeMessageFromHost(const void *message,
         break;
       }
 
+#ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
+      case fbs::ChreMessage::RegisterDataFlowSink: {
+        const auto *msg = static_cast<const fbs::RegisterDataFlowSink *>(
+            container->message());
+        message::DataFlowSinkRegistration reg;
+        reg.dataFlowId = {.hubId = static_cast<message::MessageHubId>(
+                              msg->dataFlowId()->hubId()),
+                          .id = static_cast<uint32_t>(msg->dataFlowId()->id())};
+        reg.sourceId = {
+            static_cast<message::MessageHubId>(msg->sourceId()->hubId()),
+            static_cast<message::EndpointId>(msg->sourceId()->id())};
+        reg.sinkId = {
+            static_cast<message::MessageHubId>(msg->sinkId()->hubId()),
+            static_cast<message::EndpointId>(msg->sinkId()->id())};
+        reg.primaryRegionId = msg->primaryRegionId();
+        reg.metadataOffset = msg->metadataOffset();
+        reg.sinkMetadataRegionId = msg->sinkMetadataRegionId();
+        reg.sinkMetadataOffset = msg->sinkMetadataOffset();
+
+        std::optional<pw::span<const std::byte>> messageData;
+        if (msg->msg()) {
+          message::Message sessionMessage;
+          sessionMessage.sessionId = msg->msg()->session_id();
+          sessionMessage.messageType = msg->msg()->type();
+          sessionMessage.messagePermissions = msg->msg()->permissions();
+
+          if (msg->msg()->data()) {
+            messageData = {
+                reinterpret_cast<const std::byte *>(msg->msg()->data()->data()),
+                msg->msg()->data()->size()};
+          }
+
+          reg.sessionMessage = std::move(sessionMessage);
+        }
+
+        getHostHubManager().registerDataFlowSink(std::move(reg), messageData);
+        break;
+      }
+
+      case fbs::ChreMessage::UnregisterDataFlowSink: {
+        const auto *msg = static_cast<const fbs::UnregisterDataFlowSink *>(
+            container->message());
+        message::DataFlowSinkUnregistration unreg;
+        unreg.dataFlowId = {
+            .hubId =
+                static_cast<message::MessageHubId>(msg->dataFlowId()->hubId()),
+            .id = static_cast<uint32_t>(msg->dataFlowId()->id())};
+        unreg.endpoint = {
+            static_cast<message::MessageHubId>(msg->endpointId()->hubId()),
+            static_cast<message::EndpointId>(msg->endpointId()->id())};
+
+        getHostHubManager().unregisterDataFlowSink(unreg);
+        break;
+      }
+
+      case fbs::ChreMessage::DataFlowStopped: {
+        const auto *msg =
+            static_cast<const fbs::DataFlowStopped *>(container->message());
+        message::DataFlowStopped stopped;
+        stopped.dataFlowId = {
+            .hubId =
+                static_cast<message::MessageHubId>(msg->dataFlowId()->hubId()),
+            .id = static_cast<uint32_t>(msg->dataFlowId()->id())};
+
+        DynamicVector<message::Endpoint> destinationEndpoints;
+        if (msg->destinationIds()) {
+          if (!destinationEndpoints.reserve(msg->destinationIds()->size())) {
+            LOG_OOM();
+          } else {
+            for (const auto &id : *msg->destinationIds()) {
+              destinationEndpoints.push_back(
+                  {static_cast<message::MessageHubId>(id->hubId()),
+                   static_cast<message::EndpointId>(id->id())});
+            }
+            stopped.destinationEndpoints =
+                pw::span<message::Endpoint>(destinationEndpoints);
+          }
+        }
+
+        getHostHubManager().reportDataFlowStopped(stopped);
+        break;
+      }
+
+      case fbs::ChreMessage::DataFlowAlert: {
+        const auto *msg =
+            static_cast<const fbs::DataFlowAlert *>(container->message());
+        message::DataFlowAlert alert;
+        alert.dataFlowId = {
+            .hubId =
+                static_cast<message::MessageHubId>(msg->dataFlowId()->hubId()),
+            .id = static_cast<uint32_t>(msg->dataFlowId()->id())};
+        alert.waking = msg->waking();
+
+        DynamicVector<message::Endpoint> receiverEndpoints;
+        if (msg->receiverIds()) {
+          if (!receiverEndpoints.reserve(msg->receiverIds()->size())) {
+            LOG_OOM();
+          } else {
+            for (const auto &id : *msg->receiverIds()) {
+              receiverEndpoints.push_back(
+                  {static_cast<message::MessageHubId>(id->hubId()),
+                   static_cast<message::EndpointId>(id->id())});
+            }
+            alert.receiverEndpoints =
+                pw::span<message::Endpoint>(receiverEndpoints);
+          }
+        }
+
+        getHostHubManager().reportDataFlowAlert(alert);
+        break;
+      }
+#endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
 #endif  // CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
 
       default:

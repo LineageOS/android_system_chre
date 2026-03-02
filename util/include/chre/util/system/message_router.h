@@ -254,7 +254,7 @@ class MessageRouter {
 
   //! Registers a data flow sink.
   //! @return true if the sink was registered, false otherwise.
-  bool registerDataFlowSink(const DataFlowSinkRegistration &registration);
+  bool registerDataFlowSink(DataFlowSinkRegistration &&registration);
 
   //! Reports that a data flow sink has been unregistered.
   void reportDataFlowSinkUnregistered(

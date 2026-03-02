@@ -89,9 +89,9 @@ bool MessageHub::unregisterEndpoint(EndpointId endpointId) {
   return mRouter != nullptr && mRouter->unregisterEndpoint(mHubId, endpointId);
 }
 
-bool MessageHub::registerDataFlowSink(
-    const DataFlowSinkRegistration &registration) {
-  return mRouter != nullptr && mRouter->registerDataFlowSink(registration);
+bool MessageHub::registerDataFlowSink(DataFlowSinkRegistration &&registration) {
+  return mRouter != nullptr &&
+         mRouter->registerDataFlowSink(std::move(registration));
 }
 
 void MessageHub::reportDataFlowSinkUnregistered(

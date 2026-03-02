@@ -20,6 +20,7 @@
 
 #ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
 
+#include <inttypes.h>
 #include <cstring>
 #include <optional>
 
@@ -31,6 +32,7 @@
 #include "chre/platform/shared/fbs/host_messages_generated.h"
 #include "chre/platform/shared/host_protocol_chre.h"
 #include "chre/util/lock_guard.h"
+#include "chre/util/macros.h"
 #include "chre/util/memory.h"
 #include "chre/util/system/message_common.h"
 #include "chre/util/system/message_router.h"
@@ -232,6 +234,75 @@ void HostMessageHubManager::sendMessage(MessageHubId hubId, SessionId sessionId,
   }
 }
 
+void HostMessageHubManager::registerDataFlowSink(
+    message::DataFlowSinkRegistration &&registration,
+    std::optional<pw::span<const std::byte>> messageData) {
+  LockGuard<Mutex> lock(mHubsOpLock);
+
+  // We are assuming that we only need to use the source ID to find the hub
+  // to register the data flow sink on.
+  if (pw::IntrusivePtr<Hub> hub = getHub(registration.sourceId.messageHubId);
+      hub) {
+    if (registration.sessionMessage) {
+      if (!messageData) {
+        LOGE("No message data received with sink registration over session");
+        return;
+      }
+      auto dataCopy =
+          mMsgAllocator.MakeUniqueArray<std::byte>(messageData->size());
+      if (dataCopy == nullptr) {
+        LOGE("Failed to allocate data flow sink registration message data");
+        return;
+      }
+      std::memcpy(dataCopy.get(), messageData->data(), messageData->size());
+      registration.sessionMessage->data = std::move(dataCopy);
+    }
+    hub->getMessageHub().registerDataFlowSink(std::move(registration));
+  } else {
+    LOGE("No host hub 0x%" PRIx64 " for register data flow sink",
+         registration.sourceId.messageHubId);
+  }
+}
+
+void HostMessageHubManager::unregisterDataFlowSink(
+    const message::DataFlowSinkUnregistration &unregistration) {
+  LockGuard<Mutex> lock(mHubsOpLock);
+  if (pw::IntrusivePtr<Hub> hub = getHub(unregistration.endpoint.messageHubId);
+      hub) {
+    hub->getMessageHub().reportDataFlowSinkUnregistered(unregistration);
+  } else {
+    LOGE("No host hub 0x%" PRIx64 " for unregister data flow sink",
+         unregistration.endpoint.messageHubId);
+  }
+}
+
+void HostMessageHubManager::reportDataFlowStopped(
+    const message::DataFlowStopped &stopped) {
+  LockGuard<Mutex> lock(mHubsOpLock);
+  if (pw::IntrusivePtr<Hub> hub = getHub(stopped.dataFlowId.hubId); hub) {
+    hub->getMessageHub().reportDataFlowStopped(stopped);
+  } else {
+    LOGE("No host hub 0x%" PRIx64 " for report data flow stopped",
+         stopped.dataFlowId.hubId);
+  }
+}
+
+void HostMessageHubManager::reportDataFlowAlert(
+    const message::DataFlowAlert &alert) {
+  LockGuard<Mutex> lock(mHubsOpLock);
+  // Use the internal hub to report the data flow alert.
+  // TODO(b/477985342): When removing the internal hub, ensure there is a way to
+  // pass the alert to MessageRouter.
+  if (pw::IntrusivePtr<Hub> hub = getHub(kInternalHubId); hub) {
+    hub->getMessageHub().reportDataFlowAlert(alert);
+  } else {
+    LOGE(
+        "Failed to get the internal hub to report an alert on data flow "
+        "(0x%" PRIx64 ", %" PRId32 ")",
+        alert.dataFlowId.hubId, alert.dataFlowId.id);
+  }
+}
+
 bool HostMessageHubManager::Hub::createLocked(
     HostMessageHubManager *manager, const MessageHubInfo &info,
     pw::IntrusiveList<Endpoint> &endpoints, bool isInternal) {
@@ -255,8 +326,13 @@ bool HostMessageHubManager::Hub::createLocked(
   pw::IntrusivePtr<Hub> hub(hubPtr);
   manager->addHub(hub);
   std::optional<MessageRouter::MessageHub> maybeHub =
+#ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
+      MessageRouterSingleton::get()->registerMessageHubV2(hub->kName, info.id,
+                                                          hub);
+#else   // CHRE_DATA_FLOW_SUPPORT_ENABLED
       MessageRouterSingleton::get()->registerMessageHub(hub->kName, info.id,
                                                         hub);
+#endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
   if (!maybeHub) {
     LOGE("Failed to register host hub 0x%" PRIx64, info.id);
     LockGuard<Mutex> lock(manager->mHubsLock);
@@ -510,6 +586,62 @@ void HostMessageHubManager::Hub::onEndpointUnregistered(
 
   LockGuard<Mutex> lock(mManager->mEmbeddedHubOpLock);
   mManager->mCb->onEndpointUnregistered(messageHubId, endpointId);
+}
+
+void HostMessageHubManager::Hub::onRegisterDataFlowSink(
+    message::DataFlowSinkRegistration &&registration) {
+#ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
+  LockGuard<Mutex> managerLock(mManagerLock);
+  if (mManager == nullptr) {
+    LOGW("The HostMessageHubManager has been destroyed.");
+    return;
+  }
+  mManager->mCb->onRegisterDataFlowSink(std::move(registration));
+#else   // CHRE_DATA_FLOW_SUPPORT_ENABLED
+  UNUSED_VAR(registration);
+#endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
+}
+
+void HostMessageHubManager::Hub::onDataFlowSinkUnregistered(
+    const message::DataFlowSinkUnregistration &unregistration) {
+#ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
+  LockGuard<Mutex> managerLock(mManagerLock);
+  if (mManager == nullptr) {
+    LOGW("The HostMessageHubManager has been destroyed.");
+    return;
+  }
+  mManager->mCb->onDataFlowSinkUnregistered(unregistration);
+#else   // CHRE_DATA_FLOW_SUPPORT_ENABLED
+  UNUSED_VAR(unregistration);
+#endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
+}
+
+void HostMessageHubManager::Hub::onDataFlowStopped(
+    const message::DataFlowStopped &stopped) {
+#ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
+  LockGuard<Mutex> managerLock(mManagerLock);
+  if (mManager == nullptr) {
+    LOGW("The HostMessageHubManager has been destroyed.");
+    return;
+  }
+  mManager->mCb->onDataFlowStopped(stopped);
+#else   // CHRE_DATA_FLOW_SUPPORT_ENABLED
+  UNUSED_VAR(stopped);
+#endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
+}
+
+void HostMessageHubManager::Hub::onDataFlowAlert(
+    const message::DataFlowAlert &alert) {
+#ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
+  LockGuard<Mutex> managerLock(mManagerLock);
+  if (mManager == nullptr) {
+    LOGW("The HostMessageHubManager has been destroyed.");
+    return;
+  }
+  mManager->mCb->onDataFlowAlert(alert);
+#else   // CHRE_DATA_FLOW_SUPPORT_ENABLED
+  UNUSED_VAR(alert);
+#endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
 }
 
 void HostMessageHubManager::Hub::pw_recycle() {
