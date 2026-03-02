@@ -319,6 +319,10 @@ ScopedAStatus HostHubInterface::unregister() {
 ScopedAStatus HostHubInterface::allocateSharedDataRegion(
     const SharedDataRegionRequirements &requirements,
     SharedDataRegion *region) {
+  if (!mHal.mDataFlowManager) {
+    LOGW("Data flows are not supported.");
+    return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+  }
   auto result = mHal.mDataFlowManager->allocateRegion(mHub->id(), requirements);
   if (!result.ok()) {
     return fromPwStatus(result.status());
@@ -328,11 +332,19 @@ ScopedAStatus HostHubInterface::allocateSharedDataRegion(
 }
 
 ScopedAStatus HostHubInterface::freeSharedDataRegion(int32_t id) {
+  if (!mHal.mDataFlowManager) {
+    LOGW("Data flows are not supported.");
+    return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+  }
   return fromPwStatus(mHal.mDataFlowManager->releaseRegion(mHub->id(), id));
 }
 
 ScopedAStatus HostHubInterface::registerDataFlowHostSource(
     const EndpointId &endpoint, const DataFlowInfo &info, int32_t *id) {
+  if (!mHal.mDataFlowManager) {
+    LOGW("Data flows are not supported.");
+    return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+  }
   auto result = mHub->addDataFlow(endpoint, info);
   if (!result.ok()) {
     return fromPwStatus(result.status());
@@ -342,6 +354,10 @@ ScopedAStatus HostHubInterface::registerDataFlowHostSource(
 }
 
 ScopedAStatus HostHubInterface::unregisterDataFlowHostSource(int32_t id) {
+  if (!mHal.mDataFlowManager) {
+    LOGW("Data flows are not supported.");
+    return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+  }
   DataFlowId dataFlowId = {.hubId = mHub->id(), .id = id};
   auto result = mHub->removeDataFlow(dataFlowId);
   if (!result.ok()) {
@@ -363,6 +379,10 @@ ScopedAStatus HostHubInterface::registerDataFlowOffloadSink(
     const DataFlowSinkRegistrationParams &params,
     const std::shared_ptr<IEndpointCommunication::IRegisterOffloadSinkCallback>
         &callback) {
+  if (!mHal.mDataFlowManager) {
+    LOGW("Data flows are not supported.");
+    return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+  }
   auto result = mHub->addSinkToDataFlow(params, callback);
   if (!result.ok()) {
     return fromPwStatus(result.status());
@@ -385,6 +405,10 @@ ScopedAStatus HostHubInterface::registerDataFlowOffloadSink(
 
 ScopedAStatus HostHubInterface::unregisterDataFlowHostSink(
     const EndpointId &sinkId, const DataFlowId &dataFlowId) {
+  if (!mHal.mDataFlowManager) {
+    LOGW("Data flows are not supported.");
+    return ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+  }
   auto result = mHub->removeSink(dataFlowId, sinkId);
   if (!result.ok()) {
     return fromPwStatus(result.status());
@@ -646,6 +670,10 @@ void ContextHubV4Impl::onEndpointSessionMessageDeliveryStatus(
 
 void ContextHubV4Impl::onRegisterDataFlowSink(
     const ::chre::fbs::RegisterDataFlowSinkT &msg) {
+  if (!mDataFlowManager) {
+    LOGW("RegisterDataFlowSink received, but data flows are not supported.");
+    return;
+  }
   DataFlowSinkRegistrationParams params;
   HostProtocolHostV4::decodeRegisterDataFlowSink(msg, params);
   std::shared_ptr<HostHub> hub = mManager.getHostHub(params.sinkId.hubId);
@@ -664,6 +692,10 @@ void ContextHubV4Impl::onRegisterDataFlowSink(
 
 void ContextHubV4Impl::onUnregisterDataFlowSink(
     const ::chre::fbs::UnregisterDataFlowSinkT &msg) {
+  if (!mDataFlowManager) {
+    LOGW("UnregisterDataFlowSink received, but data flows are not supported.");
+    return;
+  }
   DataFlowId dataFlowId;
   EndpointId sinkId;
   HostProtocolHostV4::decodeUnregisterDataFlowSink(msg, dataFlowId, sinkId);
@@ -671,6 +703,10 @@ void ContextHubV4Impl::onUnregisterDataFlowSink(
 }
 
 void ContextHubV4Impl::onDataFlowAlert(const ::chre::fbs::DataFlowAlertT &msg) {
+  if (!mDataFlowManager) {
+    LOGW("DataFlowAlert received, but data flows are not supported.");
+    return;
+  }
   DataFlowId dataFlowId;
   std::vector<EndpointId> receiverIds;
   bool waking;
@@ -686,6 +722,10 @@ void ContextHubV4Impl::onDataFlowAlert(const ::chre::fbs::DataFlowAlertT &msg) {
 
 void ContextHubV4Impl::onDataFlowStopped(
     const ::chre::fbs::DataFlowStoppedT &msg) {
+  if (!mDataFlowManager) {
+    LOGW("DataFlowStopped received, but data flows are not supported.");
+    return;
+  }
   DataFlowId dataFlowId;
   std::vector<EndpointId> ignoreEndpoints;
   HostProtocolHostV4::decodeDataFlowStopped(msg, dataFlowId, ignoreEndpoints);
