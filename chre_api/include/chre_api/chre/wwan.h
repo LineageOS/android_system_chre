@@ -69,6 +69,11 @@ extern "C" {
 //! @since v1.11 - Neighbor support in prior versions of the API is unspecified.
 #define CHRE_WWAN_GET_CELL_NEIGHBOR_INFO  (UINT32_C(1) << 1)
 
+//! The chreWwanCellInfoResult from chreWwanGetCellInfoAsync() will include
+//! timing advance information for NR cells using extended fields.
+//! @since v1.12
+#define CHRE_WWAN_GET_NR_TIMING_ADVANCE   (UINT32_C(1) << 2)
+
 /** @} */
 
 /**
@@ -435,6 +440,13 @@ struct chreWwanCellInfoNr {
     struct chreWwanSignalStrengthNr  signalStrengthNr;
 };
 
+//! @since v1.12
+struct chreWwanExtCellInfoNr {
+    //! Reference: 3GPP TS 36.213 section 4.2.3.
+    //! Range: 0 us to 1282 us, or MAX_UINT16 if unavailable.
+    uint16_t timingAdvanceMicros;
+};
+
 //! Reference: RIL_CellInfoType
 //! All other values are reserved and should be ignored by nanoapps.
 enum chreWwanCellInfoType {
@@ -489,6 +501,24 @@ struct chreWwanCellInfo {
     } CellInfo;
 };
 
+
+/**
+ * Data structure provided with events of type CHRE_EVENT_WWAN_CELL_INFO_RESULT
+ * containing extended information about serving and neighbor cells.
+ *
+ * @since v1.12
+ */
+struct chreWwanExtCellInfo {
+    //! A union of extended cell information for each rat type. The value in the
+    //! corresponding chreWwanCellInfo.cellInfoType will indicate which field in
+    //! this union is valid. If a definition for a given type is not available,
+    //! reserved must be used and set to 0.
+    union chreWwanExtCellInfoPerRat {
+        struct chreWwanExtCellInfoNr nr;
+        uint64_t reserved[2];
+    } extCellInfo;
+};
+
 /**
  * Data structure provided with events of type CHRE_EVENT_WWAN_CELL_INFO_RESULT.
  */
@@ -515,6 +545,14 @@ struct chreWwanCellInfoResult {
     //! Pointer to an array of cellInfoCount elements containing information
     //! about serving and neighbor cells
     const struct chreWwanCellInfo *cells;
+
+    //! Pointer to an array of cellInfoCount elements containing extended
+    //! information about serving and neighbor cells. If provided, this array
+    //! will contain the same number of elements as the cells field, with each
+    //! element corresponding to the element in the cells field with the same
+    //! index. If no extended information is available, this field will be NULL.
+    //! @since v1.12
+    const struct chreWwanExtCellInfo *extCellInfo;
 };
 
 
