@@ -37,6 +37,7 @@
 
 #include "pw_allocator/unique_ptr.h"
 #include "pw_function/function.h"
+#include "pw_span/span.h"
 
 namespace chre {
 
@@ -557,12 +558,15 @@ class HostProtocolChre : public HostProtocolCommon {
    * @param sinkMetadataRegionId The ID of the sink metadata shared memory
    * region.
    * @param sinkMetadataOffset The offset of the sink metadata in its region.
+   * @param sessionMessage Optional message used to pass this registration over
+   * an existing session.
    */
   static void encodeRegisterDataFlowSink(
       ChreFlatBufferBuilder &builder, const message::DataFlowId &dataFlowId,
       const message::Endpoint &source, const message::Endpoint &sink,
       int32_t primaryRegionId, uint32_t metadataOffset,
-      int32_t sinkMetadataRegionId, uint32_t sinkMetadataOffset);
+      int32_t sinkMetadataRegionId, uint32_t sinkMetadataOffset,
+      const message::Message *sessionMessage);
 
   /**
    * Encodes an UnregisterDataFlowSink message.
@@ -585,8 +589,8 @@ class HostProtocolChre : public HostProtocolCommon {
    */
   static void encodeDataFlowStopped(
       ChreFlatBufferBuilder &builder, const message::DataFlowId &dataFlowId,
-      const std::optional<DynamicVector<message::Endpoint>>
-          &destinationEndpoints = std::nullopt);
+      std::optional<pw::span<const message::Endpoint>> destinationEndpoints =
+          std::nullopt);
 
   /**
    * Encodes a DataFlowAlert message.
@@ -599,7 +603,7 @@ class HostProtocolChre : public HostProtocolCommon {
    */
   static void encodeDataFlowAlert(
       ChreFlatBufferBuilder &builder, const message::DataFlowId &dataFlowId,
-      const DynamicVector<message::Endpoint> &receiverEndpoints, bool waking);
+      pw::span<const message::Endpoint> receiverEndpoints, bool waking);
 };
 
 }  // namespace chre

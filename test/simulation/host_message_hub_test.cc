@@ -80,6 +80,17 @@ class MockHostCallback : public HostMessageHubManager::HostCallback {
   MOCK_METHOD(void, onSessionOpened, (MessageHubId, SessionId), (override));
   MOCK_METHOD(void, onSessionClosed, (MessageHubId, SessionId, Reason),
               (override));
+
+#ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
+  MOCK_METHOD(void, onRegisterDataFlowSink,
+              (message::DataFlowSinkRegistration &&), (override));
+  MOCK_METHOD(void, onUnregisterDataFlowSink,
+              (const message::DataFlowSinkUnregistration &), (override));
+  MOCK_METHOD(void, onDataFlowStopped, (const message::DataFlowStopped &),
+              (override));
+  MOCK_METHOD(void, onDataFlowAlert, (const message::DataFlowAlert &),
+              (override));
+#endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
 };
 
 HostMessageHubManager &getManager() {

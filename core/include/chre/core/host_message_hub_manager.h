@@ -166,6 +166,38 @@ class HostMessageHubManager : public NonCopyable {
     virtual void onSessionClosed(message::MessageHubId hub,
                                  message::SessionId session,
                                  message::Reason reason) = 0;
+
+#ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
+    /**
+     * Notifies the HAL that a data flow sink is being registered.
+     *
+     * @param registration The data flow sink registration information.
+     */
+    virtual void onRegisterDataFlowSink(
+        message::DataFlowSinkRegistration &&registration) = 0;
+
+    /**
+     * Notifies the HAL that a data flow sink is being unregistered.
+     *
+     * @param unregistration The data flow sink unregistration information.
+     */
+    virtual void onUnregisterDataFlowSink(
+        const message::DataFlowSinkUnregistration &unregistration) = 0;
+
+    /**
+     * Notifies the HAL that a data flow has stopped.
+     *
+     * @param stopped The data flow stopped information.
+     */
+    virtual void onDataFlowStopped(const message::DataFlowStopped &stopped) = 0;
+
+    /**
+     * Notifies the HAL of a data flow alert.
+     *
+     * @param alert The data flow alert information.
+     */
+    virtual void onDataFlowAlert(const message::DataFlowAlert &alert) = 0;
+#endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
   };
 
   HostMessageHubManager() = default;
