@@ -67,6 +67,7 @@ struct chreSensorInfo gSensors[] = {
 //! Task to deliver asynchronous sensor data after a CHRE request.
 std::optional<uint32_t> gSensorTaskIds[ARRAY_SIZE(gSensors)];
 std::atomic_bool gIsSensorEnabled[ARRAY_SIZE(gSensors)];
+std::atomic_bool gManualOneShotEventModeEnabled = false;
 
 void stopSensor0Task() {
   if (gSensorTaskIds[0].has_value()) {
@@ -174,9 +175,11 @@ bool chrePalSensorApiConfigureSensor(uint32_t sensorInfoIndex,
     if (mode == CHRE_SENSOR_CONFIGURE_MODE_ONE_SHOT) {
       stopSensor1Task();
       gIsSensorEnabled[1] = true;
-      gSensorTaskIds[1] =
-          TaskManagerSingleton::get()->addTask(sendSensor1Events);
-      return gSensorTaskIds[1].has_value();
+      if (!gManualOneShotEventModeEnabled) {
+        gSensorTaskIds[1] =
+            TaskManagerSingleton::get()->addTask(sendSensor1Events);
+      }
+      return gManualOneShotEventModeEnabled || gSensorTaskIds[1].has_value();
     } else if (mode == CHRE_SENSOR_CONFIGURE_MODE_DONE) {
       stopSensor1Task();
       gIsSensorEnabled[1] = false;
@@ -232,6 +235,14 @@ bool chrePalSensorIsEnabled(uint32_t sensorHandle) {
     return false;
   }
   return gIsSensorEnabled[sensorHandle];
+}
+
+void chrePalSensorSetManualOneShotEventMode(bool enable) {
+  gManualOneShotEventModeEnabled = enable;
+}
+
+void chrePalSensorSendOneShotSignificantMotionDataEvent() {
+  sendSensor1Events();
 }
 
 const chrePalSensorApi *chrePalSensorGetApi(uint32_t requestedApiVersion) {

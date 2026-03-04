@@ -25,4 +25,27 @@
  */
 bool chrePalSensorIsEnabled(uint32_t sensorHandle);
 
+/**
+ * Sets whether one-shot sensor events are triggered manually.
+ *
+ * When manual mode is enabled, the one-shot sensor event is not sent
+ * automatically by the PAL upon request. Instead, it must be triggered
+ * manually via chrePalSensorSendOneShotSignificantMotionDataEvent(). This is
+ * useful for testing scenarios where precise control over event timing is
+ * needed.
+ *
+ * @param enable true to enable manual one-shot event mode, false to disable.
+ */
+void chrePalSensorSetManualOneShotEventMode(bool enable);
+
+/**
+ * Manually sends a one-shot significant motion data event.
+ *
+ * This function is intended to be used for testing when manual one-shot event
+ * mode is enabled.
+ *
+ * @see chrePalSensorSetManualOneShotEventMode
+ */
+void chrePalSensorSendOneShotSignificantMotionDataEvent();
+
 #endif  // CHRE_PLATFORM_LINUX_PAL_SENSOR_H_

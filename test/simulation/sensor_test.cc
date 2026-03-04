@@ -214,6 +214,80 @@ TEST_F(SensorTest, SensorOneShot) {
   EXPECT_FALSE(chrePalSensorIsEnabled(/* sensorHandle= */ 1));
 }
 
+TEST_F(SensorTest, SensorOneShotRequestGoneBeforeEvent) {
+  CREATE_CHRE_TEST_EVENT(CONFIGURE, 0);
+
+  struct Configuration {
+    uint64_t interval;
+    enum chreSensorConfigureMode mode;
+  };
+
+  class App : public TestNanoapp {
+   public:
+    bool start() override {
+      bool success = chreSensorFindDefault(CHRE_SENSOR_TYPE_SIGNIFICANT_MOTION,
+                                           &mSignificantMotionHandle);
+      if (!success) {
+        LOGE("Failed to find significant motion sensor");
+      }
+      return success;
+    }
+
+    void handleEvent(uint32_t, uint16_t eventType,
+                     const void *eventData) override {
+      switch (eventType) {
+        case CHRE_EVENT_TEST_EVENT: {
+          auto event = static_cast<const TestEvent *>(eventData);
+          switch (event->type) {
+            case CONFIGURE: {
+              const auto *config =
+                  static_cast<const Configuration *>(event->data);
+              const bool success = chreSensorConfigure(
+                  mSignificantMotionHandle, config->mode, config->interval, 0);
+              TestEventQueueSingleton::get()->pushEvent(CONFIGURE, success);
+              break;
+            }
+          }
+        }
+      }
+    }
+
+   private:
+    uint32_t mSignificantMotionHandle;
+  };
+
+  uint64_t appId = loadNanoapp(MakeUnique<App>());
+
+  /**
+   * A helper class that enables manual one shot event mode upon construction
+   * and disables it upon destruction.
+   */
+  class ManualOneShotEventModeEnabler {
+   public:
+    ManualOneShotEventModeEnabler() {
+      chrePalSensorSetManualOneShotEventMode(/* enable= */ true);
+    }
+    ~ManualOneShotEventModeEnabler() {
+      chrePalSensorSetManualOneShotEventMode(/* enable= */ false);
+    }
+  };
+  ManualOneShotEventModeEnabler manualOneShotEnabler;
+
+  bool success;
+  Configuration config{.interval = CHRE_SENSOR_INTERVAL_DEFAULT,
+                       .mode = CHRE_SENSOR_CONFIGURE_MODE_ONE_SHOT};
+  sendEventToNanoapp(appId, CONFIGURE, config);
+  waitForEvent(CONFIGURE, &success);
+  EXPECT_TRUE(success);
+
+  unloadNanoapp(appId);
+
+  // Simulate event delivery after nanoapp is unloaded.
+  chrePalSensorSendOneShotSignificantMotionDataEvent();
+
+  // The test will fail with memory sanitizer if the event is not freed.
+}
+
 TEST_F(SensorTest, SensorUnsubscribeToDataEventsOnUnload) {
   CREATE_CHRE_TEST_EVENT(CONFIGURE, 0);
 

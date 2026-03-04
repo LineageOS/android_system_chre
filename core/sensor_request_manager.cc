@@ -770,17 +770,28 @@ void SensorRequestManager::handleOneShotSensorEventSync(uint32_t sensorHandle,
     Sensor &sensor = mSensors[sensorHandle];
     uint16_t eventType =
         getSampleEventTypeForSensorType(sensor.getSensorType());
-    const DynamicVector<SensorRequest> &requests =
-        EventLoopManagerSingleton::get()->getSensorRequestManager().getRequests(
-            sensorHandle);
-    mPendingOneShotSensorEvents.emplace_back(
-        event, static_cast<uint32_t>(requests.size()));
-    for (const auto &req : requests) {
-      EventLoopManagerSingleton::get()->postEventOrDie(
-          eventType, event, sensorOneShotDataEventFree, req.getInstanceId(),
-          sensor.getTargetGroupMask());
+    const DynamicVector<SensorRequest> &requests = getRequests(sensorHandle);
+    if (requests.empty()) {
+      // If there are no requests, the event will not be posted and the free
+      // callback will not be called, so release the event immediately.
+      LOGW("Received one-shot sensor event for sensorHandle %" PRIu32
+           " but no nanoapp is subscribed",
+           sensorHandle);
+      mPlatformSensorManager.releaseSensorDataEvent(event);
+    } else {
+      bool success = mPendingOneShotSensorEvents.emplace_back(
+          event, static_cast<uint32_t>(requests.size()));
+      if (!success) {
+        FATAL_ERROR("Failed to allocate memory for one-shot refcounted event");
+      } else {
+        for (const auto &req : requests) {
+          EventLoopManagerSingleton::get()->postEventOrDie(
+              eventType, event, sensorOneShotDataEventFree, req.getInstanceId(),
+              sensor.getTargetGroupMask());
+        }
+        removeAllRequests(sensorHandle);
+      }
     }
-    removeAllRequests(sensorHandle);
   }
 }
 
