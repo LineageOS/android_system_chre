@@ -82,6 +82,11 @@ extern "C" {
 //! CHRE supports offloading a Bluetooth connection socket for bidirectional
 //! data transfer over a Connection-Oriented Channel (COC).
 #define CHRE_BLE_CAPABILITIES_LE_COC_SOCKET UINT32_C (UINT32_C(1) << 4)
+
+//! CHRE supports bidirectional data transfer over an RFCOMM channel.
+//! Note: Even though this uses BT Classic, it shares the same generic socket
+//! APIs as BLE COC sockets, such as chreBleSocketAccept().
+#define CHRE_BLE_CAPABILITIES_RFCOMM_SOCKET UINT32_C (UINT32_C(1) << 5)
 /** @} */
 
 /**
