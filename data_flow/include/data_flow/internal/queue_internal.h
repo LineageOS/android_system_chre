@@ -197,6 +197,31 @@ struct QueuePrivate {
   pw::containers::future::IntrusiveList<ConsumerNode> consumerList;
 };
 
+/**
+ * RAII wrapper for MemoryAccess.
+ */
+struct ScopedMemoryAccess {
+  MemoryAccess *mMemAccess;
+  uint8_t *mCount;
+
+  /**
+   * Enables access to memory for the lifetime of this instance.
+   *
+   * Supports nested accesses using the provided counter.
+   *
+   * @param memAccess The MemoryAccess to use for memory access.
+   * @param count A reference to the memory access count to manage nested
+   * accesses.
+   */
+  ScopedMemoryAccess(MemoryAccess *memAccess, uint8_t &count);
+
+  /** Similar to above, but does not support nested accesses. */
+  explicit ScopedMemoryAccess(MemoryAccess *memAccess);
+
+  /** Releases access to memory if this is the outermost scoped access. */
+  ~ScopedMemoryAccess();
+};
+
 /** Base class for Producers of any ElementType. */
 class ProducerBase {
  public:
@@ -224,6 +249,7 @@ class ProducerBase {
         mAvailable = other.mAvailable;
         mCurrBlockIndex = other.mCurrBlockIndex;
         mState = other.mState;
+        mMemAccessCnt = other.mMemAccessCnt;
       }
       other.mState = State::kMovedFrom;
     }
@@ -617,6 +643,7 @@ class ProducerBase {
   size_t mAvailable = 0;
   uint32_t mCurrBlockIndex = 0;
   State mState = State::kActive;
+  uint8_t mMemAccessCnt = 0;
 };
 
 /** Base class for Consumers of any ElementType. */
@@ -648,6 +675,7 @@ class ConsumerBase {
         mBlockListEpoch = other.mBlockListEpoch;
         mCurrentFlags = other.mCurrentFlags;
         mActive = true;
+        mMemAccessCnt = other.mMemAccessCnt;
       }
       other.mActive = false;
     }
@@ -670,7 +698,10 @@ class ConsumerBase {
    * - pw::Status::DataLoss(): The Consumer has been overwritten.
    * - pw::Status::Aborted(): The Producer is gone or this instance is empty.
    */
-  pw::Status checkState();
+  pw::Status checkState() {
+    ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
+    return checkStateInternal();
+  }
 
   /**
    * If available, returns a span over the next available contiguous bytes;
@@ -687,6 +718,7 @@ class ConsumerBase {
    * @return pw::OkStatus() on success. See checkState() for error conditions.
    */
   pw::Status release(size_t count) {
+    ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
     PW_TRY(checkState());
     PW_TRY(releaseNoNotify(count));
     maybeNotifyOnRead();
@@ -700,6 +732,7 @@ class ConsumerBase {
    * @return pw::OkStatus() on success. See checkState() for error conditions.
    */
   pw::Status pop(pw::ByteSpan data) {
+    ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
     PW_TRY(checkState());
     PW_TRY(popNoNotify(data));
     maybeNotifyOnRead();
@@ -770,6 +803,9 @@ class ConsumerBase {
    */
   pw::Status initialize(IdOrNotifyFn idOrNotifyFn,
                         std::optional<size_t> overwriteResetOffset);
+
+  /** Implementation of checkState(). */
+  pw::Status checkStateInternal();
 
   /**
    * release() but without notifying the Producer.
@@ -874,6 +910,7 @@ class ConsumerBase {
   uint32_t mBlockListEpoch;
   uint32_t mCurrentFlags = static_cast<uint32_t>(ProducerFlags::kNone);
   bool mActive = true;
+  uint8_t mMemAccessCnt = 0;
 };
 
 // Returns the offset of the object from base.

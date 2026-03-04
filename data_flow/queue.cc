@@ -372,6 +372,28 @@ pw::allocator::Layout getBlockLayout(size_t blockCapacity, size_t elementSize,
 
 }  // namespace
 
+ScopedMemoryAccess::ScopedMemoryAccess(MemoryAccess *memAccess, uint8_t &count)
+    : mMemAccess(memAccess), mCount(&count) {
+  if (mMemAccess && (*mCount)++ == 0) {
+    mMemAccess->acquire();
+  }
+}
+
+ScopedMemoryAccess::ScopedMemoryAccess(MemoryAccess *memAccess)
+    : mMemAccess(memAccess), mCount(nullptr) {
+  if (mMemAccess) {
+    mMemAccess->acquire();
+  }
+}
+
+ScopedMemoryAccess::~ScopedMemoryAccess() {
+  // Release access if either there isn't a count (so no nested access) or if
+  // the count decrements to zero.
+  if (mMemAccess && (!mCount || --(*mCount) == 0)) {
+    mMemAccess->release();
+  }
+}
+
 pw::Status ProducerBase::checkArgs(const AllocatorRegion &region,
                                    size_t maxBlockCount, size_t minBlockCount) {
   if (region.size > UINT32_MAX || !region.allocator ||
@@ -464,6 +486,7 @@ ProducerBase::~ProducerBase() {
   if (mState == State::kMovedFrom) {
     return;
   }
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
   if (mState == State::kActive) {
     stop();
   }
@@ -489,6 +512,7 @@ void ProducerBase::stop() {
   if (mState != State::kActive) {
     return;
   }
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
   mState = State::kStopped;
   ::chre::AtomicUint32Ref(mQueue->queue.sourceMetadataOffsetBytes)
       .store(kOffsetInvalid);
@@ -514,6 +538,7 @@ pw::Status ProducerBase::setMinBlockCountTarget(size_t /*count*/) {
 
 pw::Result<pw::ByteSpan> ProducerBase::reserve(size_t count) {
   PW_TRY(checkActive());
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
   PW_TRY_ASSIGN(uint32_t size, checkAvailable(count, /*allOrNothing=*/true));
   // Return a span over the next available contiguous region.
   auto *begin = blockData(mCurrBlock, kDataOffset) + mCurrBlockIndex;
@@ -540,6 +565,8 @@ pw::Status ProducerBase::truncate(size_t size) {
   } else if (size == mReserved) {
     return pw::OkStatus();
   }
+
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
   mReserved = size;
   // Sync the current block and index back to the write index.
   mCurrBlock = fromOffset<BlockHeader>(mRegion, mDesc->tailBlockOffsetBytes,
@@ -561,6 +588,8 @@ pw::Status ProducerBase::commit(size_t count) {
                  count, mReserved);
     return pw::Status::OutOfRange();
   }
+
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
   mReserved -= count;
   advanceWriteIndex(count, /*data=*/std::nullopt);
   mDataNotifier->onWrite(*this);
@@ -574,6 +603,8 @@ pw::Result<size_t> ProducerBase::push(pw::ConstByteSpan data,
     PW_LOG_ERROR("ProducerBase::push: Active reservation");
     return pw::Status::FailedPrecondition();
   }
+
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
   PW_TRY_ASSIGN(auto count, checkAvailable(data.size(), allOrNothing));
   advanceWriteIndex(count, data);
   mDataNotifier->onWrite(*this);
@@ -584,6 +615,8 @@ size_t ProducerBase::size(bool includeReserved) {
   if (mState != State::kActive) {
     return 0;
   }
+
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
   // Recalculate the available space to capture updates from consumers in shared
   // state.
   updateAvailable();
@@ -752,6 +785,7 @@ pw::Result<uint32_t> ProducerBase::addConsumer(pw::ConstByteSpan id,
                                                const AllocatorRegion &region,
                                                ConsumerPolicy policy) {
   PW_TRY(checkActive());
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
   // Attempt to allocate a ConsumerDesc in the given region.
   auto *desc = region.allocator->New<internal::ConsumerDesc>();
   if (!desc) {
@@ -795,6 +829,7 @@ pw::Result<uint32_t> ProducerBase::addConsumer(pw::ConstByteSpan id,
 
 pw::Status ProducerBase::updateConsumerPolicy(pw::ConstByteSpan id,
                                               ConsumerPolicy policy) {
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
   PW_TRY(checkPolicy(policy));
   for (auto node = mQueue->consumerList.begin();
        node != mQueue->consumerList.end();) {
@@ -817,6 +852,8 @@ pw::Status ProducerBase::pruneConsumers(
     PW_LOG_ERROR("ProducerBase::pruneConsumers: Moved-from instance");
     return pw::Status::FailedPrecondition();
   }
+
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
   for (auto node = mQueue->consumerList.begin();
        node != mQueue->consumerList.end();) {
     if (match(node->id)) {
@@ -837,6 +874,8 @@ size_t ProducerBase::getNumConsumers() {
     PW_LOG_ERROR("ProducerBase::getNumConsumers: Moved-from instance");
     return 0;
   }
+
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
   size_t count = 0;
   // Rather than just returning mQueue->consumerList.size(), iterate over all
   // consumers so that consumers that have set ConsumerFlags::kFinished are
@@ -966,13 +1005,14 @@ pw::Status ConsumerBase::initialize(
     PW_TRY(handleOverwrite());
   }
   clearFlags();
-  return checkState();
+  return checkStateInternal();
 }
 
 ConsumerBase::~ConsumerBase() {
   if (!mActive) {
     return;
   }
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
   disableAndNotify();
 }
 
@@ -980,7 +1020,7 @@ void ConsumerBase::disable() {
   mActive = false;
 }
 
-pw::Status ConsumerBase::checkState() {
+pw::Status ConsumerBase::checkStateInternal() {
   if (!mActive) {
     PW_LOG_ERROR("ConsumerBase::checkState: instance is disabled");
     return pw::Status::FailedPrecondition();
@@ -1026,7 +1066,8 @@ pw::Status ConsumerBase::checkState() {
 }
 
 pw::Result<pw::ConstByteSpan> ConsumerBase::peek(size_t count) {
-  PW_TRY(checkState());
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
+  PW_TRY(checkStateInternal());
   PW_TRY(checkAvailable(count));
   if (!mPeeked) {
     mCurrBlock = mHeadBlock;
@@ -1046,7 +1087,7 @@ pw::Result<pw::ConstByteSpan> ConsumerBase::peek(size_t count) {
         kBlockLayout);
     mCurrBlockIndex = ::chre::AtomicUint32Ref(mCurrBlock->baseIndex).load();
   }
-  PW_TRY(checkState());
+  PW_TRY(checkStateInternal());
   return pw::ConstByteSpan(data, count);
 }
 
@@ -1081,7 +1122,8 @@ pw::Status ConsumerBase::popNoNotify(pw::ByteSpan data) {
 }
 
 pw::Status ConsumerBase::resync(size_t offset) {
-  PW_TRY(checkState());
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
+  PW_TRY(checkStateInternal());
   PW_TRY(updateAvailable());
   mPeeked = 0;  // Reset the current block/index to the new head.
   if (offset > mAvailable) {
@@ -1098,18 +1140,20 @@ pw::Status ConsumerBase::resync(size_t offset) {
 }
 
 pw::Result<size_t> ConsumerBase::size() {
-  PW_TRY(checkState());
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
+  PW_TRY(checkStateInternal());
   PW_TRY(updateAvailable());
   return mAvailable;
 }
 
 pw::Result<bool> ConsumerBase::isOverwritable() {
-  PW_TRY(checkState());
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
+  PW_TRY(checkStateInternal());
   return mDesc->isOverwritable;
 }
 
 pw::Status ConsumerBase::checkAvailable(size_t count) {
-  PW_TRY(checkState());
+  PW_TRY(checkStateInternal());
   if (count > capacity()) {
     // If the epoch has changed, check against the updated capacity.
     mBlockListEpoch = ::chre::AtomicUint32Ref(mQueue->blockListEpoch).load();
@@ -1343,6 +1387,7 @@ pw::Result<VariableDataProducer> VariableDataProducer::createLocal(
     AllocatorRegion region, size_t blockCapacity, size_t maxBlockCount,
     size_t minBlockCount, DataNotifier &dataNotifier,
     LocalNotifyArgs notifyArgs, MemoryAccess *memAccess) {
+  ScopedMemoryAccess memAccessScope(memAccess);
   if (!notifyArgs.fn) {
     PW_LOG_ERROR(
         "VariableDataProducer::createLocal: Invalid notifyArgs or queue");
@@ -1363,6 +1408,7 @@ pw::Result<VariableDataProducer> VariableDataProducer::createRemote(
     AllocatorRegion region, size_t blockCapacity, size_t maxBlockCount,
     size_t minBlockCount, DataNotifier &dataNotifier,
     RemoteNotifyArgs notifyArgs, MemoryAccess *memAccess) {
+  ScopedMemoryAccess memAccessScope(memAccess);
   if (!notifyArgs.fn) {
     PW_LOG_ERROR(
         "VariableDataProducer::createRemote: Invalid notifyArgs or queue");
@@ -1391,6 +1437,7 @@ VariableDataProducer::VariableDataProducer(
                    std::move(remoteNotifyFn), memAccess) {}
 
 pw::Result<pw::ByteSpan> VariableDataProducer::reserve(size_t count) {
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
   if (mCurrentHdrPtr) {
     PW_TRY_ASSIGN(auto reservation, Base::reserve(count));
     mCurrentHdrPtr->sizeBytes += count;
@@ -1412,6 +1459,7 @@ pw::Result<pw::ByteSpan> VariableDataProducer::reserve(size_t count) {
 }
 
 pw::Status VariableDataProducer::truncate(size_t size) {
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
   PW_TRY(Base::truncate(size + sizeof(internal::VariableElementHeader)));
   // Store the new size. The memory address of the element size has not changed.
   mCurrentHdrPtr->sizeBytes = size;
@@ -1424,6 +1472,8 @@ pw::Status VariableDataProducer::commit() {
     return pw::Status::FailedPrecondition();
   }
   mCurrentHdrPtr = nullptr;
+
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
   updateFirstElementIndex();  // Enable consumers to seek to an element.
   // Commit the entire reservation. Notifies consumers as required. Round up the
   // reservation size to the header alignment. This should always be possible as
@@ -1441,6 +1491,8 @@ pw::Status VariableDataProducer::push(pw::ConstByteSpan element) {
         "VariableDataProducer::push: Can't push with active reservation");
     return pw::Status::FailedPrecondition();
   }
+
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
   // Calculate the total size of the element and header, rounding up to align
   // the next header.
   const auto kTotalSize = internal::alignTo(
@@ -1489,6 +1541,7 @@ pw::Result<VariableDataConsumer> VariableDataConsumer::createLocal(
     PW_LOG_ERROR("Received null notify function");
     return pw::Status::InvalidArgument();
   }
+  ScopedMemoryAccess memAccessScope(memAccess);
   PW_TRY_ASSIGN(auto queueAndDesc, checkArgs(region, /*descRegion=*/nullptr,
                                              queueOffset, descOffset));
   if (queueAndDesc.first->elementConfig.getTag() ==
@@ -1518,6 +1571,7 @@ pw::Result<VariableDataConsumer> VariableDataConsumer::createRemote(
     PW_LOG_ERROR("Received null notify function");
     return pw::Status::InvalidArgument();
   }
+  ScopedMemoryAccess memAccessScope(memAccess);
   auto *descRegionPtr = descRegion ? &*descRegion : nullptr;
   PW_TRY_ASSIGN(auto queueAndDesc,
                 checkArgs(region, descRegionPtr, queueOffset, descOffset));
@@ -1550,6 +1604,7 @@ VariableDataConsumer::VariableDataConsumer(const Region &region,
                    std::move(remoteNotifyFn), memAccess) {}
 
 pw::Result<size_t> VariableDataConsumer::getHeadSize() {
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
   if (mCurrentHdr) {
     return mCurrentHdr->sizeBytes;
   }
@@ -1560,6 +1615,7 @@ pw::Result<size_t> VariableDataConsumer::getHeadSize() {
 }
 
 pw::Result<pw::ConstByteSpan> VariableDataConsumer::peek() {
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
   if (!mCurrentHdr) {
     PW_TRY(getHeadSize());
   }
@@ -1581,6 +1637,7 @@ pw::Status VariableDataConsumer::releaseNoNotify() {
 }
 
 pw::Status VariableDataConsumer::pop(pw::ByteSpan &buffer) {
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
   if (!mCurrentHdr) {
     PW_TRY(getHeadSize());
   }
@@ -1597,8 +1654,9 @@ pw::Status VariableDataConsumer::pop(pw::ByteSpan &buffer) {
 }
 
 pw::Status VariableDataConsumer::resync(size_t offset) {
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
   mCurrentHdr.reset();
-  PW_TRY(checkState());
+  PW_TRY(checkStateInternal());
   PW_TRY(updateAvailable());
   mCurrentHdr.reset();
   if (offset > mAvailable) {
@@ -1656,6 +1714,7 @@ pw::Result<UntypedProducer> UntypedProducer::createLocal(
         "metadata");
     return pw::Status::InvalidArgument();
   }
+  ScopedMemoryAccess memAccessScope(memAccess);
   PW_TRY_ASSIGN(
       internal::QueuePrivate * queuePtr,
       ProducerBase::initQueue(region, blockCapacity * elementSize, elementSize,
@@ -1679,6 +1738,7 @@ pw::Result<UntypedProducer> UntypedProducer::createRemote(
         "metadata");
     return pw::Status::InvalidArgument();
   }
+  ScopedMemoryAccess memAccessScope(memAccess);
   PW_TRY_ASSIGN(
       internal::QueuePrivate * queuePtr,
       ProducerBase::initQueue(region, blockCapacity * elementSize, elementSize,
@@ -1714,6 +1774,7 @@ pw::Result<UntypedConsumer> UntypedConsumer::createLocal(
     PW_LOG_ERROR("UntypedConsumer::createLocal: Received null notify function");
     return pw::Status::InvalidArgument();
   }
+  ScopedMemoryAccess memAccessScope(memAccess);
   PW_TRY_ASSIGN(auto queueAndDesc, checkArgs(region, /*descRegion=*/nullptr,
                                              queueOffset, descOffset));
   if (queueAndDesc.first->elementConfig.getTag() !=
@@ -1739,6 +1800,7 @@ pw::Result<UntypedConsumer> UntypedConsumer::createRemote(
         "UntypedConsumer::createRemote: Received null notify function");
     return pw::Status::InvalidArgument();
   }
+  ScopedMemoryAccess memAccessScope(memAccess);
   auto *descRegionPtr = descRegion ? &*descRegion : nullptr;
   PW_TRY_ASSIGN(auto queueAndDesc,
                 checkArgs(region, descRegionPtr, queueOffset, descOffset));
