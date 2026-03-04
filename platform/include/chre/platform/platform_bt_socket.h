@@ -50,12 +50,22 @@ class PlatformBtSocket : public PlatformBtSocketBase {
                    PlatformBtSocketResources &platformBtSocketResources)
       : PlatformBtSocketBase(socketData, platformBtSocketResources) {}
 
+#ifdef CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
+  PlatformBtSocket(const BtRfcommChannelSocketData &socketData,
+                   PlatformBtSocketResources &platformBtSocketResources)
+      : PlatformBtSocketBase(socketData, platformBtSocketResources) {}
+#endif  // CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
+
   ~PlatformBtSocket();
 
   // Delete the copy constructor
   PlatformBtSocket(const PlatformBtSocket &) = delete;
   // Disable copy assignment constructor
   PlatformBtSocket &operator=(const PlatformBtSocket &other) = delete;
+
+  SocketType getSocketType() {
+    return mSocketType;
+  }
 
   void setSocketAccepted(bool accepted) {
     mSocketAccepted = accepted;

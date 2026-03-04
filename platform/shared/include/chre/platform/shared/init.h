@@ -18,6 +18,7 @@
 
 #ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
 #include "pw_bluetooth_proxy/proxy_host.h"
+#include "pw_bluetooth_proxy/rfcomm/rfcomm_manager.h"
 #endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
 
 #include "chre/core/event_loop.h"
@@ -57,8 +58,11 @@ void deinitCommon();
  * supported.
  *
  * @param proxyHost BT ProxyHost used by the BleSocketManager
+ * @param rfcommProxyHost BT Rfcomm ProxyHost used by the BleSocketManager
  */
-void initBleSocketManager(pw::bluetooth::proxy::ProxyHost &proxyHost);
+void initBleSocketManager(
+    pw::bluetooth::proxy::ProxyHost &proxyHost,
+    pw::bluetooth::proxy::rfcomm::RfcommManager &rfcommProxyHost);
 #endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
 
 }  // namespace chre

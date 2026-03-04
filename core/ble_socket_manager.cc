@@ -39,24 +39,77 @@ struct socketPacketData {
   chreBleSocketPacketFreeFunction *freeCallback;
 };
 
-}  // namespace
+/**
+ * Handles a socket open request from the host. This function is a core
+ * implementation shared by the L2CAP and RFCOMM socket open handlers. It
+ * performs the following tasks:
+ * 1. Checks if the socket is valid and initialized.
+ * 2. Checks if the nanoapp that opened the socket is loaded.
+ * 3. Distributes the CHRE_EVENT_BLE_SOCKET_CONNECTION event to the nanoapp.
+ * 4. If the nanoapp does not accept the socket, returns false to deallocate the
+ *    socket.
+ * 5. Sends the BT socket open response to the host.
+ *
+ * @param btSocket The platform socket to use for the connection.
+ * @param endpointId The endpoint ID of the nanoapp that opened the socket.
+ * @param socketId The ID of the socket.
+ * @param txMtu The MTU of the socket.
+ * @param rxMtu The MTU of the socket.
+ * @return false if the socket should be deallocated, true otherwise.
+ */
+bool handleSocketOpenedByHostSyncCore(PlatformBtSocket *btSocket,
+                                      uint64_t endpointId, uint64_t socketId,
+                                      uint16_t txMtu, uint16_t rxMtu) {
+  const char *errorReason = nullptr;
+  uint16_t targetInstanceId;
 
-void BleSocketManager::handleSocketCapabilitiesRequestByHost() {
+  if (btSocket == nullptr) {
+    errorReason = "no available sockets";
+  } else if (!btSocket->isInitialized()) {
+    errorReason = "failed to initialize socket";
+  } else if (!EventLoopManagerSingleton::get()
+                  ->getEventLoop()
+                  .findNanoappInstanceIdByAppId(endpointId,
+                                                &targetInstanceId)) {
+    errorReason = "failed to find nanoapp";
+  } else {
+    btSocket->setNanoappInstanceId(targetInstanceId);
+    btSocket->setNanoappAppId(endpointId);
+    // TODO(b/425747779): Populate BT socket name
+    chreBleSocketConnectionEvent event = {.socketId = socketId,
+                                          .socketName = nullptr,
+                                          .maxTxPacketLength = txMtu,
+                                          .maxRxPacketLength = rxMtu};
+    EventLoopManagerSingleton::get()->getEventLoop().distributeEventSync(
+        CHRE_EVENT_BLE_SOCKET_CONNECTION, &event, targetInstanceId);
+    if (!btSocket->getSocketAccepted()) {
+      errorReason = "nanoapp did not accept socket";
+    }
+  }
+
+  bool success = (errorReason == nullptr);
+  const char *reason = success ? "success" : errorReason;
+  if (!success) {
+    LOGE("Failed to open BT socketId=%" PRIu64 " for endpointId=%" PRIx64
+         ": %s",
+         socketId, endpointId, errorReason);
+  }
   EventLoopManagerSingleton::get()
       ->getHostCommsManager()
-      .sendBtSocketGetCapabilitiesResponse(
-          /*leCocNumberOfSupportedSockets=*/kMaxNumSockets,
-          /*leCocMtu=*/mPlatformBtSocketResources.getLeCocMtu(),
-          /*rfcommNumberOfSupportedSockets=*/0,
-          /*rfcommMaxFrameSize=*/0);
+      .sendBtSocketOpenResponse(socketId, success, reason);
+
+  return success;
 }
 
+}  // namespace
+
+template <typename SocketDataType>
 void BleSocketManager::handleSocketOpenedByHost(
-    const BleL2capCocSocketData &socketData) {
+    const SocketDataType &socketData) {
   LOGI("handleSocketOpenedByHost request for endpointId: %" PRIx64
        " socketId: %" PRIu64,
        socketData.endpointId, socketData.socketId);
-  auto cbData = MakeUnique<BleL2capCocSocketData>(socketData);
+  auto cbData = MakeUnique<SocketDataType>(socketData);
   if (cbData.isNull()) {
     LOG_OOM();
     EventLoopManagerSingleton::get()
@@ -67,7 +120,7 @@ void BleSocketManager::handleSocketOpenedByHost(
   }
   EventLoopManagerSingleton::get()->deferCallback(
       SystemCallbackType::BleSocketConnected, std::move(cbData),
-      [](SystemCallbackType, UniquePtr<BleL2capCocSocketData> &&data)
+      [](SystemCallbackType, UniquePtr<SocketDataType> &&data)
           CHRE_REQUIRES(getMultiThreadingApiMutex()) {
             EventLoopManagerSingleton::get()
                 ->getBleSocketManager()
@@ -75,53 +128,50 @@ void BleSocketManager::handleSocketOpenedByHost(
           });
 }
 
-void BleSocketManager::handleSocketOpenedByHostSync(
-    const BleL2capCocSocketData &socketData) {
-  const char *errorReason = nullptr;
-  uint16_t targetInstanceId;
+void BleSocketManager::handleSocketCapabilitiesRequestByHost() {
+  EventLoopManagerSingleton::get()
+      ->getHostCommsManager()
+      .sendBtSocketGetCapabilitiesResponse(
+          /*leCocNumberOfSupportedSockets=*/kMaxNumLeCocSockets,
+          /*leCocMtu=*/mPlatformBtSocketResources.getLeCocMtu(),
+          /*rfcommNumberOfSupportedSockets=*/kMaxNumRfcommSockets,
+          /*rfcommMaxFrameSize=*/
+          mPlatformBtSocketResources.getRfcommMaxFrameSize());
+}
 
+template <typename SocketDataType>
+void BleSocketManager::handleSocketOpenedByHostSync(
+    const SocketDataType &socketData) {
   PlatformBtSocket *btSocket =
       mBtSockets.allocate(socketData, mPlatformBtSocketResources);
-
-  if (btSocket == nullptr) {
-    errorReason = "no available sockets";
-  } else if (!btSocket->isInitialized()) {
-    errorReason = "failed to initialize socket";
-  } else if (!EventLoopManagerSingleton::get()
-                  ->getEventLoop()
-                  .findNanoappInstanceIdByAppId(socketData.endpointId,
-                                                &targetInstanceId)) {
-    errorReason = "failed to find nanoapp";
-  } else {
-    btSocket->setNanoappInstanceId(targetInstanceId);
-    btSocket->setNanoappAppId(socketData.endpointId);
-    // TODO(b/425747779): Populate BT socket name
-    chreBleSocketConnectionEvent event = {
-        .socketId = socketData.socketId,
-        .socketName = nullptr,
-        .maxTxPacketLength = socketData.txConfig.mtu,
-        .maxRxPacketLength = socketData.rxConfig.mtu};
-    EventLoopManagerSingleton::get()->getEventLoop().distributeEventSync(
-        CHRE_EVENT_BLE_SOCKET_CONNECTION, &event, targetInstanceId);
-    if (!btSocket->getSocketAccepted()) {
-      errorReason = "nanoapp did not accept socket";
-    }
-  }
-
-  if (errorReason != nullptr) {
-    LOGE("Failed to open BT socketId=%" PRIu64 " for endpointId=%" PRIx64
-         ": %s",
-         socketData.socketId, socketData.endpointId, errorReason);
+  if (!handleSocketOpenedByHostSyncCore(
+          btSocket, socketData.endpointId, socketData.socketId,
+          socketData.txConfig.mtu, socketData.rxConfig.mtu)) {
     if (btSocket != nullptr) {
       mBtSockets.deallocate(btSocket);
     }
   }
-  bool success = (errorReason == nullptr);
-  const char *reason = success ? "success" : errorReason;
-  EventLoopManagerSingleton::get()
-      ->getHostCommsManager()
-      .sendBtSocketOpenResponse(socketData.socketId, success, reason);
 }
+
+template void BleSocketManager::handleSocketOpenedByHost(
+    const BleL2capCocSocketData &socketData);
+template void BleSocketManager::handleSocketOpenedByHostSync(
+    const BleL2capCocSocketData &socketData);
+
+#ifdef CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
+template void BleSocketManager::handleSocketOpenedByHost(
+    const BtRfcommChannelSocketData &socketData);
+template void BleSocketManager::handleSocketOpenedByHostSync(
+    const BtRfcommChannelSocketData &socketData);
+#else
+template <>
+void BleSocketManager::handleSocketOpenedByHost(
+    const BtRfcommChannelSocketData & /*socketData*/) {}
+template <>
+void BleSocketManager::handleSocketOpenedByHostSync(
+    const BtRfcommChannelSocketData & /*socketData*/) {}
+#endif  // CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
+
 int32_t BleSocketManager::sendBleSocketPacket(
     uint64_t appId, uint64_t socketId, const void *data, uint16_t length,
     chreBleSocketPacketFreeFunction *freeCallback) {

@@ -35,6 +35,7 @@
 #include "test_util.h"
 
 #include "pw_bluetooth_proxy/proxy_host.h"
+#include "pw_bluetooth_proxy/rfcomm/rfcomm_manager.h"
 
 namespace chre {
 
@@ -160,6 +161,7 @@ class TestBase : public testing::Test {
   message::MessageRouter::MessageHub mChreMessageHub;
   MockBtOffload mMockBtOffload;
   std::optional<pw::bluetooth::proxy::ProxyHost> mProxyHost;
+  std::optional<pw::bluetooth::proxy::rfcomm::RfcommManager> mRfcommProxyHost;
 };
 
 /*

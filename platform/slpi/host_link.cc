@@ -934,6 +934,12 @@ void HostMessageHandlers::handleBtSocketOpen(
   LOGE("BT Socket offload not supported");
 }
 
+void HostMessageHandlers::handleBtSocketOpen(
+    uint64_t /* hubId */, const BtRfcommChannelSocketData & /* socketData */,
+    const char * /* name */, uint32_t /* psm */) {
+  LOGE("BT Socket offload not supported");
+}
+
 void HostMessageHandlers::handleBtSocketCapabilitiesRequest() {
   LOGE("BT Socket offload not supported");
 }

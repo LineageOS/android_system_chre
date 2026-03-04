@@ -47,6 +47,79 @@ using message::ServiceInfo;
 using message::Session;
 using message::SessionId;
 
+
+namespace {
+
+void populateLeCocChannelInfo(const fbs::BtSocketOpen *btSocketOpen) {
+  const auto *leCocChannelInfo =
+      static_cast<const fbs::LeCocChannelInfo *>(btSocketOpen->channelInfo());
+  const char *name = getStringFromByteVector(btSocketOpen->name());
+  HostMessageHandlers::handleBtSocketOpen(
+      static_cast<uint64_t>(btSocketOpen->hubId()),
+      BleL2capCocSocketData{
+          .socketId = static_cast<uint64_t>(btSocketOpen->socketId()),
+          .endpointId = static_cast<uint64_t>(btSocketOpen->endpointId()),
+          .connectionHandle =
+              static_cast<uint16_t>(btSocketOpen->aclConnectionHandle()),
+          .rxConfig =
+              L2capCocConfig{
+                  .cid = static_cast<uint16_t>(leCocChannelInfo->localCid()),
+                  .mtu = static_cast<uint16_t>(leCocChannelInfo->localMtu()),
+                  .mps = static_cast<uint16_t>(leCocChannelInfo->localMps()),
+                  .credits = static_cast<uint16_t>(
+                      leCocChannelInfo->initialRxCredits())},
+          .txConfig =
+              L2capCocConfig{
+                  .cid = static_cast<uint16_t>(leCocChannelInfo->remoteCid()),
+                  .mtu = static_cast<uint16_t>(leCocChannelInfo->remoteMtu()),
+                  .mps = static_cast<uint16_t>(leCocChannelInfo->remoteMps()),
+                  .credits = static_cast<uint16_t>(
+                      leCocChannelInfo->initialTxCredits())},
+      },
+      name, static_cast<uint32_t>(leCocChannelInfo->psm()));
+}
+
+void populateRfcommChannelInfo(const fbs::BtSocketOpen *btSocketOpen) {
+  const auto *rfcommChannelInfo =
+      static_cast<const fbs::RfcommChannelInfo *>(btSocketOpen->channelInfo());
+  const char *name = getStringFromByteVector(btSocketOpen->name());
+  HostMessageHandlers::handleBtSocketOpen(
+      static_cast<uint64_t>(btSocketOpen->hubId()),
+      BtRfcommChannelSocketData{
+          .socketId = static_cast<uint64_t>(btSocketOpen->socketId()),
+          .endpointId = static_cast<uint64_t>(btSocketOpen->endpointId()),
+          .connectionHandle =
+              static_cast<uint16_t>(btSocketOpen->aclConnectionHandle()),
+          .dlci = static_cast<uint8_t>(rfcommChannelInfo->dlci()),
+          .muxInitiator =
+              static_cast<uint8_t>(rfcommChannelInfo->muxInitiator()),
+          .rxConfig =
+              RfcommChannelConfig{
+                  .cid = static_cast<uint16_t>(rfcommChannelInfo->localCid()),
+                  .mtu = static_cast<uint16_t>(rfcommChannelInfo->localMtu()),
+                  .maxFrameSize =
+                      static_cast<uint16_t>(rfcommChannelInfo->maxFrameSize()),
+                  .credits = static_cast<uint8_t>(
+                      rfcommChannelInfo->initialRxCredits())},
+          .txConfig =
+              RfcommChannelConfig{
+                  .cid = static_cast<uint16_t>(rfcommChannelInfo->remoteCid()),
+                  .mtu = static_cast<uint16_t>(rfcommChannelInfo->remoteMtu()),
+                  .maxFrameSize =
+                      static_cast<uint16_t>(rfcommChannelInfo->maxFrameSize()),
+                  .credits = static_cast<uint8_t>(
+                      rfcommChannelInfo->initialTxCredits())},
+      },
+      name, 0 /* psm */);
+}
+
+#ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
+HostMessageHubManager &getHostHubManager() {
+  return EventLoopManagerSingleton::get()->getHostMessageHubManager();
+}
+#endif  // CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
+}  // namespace
+
 // This is similar to getStringFromByteVector in host_protocol_host.h. Ensure
 // that method's implementation is kept in sync with this.
 const char *getStringFromByteVector(const flatbuffers::Vector<int8_t> *vec) {
@@ -61,14 +134,6 @@ const char *getStringFromByteVector(const flatbuffers::Vector<int8_t> *vec) {
 
   return str;
 }
-
-#ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
-namespace {
-HostMessageHubManager &getHostHubManager() {
-  return EventLoopManagerSingleton::get()->getHostMessageHubManager();
-}
-}  // namespace
-#endif  // CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
 
 bool HostProtocolChre::decodeMessageFromHost(const void *message,
                                              size_t messageLen) {
@@ -229,44 +294,17 @@ bool HostProtocolChre::decodeMessageFromHost(const void *message,
       case fbs::ChreMessage::BtSocketOpen: {
         const auto *btSocketOpen =
             static_cast<const fbs::BtSocketOpen *>(container->message());
-        if (btSocketOpen->channelInfo_type() !=
+        if (btSocketOpen->channelInfo_type() ==
             fbs::ChannelInfo::LeCocChannelInfo) {
-          LOGW("Unexpected BT Socket Open Channel Info Type %" PRIu8,
-               static_cast<uint8_t>(btSocketOpen->channelInfo_type()));
-        } else {
-          const auto *leCocChannelInfo =
-              static_cast<const fbs::LeCocChannelInfo *>(
-                  btSocketOpen->channelInfo());
-          const char *name = getStringFromByteVector(btSocketOpen->name());
-          HostMessageHandlers::handleBtSocketOpen(
-              static_cast<uint64_t>(btSocketOpen->hubId()),
-              BleL2capCocSocketData{
-                  .socketId = static_cast<uint64_t>(btSocketOpen->socketId()),
-                  .endpointId =
-                      static_cast<uint64_t>(btSocketOpen->endpointId()),
-                  .connectionHandle = static_cast<uint16_t>(
-                      btSocketOpen->aclConnectionHandle()),
-                  .rxConfig =
-                      L2capCocConfig{.cid = static_cast<uint16_t>(
-                                         leCocChannelInfo->localCid()),
-                                     .mtu = static_cast<uint16_t>(
-                                         leCocChannelInfo->localMtu()),
-                                     .mps = static_cast<uint16_t>(
-                                         leCocChannelInfo->localMps()),
-                                     .credits = static_cast<uint16_t>(
-                                         leCocChannelInfo->initialRxCredits())},
-                  .txConfig =
-                      L2capCocConfig{.cid = static_cast<uint16_t>(
-                                         leCocChannelInfo->remoteCid()),
-                                     .mtu = static_cast<uint16_t>(
-                                         leCocChannelInfo->remoteMtu()),
-                                     .mps = static_cast<uint16_t>(
-                                         leCocChannelInfo->remoteMps()),
-                                     .credits = static_cast<uint16_t>(
-                                         leCocChannelInfo->initialTxCredits())},
-              },
-              name, static_cast<uint32_t>(leCocChannelInfo->psm()));
+          populateLeCocChannelInfo(btSocketOpen);
           success = true;
+        } else if (btSocketOpen->channelInfo_type() ==
+                   fbs::ChannelInfo::RfcommChannelInfo) {
+          populateRfcommChannelInfo(btSocketOpen);
+          success = true;
+        } else {
+          LOGW("Unsupported BT Socket Open Channel Info Type %" PRIu8,
+               static_cast<uint8_t>(btSocketOpen->channelInfo_type()));
         }
         break;
       }
