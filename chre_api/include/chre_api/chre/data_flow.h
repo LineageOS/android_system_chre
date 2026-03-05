@@ -524,6 +524,7 @@ uint32_t chreDataFlowCreateAsync(uint32_t sinkDomains,
  * @param dataFlowId The ID of the data flow to destroy.
  * @return One of chreStatus:
  *  - CHRE_STATUS_OK if the data flow was successfully destroyed.
+ *  - CHRE_STATUS_NOT_FOUND if the data flow does not exist.
  *  - CHRE_STATUS_PERMISSION_DENIED if the data flow is not owned by this
  *    nanoapp.
  *
