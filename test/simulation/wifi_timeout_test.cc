@@ -146,6 +146,8 @@ TEST_F(WifiTimeoutTest, WifiCanDispatchQueuedRequestAfterOneTimeout) {
   // But we want it initialized each time the test is executed.
   static uint8_t receivedTimeout;
   receivedTimeout = 0;
+  constexpr uint32_t timeOutCookie = 0xdead;
+  constexpr uint32_t successCookie = 0x0101;
 
   class ScanTestNanoapp : public TestNanoapp {
    public:
@@ -154,9 +156,7 @@ TEST_F(WifiTimeoutTest, WifiCanDispatchQueuedRequestAfterOneTimeout) {
               .id = id, .perms = NanoappPermissions::CHRE_PERMS_WIFI}) {}
 
     bool start() override {
-      for (uint8_t i = 0; i < kNanoappNum; ++i) {
-        mRequestTimers[i] = CHRE_TIMER_INVALID;
-      }
+      mRequestTimer = CHRE_TIMER_INVALID;
       return true;
     }
 
@@ -166,9 +166,9 @@ TEST_F(WifiTimeoutTest, WifiCanDispatchQueuedRequestAfterOneTimeout) {
       switch (eventType) {
         case CHRE_EVENT_WIFI_ASYNC_RESULT: {
           auto *event = static_cast<const chreAsyncResult *>(eventData);
-          if (mRequestTimers[index] != CHRE_TIMER_INVALID) {
-            chreTimerCancel(mRequestTimers[index]);
-            mRequestTimers[index] = CHRE_TIMER_INVALID;
+          if (mRequestTimer != CHRE_TIMER_INVALID) {
+            chreTimerCancel(mRequestTimer);
+            mRequestTimer = CHRE_TIMER_INVALID;
           }
           if (event->success) {
             TestEventQueueSingleton::get()->pushEvent(
@@ -185,9 +185,9 @@ TEST_F(WifiTimeoutTest, WifiCanDispatchQueuedRequestAfterOneTimeout) {
         }
 
         case CHRE_EVENT_TIMER: {
-          if (eventData == &mCookie[index]) {
+          if (eventData == &mCookie) {
             receivedTimeout++;
-            mRequestTimers[index] = CHRE_TIMER_INVALID;
+            mRequestTimer = CHRE_TIMER_INVALID;
           }
           if (receivedTimeout == 2) {
             TestEventQueueSingleton::get()->pushEvent(REQUEST_TIMED_OUT);
@@ -200,12 +200,20 @@ TEST_F(WifiTimeoutTest, WifiCanDispatchQueuedRequestAfterOneTimeout) {
           switch (event->type) {
             case SCAN_REQUEST:
               bool success = false;
-              mCookie[index] = *static_cast<uint32_t *>(event->data);
-              if (chreWifiRequestScanAsyncDefault(&mCookie[index])) {
-                mRequestTimers[index] =
-                    chreTimerSet(CHRE_TEST_WIFI_SCAN_RESULT_TIMEOUT_NS,
-                                 &mCookie[index], true /* oneShot */);
-                success = mRequestTimers[index] != CHRE_TIMER_INVALID;
+              mCookie = *static_cast<uint32_t *>(event->data);
+              if (chreWifiRequestScanAsyncDefault(&mCookie)) {
+                // Stagger timeouts by index (e.g., 1x for App 1, 2x for App 2)
+                // to simulate CHRE’s sequential queuing. Since CHRE only starts
+                // the timer for App 2 after App 1 expires, this manual delay
+                // mimics that behavior without requiring production code
+                // changes to CHRE’s internal timeout events.
+                uint64_t timeout =
+                    (mCookie == successCookie)
+                        ? CHRE_TEST_WIFI_SCAN_RESULT_TIMEOUT_NS
+                        : (index + 1) * CHRE_TEST_WIFI_SCAN_RESULT_TIMEOUT_NS;
+                mRequestTimer =
+                    chreTimerSet(timeout, &mCookie, true /* oneShot */);
+                success = mRequestTimer != CHRE_TIMER_INVALID;
               }
               TestEventQueueSingleton::get()->pushEvent(SCAN_REQUEST, success);
               break;
@@ -216,8 +224,8 @@ TEST_F(WifiTimeoutTest, WifiCanDispatchQueuedRequestAfterOneTimeout) {
     }
 
    protected:
-    uint32_t mCookie[kNanoappNum];
-    uint32_t mRequestTimers[kNanoappNum];
+    uint32_t mCookie;
+    uint32_t mRequestTimer;
   };
   constexpr uint64_t kAppOneId = makeExampleNanoappId(1);
   constexpr uint64_t kAppTwoId = makeExampleNanoappId(2);
@@ -225,7 +233,6 @@ TEST_F(WifiTimeoutTest, WifiCanDispatchQueuedRequestAfterOneTimeout) {
   uint64_t firstAppId = loadNanoapp(MakeUnique<ScanTestNanoapp>(kAppOneId));
   uint64_t secondAppId = loadNanoapp(MakeUnique<ScanTestNanoapp>(kAppTwoId));
 
-  constexpr uint32_t timeOutCookie = 0xdead;
   chrePalWifiEnableResponse(PalWifiAsyncRequestTypes::SCAN,
                             false /* enableResponse */);
   bool success;
@@ -240,7 +247,6 @@ TEST_F(WifiTimeoutTest, WifiCanDispatchQueuedRequestAfterOneTimeout) {
 
   // Make sure that we can still request scan for both nanoapps after a timed
   // out request.
-  constexpr uint32_t successCookie = 0x0101;
   chrePalWifiEnableResponse(PalWifiAsyncRequestTypes::SCAN,
                             true /* enableResponse */);
   sendEventToNanoapp(firstAppId, SCAN_REQUEST, successCookie);
