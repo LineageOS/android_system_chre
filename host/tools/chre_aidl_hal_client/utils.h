@@ -55,6 +55,14 @@ bool isValidHexNumber(const std::string &number);
  * @throws std::system_error if the input is invalid.
  */
 char16_t verifyAndConvertEndpointHexId(const std::string &number);
+
+/**
+ * Parses a hex string into a 16-byte UUID array.
+ *
+ * @param hex The hex string to parse (optionally starting with 0x).
+ * @return The 16-byte UUID array.
+ */
+std::array<uint8_t, 16> parseUuid(const std::string &hex);
 }  // namespace android::chre::chre_aidl_hal_client
 
 #endif  // ANDROID_CHRE_AIDL_HAL_CLIENT_UTILS_H

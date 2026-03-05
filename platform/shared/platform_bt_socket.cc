@@ -28,7 +28,7 @@ namespace chre {
 PlatformBtSocketBase::PlatformBtSocketBase(
     const BleL2capCocSocketData &socketData,
     PlatformBtSocketResources &platformBtSocketResources)
-    : mId(socketData.socketId) {
+    : mId(socketData.socketId), mSocketType(SocketType::L2CAP_LE_COC) {
   if (socketData.rxConfig.mps == 0) {
     LOGE("Rx MPS cannot be 0");
     return;
@@ -58,7 +58,7 @@ PlatformBtSocketBase::PlatformBtSocketBase(
           mRxSimpleAllocator, socketData.connectionHandle, pwRxConfig,
           pwTxConfig,
           pw::bind_member<&PlatformBtSocketBase::handleRxSocketPacket>(this),
-          pw::bind_member<&PlatformBtSocketBase::handleSocketEvent>(this));
+          pw::bind_member<&PlatformBtSocketBase::handleL2capSocketEvent>(this));
   if (!result.ok()) {
     LOGE("AcquireL2capCoc failed: %s", result.status().str());
     return;
@@ -83,19 +83,70 @@ PlatformBtSocketBase::PlatformBtSocketBase(
   }
 }
 
+#ifdef CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
+PlatformBtSocketBase::PlatformBtSocketBase(
+    const BtRfcommChannelSocketData &socketData,
+    PlatformBtSocketResources &platformBtSocketResources)
+    : mId(socketData.socketId), mSocketType(SocketType::RFCOMM_CHANNEL) {
+  if (socketData.rxConfig.maxFrameSize == 0) {
+    LOGE("Rx Max Frame Size cannot be 0");
+    return;
+  }
+  pw::bluetooth::proxy::rfcomm::RfcommChannelConfig pwRxConfig = {
+      .cid = socketData.rxConfig.cid,
+      .max_frame_size = socketData.rxConfig.maxFrameSize,
+      .initial_credits = socketData.rxConfig.credits,
+  };
+  uint16_t rxCredits = kRxMultiBufAreaSize / socketData.rxConfig.maxFrameSize;
+  if (rxCredits < socketData.rxConfig.credits) {
+    LOGE(
+        "Socket allocated more Rx credits to the remote device than CHRE is "
+        "capable of supporting");
+    return;
+  }
+  pw::bluetooth::proxy::rfcomm::RfcommChannelConfig pwTxConfig = {
+      .cid = socketData.txConfig.cid,
+      .max_frame_size = socketData.txConfig.maxFrameSize,
+      .initial_credits = static_cast<uint8_t>(socketData.txConfig.credits),
+  };
+
+  pw::Result<pw::bluetooth::proxy::rfcomm::RfcommChannel> result =
+      platformBtSocketResources.getRfcommProxyHost().AcquireRfcommChannel(
+          mRxSimpleAllocator,
+          static_cast<pw::bluetooth::proxy::ConnectionHandle>(
+              socketData.connectionHandle),
+          (socketData.dlci >> 1),
+          (socketData.dlci & 1)
+              ? pw::bluetooth::proxy::rfcomm::RfcommDirection::kInitiator
+              : pw::bluetooth::proxy::rfcomm::RfcommDirection::kResponder,
+          socketData.muxInitiator, pwRxConfig, pwTxConfig,
+          pw::bind_member<&PlatformBtSocketBase::handleRxSocketPacket>(this),
+          pw::bind_member<&PlatformBtSocketBase::handleRfcommSocketEvent>(
+              this));
+  if (!result.ok()) {
+    LOGE("AcquireRfcommChannel failed: %s", result.status().str());
+    return;
+  }
+  mRfcommChannel.emplace(std::move(result.value()));
+}
+#endif  // CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
+
 PlatformBtSocket::~PlatformBtSocket() {
-  // The L2CAP COC channel must be destroyed first to avoid the race condition
-  // in which the L2CAP COC channel receives data and attempts to use the
-  // receive callback from an Rx thread while the socket is being destroyed by
-  // CHRE's event loop thread. Pigweed's L2capChannelManager uses thread
-  // protection to ensure that data cannot be sent via the receive callback
-  // after the L2CAP channel has been destroyed.
-  if (mL2capCoc.has_value()) {
+  // The channel must be destroyed first to avoid the race condition in which
+  // the channel receives data and attempts to use the receive callback from an
+  // Rx thread while the socket is being destroyed by CHRE's event loop thread.
+  // Pigweed's ChannelManager uses thread protection to ensure that data cannot
+  // be sent via the receive callback after the channel has been destroyed.
+  if (mSocketType == SocketType::L2CAP_LE_COC && mL2capCoc.has_value()) {
     mL2capCoc->Close();
     mL2capCoc.reset();
-  } else {
-    LOGE("mL2capCoc no value!!");
   }
+#ifdef CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
+  else if (mSocketType == SocketType::RFCOMM_CHANNEL &&
+             mRfcommChannel.has_value()) {
+    mRfcommChannel.reset();
+  }
+#endif
 }
 
 void PlatformBtSocketBase::handleRxSocketPacket(
@@ -123,7 +174,7 @@ void PlatformBtSocketBase::handleRxSocketPacket(
   forceDramAccess();
 }
 
-void PlatformBtSocketBase::handleSocketEvent(
+void PlatformBtSocketBase::handleL2capSocketEvent(
     pw::bluetooth::proxy::L2capChannelEvent event) {
   SocketEvent platformEvent = SocketEvent::SEND_AVAILABLE;
   switch (event) {
@@ -172,6 +223,47 @@ void PlatformBtSocketBase::handleSocketEvent(
   forceDramAccess();
 }
 
+#ifdef CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
+void PlatformBtSocketBase::handleRfcommSocketEvent(
+    pw::bluetooth::proxy::rfcomm::RfcommEvent event) {
+  SocketEvent platformEvent = SocketEvent::SEND_AVAILABLE;
+  switch (event) {
+    case pw::bluetooth::proxy::rfcomm::RfcommEvent::kChannelReadyToSend:
+      break;
+    case pw::bluetooth::proxy::rfcomm::RfcommEvent::kChannelClosedByRemote:
+      // Do not process event in CHRE
+      LOGI("Remote device closed socket");
+      return;
+    case pw::bluetooth::proxy::rfcomm::RfcommEvent::kChannelClosedByOther:
+      // Do not process event in CHRE
+      LOGI("Host or remote device closed socket");
+      return;
+    case pw::bluetooth::proxy::rfcomm::RfcommEvent::kReset:
+      // Do not process event in CHRE
+      LOGI("BT reset closed socket");
+      return;
+    default:
+      // Do not process event in CHRE
+      LOGE("Received unexpected socket event %" PRIu32,
+           static_cast<uint32_t>(event));
+      return;
+  }
+
+  /**
+   * NOTE: handlePlatformSocketEvent() adds an event to CHRE's event queue. We
+   * call forceDramAccess after adding this event to CHRE's event queue to avoid
+   * the race condition in which forceDramAccess() is called and CHRE's event
+   * queue empties, triggering a call to removeDramAccessVote() right before
+   * this event is enqueued.
+   *
+   * TODO(b/429237573): Support enqueueing high power events on CHRE's event
+   * queue and remove forceDramAccess call.
+   */
+  BleSocketManager::handlePlatformSocketEvent(mId, platformEvent);
+  forceDramAccess();
+}
+#endif  // CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
+
 void PlatformBtSocket::freeReceivedSocketPacket() {
   LockGuard<Mutex> lockGuard(mRxSocketPacketsMutex);
   mRxSocketPackets.pop();
@@ -182,7 +274,15 @@ uint64_t PlatformBtSocket::getId() {
 }
 
 bool PlatformBtSocket::isInitialized() {
-  return mL2capCoc.has_value();
+  if (mSocketType == SocketType::L2CAP_LE_COC) {
+    return mL2capCoc.has_value();
+  } else {
+#ifdef CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
+    return mRfcommChannel.has_value();
+#else
+    return false;
+#endif  // CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
+  }
 }
 
 struct SocketSendContext {
@@ -198,8 +298,10 @@ int32_t PlatformBtSocket::sendSocketPacket(
   // this scenario, it is the responsibility of the nanoapp to free the data.
   // The nanoapp may choose to hold on to the data until it receives a
   // CHRE_EVENT_BLE_SOCKET_SEND_AVAILABLE event when it can re-attempt the send.
-  if (mL2capCoc->IsWriteAvailable() == pw::Status::Unavailable()) {
-    return CHRE_BLE_SOCKET_SEND_STATUS_QUEUE_FULL;
+  if (mSocketType == SocketType::L2CAP_LE_COC) {
+    if (mL2capCoc->IsWriteAvailable() == pw::Status::Unavailable()) {
+      return CHRE_BLE_SOCKET_SEND_STATUS_QUEUE_FULL;
+    }
   }
 
   auto nonConstData = const_cast<uint8_t *>(static_cast<const uint8_t *>(data));
@@ -255,15 +357,27 @@ int32_t PlatformBtSocket::sendSocketPacket(
     }
     return CHRE_BLE_SOCKET_SEND_STATUS_FAILURE;
   }
-  pw::bluetooth::proxy::StatusWithMultiBuf statusWithMultiBuf =
-      mL2capCoc->Write(std::move(*multibuf));
-  // Nothing should write to the channel except CHRE so the IsWriteAvailable
-  // check should ensure that there is space in the queue
-  CHRE_ASSERT(statusWithMultiBuf.status != pw::Status::Unavailable());
-  if (statusWithMultiBuf.status.ok()) {
-    return CHRE_BLE_SOCKET_SEND_STATUS_SUCCESS;
+  pw::bluetooth::proxy::StatusWithMultiBuf statusWithMultiBuf;
+  if (mSocketType == SocketType::L2CAP_LE_COC) {
+    statusWithMultiBuf = mL2capCoc->Write(std::move(*multibuf));
+    // Nothing should write to the channel except CHRE so the IsWriteAvailable
+    // check should ensure that there is space in the queue
+    CHRE_ASSERT(statusWithMultiBuf.status != pw::Status::Unavailable());
+    if (statusWithMultiBuf.status.ok()) {
+      return CHRE_BLE_SOCKET_SEND_STATUS_SUCCESS;
+    }
+    return CHRE_BLE_SOCKET_SEND_STATUS_FAILURE;
+  } else {
+#ifdef CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
+    statusWithMultiBuf = mRfcommChannel->Write(std::move(*multibuf));
+    if (statusWithMultiBuf.status.ok()) {
+      return CHRE_BLE_SOCKET_SEND_STATUS_SUCCESS;
+    } else if (statusWithMultiBuf.status == pw::Status::Unavailable()) {
+      return CHRE_BLE_SOCKET_SEND_STATUS_QUEUE_FULL;
+    }
+#endif  // CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
+    return CHRE_BLE_SOCKET_SEND_STATUS_FAILURE;
   }
-  return CHRE_BLE_SOCKET_SEND_STATUS_FAILURE;
 }
 
 }  // namespace chre

@@ -16,20 +16,13 @@
 
 #pragma once
 
-#include "chre/target_platform/platform_bt_socket_resources_base.h"
+#include <cstdint>
 
 namespace chre {
 
-class PlatformBtSocketResources : public PlatformBtSocketResourcesBase {
- public:
-  // Forward all arguments passed to the PlatformBtSocketResources constructor
-  // to the PlatformBtSocketResourcesBase constructor
-  template <typename... Args>
-  PlatformBtSocketResources(Args &&...args)
-      : PlatformBtSocketResourcesBase(std::forward<Args>(args)...) {}
-
-  uint32_t getLeCocMtu();
-  uint32_t getRfcommMaxFrameSize();
+enum class SocketType : uint8_t {
+  L2CAP_LE_COC,
+  RFCOMM_CHANNEL,
 };
 
 }  // namespace chre

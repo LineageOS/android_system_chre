@@ -26,6 +26,7 @@
 #include "chre/util/memory_pool.h"
 #include "chre/util/non_copyable.h"
 #include "chre/util/system/message_common.h"
+#include "chre/util/system/message_hub_callback_v2.h"
 #include "chre/util/system/message_router.h"
 
 #include "pw_allocator/allocator.h"
@@ -179,22 +180,25 @@ class HostMessageHubManager : public NonCopyable {
     /**
      * Notifies the HAL that a data flow sink is being unregistered.
      *
-     * @param unregistration The data flow sink unregistration information.
+     * @param unregistration The data flow sink unregistration information. Only
+     * valid within the scope of this callback.
      */
-    virtual void onUnregisterDataFlowSink(
+    virtual void onDataFlowSinkUnregistered(
         const message::DataFlowSinkUnregistration &unregistration) = 0;
 
     /**
      * Notifies the HAL that a data flow has stopped.
      *
-     * @param stopped The data flow stopped information.
+     * @param stopped The data flow stopped information. Only valid within the
+     * scope of this callback.
      */
     virtual void onDataFlowStopped(const message::DataFlowStopped &stopped) = 0;
 
     /**
      * Notifies the HAL of a data flow alert.
      *
-     * @param alert The data flow alert information.
+     * @param alert The data flow alert information. Only valid within the scope
+     * of this callback.
      */
     virtual void onDataFlowAlert(const message::DataFlowAlert &alert) = 0;
 #endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
@@ -304,6 +308,42 @@ class HostMessageHubManager : public NonCopyable {
                    uint32_t permissions, bool isReliable = false,
                    uint32_t sequenceNumber = 0);
 
+  /**
+   * Registers a data flow sink.
+   *
+   * @param registration The registration information.
+   * @param messageData The message data associated with the registration, if
+   * any. Only present if a message is sent along with the registration.
+   */
+  void registerDataFlowSink(
+      message::DataFlowSinkRegistration &&registration,
+      std::optional<pw::span<const std::byte>> messageData);
+
+  /**
+   * Unregisters a data flow sink.
+   *
+   * @param unregistration The unregistration information. Required to be valid
+   * only within the scope of this method.
+   */
+  void unregisterDataFlowSink(
+      const message::DataFlowSinkUnregistration &unregistration);
+
+  /**
+   * Reports that a data flow has stopped.
+   *
+   * @param stopped Information about the stopped data flow and the endpoints to
+   * notify. Required to be valid only within the scope of this method.
+   */
+  void reportDataFlowStopped(const message::DataFlowStopped &stopped);
+
+  /**
+   * Reports a data flow alert.
+   *
+   * @param alert Information about the data flow and the endpoints to be
+   * alerted. Required to be valid only within the scope of this method.
+   */
+  void reportDataFlowAlert(const message::DataFlowAlert &alert);
+
  private:
   /**
    * Wrapper around EndpointInfo and ServiceInfos which can be allocated from a
@@ -332,7 +372,7 @@ class HostMessageHubManager : public NonCopyable {
    * operation with HostMessageHubManager::mHubsOpLock held.
    */
   class Hub : public NonCopyable,
-              public message::MessageRouter::MessageHubCallback,
+              public message::MessageRouter::MessageHubCallbackV2,
               public pw::Recyclable<Hub> {
    public:
     /**
@@ -379,7 +419,7 @@ class HostMessageHubManager : public NonCopyable {
 
     static constexpr size_t kNameMaxLen = 50;
 
-    // Implementation of MessageRouter::MessageHubCallback;
+    // Implementation of MessageRouter::MessageHubCallback
     bool onMessageReceived(pw::UniquePtr<std::byte[]> &&data,
                            uint32_t messageType, uint32_t messagePermissions,
                            const message::Session &session,
@@ -405,6 +445,14 @@ class HostMessageHubManager : public NonCopyable {
                               message::EndpointId endpointId) override;
     void onEndpointUnregistered(message::MessageHubId messageHubId,
                                 message::EndpointId endpointId) override;
+    // Implementation of MessageRouter::MessageHubCallbackV2
+    void onRegisterDataFlowSink(
+        message::DataFlowSinkRegistration &&registration) override;
+    void onDataFlowSinkUnregistered(
+        const message::DataFlowSinkUnregistration &unregistration) override;
+    void onDataFlowStopped(const message::DataFlowStopped &stopped) override;
+    void onDataFlowAlert(const message::DataFlowAlert &alert) override;
+
     void pw_recycle() override;
 
     char kName[kNameMaxLen + 1];

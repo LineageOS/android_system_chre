@@ -17,23 +17,32 @@
 #pragma once
 
 #include "pw_bluetooth_proxy/proxy_host.h"
+#include "pw_bluetooth_proxy/rfcomm/rfcomm_manager.h"
 
 namespace chre {
 
 class PlatformBtSocketResourcesBase {
  public:
-  PlatformBtSocketResourcesBase(pw::bluetooth::proxy::ProxyHost &proxyHost)
-      : mProxyHost(proxyHost) {}
+  PlatformBtSocketResourcesBase(
+      pw::bluetooth::proxy::ProxyHost &proxyHost,
+      pw::bluetooth::proxy::rfcomm::RfcommManager &rfcommProxyHost)
+      : mProxyHost(proxyHost), mRfcommProxyHost(rfcommProxyHost) {}
 
   pw::bluetooth::proxy::ProxyHost &getProxyHost() {
     return mProxyHost;
   }
 
+  pw::bluetooth::proxy::rfcomm::RfcommManager &getRfcommProxyHost() {
+    return mRfcommProxyHost;
+  }
+
  protected:
   uint32_t mLeCocMtu = 2048;
+  uint32_t mRfcommMaxFrameSize = 1024;
 
  private:
   pw::bluetooth::proxy::ProxyHost &mProxyHost;
+  pw::bluetooth::proxy::rfcomm::RfcommManager &mRfcommProxyHost;
 };
 
 }  // namespace chre

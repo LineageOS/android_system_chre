@@ -29,6 +29,33 @@
 // This should provide all CHRE_* configuration defines.
 #include "chre/target_variant/config.h"
 
+// The maximum number of LE COC sockets supported by the platform.
+#ifndef CHRE_BLE_LE_COC_MAX_SOCKETS
+#define CHRE_BLE_LE_COC_MAX_SOCKETS 2
+#endif  // CHRE_BLE_LE_COC_MAX_SOCKETS
+
+// The maximum number of RFCOMM sockets supported by the platform.
+#ifndef CHRE_BT_RFCOMM_MAX_SOCKETS
+#ifdef CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
+#define CHRE_BT_RFCOMM_MAX_SOCKETS 2
+#else
+#define CHRE_BT_RFCOMM_MAX_SOCKETS 0
+#endif  // CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
+#endif  // CHRE_BT_RFCOMM_MAX_SOCKETS
+
+// TODO(b/430672746): The metadata needed for multibufs (10 for the RFCOMM channel tx queue + 5
+// for the L2capChannel tx queue) based on the hard coded tx queue sizes for a
+// pigweed L2capChannel and RFCOMM channel. When the queue size becomes
+// configurable (or multibuf metadata size is reduced), consider making this
+// value smaller.
+#ifndef CHRE_BLE_SOCKET_TX_MULTIBUF_METADATA_SIZE
+#ifdef CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
+#define CHRE_BLE_SOCKET_TX_MULTIBUF_METADATA_SIZE (15 * 256)
+#else
+#define CHRE_BLE_SOCKET_TX_MULTIBUF_METADATA_SIZE (5 * 256)
+#endif  // CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
+#endif  // CHRE_BLE_SOCKET_TX_MULTIBUF_METADATA_SIZE
+
 // CHRE optionally supports the use of multiple eventloops, etc.
 #ifndef CHRE_MULTI_THREADING_ENABLED
 #define CHRE_MULTI_THREADING_ENABLED 0

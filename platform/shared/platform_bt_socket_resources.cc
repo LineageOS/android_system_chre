@@ -23,4 +23,8 @@ uint32_t PlatformBtSocketResources::getLeCocMtu() {
   return mLeCocMtu;
 }
 
+uint32_t PlatformBtSocketResources::getRfcommMaxFrameSize() {
+  return mRfcommMaxFrameSize;
+}
+
 }  // namespace chre

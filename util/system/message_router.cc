@@ -740,7 +740,7 @@ SessionId MessageRouter::getNextSessionIdLocked() {
 }
 
 bool MessageRouter::registerDataFlowSink(
-    const DataFlowSinkRegistration & /*registration*/) {
+    DataFlowSinkRegistration && /*registration*/) {
   // TODO(b/452707307): Implement data flow sink registration.
   return false;
 }

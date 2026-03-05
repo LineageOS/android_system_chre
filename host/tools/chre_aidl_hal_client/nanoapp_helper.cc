@@ -18,6 +18,7 @@
 #include "utils.h"
 
 #include <dirent.h>
+#include <cstdlib>
 #include <fstream>
 #include <future>
 #include <iostream>
@@ -117,23 +118,39 @@ void NanoappHelper::readNanoappHeaders(
   closedir(dir);
 }
 
+bool NanoappHelper::isNappFile(const std::string &path) {
+  return path.size() >= 5 && path.substr(path.size() - 5) == ".napp";
+}
+
 /**
- * Finds the .napp_header file associated to the nanoapp.
+ * Finds the .napp or .napp_header file associated to the nanoapp.
  *
  * This function guarantees to return a non-null {@link NanoAppBinaryHeader}
- * pointer. In case a .napp_header file cannot be found an exception will be
+ * pointer. In case a header file cannot be found an exception will be
  * raised.
  *
  * @param pathAndName name of the nanoapp that might be prefixed with it path.
- * It will be normalized to the format of <absolute-path><name>.so at the end.
- * For example, "abc" will be changed to "/path/to/abc.so".
+ * It will be normalized to the format of <absolute-path><name>.<so|napp> at the
+ * end. For example, "abc" will be changed to "/path/to/abc.so" or
+ * "/path/to/abc.napp".
  *
  * @return a unique pointer to the {@link NanoAppBinaryHeader} found
  */
 std::unique_ptr<NanoAppBinaryHeader> NanoappHelper::findHeaderAndNormalizePath(
     std::string &pathAndName) {
-  // To match the file pattern of [path]<name>[.so]
-  std::regex pathNameRegex("(.*?)(\\w+)(\\.so)?");
+  if (isNappFile(pathAndName)) {
+    std::ifstream input(pathAndName, std::ios::binary);
+    if (!input.is_open()) {
+      throwError("Failed to open " + pathAndName);
+    }
+    auto header = std::make_unique<NanoAppBinaryHeader>();
+    input.read(reinterpret_cast<char *>(header.get()),
+               sizeof(NanoAppBinaryHeader));
+    return header;
+  }
+
+  // To match the file pattern of [path]<name>[.so|.napp]
+  std::regex pathNameRegex("(.*?)(\\w+)(\\.(so|napp))?");
   std::smatch smatch;
   if (!std::regex_match(pathAndName, smatch, pathNameRegex)) {
     throwError("Invalid nanoapp: " + pathAndName);
@@ -142,21 +159,43 @@ std::unique_ptr<NanoAppBinaryHeader> NanoappHelper::findHeaderAndNormalizePath(
   std::string appName = smatch[2];
   // absolute path is provided:
   if (!fullPath.empty() && fullPath[0] == '/') {
-    auto result = findHeaderByName(appName, fullPath);
-    if (result == nullptr) {
-      throwError("Unable to find the nanoapp header for " + pathAndName);
+    std::unique_ptr<NanoAppBinaryHeader> result =
+        findHeaderByName(appName, fullPath);
+    if (result != nullptr) {
+      pathAndName = fullPath + appName + ".so";
+      return result;
     }
-    pathAndName = fullPath + appName + ".so";
-    return result;
+    // Try .napp otherwise.
+    std::string nappPath = fullPath + appName + ".napp";
+    std::ifstream nappInput(nappPath, std::ios::binary);
+    if (nappInput.is_open()) {
+      std::unique_ptr<NanoAppBinaryHeader> header =
+          std::make_unique<NanoAppBinaryHeader>();
+      nappInput.read(reinterpret_cast<char *>(header.get()),
+                     sizeof(NanoAppBinaryHeader));
+      pathAndName = nappPath;
+      return header;
+    }
+    throwError("Unable to find the nanoapp header for " + pathAndName);
+    return nullptr;
   }
   // relative path is searched form predefined locations:
   for (const std::string &predefinedPath : kPredefinedNanoappPaths) {
     auto result = findHeaderByName(appName, predefinedPath);
-    if (result == nullptr) {
-      continue;
+    if (result != nullptr) {
+      pathAndName = predefinedPath + appName + ".so";
+      return result;
     }
-    pathAndName = predefinedPath + appName + ".so";
-    return result;
+    // Try .napp otherwise
+    std::string nappPath = predefinedPath + appName + ".napp";
+    std::ifstream nappInput(nappPath, std::ios::binary);
+    if (nappInput.is_open()) {
+      auto header = std::make_unique<NanoAppBinaryHeader>();
+      nappInput.read(reinterpret_cast<char *>(header.get()),
+                     sizeof(NanoAppBinaryHeader));
+      pathAndName = nappPath;
+      return header;
+    }
   }
   throwError("Unable to find the nanoapp header for " + pathAndName);
   return nullptr;

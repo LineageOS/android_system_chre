@@ -335,8 +335,10 @@ void deinitCommon() {
 }
 
 #ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
-void initBleSocketManager(pw::bluetooth::proxy::ProxyHost &proxyHost) {
-  gBleSocketManager.emplace(proxyHost);
+void initBleSocketManager(
+    pw::bluetooth::proxy::ProxyHost &proxyHost,
+    pw::bluetooth::proxy::rfcomm::RfcommManager &rfcommProxyHost) {
+  gBleSocketManager.emplace(proxyHost, rfcommProxyHost);
 }
 #endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
 

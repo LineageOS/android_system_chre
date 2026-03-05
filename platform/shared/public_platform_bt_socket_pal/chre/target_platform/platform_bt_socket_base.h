@@ -20,14 +20,21 @@
 #include <cstdint>
 
 #include "chre/core/ble_l2cap_coc_socket_data.h"
+#include "chre/core/bt_socket_data.h"
 #include "chre/platform/mutex.h"
 #include "chre/platform/platform_bt_socket_resources.h"
+#include "chre/platform/platform_bt_socket_types.h"
 #include "chre/util/array_queue.h"
+#include "chre/util/non_copyable.h"
 #include "chre/util/unique_ptr.h"
+#include "chre/variant/config.h"
 
 #include "pw_allocator/first_fit.h"
 #include "pw_allocator/synchronized_allocator.h"
 #include "pw_bluetooth_proxy/l2cap_coc.h"
+#ifdef CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
+#include "pw_bluetooth_proxy/rfcomm/rfcomm_manager.h"
+#endif // CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
 #include "pw_multibuf/allocator.h"
 #include "pw_multibuf/multibuf.h"
 #include "pw_multibuf/simple_allocator.h"
@@ -38,10 +45,15 @@ namespace chre {
 /**
  * AOC-specific implementation of a BT socket.
  */
-class PlatformBtSocketBase {
+class PlatformBtSocketBase : public NonCopyable {
  public:
   PlatformBtSocketBase(const BleL2capCocSocketData &socketData,
                        PlatformBtSocketResources &platformBtSocketResources);
+
+#ifdef CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
+  PlatformBtSocketBase(const BtRfcommChannelSocketData &socketData,
+                       PlatformBtSocketResources &platformBtSocketResources);
+#endif
 
   /**
    * Callback to be invoked on Rx SDUs.
@@ -55,7 +67,7 @@ class PlatformBtSocketBase {
   void handleRxSocketPacket(pw::multibuf::MultiBuf &&payload);
 
   /**
-   * Callback to be invoked when a socket event is received.
+   * Callback to be invoked when a LE COC socket event is received.
    *
    * @see pw::bluetooth::proxy::ProxyHost::AcquireL2capCoc()
    *
@@ -63,10 +75,25 @@ class PlatformBtSocketBase {
    * expected that the caller invokes DramVoteClient::incrementDramVoteCount()
    * and DramVoteClient::decrementDramVoteCount() around use of this function.
    */
-  void handleSocketEvent(pw::bluetooth::proxy::L2capChannelEvent event);
+  void handleL2capSocketEvent(pw::bluetooth::proxy::L2capChannelEvent event);
+
+#ifdef CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
+  /**
+   * Callback to be invoked when a RFCOMM socket event is received.
+   *
+   * @see pw::bluetooth::proxy::RfcommManager::AcquireRfcommChannel()
+   *
+   * NOTE: this callback will not be invoked from the CHRE thread. It is
+   * expected that the caller invokes DramVoteClient::incrementDramVoteCount()
+   * and DramVoteClient::decrementDramVoteCount() around use of this function.
+   */
+  void handleRfcommSocketEvent(pw::bluetooth::proxy::rfcomm::RfcommEvent event);
+#endif // CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
 
  protected:
   uint64_t mId;
+
+  SocketType mSocketType;
 
   // Multibuf Rx allocators
 
@@ -77,11 +104,8 @@ class PlatformBtSocketBase {
   // Multibuf v1 requires significant meta data
   static constexpr uint8_t kMaxRxMultibufs = kRxMultiBufMetaDataSize / 512;
 
-  // TODO(b/430672746): This is 5 * the metadata needed for a single multibuf
-  // based on the hard coded tx queue size for a pigweed L2capChannel. When the
-  // queue size becomes configurable (or multibuf metadata size is reduced),
-  // consider making this value smaller.
-  static constexpr uint16_t kTxMultiBufMetaDataSize = 5 * 256;
+  static constexpr uint16_t kTxMultiBufMetaDataSize =
+      CHRE_BLE_SOCKET_TX_MULTIBUF_METADATA_SIZE;
 
   std::array<std::byte, kRxMultiBufAreaSize> mRxMultibufArea{};
 
@@ -111,6 +135,11 @@ class PlatformBtSocketBase {
 
   // PW L2CAP COC utility used for interacting with the BT socket.
   std::optional<pw::bluetooth::proxy::L2capCoc> mL2capCoc;
+
+#ifdef CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
+  // PW RFCOMM Channel utility used for interacting with the BT socket.
+  std::optional<pw::bluetooth::proxy::rfcomm::RfcommChannel> mRfcommChannel;
+#endif
 
   std::array<std::byte, kTxMultiBufMetaDataSize> mTxMultibufMetaData{};
 

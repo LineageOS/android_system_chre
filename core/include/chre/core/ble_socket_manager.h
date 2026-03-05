@@ -19,10 +19,12 @@
 #ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
 
 #include "chre/core/ble_l2cap_coc_socket_data.h"
+#include "chre/core/bt_socket_data.h"
 #include "chre/core/multi_threading_api_mutex.h"
 #include "chre/platform/platform_bt_socket.h"
 #include "chre/platform/platform_bt_socket_resources.h"
 #include "chre/util/memory_pool.h"
+#include "chre/variant/config.h"
 #include "chre_api/chre.h"
 
 namespace chre {
@@ -34,7 +36,10 @@ namespace chre {
 class BleSocketManager : public NonCopyable {
  public:
   // Public for testing purposes.
-  static constexpr uint8_t kMaxNumSockets = 2;
+  static constexpr uint8_t kMaxNumLeCocSockets = CHRE_BLE_LE_COC_MAX_SOCKETS;
+
+  // Public for testing purposes.
+  static constexpr uint8_t kMaxNumRfcommSockets = CHRE_BT_RFCOMM_MAX_SOCKETS;
 
   // Forward all arguments passed to the BleSocketManager constructor to the
   // PlatformBtSocketResources constructor
@@ -52,9 +57,10 @@ class BleSocketManager : public NonCopyable {
    * event loop thread before processing the socket open request with
    * handleSocketOpenedByHostSync.
    *
-   * @param socketData Metadata for the BLE socket.
+   * @param socketData Metadata for the socket.
    */
-  static void handleSocketOpenedByHost(const BleL2capCocSocketData &socketData);
+  template <typename SocketDataType>
+  static void handleSocketOpenedByHost(const SocketDataType &socketData);
 
   /**
    * Validates if a socket ID is currently managed by CHRE. This is used by
@@ -136,7 +142,8 @@ class BleSocketManager : public NonCopyable {
   /**
    * @see handleSocketOpenedByHost
    */
-  void handleSocketOpenedByHostSync(const BleL2capCocSocketData &socketData)
+  template <typename SocketDataType>
+  void handleSocketOpenedByHostSync(const SocketDataType &socketData)
       CHRE_REQUIRES(getMultiThreadingApiMutex());
 
   /**
@@ -165,7 +172,8 @@ class BleSocketManager : public NonCopyable {
    * and move assignment operators. Look into adding move assignment operators
    * to those dependencies and refactor this code when finished.
    */
-  MemoryPool<PlatformBtSocket, kMaxNumSockets> mBtSockets;
+  MemoryPool<PlatformBtSocket, kMaxNumLeCocSockets + kMaxNumRfcommSockets>
+      mBtSockets;
 
   /**
    * Platform resources used for creating a new BT socket.

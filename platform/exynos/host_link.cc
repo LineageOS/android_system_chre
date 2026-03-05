@@ -41,6 +41,40 @@ struct UnloadNanoappCallbackData {
   bool allowSystemNanoappUnload;
 };
 
+#ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
+template <typename SocketDataType>
+struct BtSocketOpenHandler;
+
+template <>
+struct BtSocketOpenHandler<BleL2capCocSocketData> {
+  static constexpr bool kIsSupported = true;
+};
+
+template <>
+struct BtSocketOpenHandler<BtRfcommChannelSocketData> {
+#ifdef CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
+  static constexpr bool kIsSupported = true;
+#else
+  static constexpr bool kIsSupported = false;
+#endif  // CHRE_BT_RFCOMM_SOCKET_SUPPORT_ENABLED
+};
+#endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
+
+template <typename SocketDataType>
+void handleBtSocketOpenImpl(const SocketDataType &socketData) {
+#ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
+  if (BtSocketOpenHandler<SocketDataType>::kIsSupported) {
+    EventLoopManagerSingleton::get()
+        ->getBleSocketManager()
+        .handleSocketOpenedByHost(socketData);
+    return;
+  }
+#endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
+  getHostCommsManager().sendBtSocketOpenResponse(
+      socketData.socketId, /*success=*/false,
+      /*reason=*/"Socket offload not supported");
+}
+
 inline HostCommsManager &getHostCommsManager() {
   return EventLoopManagerSingleton::get()->getHostCommsManager();
 }
@@ -266,15 +300,13 @@ void HostMessageHandlers::handleBtSocketCapabilitiesRequest() {
 void HostMessageHandlers::handleBtSocketOpen(
     uint64_t /* hubId */, const BleL2capCocSocketData &socketData,
     const char * /* name */, uint32_t /* psm */) {
-#ifdef CHRE_BLE_SOCKET_SUPPORT_ENABLED
-  EventLoopManagerSingleton::get()
-      ->getBleSocketManager()
-      .handleSocketOpenedByHost(socketData);
-#else
-  getHostCommsManager().sendBtSocketOpenResponse(
-      socketData.socketId, /*success=*/false,
-      /*reason=*/"Socket offload not supported");
-#endif  // CHRE_BLE_SOCKET_SUPPORT_ENABLED
+  handleBtSocketOpenImpl(socketData);
+}
+
+void HostMessageHandlers::handleBtSocketOpen(
+    uint64_t /* hubId */, const BtRfcommChannelSocketData &socketData,
+    const char * /* name */, uint32_t /* psm */) {
+  handleBtSocketOpenImpl(socketData);
 }
 
 void HostMessageHandlers::handleBtSocketClosed(uint64_t socketId) {

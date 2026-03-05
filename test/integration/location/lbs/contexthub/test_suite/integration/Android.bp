@@ -42,6 +42,7 @@ cc_library_static {
         "libgtest",
         "pw_allocator",
         "pw_bluetooth_proxy",
+        "rfcomm",
         "pw_bytes",
         "pw_containers",
         "pw_function",

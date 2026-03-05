@@ -83,12 +83,14 @@ pw::Result<std::vector<uint16_t>> HostHub::removeEndpoint(
   std::lock_guard lock(mManager.mLock);
   PW_TRY(checkValidLocked());
   if (auto it = mIdToEndpoint.find(id.id); it != mIdToEndpoint.end()) {
-    // Remove any data flow state associated with this endpoint.
-    if (auto result = mManager.mDataFlowManager->pruneEndpoint(id);
-        !result.ok()) {
-      LOGW("Failed to prune endpoint (%" PRId64 ", %" PRId64
-           ") from data flows: %d",
-           id.hubId, id.id, result.status().code());
+    if (mManager.mDataFlowManager) {
+      // Remove any data flow state associated with this endpoint.
+      if (auto result = mManager.mDataFlowManager->pruneEndpoint(id);
+          !result.ok()) {
+        LOGW("Failed to prune endpoint (%" PRId64 ", %" PRId64
+             ") from data flows: %d",
+             id.hubId, id.id, result.status().code());
+      }
     }
 
     // Remove and return any sessions associated with this endpoint.
