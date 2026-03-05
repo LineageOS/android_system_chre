@@ -468,7 +468,8 @@ struct chreDataFlowNewDataAlert {
  * @param sinkPermissions Bitmask of permissions that must be held to receive
  *     data from the data flow, and will be attributed to the recipient.
  *     Primarily relevant when the destination endpoint is an Android
- *     application. Refer to CHRE_MESSAGE_PERMISSION_* values.
+ *     application. Refer to CHRE_MESSAGE_PERMISSION_* values. Both the source
+ *     and sink nanoapps must have these permissions.
  * @param elementSize The size of each element in bytes. If
  *     CHRE_DATA_FLOW_ELEMENT_SIZE_VARIABLE, the data flow will have variable
  *     size elements.
@@ -499,6 +500,8 @@ struct chreDataFlowNewDataAlert {
  *    insufficient memory.
  *  - CHRE_STATUS_FAILED_PRECONDITION if the requested domains cannot be
  *    supported by the platform.
+ *  - CHRE_STATUS_PERMISSION_DENIED if this source nanoapp does not have the
+ *    sinkPermissions.
  *
  * @since v1.12
  */
