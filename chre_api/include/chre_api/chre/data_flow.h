@@ -494,6 +494,8 @@ struct chreDataFlowNewDataAlert {
  *     be NULL.
  * @return One of chreStatus
  *  - CHRE_STATUS_OK if the data flow was successfully created.
+ *  - CHRE_STATUS_ALREADY_EXISTS if a data flow with the same name already
+ *    exists.
  *  - CHRE_STATUS_INVALID_ARGUMENT if any of the arguments are invalid or if
  *    the name is NULL.
  *  - CHRE_STATUS_RESOURCE_EXHAUSTED if the data flow cannot be created due to
