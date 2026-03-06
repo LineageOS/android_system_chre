@@ -16,7 +16,6 @@
 
 #pragma once
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -85,24 +84,16 @@ constexpr size_t kMaxIdSize = 16;
 /**
  * Endpoint id for remote notifications or local callback.
  *
- * This overloads SharedDataRegion::EndpointIdFixedSize for the purposes of
- * local queues or remote queues using a different id format. Its size must be
- * the same.
+ * This overloads SharedDataRegion::EndpointIdFixedSize (remoteId.aidlId) for
+ * the purposes of local queues or remote queues using a different id format.
+ * Its size must be the same.
  */
-union alignas(8) IdOrNotifyFn {
+union IdOrNotifyFn {
   LocalNotifyArgs localNotify;
-  union {
-    // Specialized id definition for use with ContextHub data flows.
-    struct {
-      uint64_t hubId;
-      uint64_t endpointId;
-    } endpointId;
-    std::array<std::byte, kMaxIdSize> remoteId;
-  };
-} __attribute__((packed));
-static_assert(sizeof(IdOrNotifyFn) ==
-              sizeof(::aidl::android::hardware::contexthub::SharedDataRegion::
-                         EndpointIdFixedSize));
+  RemoteEndpointId remoteId;
+};
+static_assert(sizeof(IdOrNotifyFn) == sizeof(AidlEndpointId));
+static_assert(alignof(IdOrNotifyFn) == 8);
 
 /**
  * Flags used by the Producer to indicate exceptional state.
@@ -179,16 +170,13 @@ struct ConsumerPolicy {
 /** Node for tracking a consumer descriptor in multiple containers. */
 struct ConsumerNode : public ConsumerListNode {
   AllocatorRegion region;  // The region the descriptor was allocated from.
-  std::array<std::byte, kMaxIdSize> id;  // The consumer's id.
+  RemoteEndpointId id;     // The consumer's id.
   ConsumerDesc *desc;      // The descriptor in shared memory.
   ConsumerPolicy policy;   // The consumer's policy.
 
-  ConsumerNode(pw::ConstByteSpan _id, const AllocatorRegion &_region,
+  ConsumerNode(const RemoteEndpointId &_id, const AllocatorRegion &_region,
                ConsumerDesc *_desc, ConsumerPolicy _policy)
-      : region(_region), desc(_desc), policy(_policy) {
-    PW_ASSERT(_id.size() == kMaxIdSize);
-    std::memcpy(id.data(), _id.data(), kMaxIdSize);
-  }
+      : region(_region), id(_id), desc(_desc), policy(_policy) {}
 };
 
 /** Queue shared metadata and producer data that is not part of the ABI. */
@@ -540,15 +528,13 @@ class ProducerBase {
   /**
    * Allocates a new consumer and links it to the list in shared memory.
    *
-   * @param id The id of the consumer. Expected to be exactly kMaxIdSize bytes
-   * long. This may or may not be the same as the remote id used for
-   * notifications for remote queues.
+   * @param id The id of the consumer.
    * @param region The region from which to allocate the consumer.
    * @param policy The policy to apply to the consumer.
    * @return The offset of the consumer descriptor in shared memory. Used to
    * initialize a Consumer instance.
    */
-  pw::Result<uint32_t> addConsumer(pw::ConstByteSpan id,
+  pw::Result<uint32_t> addConsumer(const RemoteEndpointId &id,
                                    const AllocatorRegion &region,
                                    ConsumerPolicy policy);
 
@@ -558,7 +544,8 @@ class ProducerBase {
    * @param id The id of the consumer previously registered with addConsumer().
    * @param policy The new policy to apply to the consumer.
    */
-  pw::Status updateConsumerPolicy(pw::ConstByteSpan id, ConsumerPolicy policy);
+  pw::Status updateConsumerPolicy(const RemoteEndpointId &id,
+                                  ConsumerPolicy policy);
 
   /**
    * Removes and deletes all consumers whose ids are matched by the predicate.
@@ -568,7 +555,7 @@ class ProducerBase {
    * @return pw::OkStatus() on success.
    */
   pw::Status pruneConsumers(
-      const pw::Function<bool(pw::ConstByteSpan id)> &match);
+      const pw::Function<bool(const RemoteEndpointId &id)> &match);
 
   /**
    * Returns the current number of consumers on the queue.
