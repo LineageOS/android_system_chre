@@ -24,9 +24,11 @@
 #include "data_flow/queue.h"
 #include "data_flow/queue_defs.h"
 #include "data_flow/untyped_queue.h"
+#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "pw_allocator/first_fit.h"
 #include "pw_bytes/span.h"
+#include "pw_log/log.h"
 
 namespace android::contexthub::data_flow {
 
@@ -1493,6 +1495,304 @@ TEST_F(QueueTest, OverwriteFastForwardCalculation) {
   std::iota(expectedData.begin(), expectedData.end(), startValue);
 
   EXPECT_EQ(poppedData, expectedData);
+}
+
+class MockMemoryAccess : public MemoryAccess {
+ public:
+  MOCK_METHOD(void, acquire, (), (override));
+  MOCK_METHOD(void, release, (), (override));
+};
+
+class MemoryAccessTest : public QueueTest {
+ protected:
+  ::testing::StrictMock<MockMemoryAccess> mMockMemoryAccess;
+
+  void verifyAcquireRelease(const std::function<void()> &operation, int line) {
+    ::testing::Sequence s;
+    EXPECT_CALL(mMockMemoryAccess, acquire()).Times(1).InSequence(s);
+    EXPECT_CALL(mMockMemoryAccess, release()).Times(1).InSequence(s);
+    operation();
+    if (!::testing::Mock::VerifyAndClearExpectations(&mMockMemoryAccess)) {
+      PW_LOG_ERROR("Memory access verification failed at line %d", line);
+    }
+  }
+};
+
+TEST_F(MemoryAccessTest, ProducerOperations) {
+  // 1. Producer<int>
+  {
+    std::optional<Producer<int>> producer;
+    verifyAcquireRelease(
+        [&] {
+          AllocatorRegion region = {{base(), size()}, &mAllocator};
+          auto res = Producer<int>::createLocal(
+              region, kBlockCapacity, kBaseMaxBlockCount, kBaseMinBlockCount,
+              mDataNotifier, kEmptyLocalNotifyArgs, &mMockMemoryAccess);
+          ASSERT_EQ(res.status(), pw::OkStatus());
+          producer.emplace(std::move(*res));
+        },
+        __LINE__);
+
+    verifyAcquireRelease([&] { EXPECT_EQ(producer->push(1), pw::OkStatus()); },
+                         __LINE__);
+
+    verifyAcquireRelease([&] { producer->size(); }, __LINE__);
+
+    pw::Result<pw::span<int>> reservation;
+    verifyAcquireRelease([&] { reservation = producer->reserve(1); }, __LINE__);
+    ASSERT_EQ(reservation.status(), pw::OkStatus());
+
+    verifyAcquireRelease(
+        [&] { EXPECT_EQ(producer->commit(1), pw::OkStatus()); }, __LINE__);
+
+    ConsumerManager consumerManager = producer->getConsumerManager();
+    ConsumerPolicyBuilder policyBuilder;
+    verifyAcquireRelease(
+        [&] {
+          auto addResult = consumerManager.addConsumer(kZeroId, policyBuilder);
+          ASSERT_EQ(addResult.status(), pw::OkStatus());
+        },
+        __LINE__);
+
+    verifyAcquireRelease(
+        [&] {
+          EXPECT_EQ(
+              consumerManager.updateConsumerPolicy(kZeroId, policyBuilder),
+              pw::OkStatus());
+        },
+        __LINE__);
+
+    verifyAcquireRelease(
+        [&] { EXPECT_EQ(consumerManager.getNumConsumers(), 1); }, __LINE__);
+
+    verifyAcquireRelease(
+        [&] {
+          EXPECT_EQ(consumerManager.pruneConsumers([](auto) { return false; }),
+                    pw::OkStatus());
+        },
+        __LINE__);
+
+    verifyAcquireRelease([&] { producer->stop(); }, __LINE__);
+
+    verifyAcquireRelease([&] { producer.reset(); }, __LINE__);
+  }
+
+  // 2. UntypedProducer
+  {
+    std::optional<UntypedProducer> producer;
+    verifyAcquireRelease(
+        [&] {
+          AllocatorRegion region = {{base(), size()}, &mAllocator};
+          auto res = UntypedProducer::createLocal(
+              region, kBlockCapacity, sizeof(int), alignof(int),
+              kBaseMaxBlockCount, kBaseMinBlockCount, mDataNotifier,
+              kEmptyLocalNotifyArgs, &mMockMemoryAccess);
+          ASSERT_EQ(res.status(), pw::OkStatus());
+          producer.emplace(std::move(*res));
+        },
+        __LINE__);
+
+    int val = 1;
+    verifyAcquireRelease(
+        [&] {
+          EXPECT_RESULT_EQ(producer->push(pw::as_bytes(pw::span(&val, 1))), 1);
+        },
+        __LINE__);
+
+    verifyAcquireRelease([&] { producer->size(); }, __LINE__);
+
+    pw::Result<pw::ByteSpan> reservation;
+    verifyAcquireRelease([&] { reservation = producer->reserve(1); }, __LINE__);
+    ASSERT_EQ(reservation.status(), pw::OkStatus());
+
+    verifyAcquireRelease(
+        [&] { EXPECT_EQ(producer->commit(1), pw::OkStatus()); }, __LINE__);
+
+    verifyAcquireRelease([&] { producer->stop(); }, __LINE__);
+
+    verifyAcquireRelease([&] { producer.reset(); }, __LINE__);
+  }
+
+  // 3. VariableDataProducer
+  {
+    std::optional<VariableDataProducer> producer;
+    verifyAcquireRelease(
+        [&] {
+          AllocatorRegion region = {{base(), size()}, &mAllocator};
+          auto res = VariableDataProducer::createLocal(
+              region, kVarDataBlockCapacity, kBaseMaxBlockCount,
+              kBaseMinBlockCount, mDataNotifier, kEmptyLocalNotifyArgs,
+              &mMockMemoryAccess);
+          ASSERT_EQ(res.status(), pw::OkStatus());
+          producer.emplace(std::move(*res));
+        },
+        __LINE__);
+
+    std::vector<std::byte> data(10);
+    verifyAcquireRelease(
+        [&] { EXPECT_EQ(producer->push(data), pw::OkStatus()); }, __LINE__);
+
+    verifyAcquireRelease([&] { producer->size(); }, __LINE__);
+
+    pw::Result<pw::ByteSpan> reservation;
+    verifyAcquireRelease([&] { reservation = producer->reserve(10); },
+                         __LINE__);
+    ASSERT_EQ(reservation.status(), pw::OkStatus());
+
+    verifyAcquireRelease(
+        [&] { EXPECT_EQ(producer->truncate(5), pw::OkStatus()); }, __LINE__);
+
+    verifyAcquireRelease([&] { EXPECT_EQ(producer->commit(), pw::OkStatus()); },
+                         __LINE__);
+
+    verifyAcquireRelease([&] { producer->stop(); }, __LINE__);
+
+    verifyAcquireRelease([&] { producer.reset(); }, __LINE__);
+  }
+}
+
+TEST_F(MemoryAccessTest, ConsumerOperations) {
+  // 1. Consumer<int>
+  {
+    initLocalProducer(kEmptyLocalNotifyArgs);
+    ConsumerPolicyBuilder policyBuilder;
+    auto descOffset = mProducer->getConsumerManager().addConsumer(
+        kZeroId, policyBuilder.setOverwritable());
+    ASSERT_EQ(descOffset.status(), pw::OkStatus());
+
+    std::optional<Consumer<int>> consumer;
+    verifyAcquireRelease(
+        [&] {
+          auto res = Consumer<int>::createLocal(
+              {.base = base(), .size = size()}, mProducer->getQueueOffset(),
+              *descOffset, kEmptyLocalNotifyArgs, &mMockMemoryAccess);
+          ASSERT_EQ(res.status(), pw::OkStatus());
+          consumer.emplace(std::move(*res));
+        },
+        __LINE__);
+
+    // Push data so consumer is not empty
+    EXPECT_EQ(mProducer->push(1), pw::OkStatus());
+
+    verifyAcquireRelease([&] { EXPECT_RESULT_EQ(consumer->size(), 1); },
+                         __LINE__);
+
+    verifyAcquireRelease([&] { EXPECT_RESULT_EQ(consumer->empty(), false); },
+                         __LINE__);
+
+    verifyAcquireRelease(
+        [&] { EXPECT_RESULT_EQ(consumer->isOverwritable(), true); }, __LINE__);
+
+    verifyAcquireRelease(
+        [&] { EXPECT_EQ(consumer->peek(1).status(), pw::OkStatus()); },
+        __LINE__);
+
+    verifyAcquireRelease(
+        [&] { EXPECT_EQ(consumer->release(1), pw::OkStatus()); }, __LINE__);
+
+    EXPECT_EQ(mProducer->push(2), pw::OkStatus());
+    verifyAcquireRelease([&] { EXPECT_RESULT_EQ(consumer->pop(), 2); },
+                         __LINE__);
+
+    verifyAcquireRelease(
+        [&] { EXPECT_EQ(consumer->resync(0), pw::OkStatus()); }, __LINE__);
+
+    verifyAcquireRelease(
+        [&] { EXPECT_EQ(consumer->checkState(), pw::OkStatus()); }, __LINE__);
+
+    // disable() does NOT access memory, so no acquire/release expected.
+    consumer->disable();
+
+    // disable() prevents shared memory access, so no acquire/release expected.
+    consumer.reset();
+  }
+
+  // 2. UntypedConsumer
+  {
+    mProducer.reset();
+    mConsumers.clear();
+    // Use UntypedProducer to create the queue
+    auto producer = UntypedProducer::createLocal(
+        {{.base = base(), .size = size()}, .allocator = &mAllocator},
+        kBlockCapacity, sizeof(int), alignof(int), kBaseMaxBlockCount,
+        kBaseMinBlockCount, mDataNotifier, kEmptyLocalNotifyArgs);
+    ASSERT_EQ(producer.status(), pw::OkStatus());
+    mUntypedProducer.emplace(std::move(*producer));
+
+    ConsumerPolicyBuilder policyBuilder;
+    auto descOffset = mUntypedProducer->getConsumerManager().addConsumer(
+        kZeroId, policyBuilder);
+    ASSERT_EQ(descOffset.status(), pw::OkStatus());
+
+    std::optional<UntypedConsumer> consumer;
+    verifyAcquireRelease(
+        [&] {
+          auto res = UntypedConsumer::createLocal(
+              {.base = base(), .size = size()},
+              mUntypedProducer->getQueueOffset(), *descOffset,
+              kEmptyLocalNotifyArgs, &mMockMemoryAccess);
+          ASSERT_EQ(res.status(), pw::OkStatus());
+          consumer.emplace(std::move(*res));
+        },
+        __LINE__);
+
+    int val = 1;
+    EXPECT_RESULT_EQ(mUntypedProducer->push(pw::as_bytes(pw::span(&val, 1))),
+                     1);
+
+    verifyAcquireRelease([&] { EXPECT_RESULT_EQ(consumer->size(), 1); },
+                         __LINE__);
+
+    verifyAcquireRelease(
+        [&] { EXPECT_EQ(consumer->peek(1).status(), pw::OkStatus()); },
+        __LINE__);
+
+    verifyAcquireRelease(
+        [&] { EXPECT_EQ(consumer->release(1), pw::OkStatus()); }, __LINE__);
+
+    verifyAcquireRelease([&] { consumer.reset(); }, __LINE__);
+  }
+
+  // 3. VariableDataConsumer
+  {
+    mUntypedProducer.reset();
+    initLocalVarDataProducer(kEmptyLocalNotifyArgs);
+    ConsumerPolicyBuilder policyBuilder;
+    auto descOffset = mVarDataProducer->getConsumerManager().addConsumer(
+        kZeroId, policyBuilder);
+    ASSERT_EQ(descOffset.status(), pw::OkStatus());
+
+    std::optional<VariableDataConsumer> consumer;
+    verifyAcquireRelease(
+        [&] {
+          auto res = VariableDataConsumer::createLocal(
+              {.base = base(), .size = size()},
+              mVarDataProducer->getQueueOffset(), *descOffset,
+              kEmptyLocalNotifyArgs, &mMockMemoryAccess);
+          ASSERT_EQ(res.status(), pw::OkStatus());
+          consumer.emplace(std::move(*res));
+        },
+        __LINE__);
+
+    std::vector<std::byte> data(10);
+    EXPECT_EQ(mVarDataProducer->push(data), pw::OkStatus());
+
+    verifyAcquireRelease(
+        [&] { EXPECT_EQ(consumer->size().status(), pw::OkStatus()); },
+        __LINE__);
+
+    verifyAcquireRelease([&] { EXPECT_RESULT_EQ(consumer->getHeadSize(), 10); },
+                         __LINE__);
+
+    verifyAcquireRelease(
+        [&] { EXPECT_EQ(consumer->peek().status(), pw::OkStatus()); },
+        __LINE__);
+
+    verifyAcquireRelease(
+        [&] { EXPECT_EQ(consumer->release(), pw::OkStatus()); }, __LINE__);
+
+    verifyAcquireRelease([&] { consumer.reset(); }, __LINE__);
+  }
 }
 
 }  // namespace

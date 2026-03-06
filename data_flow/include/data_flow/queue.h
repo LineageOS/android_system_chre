@@ -53,6 +53,12 @@ class MemoryAccess {
 };
 
 /**
+ * RAII wrapper for Memory Access. Users on the producer side can use this when
+ * managing the allocator.
+ */
+using ScopedMemoryAccess = internal::ScopedMemoryAccess;
+
+/**
  * Handles data availability notifications on a Queue.
  *
  * The base implementation supports the policies kNever, kHighWaterMark, and
@@ -330,6 +336,7 @@ class Producer : protected internal::ProducerBase {
     if (notifyArgs.fn == nullptr) {
       return pw::Status::InvalidArgument();
     }
+    ScopedMemoryAccess memAccessScope(memAccess);
     PW_TRY_ASSIGN(internal::QueuePrivate * queuePtr,
                   Base::initQueue(region, blockCapacity * sizeof(ElementType),
                                   sizeof(ElementType), alignof(ElementType),
@@ -355,6 +362,7 @@ class Producer : protected internal::ProducerBase {
     if (!notifyArgs.fn) {
       return pw::Status::InvalidArgument();
     }
+    ScopedMemoryAccess memAccessScope(memAccess);
     PW_TRY_ASSIGN(
         internal::QueuePrivate * queuePtr,
         Base::initQueue(region, blockCapacity * sizeof(ElementType),
@@ -528,6 +536,7 @@ class Consumer : protected internal::ConsumerBase {
     if (!notifyArgs.fn) {
       return pw::Status::InvalidArgument();
     }
+    ScopedMemoryAccess memAccessScope(memAccess);
     PW_TRY_ASSIGN(auto queueAndDesc, checkArgs(region, /*descRegion=*/nullptr,
                                                queueOffset, descOffset));
     Consumer consumer(region, *queueAndDesc.first, *queueAndDesc.second,
@@ -555,6 +564,7 @@ class Consumer : protected internal::ConsumerBase {
     if (!notifyArgs.fn) {
       return pw::Status::InvalidArgument();
     }
+    ScopedMemoryAccess memAccessScope(memAccess);
     auto *regionPtr = descRegion ? &*descRegion : nullptr;
     PW_TRY_ASSIGN(auto queueAndDesc,
                   checkArgs(region, regionPtr, queueOffset, descOffset));
@@ -729,6 +739,7 @@ class VariableDataProducer : protected internal::ProducerBase {
   using Base::getQueueOffset;
   using Base::setMaxBlockCountTarget;
   using Base::setMinBlockCountTarget;
+  using Base::stop;
 
   /**
    * Reserve up-to-count bytes for a variable-size element if there is space.
@@ -887,6 +898,7 @@ class VariableDataConsumer : protected internal::ConsumerBase {
    * there are no elements.
    */
   pw::Status release() {
+    ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
     PW_TRY(releaseNoNotify());
     maybeNotifyOnRead();
     return pw::OkStatus();

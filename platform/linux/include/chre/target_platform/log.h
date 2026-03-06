@@ -38,7 +38,7 @@
         chre::SystemTime::getMonotonicTime().toRawNanoseconds() / 1000000; \
     uint64_t secondsPart = timeMs / 1000;                                  \
     uint64_t millisPart = timeMs % 1000;                                   \
-    printf("\e[" color "m%s %s:%d\t@ %" PRIu64 ".03%" PRIu64 ": " fmt      \
+    printf("\e[" color "m%s %s:%d\t@ %" PRIu64 ".%03" PRIu64 ": " fmt      \
            "\e[0m\n",                                                      \
            levelStr, __FILENAME__, __LINE__, secondsPart, millisPart,      \
            ##__VA_ARGS__);                                                 \
@@ -54,7 +54,7 @@
     uint64_t millisPart = timeMs % 1000;                                    \
     ::chre::PlatformLogSingleton::get()->log(                               \
         logLevel,                                                           \
-        "\e[" color "m%s %s:%d\t@ %" PRIu64 ".03%" PRIu64 ": " fmt "\e[0m", \
+        "\e[" color "m%s %s:%d\t@ %" PRIu64 ".%03" PRIu64 ": " fmt "\e[0m", \
         levelStr, __FILENAME__, __LINE__, secondsPart, millisPart,          \
         ##__VA_ARGS__);                                                     \
   }

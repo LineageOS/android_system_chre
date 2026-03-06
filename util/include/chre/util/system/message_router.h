@@ -33,6 +33,7 @@
 #include "pw_function/function.h"
 #include "pw_intrusive_ptr/intrusive_ptr.h"
 #include "pw_intrusive_ptr/recyclable.h"
+#include "pw_span/span.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -165,6 +166,14 @@ class MessageRouter {
  private:
   friend class chre::message::MessageHub;
 
+  //! Represents a list of endpoints connected to a MessageHub that will receive
+  //! a callback.
+  struct HubCallbackRecipients {
+    MessageHubId hubId;
+    pw::IntrusivePtr<MessageHubCallbackV2> callback;
+    DynamicVector<Endpoint> endpoints;
+  };
+
   //! Registers a MessageHub with the MessageRouter.
   //! @see registerMessageHub
   //! @param version The version of the callback to register.
@@ -296,7 +305,7 @@ class MessageRouter {
     if (record == nullptr || record->version < minVersion) {
       return nullptr;
     }
-    return pw::IntrusivePtr<T>(record->callback);
+    return pw::IntrusivePtr<T>(static_cast<T *>(record->callback.get()));
   }
 
   //! @return true if the endpoint exists in the MessageHub with the given
@@ -304,6 +313,29 @@ class MessageRouter {
   bool checkIfEndpointExists(
       const pw::IntrusivePtr<MessageHubCallback> &callback,
       EndpointId endpointId);
+
+  //! Verifies that the session with the given ID exists and is active.
+  //! Also verifies that the sender endpoint is part of the session and that the
+  //! recipient endpoint is on the toHubId if it is not MESSAGE_HUB_ID_ANY.
+  //! @param sessionId The ID of the session
+  //! @param fromMessageHubId The ID of the sender's message hub
+  //! @param fromEndpointId The ID of the sender's endpoint. May be
+  //! ENDPOINT_ID_ANY to infer the endpoint ID from the session.
+  //! @param toHubId The ID of the recipient's message hub. If not set to
+  //! MESSAGE_HUB_ID_ANY, will be used to verify the recipient hub.
+  //! @param toEndpointId The ID of the recipient endpoint. If not set to
+  //! ENDPOINT_ID_ANY, will be used to verify the recipient endpoint.
+  //! @param errorTag The tag to use in log messages
+  //! @return The session if it exists and is active and a boolean that is true
+  //! iff the session initiator sent the message, error otherwise
+  std::optional<std::pair<Session, bool>> verifyMessageSessionLocked(
+      SessionId sessionId, MessageHubId fromMessageHubId,
+      EndpointId fromEndpointId, MessageHubId toHubId, EndpointId toEndpointId,
+      const char *errorTag);
+
+  //! @return The list of HubCallbackRecipients for the given endpoints.
+  chre::DynamicVector<HubCallbackRecipients> getHubCallbackRecipientList(
+      pw::span<const Endpoint> endpoints);
 
   //! @return The next available Session ID. Will wrap around if needed and
   //! ensures the returned ID is not in the reserved range nor is it already in
