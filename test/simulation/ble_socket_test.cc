@@ -86,14 +86,15 @@ pw::Result<EmbossT> buildCommandResponseSuccessEvent(
   return view;
 }
 
-class BleSocketTest : public SingleThreadTestBase {
+template <typename TestBase>
+class BleSocketTest : public TestBase {
  public:
   void SetUp() override {
-    SingleThreadTestBase::SetUp();
+    TestBase::SetUp();
     resetSocketVariables();
 
-    sendLeConnectionCompleteSubevent(mSocketData.connectionHandle);
-    sendConnectionCompleteEvent(mRfcommSocketData.connectionHandle);
+    this->sendLeConnectionCompleteSubevent(this->mSocketData.connectionHandle);
+    this->sendConnectionCompleteEvent(this->mRfcommSocketData.connectionHandle);
   }
 
   // Send an LE connection complete event to the ProxyHost indicating the
@@ -119,7 +120,7 @@ class BleSocketTest : public SingleThreadTestBase {
 
     EXPECT_TRUE(view.Ok());
 
-    mProxyHost.value().HandleH4HciFromController(
+    this->mProxyHost.value().HandleH4HciFromController(
         {h4Packet.GetH4Type(), h4Packet.GetHciSpan()});
 
     return pw::OkStatus();
@@ -141,7 +142,7 @@ class BleSocketTest : public SingleThreadTestBase {
 
     EXPECT_TRUE(view.Ok());
 
-    mProxyHost.value().HandleH4HciFromController(
+    this->mProxyHost.value().HandleH4HciFromController(
         {h4Packet.GetH4Type(), h4Packet.GetHciSpan()});
 
     return pw::OkStatus();
@@ -172,7 +173,7 @@ class BleSocketTest : public SingleThreadTestBase {
 
     EXPECT_TRUE(view.Ok());
 
-    mProxyHost.value().HandleH4HciFromController(
+    this->mProxyHost.value().HandleH4HciFromController(
         {h4Packet.GetH4Type(), h4Packet.GetHciSpan()});
     return pw::OkStatus();
   }
@@ -202,7 +203,7 @@ class BleSocketTest : public SingleThreadTestBase {
 
     EXPECT_TRUE(view.Ok());
 
-    mProxyHost.value().HandleH4HciFromController(
+    this->mProxyHost.value().HandleH4HciFromController(
         {h4Packet.GetH4Type(), h4Packet.GetHciSpan()});
     return pw::OkStatus();
   }
@@ -232,7 +233,7 @@ class BleSocketTest : public SingleThreadTestBase {
 
     EXPECT_TRUE(view.Ok());
 
-    mProxyHost.value().HandleH4HciFromController(
+    this->mProxyHost.value().HandleH4HciFromController(
         {h4Packet.GetH4Type(), h4Packet.GetHciSpan()});
     return pw::OkStatus();
   }
@@ -387,7 +388,20 @@ class BleSocketTestNanoapp : public TestNanoapp {
 
 }  // namespace
 
-TEST_F(BleSocketTest, BleSocketCapabilitesTest) {
+// TODO(b/430128660): Add test for the multi-thread foreground case.
+using TestTypes = ::testing::Types<SingleThreadTestBase, MultiThreadTestBase>;
+class NameGenerator {
+ public:
+  template <typename T>
+  static std::string GetName(int) {
+    if constexpr (std::is_same_v<T, SingleThreadTestBase>)
+      return "SingleThread";
+    if constexpr (std::is_same_v<T, MultiThreadTestBase>) return "MultiThread";
+  }
+};
+TYPED_TEST_SUITE(BleSocketTest, TestTypes, NameGenerator);
+
+TYPED_TEST(BleSocketTest, BleSocketCapabilitesTest) {
   EventLoopManagerSingleton::get()
       ->getBleSocketManager()
       .handleSocketCapabilitiesRequestByHost();
@@ -400,170 +414,171 @@ TEST_F(BleSocketTest, BleSocketCapabilitesTest) {
   EXPECT_EQ(capabilities.rfcommMaxFrameSize, 1024);
 }
 
-TEST_F(BleSocketTest, BleSocketAcceptConnectionTest) {
-  uint64_t appId = loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
+TYPED_TEST(BleSocketTest, BleSocketAcceptConnectionTest) {
+  uint64_t appId = this->loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
 
-  sendLeReadBufferResponseFromController(1);
+  this->sendLeReadBufferResponseFromController(1);
   // Expect the L2capCoc to send the L2capFlowControlCreditInd after the socket
   // is opened
-  EXPECT_CALL(mMockBtOffload, sendToController(_)).Times(1);
+  EXPECT_CALL(this->mMockBtOffload, sendToController(_)).Times(1);
 
   EventLoopManagerSingleton::get()
       ->getBleSocketManager()
-      .handleSocketOpenedByHost(mSocketData);
-  waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
+      .handleSocketOpenedByHost(this->mSocketData);
+  this->waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
 
   // Now we send a NO_OP_EVENT as a barrier.
   // Once NO_OP_EVENT is received it is guaranteed that the socket open response
   // in the queue prior to it has been processed so we now can check the result.
   sendEventToNanoapp(appId, NO_OP_EVENT);
-  waitForEvent(NO_OP_EVENT);
+  this->waitForEvent(NO_OP_EVENT);
 
   EXPECT_TRUE(getSocketOpenSuccess());
 }
 
-TEST_F(BleSocketTest, BleSocketNanoappNotFoundTest) {
-  uint64_t appId = loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
+TYPED_TEST(BleSocketTest, BleSocketNanoappNotFoundTest) {
+  uint64_t appId = this->loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
 
-  sendLeReadBufferResponseFromController(1);
+  this->sendLeReadBufferResponseFromController(1);
   // Expect the L2capCoc to send the L2capFlowControlCreditInd after the socket
   // is opened
-  EXPECT_CALL(mMockBtOffload, sendToController(_)).Times(1);
+  EXPECT_CALL(this->mMockBtOffload, sendToController(_)).Times(1);
 
   constexpr uint64_t kInvalidEndpointId = 1;
-  mSocketData.endpointId = kInvalidEndpointId;
+  this->mSocketData.endpointId = kInvalidEndpointId;
   EventLoopManagerSingleton::get()
       ->getBleSocketManager()
-      .handleSocketOpenedByHost(mSocketData);
+      .handleSocketOpenedByHost(this->mSocketData);
 
   // This ensures that the socket open response has been sent.
   sendEventToNanoapp(appId, NO_OP_EVENT);
-  waitForEvent(NO_OP_EVENT);
+  this->waitForEvent(NO_OP_EVENT);
 
   EXPECT_FALSE(getSocketOpenSuccess());
   EXPECT_STREQ(getSocketOpenFailureReason(), "failed to find nanoapp");
 }
 
-TEST_F(BleSocketTest, BleSocketDoNotAcceptConnectionTest) {
+TYPED_TEST(BleSocketTest, BleSocketDoNotAcceptConnectionTest) {
   auto app = MakeUnique<BleSocketTestNanoapp>();
   app->setShouldAccept(false);
-  uint64_t appId = loadNanoapp(std::move(app));
+  uint64_t appId = this->loadNanoapp(std::move(app));
 
-  sendLeReadBufferResponseFromController(1);
+  this->sendLeReadBufferResponseFromController(1);
   // Expect the L2capCoc to send the L2capFlowControlCreditInd after the socket
   // is opened
-  EXPECT_CALL(mMockBtOffload, sendToController(_)).Times(1);
+  EXPECT_CALL(this->mMockBtOffload, sendToController(_)).Times(1);
 
   EventLoopManagerSingleton::get()
       ->getBleSocketManager()
-      .handleSocketOpenedByHost(mSocketData);
-  waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
+      .handleSocketOpenedByHost(this->mSocketData);
+  this->waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
 
   // Now we send a NO_OP_EVENT as a barrier.
   // Once NO_OP_EVENT is received it is guaranteed that the socket open response
   // in the queue prior to it has been processed so we now can check the result.
   sendEventToNanoapp(appId, NO_OP_EVENT);
-  waitForEvent(NO_OP_EVENT);
+  this->waitForEvent(NO_OP_EVENT);
 
   EXPECT_FALSE(getSocketOpenSuccess());
   EXPECT_STREQ(getSocketOpenFailureReason(), "nanoapp did not accept socket");
 }
 
-TEST_F(BleSocketTest, BleSocketBasicSendTest) {
-  uint64_t appId = loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
+TYPED_TEST(BleSocketTest, BleSocketBasicSendTest) {
+  uint64_t appId = this->loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
 
-  sendLeReadBufferResponseFromController(2);
+  this->sendLeReadBufferResponseFromController(2);
   // Expect the L2capCoc to send the L2capFlowControlCreditInd after the socket
   // is opened
-  EXPECT_CALL(mMockBtOffload, sendToController(_)).Times(1);
+  EXPECT_CALL(this->mMockBtOffload, sendToController(_)).Times(1);
 
   EventLoopManagerSingleton::get()
       ->getBleSocketManager()
-      .handleSocketOpenedByHost(mSocketData);
-  waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
+      .handleSocketOpenedByHost(this->mSocketData);
+  this->waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
 
   // Expect chreBleSocketSend to result in sending a packet to the BT Controller
-  EXPECT_CALL(mMockBtOffload, sendToController(_)).Times(1);
+  EXPECT_CALL(this->mMockBtOffload, sendToController(_)).Times(1);
 
-  sendEventToNanoapp(appId, SOCKET_SEND, mDefaultSocketData);
+  sendEventToNanoapp(appId, SOCKET_SEND, this->mDefaultSocketData);
   int32_t status = 0;
-  waitForEvent(SOCKET_SEND, &status);
+  this->waitForEvent(SOCKET_SEND, &status);
   EXPECT_EQ(status, CHRE_BLE_SOCKET_SEND_STATUS_SUCCESS);
-  waitForEvent(SOCKET_SEND_FREE_CALLBACK);
+  this->waitForEvent(SOCKET_SEND_FREE_CALLBACK);
 }
 
-TEST_F(BleSocketTest, BleSocketSendNoSocketFoundTest) {
+TYPED_TEST(BleSocketTest, BleSocketSendNoSocketFoundTest) {
   auto app = MakeUnique<BleSocketTestNanoapp>();
   app->setSocketId(1);
-  uint64_t appId = loadNanoapp(std::move(app));
+  uint64_t appId = this->loadNanoapp(std::move(app));
 
-  sendEventToNanoapp(appId, SOCKET_SEND, mDefaultSocketData);
+  sendEventToNanoapp(appId, SOCKET_SEND, this->mDefaultSocketData);
   int32_t status = 0;
-  waitForEvent(SOCKET_SEND, &status);
+  this->waitForEvent(SOCKET_SEND, &status);
   EXPECT_EQ(status, CHRE_BLE_SOCKET_SEND_STATUS_FAILURE);
 
-  waitForEvent(SOCKET_SEND_FREE_CALLBACK);
+  this->waitForEvent(SOCKET_SEND_FREE_CALLBACK);
 }
 
-TEST_F(BleSocketTest, BleSocketSendQueueFullTest) {
+TYPED_TEST(BleSocketTest, BleSocketSendQueueFullTest) {
   auto app = MakeUnique<BleSocketTestNanoapp>();
-  uint64_t appId = loadNanoapp(std::move(app));
+  uint64_t appId = this->loadNanoapp(std::move(app));
 
-  sendLeReadBufferResponseFromController(1);
+  this->sendLeReadBufferResponseFromController(1);
   // Expect the L2capCoc to send the L2capFlowControlCreditInd after the socket
   // is opened
-  EXPECT_CALL(mMockBtOffload, sendToController(_)).Times(1);
+  EXPECT_CALL(this->mMockBtOffload, sendToController(_)).Times(1);
 
   EventLoopManagerSingleton::get()
       ->getBleSocketManager()
-      .handleSocketOpenedByHost(mSocketData);
-  waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
+      .handleSocketOpenedByHost(this->mSocketData);
+  this->waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
 
   int32_t status = 0;
 
   // TODO(b/430672746): 5 is the hard coded queue size of an L2CAP channel.
   // Revisit this number when https://pwbug.dev/349700888 has been addressed.
   for (size_t i = 0; i < 5; i++) {
-    sendEventToNanoapp(appId, SOCKET_SEND, mDefaultSocketData);
-    waitForEvent(SOCKET_SEND, &status);
+    sendEventToNanoapp(appId, SOCKET_SEND, this->mDefaultSocketData);
+    this->waitForEvent(SOCKET_SEND, &status);
     EXPECT_EQ(status, CHRE_BLE_SOCKET_SEND_STATUS_SUCCESS);
   }
   // The 6th socket send request should result in the queue full status
-  sendEventToNanoapp(appId, SOCKET_SEND, mDefaultSocketData);
-  waitForEvent(SOCKET_SEND, &status);
+  sendEventToNanoapp(appId, SOCKET_SEND, this->mDefaultSocketData);
+  this->waitForEvent(SOCKET_SEND, &status);
   EXPECT_EQ(status, CHRE_BLE_SOCKET_SEND_STATUS_QUEUE_FULL);
 
   // Send an NOCP event to the ProxyHost to restore its ACL credit. This results
   // in the L2capCoc sending the first queued packet to the BT Controller.
-  EXPECT_CALL(mMockBtOffload, sendToController(_)).Times(1);
-  sendNumberOfCompletedPackets(mSocketData.connectionHandle, 1);
+  EXPECT_CALL(this->mMockBtOffload, sendToController(_)).Times(1);
+  this->sendNumberOfCompletedPackets(this->mSocketData.connectionHandle, 1);
 
   // First packet in queue is sent and its freeCallback is invoked.
-  waitForEvent(SOCKET_SEND_FREE_CALLBACK);
+  this->waitForEvent(SOCKET_SEND_FREE_CALLBACK);
   // Callback notifying CHRE that second callback is available
-  waitForEvent(CHRE_EVENT_BLE_SOCKET_SEND_AVAILABLE);
+  this->waitForEvent(CHRE_EVENT_BLE_SOCKET_SEND_AVAILABLE);
   // Nanoapp successfully re-sends packet
-  waitForEvent(SOCKET_RETRY_SEND, &status);
+  this->waitForEvent(SOCKET_RETRY_SEND, &status);
   EXPECT_EQ(status, CHRE_BLE_SOCKET_SEND_STATUS_SUCCESS);
 }
 
-TEST_F(BleSocketTest, BleSocketBasicReceiveTest) {
-  uint64_t appId = loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
+TYPED_TEST(BleSocketTest, BleSocketBasicReceiveTest) {
+  uint64_t appId = this->loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
   UNUSED_VAR(appId);
 
-  sendLeReadBufferResponseFromController(1);
+  this->sendLeReadBufferResponseFromController(1);
   // Expect the L2capCoc to send the L2capFlowControlCreditInd after the socket
   // is opened
-  EXPECT_CALL(mMockBtOffload, sendToController(_)).Times(1);
+  EXPECT_CALL(this->mMockBtOffload, sendToController(_)).Times(1);
 
   EventLoopManagerSingleton::get()
       ->getBleSocketManager()
-      .handleSocketOpenedByHost(mSocketData);
-  waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
+      .handleSocketOpenedByHost(this->mSocketData);
+  this->waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
 
   std::array<uint8_t, 3> expectedPayload = {0xAB, 0xCD, 0xEF};
 
-  std::array<uint8_t, kFirstKFrameOverAclMinSize + expectedPayload.size()>
+  std::array<uint8_t, BleSocketTest<TypeParam>::kFirstKFrameOverAclMinSize +
+                          expectedPayload.size()>
       hciArray;
   hciArray.fill(0);
   pw::bluetooth::proxy::H4PacketWithHci h4Packet{pbe::H4PacketType::ACL_DATA,
@@ -571,274 +586,280 @@ TEST_F(BleSocketTest, BleSocketBasicReceiveTest) {
 
   pw::Result<pbe::AclDataFrameWriter> acl =
       pw::bluetooth::MakeEmbossWriter<pbe::AclDataFrameWriter>(hciArray);
-  acl->header().handle().Write(mSocketData.connectionHandle);
+  acl->header().handle().Write(this->mSocketData.connectionHandle);
   acl->data_total_length().Write(pbe::FirstKFrame::MinSizeInBytes() +
                                  expectedPayload.size());
 
   pbe::FirstKFrameWriter kframe = pbe::MakeFirstKFrameView(
       acl->payload().BackingStorage().data(), acl->data_total_length().Read());
-  kframe.pdu_length().Write(kSduLengthFieldSize + expectedPayload.size());
-  kframe.channel_id().Write(mSocketData.rxConfig.cid);
+  kframe.pdu_length().Write(BleSocketTest<TypeParam>::kSduLengthFieldSize +
+                            expectedPayload.size());
+  kframe.channel_id().Write(this->mSocketData.rxConfig.cid);
   kframe.sdu_length().Write(expectedPayload.size());
-  std::copy(expectedPayload.begin(), expectedPayload.end(),
-            hciArray.begin() + kFirstKFrameOverAclMinSize);
+  std::copy(
+      expectedPayload.begin(), expectedPayload.end(),
+      hciArray.begin() + BleSocketTest<TypeParam>::kFirstKFrameOverAclMinSize);
 
-  mProxyHost->HandleH4HciFromController(std::move(h4Packet));
+  this->mProxyHost->HandleH4HciFromController(std::move(h4Packet));
 
   std::vector<uint8_t> *receiveData;
-  waitForEvent(CHRE_EVENT_BLE_SOCKET_PACKET, &receiveData);
+  this->waitForEvent(CHRE_EVENT_BLE_SOCKET_PACKET, &receiveData);
   EXPECT_TRUE(std::equal(receiveData->begin(), receiveData->end(),
                          expectedPayload.begin(), expectedPayload.end()));
 }
 
-TEST_F(BleSocketTest, BleSocketInvalidRxTest) {
-  uint64_t appId = loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
+TYPED_TEST(BleSocketTest, BleSocketInvalidRxTest) {
+  uint64_t appId = this->loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
 
-  sendLeReadBufferResponseFromController(1);
+  this->sendLeReadBufferResponseFromController(1);
   // Expect the L2capCoc to send the L2capFlowControlCreditInd after the socket
   // is opened
-  EXPECT_CALL(mMockBtOffload, sendToController(_)).Times(1);
+  EXPECT_CALL(this->mMockBtOffload, sendToController(_)).Times(1);
 
   EventLoopManagerSingleton::get()
       ->getBleSocketManager()
-      .handleSocketOpenedByHost(mSocketData);
-  waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
+      .handleSocketOpenedByHost(this->mSocketData);
+  this->waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
 
   // Specify PDU length larger than Rx config to trigger kRxInvalid event
-  constexpr uint8_t kInvalidPduSize = kRxMps + 1;
+  constexpr uint8_t kInvalidPduSize = BleSocketTest<TypeParam>::kRxMps + 1;
 
-  std::array<uint8_t, kFirstKFrameOverAclMinSize + kInvalidPduSize> hciArray;
+  std::array<uint8_t, BleSocketTest<TypeParam>::kFirstKFrameOverAclMinSize +
+                          kInvalidPduSize>
+      hciArray;
   hciArray.fill(0);
   pw::bluetooth::proxy::H4PacketWithHci h4Packet{pbe::H4PacketType::ACL_DATA,
                                                  hciArray};
 
   pw::Result<pbe::AclDataFrameWriter> acl =
       pw::bluetooth::MakeEmbossWriter<pbe::AclDataFrameWriter>(hciArray);
-  acl->header().handle().Write(mSocketData.connectionHandle);
+  acl->header().handle().Write(this->mSocketData.connectionHandle);
   acl->data_total_length().Write(pbe::FirstKFrame::MinSizeInBytes() +
                                  kInvalidPduSize);
 
   pbe::FirstKFrameWriter kframe = pbe::MakeFirstKFrameView(
       acl->payload().BackingStorage().data(), acl->data_total_length().Read());
-  kframe.pdu_length().Write(kSduLengthFieldSize + kInvalidPduSize);
-  kframe.channel_id().Write(mSocketData.rxConfig.cid);
+  kframe.pdu_length().Write(BleSocketTest<TypeParam>::kSduLengthFieldSize +
+                            kInvalidPduSize);
+  kframe.channel_id().Write(this->mSocketData.rxConfig.cid);
   kframe.sdu_length().Write(kInvalidPduSize);
 
-  mProxyHost->HandleH4HciFromController(std::move(h4Packet));
+  this->mProxyHost->HandleH4HciFromController(std::move(h4Packet));
 
-  sendEventToNanoapp(appId, SOCKET_SEND, mDefaultSocketData);
+  sendEventToNanoapp(appId, SOCKET_SEND, this->mDefaultSocketData);
   int32_t status = 0;
-  waitForEvent(SOCKET_SEND, &status);
+  this->waitForEvent(SOCKET_SEND, &status);
   // Failure due to ProxyHost stopping channel
   EXPECT_EQ(status, CHRE_BLE_SOCKET_SEND_STATUS_FAILURE);
   // Free callback is invoked asynchronously because MultiBuf has been created
-  waitForEvent(SOCKET_SEND_FREE_CALLBACK);
+  this->waitForEvent(SOCKET_SEND_FREE_CALLBACK);
   // CHRE notifies Host for this type of failure
   EXPECT_EQ(getSocketClosureCount(), 1);
 }
 
-TEST_F(BleSocketTest, BleSocketBtResetTest) {
-  uint64_t appId = loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
+TYPED_TEST(BleSocketTest, BleSocketBtResetTest) {
+  uint64_t appId = this->loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
 
-  sendLeReadBufferResponseFromController(1);
+  this->sendLeReadBufferResponseFromController(1);
   // Expect the L2capCoc to send the L2capFlowControlCreditInd after the socket
   // is opened
-  EXPECT_CALL(mMockBtOffload, sendToController(_)).Times(1);
+  EXPECT_CALL(this->mMockBtOffload, sendToController(_)).Times(1);
 
   EventLoopManagerSingleton::get()
       ->getBleSocketManager()
-      .handleSocketOpenedByHost(mSocketData);
-  waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
+      .handleSocketOpenedByHost(this->mSocketData);
+  this->waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
 
-  mProxyHost->Reset();
-  sendEventToNanoapp(appId, SOCKET_SEND, mDefaultSocketData);
+  this->mProxyHost->Reset();
+  sendEventToNanoapp(appId, SOCKET_SEND, this->mDefaultSocketData);
   int32_t status = 0;
-  waitForEvent(SOCKET_SEND, &status);
+  this->waitForEvent(SOCKET_SEND, &status);
   // Failure due to ProxyHost stopping channel
   EXPECT_EQ(status, CHRE_BLE_SOCKET_SEND_STATUS_FAILURE);
   // Free callback is invoked asynchronously because MultiBuf has been created
-  waitForEvent(SOCKET_SEND_FREE_CALLBACK);
+  this->waitForEvent(SOCKET_SEND_FREE_CALLBACK);
   // Host not notified for this type of failure because it is notified by the
   // Android Bluetooth Stack
   EXPECT_EQ(getSocketClosureCount(), 0);
 }
 
-TEST_F(BleSocketTest, BleSocketClosedAfterUnloadTest) {
-  uint64_t appId = loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
+TYPED_TEST(BleSocketTest, BleSocketClosedAfterUnloadTest) {
+  uint64_t appId = this->loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
 
-  sendLeReadBufferResponseFromController(1);
+  this->sendLeReadBufferResponseFromController(1);
   // Expect the L2capCoc to send the L2capFlowControlCreditInd after the socket
   // is opened
-  EXPECT_CALL(mMockBtOffload, sendToController(_)).Times(1);
+  EXPECT_CALL(this->mMockBtOffload, sendToController(_)).Times(1);
 
   EventLoopManagerSingleton::get()
       ->getBleSocketManager()
-      .handleSocketOpenedByHost(mSocketData);
-  waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
+      .handleSocketOpenedByHost(this->mSocketData);
+  this->waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
 
-  unloadNanoapp(appId);
+  this->unloadNanoapp(appId);
   EXPECT_EQ(getSocketClosureCount(), 1);
 }
 
-TEST_F(BleSocketTest, BleSocketClosedAfterHostMessageTest) {
-  uint64_t appId = loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
+TYPED_TEST(BleSocketTest, BleSocketClosedAfterHostMessageTest) {
+  uint64_t appId = this->loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
   UNUSED_VAR(appId);
 
-  sendLeReadBufferResponseFromController(1);
+  this->sendLeReadBufferResponseFromController(1);
   // Expect the L2capCoc to send the L2capFlowControlCreditInd after the socket
   // is opened
-  EXPECT_CALL(mMockBtOffload, sendToController(_)).Times(1);
+  EXPECT_CALL(this->mMockBtOffload, sendToController(_)).Times(1);
 
   EventLoopManagerSingleton::get()
       ->getBleSocketManager()
-      .handleSocketOpenedByHost(mSocketData);
-  waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
+      .handleSocketOpenedByHost(this->mSocketData);
+  this->waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
 
   EventLoopManagerSingleton::get()
       ->getBleSocketManager()
-      .handleSocketClosedByHost(mSocketData.socketId);
-  waitForEvent(CHRE_EVENT_BLE_SOCKET_DISCONNECTION);
+      .handleSocketClosedByHost(this->mSocketData.socketId);
+  this->waitForEvent(CHRE_EVENT_BLE_SOCKET_DISCONNECTION);
   // Host not notified because it triggered the closure
   EXPECT_EQ(getSocketClosureCount(), 0);
 }
 
-TEST_F(BleSocketTest, RfcommSocketAcceptConnectionTest) {
-  uint64_t appId = loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
+TYPED_TEST(BleSocketTest, RfcommSocketAcceptConnectionTest) {
+  uint64_t appId = this->loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
 
-  sendReadBufferResponseFromController(1);
+  this->sendReadBufferResponseFromController(1);
 
   EventLoopManagerSingleton::get()
       ->getBleSocketManager()
-      .handleSocketOpenedByHost(mRfcommSocketData);
-  waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
+      .handleSocketOpenedByHost(this->mRfcommSocketData);
+  this->waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
 
   // Now we send a NO_OP_EVENT as a barrier.
   // Once NO_OP_EVENT is received it is guaranteed that the socket open response
   // in the queue prior to it has been processed so we now can check the result.
   sendEventToNanoapp(appId, NO_OP_EVENT);
-  waitForEvent(NO_OP_EVENT);
+  this->waitForEvent(NO_OP_EVENT);
 
   EXPECT_TRUE(getSocketOpenSuccess());
 }
 
-TEST_F(BleSocketTest, RfcommSocketNanoappNotFoundTest) {
-  uint64_t appId = loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
+TYPED_TEST(BleSocketTest, RfcommSocketNanoappNotFoundTest) {
+  uint64_t appId = this->loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
 
-  sendReadBufferResponseFromController(1);
+  this->sendReadBufferResponseFromController(1);
 
   constexpr uint64_t kInvalidEndpointId = 1;
-  mRfcommSocketData.endpointId = kInvalidEndpointId;
+  this->mRfcommSocketData.endpointId = kInvalidEndpointId;
   EventLoopManagerSingleton::get()
       ->getBleSocketManager()
-      .handleSocketOpenedByHost(mRfcommSocketData);
+      .handleSocketOpenedByHost(this->mRfcommSocketData);
 
   // This ensures that the socket open response has been sent.
   sendEventToNanoapp(appId, NO_OP_EVENT);
-  waitForEvent(NO_OP_EVENT);
+  this->waitForEvent(NO_OP_EVENT);
 
   EXPECT_FALSE(getSocketOpenSuccess());
   EXPECT_STREQ(getSocketOpenFailureReason(), "failed to find nanoapp");
 }
 
-TEST_F(BleSocketTest, RfcommSocketDoNotAcceptConnectionTest) {
+TYPED_TEST(BleSocketTest, RfcommSocketDoNotAcceptConnectionTest) {
   auto app = MakeUnique<BleSocketTestNanoapp>();
   app->setShouldAccept(false);
-  uint64_t appId = loadNanoapp(std::move(app));
+  uint64_t appId = this->loadNanoapp(std::move(app));
 
-  sendReadBufferResponseFromController(1);
+  this->sendReadBufferResponseFromController(1);
 
   EventLoopManagerSingleton::get()
       ->getBleSocketManager()
-      .handleSocketOpenedByHost(mRfcommSocketData);
-  waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
+      .handleSocketOpenedByHost(this->mRfcommSocketData);
+  this->waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
 
   // Now we send a NO_OP_EVENT as a barrier.
   // Once NO_OP_EVENT is received it is guaranteed that the socket open response
   // in the queue prior to it has been processed so we now can check the result.
   sendEventToNanoapp(appId, NO_OP_EVENT);
-  waitForEvent(NO_OP_EVENT);
+  this->waitForEvent(NO_OP_EVENT);
 
   EXPECT_FALSE(getSocketOpenSuccess());
   EXPECT_STREQ(getSocketOpenFailureReason(), "nanoapp did not accept socket");
 }
 
-TEST_F(BleSocketTest, RfcommSocketBasicSendTest) {
-  uint64_t appId = loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
+TYPED_TEST(BleSocketTest, RfcommSocketBasicSendTest) {
+  uint64_t appId = this->loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
 
-  sendReadBufferResponseFromController(1);
+  this->sendReadBufferResponseFromController(1);
 
   EventLoopManagerSingleton::get()
       ->getBleSocketManager()
-      .handleSocketOpenedByHost(mRfcommSocketData);
-  waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
+      .handleSocketOpenedByHost(this->mRfcommSocketData);
+  this->waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
 
   // Expect chreBleSocketSend to result in sending a packet to the BT Controller
-  EXPECT_CALL(mMockBtOffload, sendToController(_)).Times(1);
+  EXPECT_CALL(this->mMockBtOffload, sendToController(_)).Times(1);
 
   SocketSendData data = {
-      .data = mDefaultMessage,
+      .data = this->mDefaultMessage,
       .length = 6,
       .freeCallback = [](void *, uint16_t) {
         TestEventQueueSingleton::get()->pushEvent(SOCKET_SEND_FREE_CALLBACK);
       }};
   sendEventToNanoapp(appId, SOCKET_SEND, data);
   int32_t status = 0;
-  waitForEvent(SOCKET_SEND, &status);
+  this->waitForEvent(SOCKET_SEND, &status);
   EXPECT_EQ(status, CHRE_BLE_SOCKET_SEND_STATUS_SUCCESS);
   // Even though the multibuf is destroyed immediately in this case, the free
   // callback is handled on the event loop thread and will occur after the
   // SOCKET_SEND event
-  waitForEvent(SOCKET_SEND_FREE_CALLBACK);
+  this->waitForEvent(SOCKET_SEND_FREE_CALLBACK);
 }
 
-TEST_F(BleSocketTest, RfcommSocketSendQueueFullTest) {
-  uint64_t appId = loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
+TYPED_TEST(BleSocketTest, RfcommSocketSendQueueFullTest) {
+  uint64_t appId = this->loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
 
-  sendReadBufferResponseFromController(1);
+  this->sendReadBufferResponseFromController(1);
 
   EventLoopManagerSingleton::get()
       ->getBleSocketManager()
-      .handleSocketOpenedByHost(mRfcommSocketData);
-  waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
+      .handleSocketOpenedByHost(this->mRfcommSocketData);
+  this->waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
 
   SocketSendData data = {
-      .data = mDefaultMessage,
+      .data = this->mDefaultMessage,
       .length = 6,
       .freeCallback = [](void *, uint16_t) {
         TestEventQueueSingleton::get()->pushEvent(SOCKET_SEND_FREE_CALLBACK);
       }};
   int32_t status = 0;
 
-  EXPECT_CALL(mMockBtOffload, sendToController(_)).Times(1);
+  EXPECT_CALL(this->mMockBtOffload, sendToController(_)).Times(1);
   for (size_t i = 0; i < 12; i++) {
     sendEventToNanoapp(appId, SOCKET_SEND, data);
-    waitForEvent(SOCKET_SEND, &status);
+    this->waitForEvent(SOCKET_SEND, &status);
     EXPECT_EQ(status, CHRE_BLE_SOCKET_SEND_STATUS_SUCCESS);
   }
   // The 6th socket send request should result in the queue full status
   sendEventToNanoapp(appId, SOCKET_SEND, data);
-  waitForEvent(SOCKET_SEND, &status);
+  this->waitForEvent(SOCKET_SEND, &status);
   EXPECT_EQ(status, CHRE_BLE_SOCKET_SEND_STATUS_QUEUE_FULL);
 
   // Send an NOCP event to the ProxyHost to restore its ACL credit. This results
   // in the L2capCoc sending the first queued packet to the BT Controller.
-  EXPECT_CALL(mMockBtOffload, sendToController(_)).Times(1);
-  sendNumberOfCompletedPackets(mRfcommSocketData.connectionHandle, 1);
+  EXPECT_CALL(this->mMockBtOffload, sendToController(_)).Times(1);
+  this->sendNumberOfCompletedPackets(this->mRfcommSocketData.connectionHandle,
+                                     1);
 
   // First packet in queue is sent and its freeCallback is invoked.
-  waitForEvent(SOCKET_SEND_FREE_CALLBACK);
+  this->waitForEvent(SOCKET_SEND_FREE_CALLBACK);
 }
 
-TEST_F(BleSocketTest, RfcommSocketBasicReceiveTest) {
-  uint64_t appId = loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
+TYPED_TEST(BleSocketTest, RfcommSocketBasicReceiveTest) {
+  uint64_t appId = this->loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
   UNUSED_VAR(appId);
 
-  sendReadBufferResponseFromController(1);
+  this->sendReadBufferResponseFromController(1);
 
   EventLoopManagerSingleton::get()
       ->getBleSocketManager()
-      .handleSocketOpenedByHost(mRfcommSocketData);
-  waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
+      .handleSocketOpenedByHost(this->mRfcommSocketData);
+  this->waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
 
   std::array<uint8_t, 11> sendPayload = {0x07, 0x00, 0x03, 0x00, 0x0D, 0xEF,
                                          0x07, 0xAB, 0xCD, 0xEF, 0x35};
@@ -853,28 +874,28 @@ TEST_F(BleSocketTest, RfcommSocketBasicReceiveTest) {
 
   pw::Result<pbe::AclDataFrameWriter> acl =
       pw::bluetooth::MakeEmbossWriter<pbe::AclDataFrameWriter>(hciArray);
-  acl->header().handle().Write(mRfcommSocketData.connectionHandle);
+  acl->header().handle().Write(this->mRfcommSocketData.connectionHandle);
   acl->data_total_length().Write(sendPayload.size());
   std::copy(sendPayload.begin(), sendPayload.end(),
             acl->payload().BackingStorage().data());
 
-  mProxyHost->HandleH4HciFromController(std::move(h4Packet));
+  this->mProxyHost->HandleH4HciFromController(std::move(h4Packet));
 
   std::vector<uint8_t> *receiveData;
-  waitForEvent(CHRE_EVENT_BLE_SOCKET_PACKET, &receiveData);
+  this->waitForEvent(CHRE_EVENT_BLE_SOCKET_PACKET, &receiveData);
   EXPECT_TRUE(std::equal(receiveData->begin(), receiveData->end(),
                          expectedPayload.begin(), expectedPayload.end()));
 }
 
-TEST_F(BleSocketTest, RfcommSocketInvalidRxTest) {
-  uint64_t appId = loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
+TYPED_TEST(BleSocketTest, RfcommSocketInvalidRxTest) {
+  uint64_t appId = this->loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
 
-  sendReadBufferResponseFromController(1);
+  this->sendReadBufferResponseFromController(1);
 
   EventLoopManagerSingleton::get()
       ->getBleSocketManager()
-      .handleSocketOpenedByHost(mRfcommSocketData);
-  waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
+      .handleSocketOpenedByHost(this->mRfcommSocketData);
+  this->waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
 
   // Wrong FCS value to trigger invalid Rx event
   std::array<uint8_t, 11> sendPayload = {0x07, 0x00, 0x03, 0x00, 0x0D, 0xEF,
@@ -889,7 +910,7 @@ TEST_F(BleSocketTest, RfcommSocketInvalidRxTest) {
 
   pw::Result<pbe::AclDataFrameWriter> acl =
       pw::bluetooth::MakeEmbossWriter<pbe::AclDataFrameWriter>(hciArray);
-  acl->header().handle().Write(mRfcommSocketData.connectionHandle);
+  acl->header().handle().Write(this->mRfcommSocketData.connectionHandle);
   acl->data_total_length().Write(sendPayload.size());
   std::copy(sendPayload.begin(), sendPayload.end(),
             acl->payload().BackingStorage().data());
@@ -897,88 +918,88 @@ TEST_F(BleSocketTest, RfcommSocketInvalidRxTest) {
   // Expect the packet to be sent to the host for handling since the FCS value
   // is invalid.
   bool sendToHostCalled = false;
-  EXPECT_CALL(mMockBtOffload, sendToHost(_))
+  EXPECT_CALL(this->mMockBtOffload, sendToHost(_))
       .WillOnce([&sendToHostCalled](pw::bluetooth::proxy::H4PacketWithHci &&) {
         sendToHostCalled = true;
       });
-  mProxyHost->HandleH4HciFromController(std::move(h4Packet));
+  this->mProxyHost->HandleH4HciFromController(std::move(h4Packet));
   EXPECT_TRUE(sendToHostCalled);
 
   SocketSendData data = {
-      .data = mDefaultMessage,
+      .data = this->mDefaultMessage,
       .length = 6,
       .freeCallback = [](void *, uint16_t) {
         TestEventQueueSingleton::get()->pushEvent(SOCKET_SEND_FREE_CALLBACK);
       }};
   sendEventToNanoapp(appId, SOCKET_SEND, data);
   int32_t status = 0;
-  waitForEvent(SOCKET_SEND, &status);
+  this->waitForEvent(SOCKET_SEND, &status);
   // Should be successful since the invalid Rx event is handled by the host.
   // The RFCOMM socket should be kept open.
   EXPECT_EQ(status, CHRE_BLE_SOCKET_SEND_STATUS_SUCCESS);
   // Free callback is invoked asynchronously because MultiBuf has been created
-  waitForEvent(SOCKET_SEND_FREE_CALLBACK);
+  this->waitForEvent(SOCKET_SEND_FREE_CALLBACK);
 }
 
-TEST_F(BleSocketTest, RfcommSocketBtResetTest) {
-  uint64_t appId = loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
+TYPED_TEST(BleSocketTest, RfcommSocketBtResetTest) {
+  uint64_t appId = this->loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
 
-  sendReadBufferResponseFromController(1);
+  this->sendReadBufferResponseFromController(1);
 
   EventLoopManagerSingleton::get()
       ->getBleSocketManager()
-      .handleSocketOpenedByHost(mRfcommSocketData);
-  waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
+      .handleSocketOpenedByHost(this->mRfcommSocketData);
+  this->waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
 
-  mProxyHost->Reset();
+  this->mProxyHost->Reset();
 
   SocketSendData data = {
-      .data = mDefaultMessage,
+      .data = this->mDefaultMessage,
       .length = 6,
       .freeCallback = [](void *, uint16_t) {
         TestEventQueueSingleton::get()->pushEvent(SOCKET_SEND_FREE_CALLBACK);
       }};
   sendEventToNanoapp(appId, SOCKET_SEND, data);
   int32_t status = 0;
-  waitForEvent(SOCKET_SEND, &status);
+  this->waitForEvent(SOCKET_SEND, &status);
   // Failure due to ProxyHost stopping channel
   EXPECT_EQ(status, CHRE_BLE_SOCKET_SEND_STATUS_FAILURE);
   // Free callback is invoked asynchronously because MultiBuf has been created
-  waitForEvent(SOCKET_SEND_FREE_CALLBACK);
+  this->waitForEvent(SOCKET_SEND_FREE_CALLBACK);
   // Host not notified for this type of failure because it is notified by the
   // Android Bluetooth Stack
   EXPECT_EQ(getSocketClosureCount(), 0);
 }
 
-TEST_F(BleSocketTest, RfcommSocketClosedAfterUnloadTest) {
-  uint64_t appId = loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
+TYPED_TEST(BleSocketTest, RfcommSocketClosedAfterUnloadTest) {
+  uint64_t appId = this->loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
 
-  sendReadBufferResponseFromController(1);
+  this->sendReadBufferResponseFromController(1);
 
   EventLoopManagerSingleton::get()
       ->getBleSocketManager()
-      .handleSocketOpenedByHost(mRfcommSocketData);
-  waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
+      .handleSocketOpenedByHost(this->mRfcommSocketData);
+  this->waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
 
-  unloadNanoapp(appId);
+  this->unloadNanoapp(appId);
   EXPECT_EQ(getSocketClosureCount(), 1);
 }
 
-TEST_F(BleSocketTest, RfcommSocketClosedAfterHostMessageTest) {
-  uint64_t appId = loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
+TYPED_TEST(BleSocketTest, RfcommSocketClosedAfterHostMessageTest) {
+  uint64_t appId = this->loadNanoapp(MakeUnique<BleSocketTestNanoapp>());
   UNUSED_VAR(appId);
 
-  sendReadBufferResponseFromController(1);
+  this->sendReadBufferResponseFromController(1);
 
   EventLoopManagerSingleton::get()
       ->getBleSocketManager()
-      .handleSocketOpenedByHost(mRfcommSocketData);
-  waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
+      .handleSocketOpenedByHost(this->mRfcommSocketData);
+  this->waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
 
   EventLoopManagerSingleton::get()
       ->getBleSocketManager()
-      .handleSocketClosedByHost(mRfcommSocketData.socketId);
-  waitForEvent(CHRE_EVENT_BLE_SOCKET_DISCONNECTION);
+      .handleSocketClosedByHost(this->mRfcommSocketData.socketId);
+  this->waitForEvent(CHRE_EVENT_BLE_SOCKET_DISCONNECTION);
   // Host not notified because it triggered the closure
   EXPECT_EQ(getSocketClosureCount(), 0);
 }
