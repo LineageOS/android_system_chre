@@ -61,10 +61,12 @@ constexpr LocalNotifyArgs kEmptyLocalNotifyArgs = {
     .fn = [](void * /*context*/) { return; }, .ctx = nullptr};
 
 RemoteNotifyFn getEmptyRemoteNotifyFn() {
-  return [](pw::ConstByteSpan /*id*/) { return; };
+  return [](const RemoteEndpointId & /*id*/) { return; };
 }
 
-std::array<std::byte, internal::kMaxIdSize> kZeroId = {std::byte(0)};
+RemoteEndpointId getId(long endpointId) {
+  return {.aidlId = {.hubId = 0, .endpointId = endpointId}};
+}
 
 class QueueTest : public ::testing::Test {
  protected:
@@ -126,7 +128,7 @@ class QueueTest : public ::testing::Test {
   }
 
   pw::Result<Consumer<int>> createLocalConsumer(
-      pw::ConstByteSpan id, LocalNotifyArgs notifyArgs,
+      const RemoteEndpointId &id, LocalNotifyArgs notifyArgs,
       ConsumerPolicyBuilder &policyBuilder) {
     PW_TRY_ASSIGN(
         uint32_t descOffset,
@@ -137,7 +139,7 @@ class QueueTest : public ::testing::Test {
   }
 
   pw::Result<VariableDataConsumer> createLocalVarDataConsumer(
-      pw::ConstByteSpan id, LocalNotifyArgs notifyArgs,
+      const RemoteEndpointId &id, LocalNotifyArgs notifyArgs,
       ConsumerPolicyBuilder &policyBuilder) {
     PW_TRY_ASSIGN(
         uint32_t descOffset,
@@ -245,9 +247,8 @@ class QueueTest : public ::testing::Test {
           &consumerArgs) {
     initLocalProducer(producerNotifyArgs);
     for (auto i = 0; i < consumerArgs.size(); ++i) {
-      auto consumerId = {std::byte(i + 1)};
       auto maybeConsumer = createLocalConsumer(
-          consumerId, consumerArgs[i].first, consumerArgs[i].second);
+          getId(i + 1), consumerArgs[i].first, consumerArgs[i].second);
       ASSERT_EQ(maybeConsumer.status(), pw::OkStatus());
       mConsumers.emplace_back(std::move(*maybeConsumer));
     }
@@ -261,9 +262,8 @@ class QueueTest : public ::testing::Test {
           &consumerArgs) {
     initLocalVarDataProducer(producerNotifyArgs);
     for (auto i = 0; i < consumerArgs.size(); ++i) {
-      auto consumerId = {std::byte(i + 1)};
       auto maybeConsumer = createLocalVarDataConsumer(
-          consumerId, consumerArgs[i].first, consumerArgs[i].second);
+          getId(i + 1), consumerArgs[i].first, consumerArgs[i].second);
       ASSERT_EQ(maybeConsumer.status(), pw::OkStatus());
       mVarDataConsumers.emplace_back(std::move(*maybeConsumer));
     }
@@ -275,11 +275,10 @@ class QueueTest : public ::testing::Test {
       RemoteNotifyFn producerNotifyFn,
       std::vector<std::pair<RemoteNotifyFn, ConsumerPolicyBuilder>>
           &consumerArgs) {
-    initRemoteProducer(
-        {.fn = std::move(producerNotifyFn), .id = {std::byte(0)}});
+    initRemoteProducer({.fn = std::move(producerNotifyFn), .id = getId(0)});
     for (auto i = 0; i < consumerArgs.size(); ++i) {
       initRemoteConsumer(
-          {.fn = std::move(consumerArgs[i].first), .id = {std::byte(i + 1)}},
+          {.fn = std::move(consumerArgs[i].first), .id = getId(i + 1)},
           consumerArgs[i].second);
     }
   }
@@ -301,8 +300,7 @@ TEST_F(QueueTest, ProducerCreateLocalAndDestroy) {
 }
 
 TEST_F(QueueTest, ProducerCreateRemoteAndDestroy) {
-  RemoteNotifyArgs args = {.fn = getEmptyRemoteNotifyFn(),
-                           .id = {std::byte(0)}};
+  RemoteNotifyArgs args = {.fn = getEmptyRemoteNotifyFn(), .id = getId(0)};
   EXPECT_EQ(createRemoteProducer(std::move(args)).status(), pw::OkStatus());
 }
 
@@ -338,7 +336,7 @@ TEST_F(QueueTest, ConsumerManagerAddConsumerSuccess) {
 
   ConsumerPolicyBuilder policyBuilder;
   pw::Result<uint32_t> result =
-      consumerManager.addConsumer(kZeroId, policyBuilder);
+      consumerManager.addConsumer(getId(0), policyBuilder);
   EXPECT_EQ(result.status(), pw::OkStatus());
   EXPECT_NE(*result, internal::kOffsetInvalid);
 
@@ -364,7 +362,7 @@ TEST_F(QueueTest, ConsumerManagerAddConsumerFailureNoMemory) {
   }
   ConsumerPolicyBuilder policyBuilder;
   pw::Result<uint32_t> result =
-      consumerManager.addConsumer(kZeroId, policyBuilder);
+      consumerManager.addConsumer(getId(0), policyBuilder);
   EXPECT_EQ(result.status(), pw::Status::ResourceExhausted());
   for (auto *tmp : tmps) {
     mAllocator.Deallocate(tmp);
@@ -405,7 +403,7 @@ TEST_F(QueueTest, ConsumerManagerAddConsumerSeparateRegionSuccess) {
       .allocator = &allocator};
   ConsumerPolicyBuilder policyBuilder;
   pw::Result<uint32_t> result =
-      consumerManager.addConsumer(kZeroId, policyBuilder, &region);
+      consumerManager.addConsumer(getId(0), policyBuilder, &region);
   EXPECT_EQ(result.status(), pw::OkStatus());
   EXPECT_NE(*result, internal::kOffsetInvalid);
 
@@ -427,14 +425,14 @@ TEST_F(QueueTest, ConsumerManagerAddConsumerSeparateRegionSuccess) {
 }
 
 TEST_F(QueueTest, ConsumerManagerPruneConsumersSuccess) {
-  initRemoteProducer({.fn = getEmptyRemoteNotifyFn(), .id = {std::byte(0)}});
-  std::array<std::byte, 16> consumerId = {std::byte(1)};
+  initRemoteProducer({.fn = getEmptyRemoteNotifyFn(), .id = getId(0)});
+  RemoteEndpointId consumerId = getId(1);
   initRemoteConsumer({.fn = getEmptyRemoteNotifyFn(), .id = consumerId},
                      ConsumerPolicyBuilder().setOverwritable());
   auto consumerManager = mProducer->getConsumerManager();
 
-  EXPECT_EQ(consumerManager.pruneConsumers([&](pw::ConstByteSpan id) {
-    return std::memcmp(id.data(), consumerId.data(), consumerId.size()) == 0;
+  EXPECT_EQ(consumerManager.pruneConsumers([&](const RemoteEndpointId &id) {
+    return id.aidlId.endpointId == consumerId.aidlId.endpointId;
   }),
             pw::OkStatus());
 
@@ -456,9 +454,9 @@ TEST_F(QueueTest, ConsumerManagerPruneConsumersSuccessMultiple) {
   auto consumerManager = mProducer->getConsumerManager();
 
   // Prune the consumers with id 1 and 3.
-  std::array<std::byte, 16> consumerId = {std::byte(2)};
-  EXPECT_EQ(consumerManager.pruneConsumers([&](pw::ConstByteSpan id) {
-    return std::memcmp(id.data(), consumerId.data(), consumerId.size()) != 0;
+  RemoteEndpointId consumerId2{.aidlId = {.hubId = 0, .endpointId = 2}};
+  EXPECT_EQ(consumerManager.pruneConsumers([&](const RemoteEndpointId &id) {
+    return id.aidlId.endpointId == 1 || id.aidlId.endpointId == 3;
   }),
             pw::OkStatus());
 
@@ -468,7 +466,8 @@ TEST_F(QueueTest, ConsumerManagerPruneConsumersSuccessMultiple) {
       .forAllConsumers(
           /*excludeMask=*/0, [&](internal::ConsumerNode &node, uint32_t) {
             consumerCount++;
-            foundConsumer2 = node.id == consumerId;
+            foundConsumer2 =
+                node.id.aidlId.endpointId == consumerId2.aidlId.endpointId;
           });
   EXPECT_EQ(consumerCount, 1);
   EXPECT_TRUE(foundConsumer2);
@@ -480,7 +479,7 @@ TEST_F(QueueTest, ConsumerManagerForAllConsumersExcludeMask) {
 
   ConsumerPolicyBuilder policyBuilder;
   pw::Result<uint32_t> result =
-      consumerManager.addConsumer(kZeroId, policyBuilder);
+      consumerManager.addConsumer(getId(0), policyBuilder);
   ASSERT_EQ(result.status(), pw::OkStatus());
 
   int consumerCount = 0;
@@ -499,7 +498,7 @@ TEST_F(QueueTest, ConsumerCreateLocalAndDestroy) {
   initLocalProducer(kEmptyLocalNotifyArgs);
 
   ConsumerPolicyBuilder policyBuilder;
-  EXPECT_EQ(createLocalConsumer(kZeroId, kEmptyLocalNotifyArgs, policyBuilder)
+  EXPECT_EQ(createLocalConsumer(getId(0), kEmptyLocalNotifyArgs, policyBuilder)
                 .status(),
             pw::OkStatus());
 }
@@ -509,12 +508,11 @@ TEST_F(QueueTest, ConsumerCreateRemoteAndDestroy) {
   // consumers and cleans up the consumer descriptor. This also tests that
   // ConsumerManager::forAllConsumers() cleans up gracefully removed Consumers
   // as expected.
-  RemoteNotifyArgs args = {.fn = getEmptyRemoteNotifyFn(),
-                           .id = {std::byte(0)}};
+  RemoteNotifyArgs args = {.fn = getEmptyRemoteNotifyFn(), .id = getId(0)};
   initRemoteProducer(std::move(args));
 
   ConsumerPolicyBuilder policyBuilder;
-  args = {.fn = getEmptyRemoteNotifyFn(), .id = {std::byte(1)}};
+  args = {.fn = getEmptyRemoteNotifyFn(), .id = getId(1)};
   EXPECT_EQ(createRemoteConsumer(std::move(args), policyBuilder).status(),
             pw::OkStatus());
 }
@@ -599,9 +597,8 @@ TEST_F(QueueTest, PushBlockedOverwritableConsumer) {
 TEST_F(QueueTest, PushBlockedNonOverwritableConsumerDelayedInit) {
   initLocalProducer(kEmptyLocalNotifyArgs);
 
-  std::array<std::byte, 16> id = {std::byte(1)};
   auto descOffsetResult = mProducer->getConsumerManager().addConsumer(
-      id, ConsumerPolicyBuilder().setNonOverwritable());
+      getId(1), ConsumerPolicyBuilder().setNonOverwritable());
   ASSERT_EQ(descOffsetResult.status(), pw::OkStatus());
 
   // Fill the queue to the point of blocking the producer. Pushing a single
@@ -631,9 +628,8 @@ TEST_F(QueueTest, PushBlockedNonOverwritableConsumerDelayedInit) {
 TEST_F(QueueTest, PushBlockedOverwritableConsumerDelayedInit) {
   initLocalProducer(kEmptyLocalNotifyArgs);
 
-  std::array<std::byte, 16> id = {std::byte(1)};
   auto descOffsetResult = mProducer->getConsumerManager().addConsumer(
-      id, ConsumerPolicyBuilder().setOverwritable());
+      getId(1), ConsumerPolicyBuilder().setOverwritable());
   ASSERT_EQ(descOffsetResult.status(), pw::OkStatus());
 
   // Fill the queue to the point of overwriting the consumer. Pushing a single
@@ -662,8 +658,6 @@ TEST_F(QueueTest, ConsumerChangeOverwritePolicy) {
   std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
       {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
   initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
-  // Test consumer ids start at 1.
-  std::array<std::byte, 1> id = {std::byte(1)};
 
   // Fill the queue to the point of overwriting the consumer. Pushing a single
   // element should succeed, overwriting the consumer. Since the consumer is
@@ -674,7 +668,7 @@ TEST_F(QueueTest, ConsumerChangeOverwritePolicy) {
   EXPECT_RESULT_EQ(mConsumers[0].size(), mProducer->capacity());
   EXPECT_EQ(mProducer->push(1), pw::Status::Unavailable());
   EXPECT_EQ(mProducer->getConsumerManager().updateConsumerPolicy(
-                id, ConsumerPolicyBuilder().setOverwritable()),
+                getId(1), ConsumerPolicyBuilder().setOverwritable()),
             pw::OkStatus());
   EXPECT_EQ(mProducer->push(1), pw::OkStatus());
   EXPECT_EQ(mConsumers[0].checkState(), pw::Status::DataLoss());
@@ -684,7 +678,7 @@ TEST_F(QueueTest, ConsumerChangeOverwritePolicyNotFound) {
   initLocalProducer(kEmptyLocalNotifyArgs);
   auto consumerManager = mProducer->getConsumerManager();
   EXPECT_EQ(consumerManager.updateConsumerPolicy(
-                kZeroId, ConsumerPolicyBuilder().setOverwritable()),
+                getId(0), ConsumerPolicyBuilder().setOverwritable()),
             pw::Status::NotFound());
 }
 
@@ -693,7 +687,7 @@ TEST_F(QueueTest, NewConsumerSyncsToProducer) {
   initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
   EXPECT_EQ(mProducer->push(1), pw::OkStatus());
   auto consumer =
-      createLocalConsumer(kZeroId, kEmptyLocalNotifyArgs,
+      createLocalConsumer(getId(0), kEmptyLocalNotifyArgs,
                           ConsumerPolicyBuilder().setNonOverwritable());
   ASSERT_EQ(consumer.status(), pw::OkStatus());
   EXPECT_EQ(mProducer->size(), 0);
@@ -1254,7 +1248,7 @@ TEST_F(QueueTest, UntypedProducerAndTypedConsumer) {
 
   pw::Result<uint32_t> descOffsetResult =
       mUntypedProducer->getConsumerManager().addConsumer(
-          kZeroId, ConsumerPolicyBuilder().setNonOverwritable());
+          getId(0), ConsumerPolicyBuilder().setNonOverwritable());
   ASSERT_EQ(descOffsetResult.status(), pw::OkStatus());
 
   auto maybeConsumer = Consumer<int>::createLocal(
@@ -1277,7 +1271,7 @@ TEST_F(QueueTest, TypedProducerAndUntypedConsumer) {
 
   pw::Result<uint32_t> descOffsetResult =
       mProducer->getConsumerManager().addConsumer(
-          kZeroId, ConsumerPolicyBuilder().setNonOverwritable());
+          getId(0), ConsumerPolicyBuilder().setNonOverwritable());
   ASSERT_EQ(descOffsetResult.status(), pw::OkStatus());
 
   auto maybeConsumer = UntypedConsumer::createLocal(
@@ -1309,7 +1303,7 @@ TEST_F(QueueTest, UntypedProducerAndUntypedConsumer) {
 
   pw::Result<uint32_t> descOffsetResult =
       mUntypedProducer->getConsumerManager().addConsumer(
-          kZeroId, ConsumerPolicyBuilder().setNonOverwritable());
+          getId(0), ConsumerPolicyBuilder().setNonOverwritable());
   ASSERT_EQ(descOffsetResult.status(), pw::OkStatus());
 
   auto maybeConsumer = UntypedConsumer::createLocal(
@@ -1337,7 +1331,9 @@ TEST_F(QueueTest, UntypedProducerAndUntypedConsumer) {
 
 TEST_F(QueueTest, RemoteNotificationNever) {
   static int notificationCount = 0;
-  RemoteNotifyFn notifyFn = [](pw::ConstByteSpan) { notificationCount++; };
+  RemoteNotifyFn notifyFn = [](const RemoteEndpointId &) {
+    notificationCount++;
+  };
   std::vector<std::pair<RemoteNotifyFn, ConsumerPolicyBuilder>> consumerArgs;
   consumerArgs.emplace_back(
       getEmptyRemoteNotifyFn(),
@@ -1350,7 +1346,9 @@ TEST_F(QueueTest, RemoteNotificationNever) {
 
 TEST_F(QueueTest, RemoteNotificationStreaming) {
   static int notificationCount = 0;
-  RemoteNotifyFn notifyFn = [](pw::ConstByteSpan) { notificationCount++; };
+  RemoteNotifyFn notifyFn = [](const RemoteEndpointId &) {
+    notificationCount++;
+  };
   std::vector<std::pair<RemoteNotifyFn, ConsumerPolicyBuilder>> consumerArgs;
   consumerArgs.emplace_back(
       getEmptyRemoteNotifyFn(),
@@ -1365,7 +1363,9 @@ TEST_F(QueueTest, RemoteNotificationStreaming) {
 
 TEST_F(QueueTest, RemoteNotificationHighWaterMark) {
   static int notificationCount = 0;
-  RemoteNotifyFn notifyFn = [](pw::ConstByteSpan) { notificationCount++; };
+  RemoteNotifyFn notifyFn = [](const RemoteEndpointId &) {
+    notificationCount++;
+  };
   constexpr size_t kHighWatermark = 4;
   std::vector<std::pair<RemoteNotifyFn, ConsumerPolicyBuilder>> consumerArgs;
   consumerArgs.emplace_back(
@@ -1401,12 +1401,12 @@ TEST_F(QueueTest, RemoteNotificationHighWaterMark) {
 
 TEST_F(QueueTest, CreateRemoteConsumerForFixedSizeQueue) {
   RemoteNotifyArgs producerArgs = {.fn = getEmptyRemoteNotifyFn(),
-                                   .id = {std::byte(0)}};
+                                   .id = getId(0)};
   initRemoteProducer(std::move(producerArgs));
 
   ConsumerPolicyBuilder policyBuilder;
   RemoteNotifyArgs consumerArgs = {.fn = getEmptyRemoteNotifyFn(),
-                                   .id = {std::byte(1)}};
+                                   .id = getId(1)};
   auto consumer =
       createHostUntypedConsumer(std::move(consumerArgs), policyBuilder);
   ASSERT_EQ(consumer.status(), pw::OkStatus());
@@ -1416,12 +1416,12 @@ TEST_F(QueueTest, CreateRemoteConsumerForFixedSizeQueue) {
 
 TEST_F(QueueTest, CreateRemoteConsumerForVariableSizeQueue) {
   RemoteNotifyArgs producerArgs = {.fn = getEmptyRemoteNotifyFn(),
-                                   .id = {std::byte(0)}};
+                                   .id = getId(0)};
   initRemoteVarDataProducer(std::move(producerArgs));
 
   ConsumerPolicyBuilder policyBuilder;
   RemoteNotifyArgs consumerArgs = {.fn = getEmptyRemoteNotifyFn(),
-                                   .id = {std::byte(1)}};
+                                   .id = getId(1)};
   EXPECT_EQ(createHostVarDataConsumer(std::move(consumerArgs), policyBuilder)
                 .status(),
             pw::OkStatus());
@@ -1549,7 +1549,7 @@ TEST_F(MemoryAccessTest, ProducerOperations) {
     ConsumerPolicyBuilder policyBuilder;
     verifyAcquireRelease(
         [&] {
-          auto addResult = consumerManager.addConsumer(kZeroId, policyBuilder);
+          auto addResult = consumerManager.addConsumer(getId(0), policyBuilder);
           ASSERT_EQ(addResult.status(), pw::OkStatus());
         },
         __LINE__);
@@ -1557,7 +1557,7 @@ TEST_F(MemoryAccessTest, ProducerOperations) {
     verifyAcquireRelease(
         [&] {
           EXPECT_EQ(
-              consumerManager.updateConsumerPolicy(kZeroId, policyBuilder),
+              consumerManager.updateConsumerPolicy(getId(0), policyBuilder),
               pw::OkStatus());
         },
         __LINE__);
@@ -1657,7 +1657,7 @@ TEST_F(MemoryAccessTest, ConsumerOperations) {
     initLocalProducer(kEmptyLocalNotifyArgs);
     ConsumerPolicyBuilder policyBuilder;
     auto descOffset = mProducer->getConsumerManager().addConsumer(
-        kZeroId, policyBuilder.setOverwritable());
+        getId(0), policyBuilder.setOverwritable());
     ASSERT_EQ(descOffset.status(), pw::OkStatus());
 
     std::optional<Consumer<int>> consumer;
@@ -1721,7 +1721,7 @@ TEST_F(MemoryAccessTest, ConsumerOperations) {
 
     ConsumerPolicyBuilder policyBuilder;
     auto descOffset = mUntypedProducer->getConsumerManager().addConsumer(
-        kZeroId, policyBuilder);
+        getId(0), policyBuilder);
     ASSERT_EQ(descOffset.status(), pw::OkStatus());
 
     std::optional<UntypedConsumer> consumer;
@@ -1759,7 +1759,7 @@ TEST_F(MemoryAccessTest, ConsumerOperations) {
     initLocalVarDataProducer(kEmptyLocalNotifyArgs);
     ConsumerPolicyBuilder policyBuilder;
     auto descOffset = mVarDataProducer->getConsumerManager().addConsumer(
-        kZeroId, policyBuilder);
+        getId(0), policyBuilder);
     ASSERT_EQ(descOffset.status(), pw::OkStatus());
 
     std::optional<VariableDataConsumer> consumer;

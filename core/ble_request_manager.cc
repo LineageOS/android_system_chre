@@ -19,6 +19,7 @@
 #include "chre/core/ble_request_manager.h"
 
 #include "chre/core/event_loop_manager.h"
+#include "chre/platform/context.h"
 #include "chre/platform/fatal_error.h"
 #include "chre/platform/log.h"
 #include "chre/util/fixed_size_vector.h"
@@ -373,16 +374,18 @@ void BleRequestManager::handleNanoappEventRegistration(uint16_t instanceId,
                                                        bool enabled,
                                                        bool success,
                                                        bool forceUnregister) {
-  Nanoapp *nanoapp =
-      EventLoopManagerSingleton::get()->getEventLoop().findNanoappByInstanceId(
-          instanceId);
-  if (nanoapp != nullptr) {
-    if (success && enabled) {
-      nanoapp->registerForBroadcastEvent(CHRE_EVENT_BLE_ADVERTISEMENT);
-      nanoapp->registerForBroadcastEvent(CHRE_EVENT_BLE_SCAN_STATUS_CHANGE);
-      nanoapp->registerForBroadcastEvent(CHRE_EVENT_BLE_BATCH_COMPLETE);
-    } else if (!enabled || forceUnregister) {
-      nanoapp->unregisterForBroadcastEvent(CHRE_EVENT_BLE_ADVERTISEMENT);
+  EventLoop *eventLoop =
+      EventLoopManagerSingleton::get()->getEventLoopByInstanceId(instanceId);
+  if (eventLoop != nullptr) {
+    Nanoapp *nanoapp = eventLoop->findNanoappByInstanceId(instanceId);
+    if (nanoapp != nullptr) {
+      if (success && enabled) {
+        nanoapp->registerForBroadcastEvent(CHRE_EVENT_BLE_ADVERTISEMENT);
+        nanoapp->registerForBroadcastEvent(CHRE_EVENT_BLE_SCAN_STATUS_CHANGE);
+        nanoapp->registerForBroadcastEvent(CHRE_EVENT_BLE_BATCH_COMPLETE);
+      } else if (!enabled || forceUnregister) {
+        nanoapp->unregisterForBroadcastEvent(CHRE_EVENT_BLE_ADVERTISEMENT);
+      }
     }
   }
 }

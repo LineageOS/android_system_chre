@@ -86,7 +86,7 @@ class DataNotifier {
    * @return true iff the endpoint is active, e.g. core is on and endpoint
    * available.
    */
-  virtual bool isActive(pw::span<const std::byte, 16> /*id*/) {
+  virtual bool isActive(const RemoteEndpointId & /*id*/) {
     return true;
   }
 
@@ -220,25 +220,18 @@ class ConsumerManager {
   /**
    * Allocates and tracks a new consumer descriptor.
    *
-   * @param id The id of the consumer. This may or may not be the same as the
-   * remoteId in the case of remote queues. Must be <= 16 bytes long.
+   * @param id The id of the consumer.
    * @param policyBuilder Builder for the policy to apply to the consumer.
    * @param region [optional] If provided, used to allocate the descriptor. It
    * must outlive the consumer. If not provided, the producer's region is used.
    * @return The offset of the consumer descriptor in shared memory. Used to
    * initialize a Consumer instance.
    */
-  pw::Result<uint32_t> addConsumer(pw::ConstByteSpan id,
+  pw::Result<uint32_t> addConsumer(const RemoteEndpointId &id,
                                    ConsumerPolicyBuilder &policyBuilder,
                                    const AllocatorRegion *region = nullptr) {
-    if (id.size() > internal::kMaxIdSize) {
-      return pw::Status::InvalidArgument();
-    }
-    std::array<std::byte, internal::kMaxIdSize> idArray = {std::byte(0)};
-    std::memcpy(idArray.data(), id.data(),
-                std::min(id.size(), internal::kMaxIdSize));
-    return mProducer->addConsumer(
-        idArray, region ? *region : mProducer->mRegion, policyBuilder.build());
+    return mProducer->addConsumer(id, region ? *region : mProducer->mRegion,
+                                  policyBuilder.build());
   }
 
   /**
@@ -248,12 +241,9 @@ class ConsumerManager {
    * @param policyBuilder Builder for the new policy to apply to the consumer.
    * @return pw::NotFound() if the consumer is not found.
    */
-  pw::Status updateConsumerPolicy(pw::ConstByteSpan id,
+  pw::Status updateConsumerPolicy(const RemoteEndpointId &id,
                                   ConsumerPolicyBuilder &policyBuilder) {
-    std::array<std::byte, internal::kMaxIdSize> idArray = {std::byte(0)};
-    std::memcpy(idArray.data(), id.data(),
-                std::min(id.size(), internal::kMaxIdSize));
-    return mProducer->updateConsumerPolicy(idArray, policyBuilder.build());
+    return mProducer->updateConsumerPolicy(id, policyBuilder.build());
   }
 
   /**
@@ -271,7 +261,7 @@ class ConsumerManager {
    * @return pw::OkStatus() on success.
    */
   pw::Status pruneConsumers(
-      const pw::Function<bool(pw::ConstByteSpan id)> &match) {
+      const pw::Function<bool(const RemoteEndpointId &)> &match) {
     return mProducer->pruneConsumers(match);
   }
 

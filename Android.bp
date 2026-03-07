@@ -1555,6 +1555,7 @@ cc_library_headers {
         "chre_api/include/chre_api",
         "core/include",
         "core/include/chre/core",
+        "data_flow/include",
         "pal/include",
         "pal/util/include",
         "platform/include",
@@ -1732,6 +1733,7 @@ filegroup {
         "platform/linux/platform_nanoapp.cc",
         "platform/linux/platform_log.cc",
         "platform/linux/platform_debug_dump_manager.cc",
+        "data_flow/queue.cc",
     ],
     exclude_srcs: [
         "util/tests/**/*",

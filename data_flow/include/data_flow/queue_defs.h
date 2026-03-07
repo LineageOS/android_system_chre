@@ -16,12 +16,16 @@
 
 #pragma once
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 
+#if __has_include(<aidl/android/hardware/contexthub/SharedDataRegion.h>)
+#include <aidl/android/hardware/contexthub/SharedDataRegion.h>
+#else  // __has_include(<aidl/android/hardware/contexthub/SharedDataRegion.h>)
+#include "data_flow/internal/SharedDataRegion.h"
+#endif  // __has_include(<aidl/android/hardware/contexthub/SharedDataRegion.h>)
+
 #include "pw_allocator/allocator.h"
-#include "pw_bytes/span.h"
 #include "pw_function/function.h"
 
 namespace android::contexthub::data_flow {
@@ -35,13 +39,24 @@ struct LocalNotifyArgs {
   void *ctx;
 };
 
+/** Endpoint id type for use with ContextHub messaging network. */
+using AidlEndpointId = ::aidl::android::hardware::contexthub::SharedDataRegion::
+    EndpointIdFixedSize;
+static_assert(sizeof(AidlEndpointId) == 16);
+
+/** Union of endpoint types to allow for different endpoint id types. */
+union RemoteEndpointId {
+  AidlEndpointId aidlId;
+};
+static_assert(sizeof(RemoteEndpointId) == sizeof(AidlEndpointId));
+
 /** Sends an out-of-band notification to an endpoint described by id. */
-using RemoteNotifyFn = pw::Function<void(pw::ConstByteSpan id)>;
+using RemoteNotifyFn = pw::Function<void(const RemoteEndpointId &id)>;
 
 /** Arguments passed to endpoints on a queue using out-of-band notifications. */
 struct RemoteNotifyArgs {
   RemoteNotifyFn fn;
-  std::array<std::byte, 16> id;
+  RemoteEndpointId id;
 };
 
 /** Notification policies a consumer can set. */
