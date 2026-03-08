@@ -15,6 +15,7 @@
  */
 #include "hal_client_manager.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <fstream>
 
