@@ -167,6 +167,11 @@ enum chreMsgEndpointReason {
 #define CHRE_MSG_MAX_NAME_LEN (51)
 
 /**
+ * The maximum length of an endpoint's tag.
+ */
+#define CHRE_MSG_MAX_TAG_LEN (51)
+
+/**
  * The maximum length of a service descriptor (including null terminator).
  */
 #define CHRE_MSG_MAX_SERVICE_DESCRIPTOR_LEN (128)
@@ -285,6 +290,31 @@ struct chreMsgEndpointInfo {
    * specified by the endpoint when it is registered by its message hub.
    */
   char name[CHRE_MSG_MAX_NAME_LEN];
+
+  /**
+   * The tag associated with this endpoint that can be used to further identify
+   * the endpoint. For example, the tag can be used like Android attribution
+   * tag.
+   *
+   * @since v1.12
+   */
+  char tag[CHRE_MSG_MAX_TAG_LEN];
+
+  /**
+   * Flag indicating if the name field is valid.
+   *
+   * @since 1.12
+   */
+  uint8_t isNameValid : 1;
+
+  /**
+   * Flag indicating if the tag field is valid.
+   *
+   * @since 1.12
+   */
+  uint8_t isTagValid : 1;
+
+  uint8_t reserved : 6;
 };
 
 /**

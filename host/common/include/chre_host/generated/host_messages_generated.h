@@ -6320,6 +6320,7 @@ struct EndpointInfoT : public flatbuffers::NativeTable {
   uint32_t version;
   uint32_t required_permissions;
   std::vector<std::unique_ptr<chre::fbs::ServiceT>> services;
+  std::vector<int8_t> tag;
   EndpointInfoT()
       : type(chre::fbs::EndpointType::INVALID),
         version(0),
@@ -6336,7 +6337,8 @@ struct EndpointInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     VT_NAME = 8,
     VT_VERSION = 10,
     VT_REQUIRED_PERMISSIONS = 12,
-    VT_SERVICES = 14
+    VT_SERVICES = 14,
+    VT_TAG = 16
   };
   const chre::fbs::EndpointId *id() const {
     return GetPointer<const chre::fbs::EndpointId *>(VT_ID);
@@ -6350,7 +6352,7 @@ struct EndpointInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   bool mutate_type(chre::fbs::EndpointType _type) {
     return SetField<uint8_t>(VT_TYPE, static_cast<uint8_t>(_type), 0);
   }
-  /// Endpoing name. Nominally a UTF-8 string, but note that we're not using
+  /// Endpoint name. Nominally a UTF-8 string, but note that we're not using
   /// the built-in "string" data type from FlatBuffers here, because the
   /// generated C++ uses std::string which is not well-supported in CHRE.
   const flatbuffers::Vector<int8_t> *name() const {
@@ -6378,6 +6380,13 @@ struct EndpointInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   flatbuffers::Vector<flatbuffers::Offset<chre::fbs::Service>> *mutable_services() {
     return GetPointer<flatbuffers::Vector<flatbuffers::Offset<chre::fbs::Service>> *>(VT_SERVICES);
   }
+  /// The tag associated with this endpoint.
+  const flatbuffers::Vector<int8_t> *tag() const {
+    return GetPointer<const flatbuffers::Vector<int8_t> *>(VT_TAG);
+  }
+  flatbuffers::Vector<int8_t> *mutable_tag() {
+    return GetPointer<flatbuffers::Vector<int8_t> *>(VT_TAG);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, VT_ID) &&
@@ -6390,6 +6399,8 @@ struct EndpointInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyOffset(verifier, VT_SERVICES) &&
            verifier.VerifyVector(services()) &&
            verifier.VerifyVectorOfTables(services()) &&
+           VerifyOffset(verifier, VT_TAG) &&
+           verifier.VerifyVector(tag()) &&
            verifier.EndTable();
   }
   EndpointInfoT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -6419,6 +6430,9 @@ struct EndpointInfoBuilder {
   void add_services(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<chre::fbs::Service>>> services) {
     fbb_.AddOffset(EndpointInfo::VT_SERVICES, services);
   }
+  void add_tag(flatbuffers::Offset<flatbuffers::Vector<int8_t>> tag) {
+    fbb_.AddOffset(EndpointInfo::VT_TAG, tag);
+  }
   explicit EndpointInfoBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -6438,8 +6452,10 @@ inline flatbuffers::Offset<EndpointInfo> CreateEndpointInfo(
     flatbuffers::Offset<flatbuffers::Vector<int8_t>> name = 0,
     uint32_t version = 0,
     uint32_t required_permissions = 0,
-    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<chre::fbs::Service>>> services = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<chre::fbs::Service>>> services = 0,
+    flatbuffers::Offset<flatbuffers::Vector<int8_t>> tag = 0) {
   EndpointInfoBuilder builder_(_fbb);
+  builder_.add_tag(tag);
   builder_.add_services(services);
   builder_.add_required_permissions(required_permissions);
   builder_.add_version(version);
@@ -6456,9 +6472,11 @@ inline flatbuffers::Offset<EndpointInfo> CreateEndpointInfoDirect(
     const std::vector<int8_t> *name = nullptr,
     uint32_t version = 0,
     uint32_t required_permissions = 0,
-    const std::vector<flatbuffers::Offset<chre::fbs::Service>> *services = nullptr) {
+    const std::vector<flatbuffers::Offset<chre::fbs::Service>> *services = nullptr,
+    const std::vector<int8_t> *tag = nullptr) {
   auto name__ = name ? _fbb.CreateVector<int8_t>(*name) : 0;
   auto services__ = services ? _fbb.CreateVector<flatbuffers::Offset<chre::fbs::Service>>(*services) : 0;
+  auto tag__ = tag ? _fbb.CreateVector<int8_t>(*tag) : 0;
   return chre::fbs::CreateEndpointInfo(
       _fbb,
       id,
@@ -6466,7 +6484,8 @@ inline flatbuffers::Offset<EndpointInfo> CreateEndpointInfoDirect(
       name__,
       version,
       required_permissions,
-      services__);
+      services__,
+      tag__);
 }
 
 flatbuffers::Offset<EndpointInfo> CreateEndpointInfo(flatbuffers::FlatBufferBuilder &_fbb, const EndpointInfoT *_o, const flatbuffers::rehasher_function_t *_rehasher = nullptr);
@@ -9974,6 +9993,7 @@ inline void EndpointInfo::UnPackTo(EndpointInfoT *_o, const flatbuffers::resolve
   { auto _e = version(); _o->version = _e; }
   { auto _e = required_permissions(); _o->required_permissions = _e; }
   { auto _e = services(); if (_e) { _o->services.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->services[_i] = std::unique_ptr<chre::fbs::ServiceT>(_e->Get(_i)->UnPack(_resolver)); } } }
+  { auto _e = tag(); if (_e) { _o->tag.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->tag[_i] = _e->Get(_i); } } }
 }
 
 inline flatbuffers::Offset<EndpointInfo> EndpointInfo::Pack(flatbuffers::FlatBufferBuilder &_fbb, const EndpointInfoT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -9990,6 +10010,7 @@ inline flatbuffers::Offset<EndpointInfo> CreateEndpointInfo(flatbuffers::FlatBuf
   auto _version = _o->version;
   auto _required_permissions = _o->required_permissions;
   auto _services = _o->services.size() ? _fbb.CreateVector<flatbuffers::Offset<chre::fbs::Service>> (_o->services.size(), [](size_t i, _VectorArgs *__va) { return CreateService(*__va->__fbb, __va->__o->services[i].get(), __va->__rehasher); }, &_va ) : 0;
+  auto _tag = _o->tag.size() ? _fbb.CreateVector(_o->tag) : 0;
   return chre::fbs::CreateEndpointInfo(
       _fbb,
       _id,
@@ -9997,7 +10018,8 @@ inline flatbuffers::Offset<EndpointInfo> CreateEndpointInfo(flatbuffers::FlatBuf
       _name,
       _version,
       _required_permissions,
-      _services);
+      _services,
+      _tag);
 }
 
 inline RegisterEndpointT *RegisterEndpoint::UnPack(const flatbuffers::resolver_function_t *_resolver) const {

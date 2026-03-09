@@ -718,7 +718,7 @@ table EndpointInfo {
   id:EndpointId;
   type:EndpointType;
 
-  /// Endpoing name. Nominally a UTF-8 string, but note that we're not using
+  /// Endpoint name. Nominally a UTF-8 string, but note that we're not using
   /// the built-in "string" data type from FlatBuffers here, because the
   /// generated C++ uses std::string which is not well-supported in CHRE.
   name:[byte];
@@ -727,6 +727,9 @@ table EndpointInfo {
   /// Values from CHRE_MESSAGE_PERMISSION_*
   required_permissions:uint;
   services:[Service];
+
+  /// The tag associated with this endpoint.
+  tag:[byte];
 }
 
 table RegisterEndpoint {
