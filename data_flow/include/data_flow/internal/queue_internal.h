@@ -217,11 +217,15 @@ class ProducerBase {
   ProducerBase(const ProducerBase &) = delete;
   ProducerBase &operator=(const ProducerBase &) = delete;
   ProducerBase(ProducerBase &&other) {
+    mState = State::kMovedFrom;
     *this = std::move(other);
   }
   ProducerBase &operator=(ProducerBase &&other) {
     if (&other != this) {
-      if (other.mState != State::kMovedFrom) {
+      clear();
+      if (other.mState == State::kMovedFrom) {
+        mState = State::kMovedFrom;
+      } else {
         mRegion = other.mRegion;
         mRemoteNotifyFn = std::move(other.mRemoteNotifyFn);
         mQueue = other.mQueue;
@@ -612,6 +616,9 @@ class ProducerBase {
 
   /** Returns pw::Status::FailedPrecondition() if the producer is not active. */
   pw::Status checkActive() const;
+
+  /** Clears the state of the producer, as if the destructor was called. */
+  void clear();
 
   // Members fixed on construction.
   AllocatorRegion mRegion;
