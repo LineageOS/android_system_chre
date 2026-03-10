@@ -22,6 +22,7 @@
 #include "chre_api/chre/msg.h"
 
 #include <cstdarg>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 
