@@ -289,7 +289,7 @@ public class ChreApiTestUtil {
 
         List<ResponseType> responses = callConcurrentUnaryRpcMethodSync(List.of(rpcClient),
                 method, request);
-        return responses == null || responses.isEmpty() ? null : responses.getFirst();
+        return responses == null || responses.isEmpty() ? null : responses.get(0);
     }
 
     /**
