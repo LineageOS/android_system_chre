@@ -91,7 +91,6 @@ enum class SystemCallbackType : uint16_t {
   SensorOneShotEvent,
   NanoappSendEventFreeCallback,
   PerformEventLoopAndNanoappDebugDump,
-  WifiScanMonitorAsyncResultEvent,
   AllocateDataFlowRegionAsyncResult,
 };
 
