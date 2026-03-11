@@ -28,9 +28,11 @@ namespace chre::message {
 //! Represents information about an endpoint
 struct EndpointInfo {
   static constexpr size_t kMaxNameLength = 50;
+  static constexpr size_t kMaxTagLength = 50;
 
   EndpointInfo(EndpointId initId, const char *initName, uint32_t initVersion,
-               EndpointType initType, uint32_t initRequiredPermissions)
+               EndpointType initType, uint32_t initRequiredPermissions,
+               const char *initTag = nullptr)
       : id(initId),
         version(initVersion),
         type(initType),
@@ -41,6 +43,12 @@ struct EndpointInfo {
       this->name[0] = '\0';
     }
     this->name[kMaxNameLength] = '\0';
+    if (initTag != nullptr) {
+      std::strncpy(this->tag, initTag, kMaxTagLength);
+    } else {
+      this->tag[0] = '\0';
+    }
+    this->tag[kMaxTagLength] = '\0';
   }
 
   EndpointId id;
@@ -48,11 +56,13 @@ struct EndpointInfo {
   uint32_t version;
   EndpointType type;
   uint32_t requiredPermissions;
+  char tag[kMaxTagLength + 1];
 
   bool operator==(const EndpointInfo &other) const {
     return id == other.id && version == other.version && type == other.type &&
            requiredPermissions == other.requiredPermissions &&
-           std::strncmp(name, other.name, kMaxNameLength) == 0;
+           std::strncmp(name, other.name, kMaxNameLength) == 0 &&
+           std::strncmp(tag, other.tag, kMaxTagLength) == 0;
   }
 
   bool operator!=(const EndpointInfo &other) const {
