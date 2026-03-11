@@ -253,6 +253,7 @@ void App::createTest(const void *eventData) {
 void App::freeTest() {
   if (mCurrentTest == nullptr) {
     sendInternalFailureToHost("Nanoapp unloading without running any test");
+    return;
   }
   mCurrentTest->~Test();
 }
