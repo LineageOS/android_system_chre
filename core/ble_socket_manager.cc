@@ -191,6 +191,10 @@ void BleSocketManager::freeSocketPacket(
     uint64_t appId, void *data, uint16_t length,
     chreBleSocketPacketFreeFunction *freeCallback) {
   auto packetData = MakeUnique<socketPacketData>();
+  if (packetData.isNull()) {
+    LOG_OOM();
+    return;
+  }
   packetData->appId = appId;
   packetData->data = data;
   packetData->length = length;
@@ -277,6 +281,10 @@ void BleSocketManager::handlePlatformSocketPacket(uint64_t socketId,
                                                   const uint8_t *data,
                                                   uint16_t length) {
   auto packetEvent = MakeUnique<chreBleSocketPacketEvent>();
+  if (packetEvent.isNull()) {
+    LOG_OOM();
+    return;
+  }
   packetEvent->socketId = socketId;
   packetEvent->data = data;
   packetEvent->length = length;

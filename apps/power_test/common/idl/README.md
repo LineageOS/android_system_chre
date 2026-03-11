@@ -27,7 +27,7 @@ mkdir build
 cd build
 
 # Configure using CMake
-cmake ..
+cmake .. -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DFLATBUFFERS_BUILD_TESTS=OFF
 
 # Build the compiler
 make -j

@@ -483,25 +483,7 @@ pw::Status ProducerBase::initialize(bool variableData) {
 }
 
 ProducerBase::~ProducerBase() {
-  if (mState == State::kMovedFrom) {
-    return;
-  }
-  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
-  if (mState == State::kActive) {
-    stop();
-  }
-  // Deallocates all consumer descriptors. Consumers will have been notified in
-  // stop() that the producer is torn down. The user may wait for the consumers
-  // to signal that they have torn down before destroying the producer.
-  // Otherwise, this does any remaining cleanup. Note that the memory remains on
-  // the consumer side.
-  for (auto node = mQueue->consumerList.begin();
-       node != mQueue->consumerList.end();) {
-    eraseConsumerNode(node);
-  }
-  // Release element storage back to the region allocator.
-  deallocateBlockRing(mRegion, kBlockLayout, mCurrBlock);
-  mRegion.allocator->Deallocate(mQueue);
+  clear();
 }
 
 uint32_t ProducerBase::getQueueOffset() const {
@@ -941,6 +923,28 @@ pw::Status ProducerBase::checkActive() const {
     return pw::Status::FailedPrecondition();
   }
   return pw::OkStatus();
+}
+
+void ProducerBase::clear() {
+  if (mState == State::kMovedFrom) {
+    return;
+  }
+  ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
+  if (mState == State::kActive) {
+    stop();
+  }
+  // Deallocates all consumer descriptors. Consumers will have been notified in
+  // stop() that the producer is torn down. The user may wait for the consumers
+  // to signal that they have torn down before destroying the producer.
+  // Otherwise, this does any remaining cleanup. Note that the memory remains on
+  // the consumer side.
+  for (auto node = mQueue->consumerList.begin();
+       node != mQueue->consumerList.end();) {
+    eraseConsumerNode(node);
+  }
+  // Release element storage back to the region allocator.
+  deallocateBlockRing(mRegion, kBlockLayout, mCurrBlock);
+  mRegion.allocator->Deallocate(mQueue);
 }
 
 pw::Result<std::pair<Queue *, ConsumerDesc *>> ConsumerBase::checkArgs(

@@ -41,6 +41,10 @@
 #include "chre_api/chre/event.h"
 #include "pw_span/span.h"
 
+#if CHRE_PLATFORM_EVENT_LOOP_ENABLED
+#include "chre/platform/platform_event_loop.h"
+#endif  // CHRE_PLATFORM_EVENT_LOOP_ENABLED
+
 #ifdef CHRE_STATIC_EVENT_LOOP
 #include "chre/util/system/fixed_size_blocking_queue.h"
 #include "chre/util/system/synchronized_memory_pool.h"
@@ -75,7 +79,11 @@ namespace chre {
  * zero or more nanoapps. As the name implies, the EventLoop is built around a
  * loop that delivers events to the nanoapps managed within for processing.
  */
+#if CHRE_PLATFORM_EVENT_LOOP_ENABLED
+class EventLoop : public PlatformEventLoop {
+#else
 class EventLoop : public NonCopyable {
+#endif  // CHRE_PLATFORM_EVENT_LOOP_ENABLED
  public:
   /**
    * Synchronous callback used with forEachNanoapp
@@ -572,6 +580,7 @@ class EventLoop : public NonCopyable {
    */
   void deliverNextEvent(const UniquePtr<Nanoapp> &app, Event *event);
 
+#if !CHRE_PLATFORM_EVENT_LOOP_ENABLED
   /**
    * Given an event pulled from the main incoming event queue (mEvents), deliver
    * it to all Nanoapps that should receive the event, or free the event if
@@ -580,6 +589,7 @@ class EventLoop : public NonCopyable {
    * @param event The Event to distribute to Nanoapps
    */
   void distributeEvent(Event *event);
+#endif  // CHRE_PLATFORM_EVENT_LOOP_ENABLED
 
   /**
    * Shared functionality to distributeEvent and distributeEventSync. Should
@@ -712,6 +722,10 @@ class EventLoop : public NonCopyable {
    */
   bool distributeEventSyncInternal(Event *event, MultiThreadingApiMutex *lock)
       CHRE_REQUIRES(lock);
+
+#if CHRE_PLATFORM_EVENT_LOOP_ENABLED
+  friend class PlatformEventLoop;
+#endif  // CHRE_PLATFORM_EVENT_LOOP_ENABLED
 };
 
 }  // namespace chre

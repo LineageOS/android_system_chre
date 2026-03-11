@@ -28,6 +28,17 @@ namespace chre {
 
 void DramVoteClient::voteDramAccess(bool enabled) {
   LockGuard<Mutex> lock(mMutex);
+  voteDramAccessLocked(enabled);
+}
+
+void DramVoteClient::voteDramAccess(bool (*condition)(), bool enabled) {
+  LockGuard<Mutex> lock(mMutex);
+  if (condition()) {
+    voteDramAccessLocked(enabled);
+  }
+}
+
+void DramVoteClient::voteDramAccessLocked(bool enabled) {
   mLastDramRequest = enabled;
 
   bool needDram = (enabled || mDramVoteCount > 0);

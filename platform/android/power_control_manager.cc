@@ -16,11 +16,15 @@
 
 #include "chre/platform/power_control_manager.h"
 
+#include "chre/variant/config.h"
+
 namespace chre {
 
+#if !(CHRE_PLATFORM_EVENT_LOOP_ENABLED)
 void PowerControlManager::preEventLoopProcess(size_t /* numPendingEvents */) {}
 
 void PowerControlManager::postEventLoopProcess(size_t /* numPendingEvents */) {}
+#endif  // CHRE_PLATFORM_EVENT_LOOP_ENABLED
 
 bool PowerControlManager::hostIsAwake() {
   return true;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 The Android Open Source Project
+ * Copyright (C) 2026 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,20 +14,19 @@
  * limitations under the License.
  */
 
-#include "chre/platform/power_control_manager.h"
+#include "chre/platform/platform_event_loop.h"
 
-#include "chre/variant/config.h"
+#include "chre/core/event_loop.h"
+
+#include <cstddef>
 
 namespace chre {
 
-#if !(CHRE_PLATFORM_EVENT_LOOP_ENABLED)
-void PowerControlManager::preEventLoopProcess(size_t /* numPendingEvents */) {}
-
-void PowerControlManager::postEventLoopProcess(size_t /* numPendingEvents */) {}
-#endif  // CHRE_PLATFORM_EVENT_LOOP_ENABLED
-
-bool PowerControlManager::hostIsAwake() {
-  return true;
+#if CHRE_PLATFORM_EVENT_LOOP_ENABLED
+void PlatformEventLoop::distributeEvent(EventLoop *eventLoop, Event *event) {
+  eventLoop->distributeEventCommon(event);
+  eventLoop->freeEvent(event);
 }
+#endif  // CHRE_PLATFORM_EVENT_LOOP_ENABLED
 
 }  // namespace chre

@@ -439,6 +439,7 @@ void HostCommsManager::freeMessageToHost(MessageToHost *msgToHost) {
   EventLoop *eventLoop = getCurrentEventLoop();
   CHRE_ASSERT(eventLoop != nullptr);
   if (msgToHost->toHostData.nanoappFreeFunction != nullptr) {
+    GlobalApiUnlockGuard lock;
     eventLoop->invokeMessageFreeFunction(
         msgToHost->appId, msgToHost->toHostData.nanoappFreeFunction,
         msgToHost->message.data(), msgToHost->message.size());
@@ -544,16 +545,13 @@ void HostCommsManager::onMessageToHostCompleteInternal(
                  msgToHost->appId)) {
     // If we're already within the event loop context, it is safe to call the
     // free callback synchronously.
-    GlobalApiUnlockGuard lock;
     freeMessageToHost(msgToHost);
   } else {
-    // TODO(b/488037034): Enable thread-safety analysis annotations here.
     auto freeMsgCallback =
         [](uint16_t /*type*/, void *data, void * /*extraData*/)
-            CHRE_NO_THREAD_SAFETY_ANALYSIS {
+            CHRE_REQUIRES(getMultiThreadingApiMutex()) {
               // TODO(b/475537998): Optimize the global API mutex locking in
               // this code path.
-              GlobalApiUnlockGuard lock;
               EventLoopManagerSingleton::get()
                   ->getHostCommsManager()
                   .freeMessageToHost(static_cast<MessageToHost *>(data));

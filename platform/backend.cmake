@@ -44,6 +44,9 @@ pw_add_backend_variable(chre.platform.platform_ble_BACKEND)
 # Backend for chre.platform.platform_debug_dump_manager.
 pw_add_backend_variable(chre.platform.platform_debug_dump_manager_BACKEND)
 
+# Backend for chre.platform.platform_event_loop.
+pw_add_backend_variable(chre.platform.platform_event_loop_BACKEND)
+
 # Backend for chre.platform.platform_gnss.
 pw_add_backend_variable(chre.platform.platform_gnss_BACKEND)
 

@@ -33,7 +33,7 @@ namespace chre {
  * *Manager, Platform*Manager, and Platform*ManagerBase.
  */
 class SharedDataRegionManager : public PlatformSharedDataRegionManager {
- protected:
+ public:
   /**
    * Delivers the result of the allocation of a shared data region on behalf of
    * a nanoapp that will be the source of a data flow in that region.

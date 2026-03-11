@@ -18,16 +18,19 @@
 
 #include <cstddef>
 
+#include "chre/variant/config.h"
 #include "location/lbs/contexthub/test_suite/integration/platform/simulator.h"
 
 namespace chre {
 
+#if !(CHRE_PLATFORM_EVENT_LOOP_ENABLED)
 void PowerControlManager::preEventLoopProcess(size_t /* numPendingEvents */) {}
 
 void PowerControlManager::postEventLoopProcess(size_t numPendingEvents) {
   if (numPendingEvents == 0)
     lbs::contexthub::testing::Simulator::GetInstance()->AllEventsProcessed();
 }
+#endif  // CHRE_PLATFORM_EVENT_LOOP_ENABLED
 
 bool PowerControlManager::hostIsAwake() {
   return true;

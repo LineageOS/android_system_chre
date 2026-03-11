@@ -18,6 +18,7 @@
 #include "chre/core/event_loop_manager.h"
 #include "chre/platform/power_control_manager.h"
 #include "chre/platform/shared/log_buffer_manager.h"
+#include "chre/variant/config.h"
 
 extern "C" {
 #include "sensorhub/comm/host_suspend.h"
@@ -44,9 +45,11 @@ void PowerControlManagerBase::onHostWakeSuspendEvent(bool awake) {
   }
 }
 
+#if !(CHRE_PLATFORM_EVENT_LOOP_ENABLED)
 void PowerControlManager::preEventLoopProcess(size_t /* numPendingEvents */) {}
 
 void PowerControlManager::postEventLoopProcess(size_t /* numPendingEvents */) {}
+#endif  // CHRE_PLATFORM_EVENT_LOOP_ENABLED
 
 bool PowerControlManager::hostIsAwake() {
   return !host_suspended();
