@@ -14,8 +14,13 @@
  * limitations under the License.
  */
 
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <numeric>
 #include <optional>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -1792,6 +1797,180 @@ TEST_F(MemoryAccessTest, ConsumerOperations) {
         [&] { EXPECT_EQ(consumer->release(), pw::OkStatus()); }, __LINE__);
 
     verifyAcquireRelease([&] { consumer.reset(); }, __LINE__);
+  }
+}
+
+TEST_F(QueueTest, ConcurrencyStressTest) {
+  // Initialize this before the consumer state so that the producerState is
+  // valid while the consumer instances are being destroyed, as they notify the
+  // producer upon destruction.
+  struct {
+    std::mutex lock;
+    std::condition_variable cv;
+    bool notified = false;
+  } producerState;
+
+  struct ConsumerState {
+    std::mutex lock;
+    std::condition_variable cv;
+    bool notified = false;
+    bool isNoNotify = false;
+    bool isOverwritable = false;
+    std::optional<Consumer<int>> consumer;
+    int lastPopped = -1;
+    int overwriteCount = 0;
+  };
+  ConsumerState consumerStates[6];
+
+  RemoteNotifyFn producerNotifyFn =
+      [&consumerStates](const RemoteEndpointId &id) {
+        int index = id.aidlId.endpointId - 1;
+        if (index >= 0 && index < 6) {
+          std::lock_guard lock(consumerStates[index].lock);
+          consumerStates[index].notified = true;
+          consumerStates[index].cv.notify_one();
+        }
+      };
+
+  RemoteNotifyArgs prodArgs = {.fn = std::move(producerNotifyFn),
+                               .id = getId(0)};
+  initRemoteProducer(std::move(prodArgs));
+
+  auto getConsumerNotifyFn = [&producerState]() -> RemoteNotifyFn {
+    return [&producerState](const RemoteEndpointId & /*id*/) {
+      std::lock_guard<std::mutex> lock(producerState.lock);
+      producerState.notified = true;
+      producerState.cv.notify_one();
+    };
+  };
+
+  for (int i = 0; i < 6; ++i) {
+    ConsumerPolicyBuilder policy;
+    if (i % 2 == 0) {
+      policy.setOverwritable();
+      consumerStates[i].isOverwritable = true;
+    } else {
+      policy.setNonOverwritable();
+    }
+
+    if (i / 2 == 0) {
+      policy.setStreaming();
+    } else if (i / 2 == 1) {
+      policy.setHighWaterMark(kBlockCapacity);
+    } else {
+      policy.setNeverNotify();
+      consumerStates[i].isNoNotify = true;
+    }
+
+    RemoteNotifyArgs consArgs = {.fn = getConsumerNotifyFn(),
+                                 .id = getId(i + 1)};
+    auto maybeConsumer = createRemoteConsumer(std::move(consArgs), policy);
+    ASSERT_EQ(maybeConsumer.status(), pw::OkStatus());
+    consumerStates[i].consumer.emplace(std::move(*maybeConsumer));
+  }
+
+  std::atomic<bool> stopTest = false;
+
+  auto producerThreadFunc = [&]() {
+    int data = 0;
+    while (!stopTest.load(std::memory_order_relaxed)) {
+      if (auto status = mProducer->push(data); !status.ok()) {
+        ASSERT_EQ(status, pw::Status::Unavailable());
+        std::unique_lock<std::mutex> lock(producerState.lock);
+        producerState.cv.wait(lock, [&producerState, &stopTest]() {
+          return producerState.notified ||
+                 stopTest.load(std::memory_order_relaxed);
+        });
+        producerState.notified = false;
+      } else {
+        data++;
+      }
+    }
+    PW_LOG_INFO("Producer thread exiting, push count %d", data);
+  };
+
+  auto popLoop = [](ConsumerState &state) {
+    while (true) {
+      auto result = state.consumer->pop();
+      if (!result.ok()) {
+        if (state.isOverwritable && result.status() == pw::Status::DataLoss()) {
+          state.overwriteCount++;
+          state.lastPopped = -1;
+          continue;
+        }
+        EXPECT_EQ(result.status(), pw::Status::Unavailable());
+        return result.status() == pw::Status::Unavailable();
+      } else if (state.lastPopped == -1) {
+        state.lastPopped = result.value();
+      } else {
+        EXPECT_EQ(result.value(), state.lastPopped + 1);
+        if (result.value() != state.lastPopped + 1) {
+          return false;
+        }
+        state.lastPopped++;
+      }
+    }
+  };
+
+  auto consumerThreadFunc = [&](int index) {
+    auto &state = consumerStates[index];
+    while (!stopTest.load(std::memory_order_relaxed)) {
+      if (state.isNoNotify) {
+        if (!popLoop(state)) {
+          PW_LOG_ERROR(
+              "Consumer thread %d exiting due to error, last popped %d, "
+              "overwrite count %d",
+              index, state.lastPopped, state.overwriteCount);
+          return;
+        }
+        // This consumer will not be notified for new data. Sleep a bit to wait
+        // for the producer to write more data.
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      } else {
+        {
+          std::unique_lock<std::mutex> lock(state.lock);
+          state.cv.wait(lock, [&]() {
+            return state.notified || stopTest.load(std::memory_order_relaxed);
+          });
+          state.notified = false;
+        }
+        if (!popLoop(state)) {
+          PW_LOG_ERROR(
+              "Consumer thread %d exiting due to error, last popped %d, "
+              "overwrite count %d",
+              index, state.lastPopped, state.overwriteCount);
+          return;
+        }
+      }
+    }
+    PW_LOG_INFO(
+        "Consumer thread %d exiting, last popped %d, overwrite count %d", index,
+        state.lastPopped, state.overwriteCount);
+  };
+
+  std::vector<std::thread> threads;
+  threads.emplace_back(producerThreadFunc);
+  for (int i = 0; i < 6; ++i) {
+    threads.emplace_back(consumerThreadFunc, i);
+  }
+
+  // Run the test for 5 seconds before signaling all of the threads to exit.
+  std::this_thread::sleep_for(std::chrono::seconds(5));
+  stopTest.store(true, std::memory_order_relaxed);
+
+  {
+    std::lock_guard lock(producerState.lock);
+    producerState.notified = true;
+    producerState.cv.notify_all();
+  }
+  for (int i = 0; i < 6; ++i) {
+    std::lock_guard lock(consumerStates[i].lock);
+    consumerStates[i].notified = true;
+    consumerStates[i].cv.notify_all();
+  }
+
+  for (auto &t : threads) {
+    t.join();
   }
 }
 
