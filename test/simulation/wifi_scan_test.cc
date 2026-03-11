@@ -33,7 +33,8 @@
 namespace chre {
 namespace {
 
-class WifiScanTest : public SingleThreadTestBase {};
+class WifiScanTestSingleThread : public SingleThreadTestBase {};
+class WifiScanTestMultiThread : public MultiThreadTestBase {};
 
 using namespace std::chrono_literals;
 
@@ -47,35 +48,39 @@ struct WifiAsyncData {
 constexpr uint64_t kAppOneId = 0x0123456789000001;
 constexpr uint64_t kAppTwoId = 0x0123456789000002;
 
-class WifiScanRequestQueueTestBase : public SingleThreadTestBase {
- public:
+template <class TestBaseClass>
+class WifiScanRequestQueueTest : public TestBaseClass {
   void SetUp() {
-    SingleThreadTestBase::SetUp();
+    TestBaseClass::SetUp();
     // Add delay to make sure the requests are queued.
     chrePalWifiDelayResponse(PalWifiAsyncRequestTypes::SCAN,
                              /* milliseconds= */ 100ms);
   }
 
   void TearDown() {
-    SingleThreadTestBase::TearDown();
+    TestBaseClass::TearDown();
     chrePalWifiDelayResponse(PalWifiAsyncRequestTypes::SCAN,
                              /* milliseconds= */ 0ms);
   }
 };
 
+class WifiScanRequestQueueTestSingleThread
+    : public WifiScanRequestQueueTest<SingleThreadTestBase> {};
+class WifiScanRequestQueueTestMultiThread
+    : public WifiScanRequestQueueTest<MultiThreadTestBase> {};
+
 class WifiScanTestNanoapp : public TestNanoapp {
  public:
-  WifiScanTestNanoapp()
-      : TestNanoapp(
-            TestNanoappInfo{.perms = NanoappPermissions::CHRE_PERMS_WIFI}) {}
-
-  explicit WifiScanTestNanoapp(uint64_t id)
-      : TestNanoapp(TestNanoappInfo{
-            .id = id, .perms = NanoappPermissions::CHRE_PERMS_WIFI}) {}
+  explicit WifiScanTestNanoapp(TestNanoappInfo info = {})
+      : TestNanoapp(setPerms(info)) {}
 
   void handleEvent(uint32_t, uint16_t eventType,
                    const void *eventData) override {
     switch (eventType) {
+      case CHRE_EVENT_WIFI_SCAN_RESULT:
+        TestEventQueueSingleton::get()->pushEvent(CHRE_EVENT_WIFI_SCAN_RESULT);
+        break;
+
       case CHRE_EVENT_WIFI_ASYNC_RESULT: {
         auto *event = static_cast<const chreAsyncResult *>(eventData);
         TestEventQueueSingleton::get()->pushEvent(
@@ -83,11 +88,6 @@ class WifiScanTestNanoapp : public TestNanoapp {
             WifiAsyncData{
                 .cookie = static_cast<const uint32_t *>(event->cookie),
                 .errorCode = static_cast<chreError>(event->errorCode)});
-        break;
-      }
-
-      case CHRE_EVENT_WIFI_SCAN_RESULT: {
-        TestEventQueueSingleton::get()->pushEvent(CHRE_EVENT_WIFI_SCAN_RESULT);
         break;
       }
 
@@ -112,13 +112,21 @@ class WifiScanTestNanoapp : public TestNanoapp {
   }
 
  protected:
+  static TestNanoappInfo setPerms(TestNanoappInfo info) {
+    info.perms |= NanoappPermissions::CHRE_PERMS_WIFI;
+    return info;
+  }
+
   static constexpr uint8_t kMaxPendingCookie = 10;
   uint32_t mCookies[kMaxPendingCookie];
   uint8_t mNextFreeCookieIndex = 0;
 };
 
-TEST_F(WifiScanTest, WifiScanBasicSettingTest) {
-  uint64_t appId = loadNanoapp(MakeUnique<WifiScanTestNanoapp>());
+void doWifiScanBasicSettingTest(TestBase *test,
+                                int8_t requestedThreadPriority) {
+  TestNanoappInfo info;
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId = test->loadNanoapp(MakeUnique<WifiScanTestNanoapp>(info));
 
   EventLoopManagerSingleton::get()->getSettingManager().postSettingChange(
       Setting::WIFI_AVAILABLE, true /* enabled */);
@@ -126,46 +134,59 @@ TEST_F(WifiScanTest, WifiScanBasicSettingTest) {
   constexpr uint32_t firstCookie = 0x1010;
   bool success;
   WifiAsyncData wifiAsyncData;
-
   sendEventToNanoapp(appId, SCAN_REQUEST, firstCookie);
-  waitForEvent(SCAN_REQUEST, &success);
+  test->waitForEvent(SCAN_REQUEST, &success);
   EXPECT_TRUE(success);
 
-  waitForEvent(CHRE_EVENT_WIFI_ASYNC_RESULT, &wifiAsyncData);
+  test->waitForEvent(CHRE_EVENT_WIFI_ASYNC_RESULT, &wifiAsyncData);
   EXPECT_EQ(wifiAsyncData.errorCode, CHRE_ERROR_NONE);
   EXPECT_EQ(*wifiAsyncData.cookie, firstCookie);
-  waitForEvent(CHRE_EVENT_WIFI_SCAN_RESULT);
+  test->waitForEvent(CHRE_EVENT_WIFI_SCAN_RESULT);
 
   EventLoopManagerSingleton::get()->getSettingManager().postSettingChange(
       Setting::WIFI_AVAILABLE, false /* enabled */);
 
   constexpr uint32_t secondCookie = 0x2020;
   sendEventToNanoapp(appId, SCAN_REQUEST, secondCookie);
-  waitForEvent(SCAN_REQUEST, &success);
+  test->waitForEvent(SCAN_REQUEST, &success);
   EXPECT_TRUE(success);
 
-  waitForEvent(CHRE_EVENT_WIFI_ASYNC_RESULT, &wifiAsyncData);
+  test->waitForEvent(CHRE_EVENT_WIFI_ASYNC_RESULT, &wifiAsyncData);
   EXPECT_EQ(wifiAsyncData.errorCode, CHRE_ERROR_FUNCTION_DISABLED);
   EXPECT_EQ(*wifiAsyncData.cookie, secondCookie);
 
   EventLoopManagerSingleton::get()->getSettingManager().postSettingChange(
       Setting::WIFI_AVAILABLE, true /* enabled */);
-  unloadNanoapp(appId);
+  test->unloadNanoapp(appId);
 }
 
-TEST_F(WifiScanRequestQueueTestBase, WifiScanRequestDuringResultTest) {
+TEST_F(WifiScanTestSingleThread, WifiScanBasicSettingTest) {
+  doWifiScanBasicSettingTest(this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(WifiScanTestMultiThread, WifiScanBasicSettingTest) {
+  doWifiScanBasicSettingTest(this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(WifiScanTestMultiThread, WifiScanBasicSettingTestForeground) {
+  doWifiScanBasicSettingTest(this,
+                             NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
+}
+
+void doWifiScanRequestDuringResultTest(TestBase *test,
+                                       int8_t requestedThreadPriority) {
   // Test that a nanoapp can request a scan during the result of a previous
   // scan request.
 
   // 1. Make nanoapp request scan
-  // 2. Have nanoapp programmed to re-request scan during result (only one time)
+  // 2. Have nanoapp programmed to re-request scan during result (only one
+  // time)
   // 3. Make sure that the second request is accepted
 
   class WifiScanTestRequestDuringResultNanoapp : public TestNanoapp {
    public:
-    explicit WifiScanTestRequestDuringResultNanoapp(uint64_t id)
-        : TestNanoapp(TestNanoappInfo{
-              .id = id, .perms = NanoappPermissions::CHRE_PERMS_WIFI}) {}
+    explicit WifiScanTestRequestDuringResultNanoapp(const TestNanoappInfo &info)
+        : TestNanoapp(setPerms(info)) {}
 
     void handleEvent(uint32_t, uint16_t eventType,
                      const void *eventData) override {
@@ -214,13 +235,20 @@ TEST_F(WifiScanRequestQueueTestBase, WifiScanRequestDuringResultTest) {
     }
 
    protected:
+    static TestNanoappInfo setPerms(TestNanoappInfo info) {
+      info.perms |= NanoappPermissions::CHRE_PERMS_WIFI;
+      return info;
+    }
+
     uint32_t mSentCookie;
     uint32_t mScanRequestCount = 0;
     WifiAsyncData mReceivedAsyncResult;
   };
-
-  uint64_t appOneId = loadNanoapp(
-      MakeUnique<WifiScanTestRequestDuringResultNanoapp>(kAppOneId));
+  TestNanoappInfo info;
+  info.id = kAppOneId;
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appOneId = test->loadNanoapp(
+      MakeUnique<WifiScanTestRequestDuringResultNanoapp>(info));
 
   EventLoopManagerSingleton::get()->getSettingManager().postSettingChange(
       Setting::WIFI_AVAILABLE, true /* enabled */);
@@ -232,31 +260,46 @@ TEST_F(WifiScanRequestQueueTestBase, WifiScanRequestDuringResultTest) {
   // Request the first scan, which will trigger the second as well
   sendEventToNanoapp(appOneId, SCAN_REQUEST, appOneRequestCookie);
   for (int i = 0; i < 2; ++i) {
-    waitForEvent(SCAN_REQUEST, &success);
+    test->waitForEvent(SCAN_REQUEST, &success);
     EXPECT_TRUE(success);
-    waitForEvent(CHRE_EVENT_WIFI_ASYNC_RESULT, &wifiAsyncData);
+    test->waitForEvent(CHRE_EVENT_WIFI_ASYNC_RESULT, &wifiAsyncData);
     EXPECT_EQ(wifiAsyncData.errorCode, CHRE_ERROR_NONE);
     EXPECT_EQ(*wifiAsyncData.cookie, appOneRequestCookie);
-    waitForEvent(CHRE_EVENT_WIFI_SCAN_RESULT);
+    test->waitForEvent(CHRE_EVENT_WIFI_SCAN_RESULT);
   }
 
-  unloadNanoapp(appOneId);
+  test->unloadNanoapp(appOneId);
 }
 
-TEST_F(WifiScanRequestQueueTestBase, WifiScanEventBeforeResponseTest) {
-  // Test that the system correctly handles the case where a scan monitor event
-  // comes between a scan request and the corresponding response.
+TEST_F(WifiScanRequestQueueTestSingleThread, WifiScanRequestDuringResultTest) {
+  doWifiScanRequestDuringResultTest(this,
+                                    NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(WifiScanRequestQueueTestMultiThread, WifiScanRequestDuringResultTest) {
+  doWifiScanRequestDuringResultTest(this,
+                                    NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(WifiScanRequestQueueTestMultiThread,
+       WifiScanRequestDuringResultTestForeground) {
+  doWifiScanRequestDuringResultTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
+}
+
+void doWifiScanEventBeforeResponseTest(TestBase *test,
+                                       int8_t requestedThreadPriority) {
+  // Test that the system correctly handles the case where a scan monitor
+  // event comes between a scan request and the corresponding response.
 
   // 1. Make nanoapp request scan monitor
   // 2. Request scan when scan monitor setup is complete
   // 3. Deliver a scan monitor event
   // 4. Deliver the scan request result
-
   class WifiScanTestEventBeforeResponseNanoapp : public TestNanoapp {
    public:
-    explicit WifiScanTestEventBeforeResponseNanoapp(uint64_t id)
-        : TestNanoapp(TestNanoappInfo{
-              .id = id, .perms = NanoappPermissions::CHRE_PERMS_WIFI}) {}
+    explicit WifiScanTestEventBeforeResponseNanoapp(TestNanoappInfo info)
+        : TestNanoapp(info) {}
 
     void handleEvent(uint32_t, uint16_t eventType,
                      const void *eventData) override {
@@ -296,21 +339,37 @@ TEST_F(WifiScanRequestQueueTestBase, WifiScanEventBeforeResponseTest) {
     }
   };
 
-  uint64_t appOneId = loadNanoapp(
-      MakeUnique<WifiScanTestEventBeforeResponseNanoapp>(kAppOneId));
+  TestNanoappInfo info;
+  info.id = kAppOneId;
+  info.perms = NanoappPermissions::CHRE_PERMS_WIFI;
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appOneId = test->loadNanoapp(
+      MakeUnique<WifiScanTestEventBeforeResponseNanoapp>(info));
 
   // Get the nanoapp flow started
   sendEventToNanoapp(appOneId, SCAN_REQUEST);
 
   // We should get 2 scan results, one for the scan monitor and one for the
   // scan request.
-  waitForEvent(CHRE_EVENT_WIFI_SCAN_RESULT);
-  waitForEvent(CHRE_EVENT_WIFI_SCAN_RESULT);
+  test->waitForEvent(CHRE_EVENT_WIFI_SCAN_RESULT);
+  test->waitForEvent(CHRE_EVENT_WIFI_SCAN_RESULT);
 
-  unloadNanoapp(appOneId);
+  test->unloadNanoapp(appOneId);
 }
 
-TEST_F(WifiScanRequestQueueTestBase, WifiQueuedScanSettingChangeTest) {
+TEST_F(WifiScanRequestQueueTestSingleThread, WifiScanEventBeforeResponseTest) {
+  doWifiScanEventBeforeResponseTest(this,
+                                    NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(WifiScanRequestQueueTestMultiThread, WifiScanEventBeforeResponseTest) {
+  doWifiScanEventBeforeResponseTest(this,
+                                    NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+void doWifiQueuedScanSettingChangeTest(TestBase *test,
+                                       int8_t requestedThreadPriority1,
+                                       int8_t requestedThreadPriority2) {
   CREATE_CHRE_TEST_EVENT(CONCURRENT_NANOAPP_RECEIVED_EXPECTED_ASYNC_EVENT_COUNT,
                          1);
   CREATE_CHRE_TEST_EVENT(CONCURRENT_NANOAPP_READ_ASYNC_EVENT, 2);
@@ -323,9 +382,8 @@ TEST_F(WifiScanRequestQueueTestBase, WifiQueuedScanSettingChangeTest) {
 
   class WifiScanTestConcurrentNanoapp : public TestNanoapp {
    public:
-    explicit WifiScanTestConcurrentNanoapp(uint64_t id)
-        : TestNanoapp(TestNanoappInfo{
-              .id = id, .perms = NanoappPermissions::CHRE_PERMS_WIFI}) {}
+    explicit WifiScanTestConcurrentNanoapp(const TestNanoappInfo &info)
+        : TestNanoapp(setPerms(info)) {}
 
     void handleEvent(uint32_t, uint16_t eventType,
                      const void *eventData) override {
@@ -363,51 +421,82 @@ TEST_F(WifiScanRequestQueueTestBase, WifiQueuedScanSettingChangeTest) {
     }
 
    protected:
+    static TestNanoappInfo setPerms(TestNanoappInfo info) {
+      info.perms |= NanoappPermissions::CHRE_PERMS_WIFI;
+      return info;
+    }
+
     uint32_t mSentCookie;
     WifiAsyncData mReceivedAsyncResult;
   };
 
+  TestNanoappInfo info1;
+  info1.id = kAppOneId;
+  info1.requestedThreadPriority = requestedThreadPriority1;
   uint64_t appOneId =
-      loadNanoapp(MakeUnique<WifiScanTestConcurrentNanoapp>(kAppOneId));
+      test->loadNanoapp(MakeUnique<WifiScanTestConcurrentNanoapp>(info1));
+  TestNanoappInfo info2;
+  info2.id = kAppTwoId;
+  info2.requestedThreadPriority = requestedThreadPriority2;
   uint64_t appTwoId =
-      loadNanoapp(MakeUnique<WifiScanTestConcurrentNanoapp>(kAppTwoId));
+      test->loadNanoapp(MakeUnique<WifiScanTestConcurrentNanoapp>(info2));
 
   constexpr uint32_t appOneRequestCookie = 0x1010;
   constexpr uint32_t appTwoRequestCookie = 0x2020;
   bool success;
   sendEventToNanoapp(appOneId, SCAN_REQUEST, appOneRequestCookie);
-  waitForEvent(SCAN_REQUEST, &success);
+  test->waitForEvent(SCAN_REQUEST, &success);
   EXPECT_TRUE(success);
   sendEventToNanoapp(appTwoId, SCAN_REQUEST, appTwoRequestCookie);
-  waitForEvent(SCAN_REQUEST, &success);
+  test->waitForEvent(SCAN_REQUEST, &success);
   EXPECT_TRUE(success);
 
   EventLoopManagerSingleton::get()->getSettingManager().postSettingChange(
       Setting::WIFI_AVAILABLE, false /* enabled */);
 
-  // We need to make sure that each nanoapp has received one async result before
-  // further analysis.
-  waitForEvent(CONCURRENT_NANOAPP_RECEIVED_EXPECTED_ASYNC_EVENT_COUNT);
+  // We need to make sure that each nanoapp has received one async result
+  // before further analysis.
+  test->waitForEvent(CONCURRENT_NANOAPP_RECEIVED_EXPECTED_ASYNC_EVENT_COUNT);
 
   WifiAsyncData wifiAsyncData;
   sendEventToNanoapp(appOneId, CONCURRENT_NANOAPP_READ_ASYNC_EVENT);
-  waitForEvent(CONCURRENT_NANOAPP_READ_ASYNC_EVENT, &wifiAsyncData);
+  test->waitForEvent(CONCURRENT_NANOAPP_READ_ASYNC_EVENT, &wifiAsyncData);
   EXPECT_EQ(wifiAsyncData.errorCode, CHRE_ERROR_NONE);
   EXPECT_EQ(*wifiAsyncData.cookie, appOneRequestCookie);
 
   sendEventToNanoapp(appTwoId, CONCURRENT_NANOAPP_READ_ASYNC_EVENT);
-  waitForEvent(CONCURRENT_NANOAPP_READ_ASYNC_EVENT, &wifiAsyncData);
+  test->waitForEvent(CONCURRENT_NANOAPP_READ_ASYNC_EVENT, &wifiAsyncData);
   EXPECT_EQ(wifiAsyncData.errorCode, CHRE_ERROR_FUNCTION_DISABLED);
   EXPECT_EQ(*wifiAsyncData.cookie, appTwoRequestCookie);
 
   EventLoopManagerSingleton::get()->getSettingManager().postSettingChange(
       Setting::WIFI_AVAILABLE, true /* enabled */);
 
-  unloadNanoapp(appOneId);
-  unloadNanoapp(appTwoId);
+  test->unloadNanoapp(appOneId);
+  test->unloadNanoapp(appTwoId);
 }
 
-TEST_F(WifiScanRequestQueueTestBase, WifiScanRejectRequestFromSameNanoapp) {
+TEST_F(WifiScanRequestQueueTestSingleThread, WifiQueuedScanSettingChangeTest) {
+  doWifiQueuedScanSettingChangeTest(this,
+                                    NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL,
+                                    NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(WifiScanRequestQueueTestMultiThread, WifiQueuedScanSettingChangeTest) {
+  doWifiQueuedScanSettingChangeTest(this,
+                                    NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL,
+                                    NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(WifiScanRequestQueueTestMultiThread,
+       WifiQueuedScanSettingChangeTestForeground) {
+  doWifiQueuedScanSettingChangeTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL,
+      NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
+}
+
+void doWifiScanRejectRequestFromSameNanoappTest(
+    TestBase *test, int8_t requestedThreadPriority) {
   CREATE_CHRE_TEST_EVENT(RECEIVED_ALL_EXPECTED_EVENTS, 1);
   CREATE_CHRE_TEST_EVENT(READ_ASYNC_EVENT, 2);
 
@@ -415,9 +504,8 @@ TEST_F(WifiScanRequestQueueTestBase, WifiScanRejectRequestFromSameNanoapp) {
 
   class WifiScanTestBufferedAsyncResultNanoapp : public TestNanoapp {
    public:
-    WifiScanTestBufferedAsyncResultNanoapp()
-        : TestNanoapp(
-              TestNanoappInfo{.perms = NanoappPermissions::CHRE_PERMS_WIFI}) {}
+    explicit WifiScanTestBufferedAsyncResultNanoapp(const TestNanoappInfo &info)
+        : TestNanoapp(setPerms(info)) {}
 
     void handleEvent(uint32_t, uint16_t eventType,
                      const void *eventData) override {
@@ -463,6 +551,11 @@ TEST_F(WifiScanRequestQueueTestBase, WifiScanRejectRequestFromSameNanoapp) {
     }
 
    protected:
+    static TestNanoappInfo setPerms(TestNanoappInfo info) {
+      info.perms |= NanoappPermissions::CHRE_PERMS_WIFI;
+      return info;
+    }
+
     // We are only expecting to receive one async result since the second
     // request is expected to fail.
     const uint8_t kExpectedReceivedAsyncResultCount = 1;
@@ -474,33 +567,49 @@ TEST_F(WifiScanRequestQueueTestBase, WifiScanRejectRequestFromSameNanoapp) {
     WifiAsyncData mReceivedAsyncResult;
   };
 
-  uint64_t appId =
-      loadNanoapp(MakeUnique<WifiScanTestBufferedAsyncResultNanoapp>());
+  TestNanoappInfo info;
+  info.requestedThreadPriority = requestedThreadPriority;
+  uint64_t appId = test->loadNanoapp(
+      MakeUnique<WifiScanTestBufferedAsyncResultNanoapp>(info));
 
   constexpr uint32_t kFirstRequestCookie = 0x1010;
   constexpr uint32_t kSecondRequestCookie = 0x2020;
   bool success;
   sendEventToNanoapp(appId, SCAN_REQUEST, kFirstRequestCookie);
-  waitForEvent(SCAN_REQUEST, &success);
+  test->waitForEvent(SCAN_REQUEST, &success);
   EXPECT_TRUE(success);
   sendEventToNanoapp(appId, SCAN_REQUEST, kSecondRequestCookie);
-  waitForEvent(SCAN_REQUEST, &success);
+  test->waitForEvent(SCAN_REQUEST, &success);
   EXPECT_FALSE(success);
 
-  // We need to make sure that the nanoapp has received one async result and did
-  // two scan requests before further analysis.
-  waitForEvent(RECEIVED_ALL_EXPECTED_EVENTS);
+  // We need to make sure that the nanoapp has received one async result and
+  // did two scan requests before further analysis.
+  test->waitForEvent(RECEIVED_ALL_EXPECTED_EVENTS);
 
   WifiAsyncData wifiAsyncData;
   sendEventToNanoapp(appId, READ_ASYNC_EVENT);
-  waitForEvent(READ_ASYNC_EVENT, &wifiAsyncData);
+  test->waitForEvent(READ_ASYNC_EVENT, &wifiAsyncData);
   EXPECT_EQ(wifiAsyncData.errorCode, CHRE_ERROR_NONE);
   EXPECT_EQ(*wifiAsyncData.cookie, kFirstRequestCookie);
 
-  unloadNanoapp(appId);
+  test->unloadNanoapp(appId);
 }
 
-TEST_F(WifiScanRequestQueueTestBase, WifiScanActiveScanFromDistinctNanoapps) {
+TEST_F(WifiScanRequestQueueTestSingleThread,
+       WifiScanRejectRequestFromSameNanoapp) {
+  doWifiScanRejectRequestFromSameNanoappTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(WifiScanRequestQueueTestMultiThread,
+       WifiScanRejectRequestFromSameNanoapp) {
+  doWifiScanRejectRequestFromSameNanoappTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+void doWifiScanActiveScanFromDistinctNanoappsTest(
+    TestBase *test, int8_t requestedThreadPriority1,
+    int8_t requestedThreadPriority2) {
   CREATE_CHRE_TEST_EVENT(CONCURRENT_NANOAPP_RECEIVED_EXPECTED_ASYNC_EVENT_COUNT,
                          1);
   CREATE_CHRE_TEST_EVENT(CONCURRENT_NANOAPP_READ_COOKIE, 2);
@@ -513,9 +622,8 @@ TEST_F(WifiScanRequestQueueTestBase, WifiScanActiveScanFromDistinctNanoapps) {
 
   class WifiScanTestConcurrentNanoapp : public TestNanoapp {
    public:
-    explicit WifiScanTestConcurrentNanoapp(uint64_t id)
-        : TestNanoapp(TestNanoappInfo{
-              .id = id, .perms = NanoappPermissions::CHRE_PERMS_WIFI}) {}
+    explicit WifiScanTestConcurrentNanoapp(const TestNanoappInfo &info)
+        : TestNanoapp(setPerms(info)) {}
 
     void handleEvent(uint32_t, uint16_t eventType,
                      const void *eventData) override {
@@ -555,38 +663,63 @@ TEST_F(WifiScanRequestQueueTestBase, WifiScanActiveScanFromDistinctNanoapps) {
     }
 
    protected:
+    static TestNanoappInfo setPerms(TestNanoappInfo info) {
+      info.perms |= NanoappPermissions::CHRE_PERMS_WIFI;
+      return info;
+    }
+
     uint32_t mSentCookie;
     uint32_t mReceivedCookie;
   };
 
+  TestNanoappInfo info1;
+  info1.id = kAppOneId;
+  info1.requestedThreadPriority = requestedThreadPriority1;
   uint64_t appOneId =
-      loadNanoapp(MakeUnique<WifiScanTestConcurrentNanoapp>(kAppOneId));
+      test->loadNanoapp(MakeUnique<WifiScanTestConcurrentNanoapp>(info1));
+  TestNanoappInfo info2;
+  info2.id = kAppTwoId;
+  info2.requestedThreadPriority = requestedThreadPriority2;
   uint64_t appTwoId =
-      loadNanoapp(MakeUnique<WifiScanTestConcurrentNanoapp>(kAppTwoId));
+      test->loadNanoapp(MakeUnique<WifiScanTestConcurrentNanoapp>(info2));
 
   constexpr uint32_t kAppOneRequestCookie = 0x1010;
   constexpr uint32_t kAppTwoRequestCookie = 0x2020;
   bool success;
   sendEventToNanoapp(appOneId, SCAN_REQUEST, kAppOneRequestCookie);
-  waitForEvent(SCAN_REQUEST, &success);
+  test->waitForEvent(SCAN_REQUEST, &success);
   EXPECT_TRUE(success);
   sendEventToNanoapp(appTwoId, SCAN_REQUEST, kAppTwoRequestCookie);
-  waitForEvent(SCAN_REQUEST, &success);
+  test->waitForEvent(SCAN_REQUEST, &success);
   EXPECT_TRUE(success);
 
-  waitForEvent(CONCURRENT_NANOAPP_RECEIVED_EXPECTED_ASYNC_EVENT_COUNT);
+  test->waitForEvent(CONCURRENT_NANOAPP_RECEIVED_EXPECTED_ASYNC_EVENT_COUNT);
 
   uint32_t receivedCookie;
   sendEventToNanoapp(appOneId, CONCURRENT_NANOAPP_READ_COOKIE);
-  waitForEvent(CONCURRENT_NANOAPP_READ_COOKIE, &receivedCookie);
+  test->waitForEvent(CONCURRENT_NANOAPP_READ_COOKIE, &receivedCookie);
   EXPECT_EQ(kAppOneRequestCookie, receivedCookie);
 
   sendEventToNanoapp(appTwoId, CONCURRENT_NANOAPP_READ_COOKIE);
-  waitForEvent(CONCURRENT_NANOAPP_READ_COOKIE, &receivedCookie);
+  test->waitForEvent(CONCURRENT_NANOAPP_READ_COOKIE, &receivedCookie);
   EXPECT_EQ(kAppTwoRequestCookie, receivedCookie);
 
-  unloadNanoapp(appOneId);
-  unloadNanoapp(appTwoId);
+  test->unloadNanoapp(appOneId);
+  test->unloadNanoapp(appTwoId);
+}
+
+TEST_F(WifiScanRequestQueueTestSingleThread,
+       WifiScanActiveScanFromDistinctNanoapps) {
+  doWifiScanActiveScanFromDistinctNanoappsTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL,
+      NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL);
+}
+
+TEST_F(WifiScanRequestQueueTestMultiThread,
+       WifiScanActiveScanFromDistinctNanoapps) {
+  doWifiScanActiveScanFromDistinctNanoappsTest(
+      this, NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL,
+      NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND);
 }
 
 }  // namespace
