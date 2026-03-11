@@ -491,7 +491,7 @@ struct chreDataFlowNewDataAlert {
  *     to their maximum sizes and the region cannot accommodate more elements.
  * @param name A human-readable name for the data flow. This is used for
  *     debugging purposes and will not be shared with endpoints. This must not
- *     be NULL.
+ *     be NULL. This must have a lifetime at least as long as the nanoapp.
  * @return One of chreStatus
  *  - CHRE_STATUS_OK if the data flow was successfully created.
  *  - CHRE_STATUS_ALREADY_EXISTS if a data flow with the same name already
@@ -552,13 +552,17 @@ uint32_t chreDataFlowDestroy(uint32_t dataFlowId);
  *  - CHRE_STATUS_OK if this nanoapp will receive the
  *    CHRE_EVENT_DATA_FLOW_SINK_CONFIGURE_DONE event with a status indicating
  *    the request was successful.
- *  - CHRE_STATUS_INVALID_ARGUMENT if sinkPolicy is NULL.
+ *  - CHRE_STATUS_INVALID_ARGUMENT if sinkPolicy is NULL, if the new data alert
+ *    policy is invalid, or if the hub or endpoint ID are invalid.
  *  - CHRE_STATUS_FAILED_PRECONDITION if the sink cannot be added to the
  *    data flow because it cannot access the domain in which the data flow was
- *    created.
+ *    created or if the data flow is not active.
  *  - CHRE_STATUS_PERMISSION_DENIED if the source does not own the data
  *    flow or if the sink does not have permission to access the domain of the
  *    data flow.
+ *  - CHRE_STATUS_NOT_FOUND if the data flow does not exist.
+ *  - CHRE_STATUS_RESOURCE_EXHAUSTED if the sink cannot be created due to
+ *    insufficient memory or resources.
  *
  * @since v1.12
  */
@@ -607,14 +611,18 @@ uint32_t chreDataFlowSourceAddSinkAsync(uint64_t hubId,
  *    a status indicating whether the sink was successfully created and notified
  *    or an error status otherwise.
  *  - CHRE_STATUS_ALREADY_EXISTS if a sink already exists on the data flow.
- *  - CHRE_STATUS_INVALID_ARGUMENT if sinkPolicy is NULL or if the constraints
- *    specified in chreMsgSend() are not met for message, messageSize, and
- *    messageType.
+ *  - CHRE_STATUS_INVALID_ARGUMENT if sinkPolicy is NULL, if the new data alert
+ *    policy is invalid, if the hub or endpoint ID are invalid, or if the
+ *    constraints specified in chreMsgSend() are not met for message,
+ *    messageSize, and messageType.
  *  - CHRE_STATUS_FAILED_PRECONDITION if the sink cannot be added to the
  *    data flow because it cannot access the domain in which the data flow was
- *    created.
+ *    created or if the data flow is not active.
  *  - CHRE_STATUS_PERMISSION_DENIED if the source does not own the data
  *    flow.
+ *  - CHRE_STATUS_NOT_FOUND if the data flow does not exist.
+ *  - CHRE_STATUS_RESOURCE_EXHAUSTED if the sink cannot be created due to
+ *    insufficient memory or resources.
  *
  * @see chreDataFlowSourceAddSinkAsync
  * @see chreMsgSend
@@ -638,10 +646,12 @@ uint32_t chreDataFlowSourceAddSinkOverSessionAsync(uint64_t hubId,
  * @return one of chreStatus:
  *  - CHRE_STATUS_OK if the request was successful. The sink is configured
  *    immediately.
- *  - CHRE_STATUS_INVALID_ARGUMENT if sinkPolicy is NULL.
- *  - CHRE_STATUS_NOT_FOUND if the sink does not exist on the data flow.
+ *  - CHRE_STATUS_INVALID_ARGUMENT if sinkPolicy is NULL, if the new data alert
+ *    policy is invalid, or if the hub or endpoint ID are invalid.
+ *  - CHRE_STATUS_NOT_FOUND if the data flow or the sink does not exist.
  *  - CHRE_STATUS_PERMISSION_DENIED if the source does not own the data
  *    flow.
+ *  - CHRE_STATUS_FAILED_PRECONDITION if data flow is not active.
  *
  * @since v1.12
  */
@@ -651,9 +661,9 @@ uint32_t chreDataFlowSourceConfigureSink(uint64_t hubId,
 
 /**
  * Reserves contiguous space in the data flow for numBytes bytes. This
- * function returns the number of bytes that were successfully reserved,
- * which can be 0 or fewer than numBytes. *data will point to
- * the reserved memory if successful or NULL if this function returns 0.
+ * function sets *reservedBytes to the number of bytes that were successfully
+ * reserved, which can be 0 or fewer than numBytes. *data will point to
+ * the reserved memory if successful or NULL if this function an error status.
  *
  * If there is enough memory available to write all of numBytes, but in
  * different contiguous blocks, this function will return the number of bytes
@@ -678,6 +688,7 @@ uint32_t chreDataFlowSourceConfigureSink(uint64_t hubId,
  *  - CHRE_STATUS_INVALID_ARGUMENT if numBytes is not a multiple of the element
  *    size for only a fixed-size data flow or if data or reservedBytes is
  *    NULL.
+ *  - CHRE_STATUS_FAILED_PRECONDITION if the data flow is not active.
  *
  * @since v1.12
  */
@@ -702,6 +713,8 @@ uint32_t chreDataFlowSourceReserve(uint32_t dataFlowId, uint32_t numBytes,
  *  - CHRE_STATUS_INVALID_ARGUMENT if numBytes is not a multiple of the element
  *    size for only a fixed-size data flow or if numBytes is greater than the
  *    number of bytes reserved for writing.
+ *  - CHRE_STATUS_FAILED_PRECONDITION if data flow is not active or if there is
+ *    no active reservation.
  *
  * @since v1.12
  */
@@ -728,7 +741,8 @@ uint32_t chreDataFlowSourceCommit(uint32_t dataFlowId, uint32_t numBytes);
  *    nanoapp.
  *  - CHRE_STATUS_RESOURCE_EXHAUSTED if the data flow is full and
  *    allOrNothing is true.
- *  - CHRE_STATUS_FAILED_PRECONDITION if there is an active reservation.
+ *  - CHRE_STATUS_FAILED_PRECONDITION if there is an active reservation or if
+ *    the data flow is not active.
  *  - CHRE_STATUS_INVALID_ARGUMENT if numBytes is 0 or not a multiple of the
  *    element size for only a fixed-size data flow, if data or
  *    numberOfBytesPushed is NULL.
@@ -755,6 +769,7 @@ uint32_t chreDataFlowSourcePush(uint32_t dataFlowId, const void *data,
  *  - CHRE_STATUS_PERMISSION_DENIED if the data flow is not owned by this
  *    nanoapp.
  *  - CHRE_STATUS_INVALID_ARGUMENT if size is NULL.
+ *  - CHRE_STATUS_FAILED_PRECONDITION if the data flow is not active.
  *
  * @see chreDataFlowSourceGetCapacity
  *
@@ -776,6 +791,7 @@ uint32_t chreDataFlowSourceGetSize(uint32_t dataFlowId, bool includeReserved,
  *  - CHRE_STATUS_PERMISSION_DENIED if the data flow is not owned by this
  *    nanoapp.
  *  - CHRE_STATUS_INVALID_ARGUMENT if capacity is NULL.
+ *  - CHRE_STATUS_FAILED_PRECONDITION if the data flow is not active.
  *
  * @since v1.12
  */
