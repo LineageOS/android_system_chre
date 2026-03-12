@@ -55,6 +55,7 @@ class DebugDumpNanoapp : public TestNanoapp {
 };
 
 TEST_F(SingleThreadTestBase, DebugDumpTest) {
+  clearDebugDumpString();
   uint64_t appId = loadNanoapp(MakeUnique<DebugDumpNanoapp>());
 
   EventLoopManagerSingleton::get()->getDebugDumpManager().trigger();
@@ -73,6 +74,7 @@ TEST_F(SingleThreadTestBase, DebugDumpTest) {
 }
 
 TEST_F(MultiThreadTestBase, DebugDumpMultiThreadedTest) {
+  clearDebugDumpString();
   TestNanoappInfo info1;
   info1.id = 0x123456789abcdef;
   info1.requestedThreadPriority = NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL;

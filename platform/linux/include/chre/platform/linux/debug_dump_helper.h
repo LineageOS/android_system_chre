@@ -33,4 +33,9 @@ namespace chre {
  */
 std::string getDebugDumpStringBlocking(uint32_t timeoutMs);
 
+/**
+ * Clears the debug dump string. This is only used for testing.
+ */
+void clearDebugDumpString();
+
 }  // namespace chre
