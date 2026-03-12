@@ -74,11 +74,23 @@ class WifiScanTestNanoapp : public TestNanoapp {
   explicit WifiScanTestNanoapp(TestNanoappInfo info = {})
       : TestNanoapp(setPerms(info)) {}
 
+  bool start() override {
+    chreUserSettingConfigureEvents(CHRE_USER_SETTING_WIFI_AVAILABLE,
+                                   true /* enable */);
+    return true;
+  }
+
   void handleEvent(uint32_t, uint16_t eventType,
                    const void *eventData) override {
     switch (eventType) {
       case CHRE_EVENT_WIFI_SCAN_RESULT:
         TestEventQueueSingleton::get()->pushEvent(CHRE_EVENT_WIFI_SCAN_RESULT);
+        break;
+
+      case CHRE_EVENT_SETTING_CHANGED_WIFI_AVAILABLE:
+        TestEventQueueSingleton::get()->pushEvent(
+            CHRE_EVENT_SETTING_CHANGED_WIFI_AVAILABLE,
+            *static_cast<const chreUserSettingChangedEvent *>(eventData));
         break;
 
       case CHRE_EVENT_WIFI_ASYNC_RESULT: {
@@ -111,6 +123,11 @@ class WifiScanTestNanoapp : public TestNanoapp {
     }
   }
 
+  void end() override {
+    chreUserSettingConfigureEvents(CHRE_USER_SETTING_WIFI_AVAILABLE,
+                                   false /* enable */);
+  }
+
  protected:
   static TestNanoappInfo setPerms(TestNanoappInfo info) {
     info.perms |= NanoappPermissions::CHRE_PERMS_WIFI;
@@ -128,8 +145,13 @@ void doWifiScanBasicSettingTest(TestBase *test,
   info.requestedThreadPriority = requestedThreadPriority;
   uint64_t appId = test->loadNanoapp(MakeUnique<WifiScanTestNanoapp>(info));
 
+  chreUserSettingChangedEvent settingChangedEvent;
   EventLoopManagerSingleton::get()->getSettingManager().postSettingChange(
       Setting::WIFI_AVAILABLE, true /* enabled */);
+  test->waitForEvent(CHRE_EVENT_SETTING_CHANGED_WIFI_AVAILABLE,
+                     &settingChangedEvent);
+  EXPECT_EQ(settingChangedEvent.setting, CHRE_USER_SETTING_WIFI_AVAILABLE);
+  EXPECT_EQ(settingChangedEvent.settingState, CHRE_USER_SETTING_STATE_ENABLED);
 
   constexpr uint32_t firstCookie = 0x1010;
   bool success;
@@ -145,6 +167,10 @@ void doWifiScanBasicSettingTest(TestBase *test,
 
   EventLoopManagerSingleton::get()->getSettingManager().postSettingChange(
       Setting::WIFI_AVAILABLE, false /* enabled */);
+  test->waitForEvent(CHRE_EVENT_SETTING_CHANGED_WIFI_AVAILABLE,
+                     &settingChangedEvent);
+  EXPECT_EQ(settingChangedEvent.setting, CHRE_USER_SETTING_WIFI_AVAILABLE);
+  EXPECT_EQ(settingChangedEvent.settingState, CHRE_USER_SETTING_STATE_DISABLED);
 
   constexpr uint32_t secondCookie = 0x2020;
   sendEventToNanoapp(appId, SCAN_REQUEST, secondCookie);
@@ -157,6 +183,10 @@ void doWifiScanBasicSettingTest(TestBase *test,
 
   EventLoopManagerSingleton::get()->getSettingManager().postSettingChange(
       Setting::WIFI_AVAILABLE, true /* enabled */);
+  test->waitForEvent(CHRE_EVENT_SETTING_CHANGED_WIFI_AVAILABLE,
+                     &settingChangedEvent);
+  EXPECT_EQ(settingChangedEvent.setting, CHRE_USER_SETTING_WIFI_AVAILABLE);
+  EXPECT_EQ(settingChangedEvent.settingState, CHRE_USER_SETTING_STATE_ENABLED);
   test->unloadNanoapp(appId);
 }
 

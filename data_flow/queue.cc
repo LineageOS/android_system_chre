@@ -1046,7 +1046,7 @@ pw::Status ConsumerBase::checkStateInternal() {
       PW_LOG_ERROR("ConsumerBase::checkState: producer gone or disconnected");
       return pw::Status::Aborted();
     case ProducerFlags::kOverwrite: {
-      PW_LOG_INFO("ConsumerBase::checkState: read position overwritten");
+      PW_LOG_DEBUG("ConsumerBase::checkState: read position overwritten");
       PW_TRY(handleOverwrite());
       clearFlags();
       return pw::Status::DataLoss();
@@ -1111,7 +1111,7 @@ pw::Status ConsumerBase::releaseNoNotify(size_t count) {
     mPeeked -= count;
   }
   advanceReadIndex(count, /*buf=*/std::nullopt);
-  return pw::OkStatus();
+  return checkStateInternal();
 }
 
 pw::Status ConsumerBase::popNoNotify(pw::ByteSpan data) {
@@ -1121,7 +1121,7 @@ pw::Status ConsumerBase::popNoNotify(pw::ByteSpan data) {
   }
   PW_TRY(checkAvailable(data.size()));
   advanceReadIndex(data.size(), data);
-  return pw::OkStatus();
+  return checkStateInternal();
 }
 
 pw::Status ConsumerBase::resync(size_t offset) {

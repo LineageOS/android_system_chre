@@ -463,6 +463,12 @@ bool HalClientManager::mutateEndpointIdFromHostIfNeeded(
   return true;
 }
 
+bool HalClientManager::isSystemServer(pid_t pid) {
+  const std::lock_guard<std::mutex> lock(mLock);
+  const Client *client = getClientByProcessId(pid);
+  return client != nullptr && client->uuid == kSystemServerUuid;
+}
+
 HostEndpointId HalClientManager::convertToOriginalEndpointId(
     const HostEndpointId &endpointId) {
   if (endpointId & kVendorEndpointIdBitMask) {
@@ -486,7 +492,7 @@ HalClientManager::HalClientManager(
     //   confusions.
     LOGW("Unable to find and read %s.", mClientMappingFilePath.c_str());
   } else {
-    for (int i = 0; i < mappings.size(); i++) {
+    for (Json::ArrayIndex i = 0; i < mappings.size(); i++) {
       Json::Value mapping = mappings[i];
       if (!mapping.isMember(kJsonClientId) || !mapping.isMember(kJsonUuid) ||
           !mapping.isMember(kJsonName)) {

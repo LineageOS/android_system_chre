@@ -352,6 +352,11 @@ class HalClientManager {
       HostEndpointId mutatedEndpointId);
 
   /**
+   * Returns true if the process identified by the @p pid is the system server.
+   */
+  bool isSystemServer(pid_t pid);
+
+  /**
    * Handles the client death event.
    *
    * @param pid of the client that loses the binder connection to the HAL.
