@@ -854,7 +854,8 @@ void HostProtocolChre::encodeRegisterEndpoint(ChreFlatBufferBuilder &builder,
   auto info = fbs::CreateEndpointInfo(
       builder, id, static_cast<fbs::EndpointType>(endpoint.type),
       addStringAsByteVector(builder, endpoint.name), endpoint.version,
-      endpoint.requiredPermissions);
+      endpoint.requiredPermissions, 0 /* services */,
+      addStringAsByteVector(builder, endpoint.tag));
   auto msg = fbs::CreateRegisterEndpoint(builder, info);
   finalize(builder, fbs::ChreMessage::RegisterEndpoint, msg.Union());
 }

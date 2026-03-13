@@ -468,6 +468,7 @@ AidlEndpointInfo HostProtocolHostV4::fbsEndpointInfoToAidl(
       .type = static_cast<AidlEndpointInfo::EndpointType>(endpoint.type),
       .name = stringFromBytes(endpoint.name),
       .version = static_cast<int32_t>(endpoint.version),
+      .tag = stringFromBytes(endpoint.tag),
       .requiredPermissions =
           chreToAndroidPermissions(endpoint.required_permissions)};
   for (const auto &service : endpoint.services) {
