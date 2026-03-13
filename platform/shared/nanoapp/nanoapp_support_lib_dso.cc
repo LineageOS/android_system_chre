@@ -235,6 +235,15 @@ const struct chreNslNanoappInfo *getChreNslDsoNanoappInfo() {
 
 namespace {
 
+#if CHRE_NSL_SHOULD_PROVIDE_BACKCOMPAT_FOR(CHRE_API_VERSION_1_12)
+// Populate chreMsgEndpointInfo for CHRE API pre v1.12.
+void populateChreMsgEndpointInfoPre112(struct chreMsgEndpointInfo *info) {
+  info->tag[0] = '\0';
+  info->isNameValid = (info->name[0] != '\0');
+  info->isTagValid = 0;
+}
+#endif  // CHRE_NSL_SHOULD_PROVIDE_BACKCOMPAT_FOR(CHRE_API_VERSION_1_12)
+
 #if CHRE_NSL_SHOULD_PROVIDE_BACKCOMPAT_FOR(CHRE_API_VERSION_1_8)
 // Populate chreNanoappInfo for CHRE API pre v1.8.
 void populateChreNanoappInfoPre18(struct chreNanoappInfo *info) {
@@ -653,7 +662,13 @@ WEAK_SYMBOL
 bool chreMsgGetEndpointInfo(uint64_t hubId, uint64_t endpointId,
                             struct chreMsgEndpointInfo *info) {
   auto *fptr = CHRE_NSL_LAZY_LOOKUP(chreMsgGetEndpointInfo);
-  return fptr != nullptr ? fptr(hubId, endpointId, info) : false;
+  bool success = (fptr != nullptr) ? fptr(hubId, endpointId, info) : false;
+#if CHRE_NSL_SHOULD_PROVIDE_BACKCOMPAT_FOR(CHRE_API_VERSION_1_12)
+  if (success && chreGetApiVersion() < CHRE_API_VERSION_1_12) {
+    populateChreMsgEndpointInfoPre112(info);
+  }
+#endif
+  return success;
 }
 
 WEAK_SYMBOL
