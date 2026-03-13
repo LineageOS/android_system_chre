@@ -47,7 +47,7 @@ class DataFlowTestApp : public TestNanoapp {
         EXPECT_EQ(info->size, mExpectedSize);
         EXPECT_EQ(info->sinkDomains, mExpectedSinkDomains);
         EXPECT_EQ(info->permissions, mExpectedPermissions);
-        mDataFlowId = info->dataFlowId;
+        EXPECT_EQ(info->dataFlowId, mDataFlowId);
         triggerWait(CHRE_EVENT_DATA_FLOW_CREATED);
         break;
       }
@@ -65,7 +65,7 @@ class DataFlowTestApp : public TestNanoapp {
                 /*maxAverageWriteBandwidthBytesPerSecond=*/1000,
                 mExpectedPermissions,
                 /*elementSize=*/10, /*alignment=*/4, /*minElementCount=*/10,
-                /*maxElementCount=*/10, "test_data_flow");
+                /*maxElementCount=*/10, "test_data_flow", &mDataFlowId);
             EXPECT_EQ(status, CHRE_STATUS_OK);
             break;
           }
@@ -80,7 +80,7 @@ class DataFlowTestApp : public TestNanoapp {
                 /*maxAverageWriteBandwidthBytesPerSecond=*/1000,
                 mExpectedPermissions,
                 /*elementSize=*/10, /*alignment=*/4, /*minElementCount=*/10,
-                /*maxElementCount=*/10, "test_data_flow_2");
+                /*maxElementCount=*/10, "test_data_flow_2", &mDataFlowId);
             EXPECT_EQ(status, CHRE_STATUS_OK);
             break;
           }
@@ -95,7 +95,7 @@ class DataFlowTestApp : public TestNanoapp {
                 /*maxAverageWriteBandwidthBytesPerSecond=*/1000,
                 mExpectedPermissions,
                 /*elementSize=*/0, /*alignment=*/0, /*minElementCount=*/10,
-                /*maxElementCount=*/100, "test_data_flow");
+                /*maxElementCount=*/100, "test_data_flow", &mDataFlowId);
             EXPECT_EQ(status, CHRE_STATUS_OK);
             break;
           }
@@ -112,7 +112,7 @@ class DataFlowTestApp : public TestNanoapp {
                 /*maxAverageWriteBandwidthBytesPerSecond=*/1000,
                 /*sinkPermissions=*/CHRE_MESSAGE_PERMISSION_NONE,
                 /*elementSize=*/10, /*alignment=*/4, /*minElementCount=*/10,
-                /*maxElementCount=*/10, /*name=*/nullptr);
+                /*maxElementCount=*/10, /*name=*/nullptr, &mDataFlowId);
             EXPECT_EQ(status, CHRE_STATUS_INVALID_ARGUMENT);
             triggerWait(TEST_CREATE_WITH_NULL_NAME);
             break;
@@ -124,7 +124,7 @@ class DataFlowTestApp : public TestNanoapp {
                 /*maxAverageWriteBandwidthBytesPerSecond=*/1000,
                 /*sinkPermissions=*/CHRE_MESSAGE_PERMISSION_AUDIO,
                 /*elementSize=*/10, /*alignment=*/4, /*minElementCount=*/10,
-                /*maxElementCount=*/10, "test_data_flow");
+                /*maxElementCount=*/10, "test_data_flow", &mDataFlowId);
             EXPECT_EQ(status, CHRE_STATUS_PERMISSION_DENIED);
             triggerWait(TEST_CREATE_WITH_UNGRANTED_PERMISSION);
             break;
@@ -148,7 +148,7 @@ class DataFlowTestApp : public TestNanoapp {
                 /*maxAverageWriteBandwidthBytesPerSecond=*/1000,
                 /*sinkPermissions=*/CHRE_MESSAGE_PERMISSION_NONE,
                 /*elementSize=*/10, /*alignment=*/4, /*minElementCount=*/10,
-                /*maxElementCount=*/10, "test_data_flow");
+                /*maxElementCount=*/10, "test_data_flow", &mDataFlowId);
             EXPECT_EQ(status, CHRE_STATUS_ALREADY_EXISTS);
             triggerWait(TEST_CREATE_WITH_DUPLICATE_NAME);
             break;

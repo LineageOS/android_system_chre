@@ -42,10 +42,11 @@ uint32_t DataFlowManager::createDataFlowAsync(
     Nanoapp *nanoapp, uint32_t sinkDomains, uint64_t minAverageWriteIntervalNs,
     uint32_t maxAverageWriteBandwidthBytesPerSecond, uint32_t sinkPermissions,
     uint32_t elementSize, uint32_t alignment, uint32_t minElementCount,
-    uint32_t maxElementCount, const char *name) {
-  if (name == nullptr) {
+    uint32_t maxElementCount, const char *name, uint32_t *dataFlowId) {
+  if (name == nullptr || dataFlowId == nullptr) {
     return CHRE_STATUS_INVALID_ARGUMENT;
   }
+  *dataFlowId = CHRE_DATA_FLOW_ID_INVALID;
 
   if (mDataFlows.full()) {
     LOG_OOM();
@@ -98,6 +99,8 @@ uint32_t DataFlowManager::createDataFlowAsync(
   dataFlow.memoryAccess = nullptr;
   dataFlow.producer = std::monostate();
   mDataFlows.push_back(std::move(dataFlow));
+
+  *dataFlowId = dataFlow.properties.dataFlowId;
   return CHRE_STATUS_OK;
 }
 

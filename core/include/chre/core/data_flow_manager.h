@@ -60,6 +60,8 @@ class DataFlowManager : public NonCopyable {
    * @param minElementCount The minimum element count.
    * @param maxElementCount The maximum element count.
    * @param name The name of the data flow.
+   * @param dataFlowId Pointer to a uint32_t that will contain the ID of the
+   * data flow on success.
    *
    * @return one of chreStatus codes.
    */
@@ -68,7 +70,8 @@ class DataFlowManager : public NonCopyable {
                                uint32_t maxAverageWriteBandwidthBytesPerSecond,
                                uint32_t sinkPermissions, uint32_t elementSize,
                                uint32_t alignment, uint32_t minElementCount,
-                               uint32_t maxElementCount, const char *name);
+                               uint32_t maxElementCount, const char *name,
+                               uint32_t *dataFlowId);
 
   /**
    * Destroys a data flow owned by the nanoapp.
