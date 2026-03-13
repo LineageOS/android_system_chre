@@ -22,8 +22,12 @@ import android.bluetooth.BluetoothDevice;
 import android.bluetooth.le.ScanRecord;
 import android.bluetooth.le.ScanResult;
 import android.hardware.location.NanoAppBinary;
+import android.os.Build.VERSION;
+import android.os.Build.VERSION_CODES;
 import android.os.ParcelUuid;
 import android.util.Log;
+
+import com.android.compatibility.common.util.PropertyUtil;
 
 import com.google.android.chre.test.chqts.ContextHubBleTestExecutor;
 import com.google.android.utils.chre.ChreApiTestUtil;
@@ -442,6 +446,14 @@ public class ContextHubMultiDeviceBleBeaconTestExecutor extends ContextHubBleTes
             if (androidTxPower != chreTxPower) {
                 Log.e(TAG, "Error power at index: " + i);
                 return false;
+            }
+
+            // The belowing comparison is added after Android V GTS cut-off so shouldn't apply
+            // to builds before V
+            if (VERSION.SDK_INT <= VERSION_CODES.VANILLA_ICE_CREAM
+                    || VERSION.DEVICE_INITIAL_SDK_INT <= VERSION_CODES.VANILLA_ICE_CREAM
+                    || PropertyUtil.getVendorApiLevel() <= VERSION_CODES.VANILLA_ICE_CREAM) {
+                continue;
             }
 
             int androidPrimaryPhy = androidResult.getPrimaryPhy();
