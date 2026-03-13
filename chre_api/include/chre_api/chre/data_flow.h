@@ -492,12 +492,15 @@ struct chreDataFlowNewDataAlert {
  * @param name A human-readable name for the data flow. This is used for
  *     debugging purposes and will not be shared with endpoints. This must not
  *     be NULL. This must have a lifetime at least as long as the nanoapp.
+ * @param[out] dataFlowId Pointer to a uint32_t that will be set to the ID of
+ *     the data flow if the data flow is successfully created. This will match
+ *     the dataFlowId field in the CHRE_EVENT_DATA_FLOW_CREATED event.
  * @return One of chreStatus
  *  - CHRE_STATUS_OK if the data flow was successfully created.
  *  - CHRE_STATUS_ALREADY_EXISTS if a data flow with the same name already
  *    exists.
  *  - CHRE_STATUS_INVALID_ARGUMENT if any of the arguments are invalid or if
- *    the name is NULL.
+ *    the name is NULL or dataFlowId is NULL.
  *  - CHRE_STATUS_RESOURCE_EXHAUSTED if the data flow cannot be created due to
  *    insufficient memory.
  *  - CHRE_STATUS_FAILED_PRECONDITION if the requested domains cannot be
@@ -512,7 +515,7 @@ uint32_t chreDataFlowCreateAsync(uint32_t sinkDomains,
     uint32_t maxAverageWriteBandwidthBytesPerSecond,
     uint32_t sinkPermissions, uint32_t elementSize, uint32_t alignment,
     uint32_t minElementCount, uint32_t maxElementCount,
-    const char *name);
+    const char *name, uint32_t *dataFlowId);
 
 /**
  * Destroys a data flow. This data flow must be owned by this nanoapp. If the
