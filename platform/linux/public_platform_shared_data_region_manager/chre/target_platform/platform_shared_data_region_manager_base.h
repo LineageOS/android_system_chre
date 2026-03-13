@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include "chre/util/pigweed/default_pw_allocator.h"
+
 namespace chre {
 
 /** Fake implementation of PlatformSharedDataRegionManagerBase for testing. */
@@ -23,6 +25,21 @@ class PlatformSharedDataRegionManagerBase {
  public:
   PlatformSharedDataRegionManagerBase() = default;
   ~PlatformSharedDataRegionManagerBase() = default;
+
+  /** Visible for testing. */
+  size_t getNumCallsToDeallocateRegion() const {
+    return mNumCallsToDeallocateRegion;
+  }
+
+  /** Visible for testing. */
+  void resetNumCallsToDeallocateRegion() {
+    mNumCallsToDeallocateRegion = 0;
+  }
+
+ protected:
+  DefaultPwAllocator mAllocator;
+  size_t mNumCallsToDeallocateRegion = 0;
+  uintptr_t mCookie = 0xDEADBEEF;
 };
 
 }  // namespace chre
