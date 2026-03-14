@@ -41,6 +41,12 @@ std::string getDebugDumpStringBlocking(uint32_t timeoutMs) {
   return dump;
 }
 
+void clearDebugDumpString() {
+  std::lock_guard<std::mutex> lock(gDebugDumpMutex);
+  gDebugDumpBuffer.clear();
+  gDebugDumpComplete = false;
+}
+
 PlatformDebugDumpManagerBase::PlatformDebugDumpManagerBase() {}
 
 PlatformDebugDumpManagerBase::~PlatformDebugDumpManagerBase() {}

@@ -48,7 +48,7 @@ DLL_EXPORT uint32_t chreDataFlowCreateAsync(
     uint32_t sinkDomains, uint64_t minAverageWriteIntervalNs,
     uint32_t maxAverageWriteBandwidthBytesPerSecond, uint32_t sinkPermissions,
     uint32_t elementSize, uint32_t alignment, uint32_t minElementCount,
-    uint32_t maxElementCount, const char *name) {
+    uint32_t maxElementCount, const char *name, uint32_t *dataFlowId) {
 #ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
   chreDataFlowPreApiCall();
   Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
@@ -58,7 +58,7 @@ DLL_EXPORT uint32_t chreDataFlowCreateAsync(
       .createDataFlowAsync(nanoapp, sinkDomains, minAverageWriteIntervalNs,
                            maxAverageWriteBandwidthBytesPerSecond,
                            sinkPermissions, elementSize, alignment,
-                           minElementCount, maxElementCount, name);
+                           minElementCount, maxElementCount, name, dataFlowId);
 #else
   UNUSED_VAR(sinkDomains);
   UNUSED_VAR(minAverageWriteIntervalNs);
@@ -69,6 +69,7 @@ DLL_EXPORT uint32_t chreDataFlowCreateAsync(
   UNUSED_VAR(minElementCount);
   UNUSED_VAR(maxElementCount);
   UNUSED_VAR(name);
+  UNUSED_VAR(dataFlowId);
   return CHRE_STATUS_UNIMPLEMENTED;
 #endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
 }

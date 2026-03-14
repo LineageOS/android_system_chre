@@ -719,13 +719,14 @@ uint32_t chreDataFlowCreateAsync(
     uint32_t sinkDomains, uint64_t minAverageWriteIntervalNs,
     uint32_t maxAverageWriteBandwidthBytesPerSecond, uint32_t sinkPermissions,
     uint32_t elementSize, uint32_t alignment, uint32_t minElementCount,
-    uint32_t maxElementCount, const char *name) {
+    uint32_t maxElementCount, const char *name, uint32_t *dataFlowId) {
   auto *fptr = CHRE_NSL_LAZY_LOOKUP(chreDataFlowCreateAsync);
-  return fptr != nullptr ? fptr(sinkDomains, minAverageWriteIntervalNs,
-                                maxAverageWriteBandwidthBytesPerSecond,
-                                sinkPermissions, elementSize, alignment,
-                                minElementCount, maxElementCount, name)
-                         : CHRE_STATUS_UNIMPLEMENTED;
+  return fptr != nullptr
+             ? fptr(sinkDomains, minAverageWriteIntervalNs,
+                    maxAverageWriteBandwidthBytesPerSecond, sinkPermissions,
+                    elementSize, alignment, minElementCount, maxElementCount,
+                    name, dataFlowId)
+             : CHRE_STATUS_UNIMPLEMENTED;
 }
 
 WEAK_SYMBOL

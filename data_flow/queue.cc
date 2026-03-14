@@ -416,6 +416,7 @@ pw::Result<QueuePrivate *> ProducerBase::initQueue(
   if (!queue) {
     return pw::Status::ResourceExhausted();
   }
+  queue->queue.version = kVersion;
   queue->queue.sourceMetadataOffsetBytes = internal::kOffsetInvalid;
   if (elementSize) {
     if (capacity % elementSize != 0) {
@@ -996,6 +997,7 @@ pw::Status ConsumerBase::initialize(
                ? pw::Status::Aborted()
                : pw::Status::FailedPrecondition();
   }
+  mDesc->version = kVersion;
   std::memcpy(&mDesc->id, &idOrNotifyFn, sizeof(IdOrNotifyFn));
   // mBlockListEpoch must be set before capacity() is called when setting a
   // default mOverwriteResetOffset. This is subsequently used if the consumer

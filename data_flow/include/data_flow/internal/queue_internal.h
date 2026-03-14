@@ -67,8 +67,6 @@ using VariableDataBlockHeader = ::aidl::android::hardware::contexthub::
     SharedDataRegion::DataFlowVariableSizeBlockHeader;
 using VariableElementHeader = ::aidl::android::hardware::contexthub::
     SharedDataRegion::DataFlowVariableSizeElementHeader;
-using Version =
-    ::aidl::android::hardware::contexthub::SharedDataRegion::Version;
 using SourceFlags = ::aidl::android::hardware::contexthub::SharedDataRegion::
     DataFlowSinkMetadata::SourceFlags;
 using SinkFlags = ::aidl::android::hardware::contexthub::SharedDataRegion::

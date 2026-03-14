@@ -17,26 +17,119 @@
 #ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
 
 #include "chre/core/data_flow_manager.h"
+#include "chre/core/chre_message_hub_manager.h"
+#include "chre/core/event_loop.h"
+#include "chre/core/event_loop_manager.h"
+#include "chre/core/nanoapp.h"
+#include "chre/platform/fatal_error.h"
+#include "chre/util/status.h"
+#include "chre/util/system/event_callbacks.h"
+#include "chre/util/unique_ptr.h"
+#include "data_flow/queue.h"
+#include "data_flow/untyped_queue.h"
+
+using ::android::contexthub::data_flow::Region;
+using ::android::contexthub::data_flow::RemoteEndpointId;
+using ::android::contexthub::data_flow::RemoteNotifyArgs;
+using ::android::contexthub::data_flow::UntypedProducer;
+using ::android::contexthub::data_flow::VariableDataProducer;
 
 namespace chre {
 
 void DataFlowManager::init() {}
 
 uint32_t DataFlowManager::createDataFlowAsync(
-    Nanoapp * /*nanoapp*/, uint32_t /*sinkDomains*/,
-    uint64_t /*minAverageWriteIntervalNs*/,
-    uint32_t /*maxAverageWriteBandwidthBytesPerSecond*/,
-    uint32_t /*sinkPermissions*/, uint32_t /*elementSize*/,
-    uint32_t /*alignment*/, uint32_t /*minElementCount*/,
-    uint32_t /*maxElementCount*/, const char * /*name*/) {
-  // TODO(b/457453613): Implement this function
-  return CHRE_STATUS_UNIMPLEMENTED;
+    Nanoapp *nanoapp, uint32_t sinkDomains, uint64_t minAverageWriteIntervalNs,
+    uint32_t maxAverageWriteBandwidthBytesPerSecond, uint32_t sinkPermissions,
+    uint32_t elementSize, uint32_t alignment, uint32_t minElementCount,
+    uint32_t maxElementCount, const char *name, uint32_t *dataFlowId) {
+  if (name == nullptr || dataFlowId == nullptr) {
+    return CHRE_STATUS_INVALID_ARGUMENT;
+  }
+  *dataFlowId = CHRE_DATA_FLOW_ID_INVALID;
+
+  if (mDataFlows.full()) {
+    LOG_OOM();
+    return CHRE_STATUS_RESOURCE_EXHAUSTED;
+  }
+
+  if (!nanoapp->hasPermissions(sinkPermissions)) {
+    LOGE("Nanoapp with instance ID 0x%" PRIx16
+         " does not have permissions for data flow "
+         "%s",
+         nanoapp->getInstanceId(), name);
+    return CHRE_STATUS_PERMISSION_DENIED;
+  }
+
+  for (const NanoappDataFlow &dataFlow : mDataFlows) {
+    if (strcmp(dataFlow.properties.name, name) == 0) {
+      return CHRE_STATUS_ALREADY_EXISTS;
+    }
+  }
+
+  BlockConfig config = calculateBlockConfig(minElementCount, maxElementCount);
+  uint32_t size = config.blockCapacity * config.maxBlockCount *
+                  (elementSize == 0 ? 1 : elementSize);
+  pw::Result<uintptr_t> maybeCookie =
+      EventLoopManagerSingleton::get()
+          ->getSharedDataRegionManager()
+          .allocateDataFlowRegionAsync(sinkDomains, size,
+                                       minAverageWriteIntervalNs,
+                                       maxAverageWriteBandwidthBytesPerSecond);
+  if (!maybeCookie.ok()) {
+    return maybeCookie.status() == pw::Status::InvalidArgument()
+               ? CHRE_STATUS_INVALID_ARGUMENT
+               : CHRE_STATUS_RESOURCE_EXHAUSTED;
+  }
+
+  NanoappDataFlow dataFlow;
+  dataFlow.properties.name = name;
+  dataFlow.properties.dataFlowId = mNextDataFlowId++;
+  dataFlow.properties.sinkDomains = sinkDomains;
+  dataFlow.properties.sinkPermissions = sinkPermissions;
+  dataFlow.properties.dataFlowSize = size;
+  dataFlow.properties.elementSize = elementSize;
+  dataFlow.properties.alignment = alignment;
+  dataFlow.properties.minElementCount = minElementCount;
+  dataFlow.properties.maxElementCount = maxElementCount;
+  dataFlow.properties.blockConfig = config;
+  dataFlow.nanoappInstanceId = nanoapp->getInstanceId();
+  dataFlow.regionId = kInvalidRegionId;
+  dataFlow.cookie = maybeCookie.value();
+  dataFlow.memoryAccess = nullptr;
+  dataFlow.producer = std::monostate();
+  mDataFlows.push_back(std::move(dataFlow));
+
+  *dataFlowId = dataFlow.properties.dataFlowId;
+  return CHRE_STATUS_OK;
 }
 
-uint32_t DataFlowManager::destroyDataFlow(Nanoapp * /*nanoapp*/,
-                                          uint32_t /*dataFlowId*/) {
-  // TODO(b/457453613): Implement this function
-  return CHRE_STATUS_UNIMPLEMENTED;
+uint32_t DataFlowManager::destroyDataFlow(Nanoapp *nanoapp,
+                                          uint32_t dataFlowId) {
+  for (NanoappDataFlow &dataFlow : mDataFlows) {
+    if (dataFlow.properties.dataFlowId == dataFlowId) {
+      if (dataFlow.nanoappInstanceId != nanoapp->getInstanceId()) {
+        return CHRE_STATUS_PERMISSION_DENIED;
+      }
+
+      std::visit(
+          [](auto &&producer) -> void {
+            if constexpr (!std::is_same_v<std::decay_t<decltype(producer)>,
+                                          std::monostate>) {
+              producer.stop();
+            }
+          },
+          dataFlow.producer);
+      // TODO(b/457453613): Call reportDataFlowSinkUnregistered on the CHRE
+      // Message Hub.
+      mDataFlows.erase(&dataFlow);
+      EventLoopManagerSingleton::get()
+          ->getSharedDataRegionManager()
+          .handleDataFlowStopped(dataFlow.regionId);
+      return CHRE_STATUS_OK;
+    }
+  }
+  return CHRE_STATUS_NOT_FOUND;
 }
 
 uint32_t DataFlowManager::sourceAddSinkAsync(
@@ -154,6 +247,142 @@ uint32_t DataFlowManager::sinkGetOffset(Nanoapp * /*nanoapp*/,
                                         uint32_t * /*offset*/) {
   // TODO(b/457453613): Implement this function
   return CHRE_STATUS_UNIMPLEMENTED;
+}
+
+void DataFlowManager::handleAllocateDataFlowRegionAsyncResult(
+    uintptr_t cookie, pw::Status status, int32_t regionId,
+    const android::contexthub::data_flow::AllocatorRegion &region,
+    android::contexthub::data_flow::MemoryAccess *memoryAccess) {
+  NanoappDataFlow *foundDataFlow = nullptr;
+  for (NanoappDataFlow &dataFlow : mDataFlows) {
+    if (dataFlow.cookie.has_value() && *dataFlow.cookie == cookie) {
+      if (status.ok()) {
+        foundDataFlow = &dataFlow;
+        break;
+      }
+    }
+  }
+  if (foundDataFlow == nullptr) {
+    LOGE("Received async result for unknown data flow with cookie: %" PRIuPTR
+         " and status: %s",
+         cookie, status.str());
+    return;
+  }
+
+  if (status.ok()) {
+    foundDataFlow->regionId = regionId;
+    foundDataFlow->cookie = std::nullopt;
+    foundDataFlow->allocatorRegion = region;
+    foundDataFlow->memoryAccess = memoryAccess;
+    status = createProducer(*foundDataFlow);
+  }
+
+  auto event = MakeUnique<chreDataFlowCreatedInfo>();
+  event->status = toChreStatus(status);
+  event->dataFlowId = foundDataFlow->properties.dataFlowId;
+  event->size = foundDataFlow->properties.dataFlowSize;
+  event->sinkDomains = foundDataFlow->properties.sinkDomains;
+  event->permissions = foundDataFlow->properties.sinkPermissions;
+  EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+      CHRE_EVENT_DATA_FLOW_CREATED, event.release(), freeEventDataCallback,
+      foundDataFlow->nanoappInstanceId);
+
+  if (!status.ok()) {
+    mDataFlows.erase(foundDataFlow);
+  }
+}
+
+DataFlowManager::BlockConfig DataFlowManager::calculateBlockConfig(
+    uint32_t minElementCount, uint32_t maxElementCount) {
+  constexpr size_t kMinBlockCount = 1;
+  constexpr size_t kMaxBlockCountTarget = 4;
+
+  size_t blockCapacity = maxElementCount / kMaxBlockCountTarget;
+  if (maxElementCount % kMaxBlockCountTarget != 0) {
+    blockCapacity += kMaxBlockCountTarget;
+  }
+  if (blockCapacity < minElementCount) {
+    blockCapacity = minElementCount;
+  }
+
+  size_t maxBlockCount = maxElementCount / blockCapacity;
+  if (maxElementCount % blockCapacity != 0) {
+    ++maxBlockCount;
+  }
+
+  return {blockCapacity, kMinBlockCount, maxBlockCount};
+}
+
+void DataFlowManager::sendDataFlowAlertToRemoteSink(
+    uint32_t /*dataFlowId*/, uint64_t /*sinkHubId*/,
+    uint64_t /*sinkEndpointId*/) {
+  // TODO(b/457453613): Implement this function. This may be called from other
+  // DataFlowManager APIs.
+}
+
+pw::Status DataFlowManager::createProducer(NanoappDataFlow &dataFlow) {
+  EventLoop *eventLoop =
+      EventLoopManagerSingleton::get()->getEventLoopByInstanceId(
+          dataFlow.nanoappInstanceId);
+  if (eventLoop == nullptr) {
+    LOGE("Event loop not found for data flow");
+    return pw::Status::NotFound();
+  }
+
+  Nanoapp *nanoapp =
+      eventLoop->findNanoappByInstanceId(dataFlow.nanoappInstanceId);
+  if (nanoapp == nullptr) {
+    LOGE("Nanoapp not found for data flow");
+    return pw::Status::NotFound();
+  }
+
+  uint32_t dataFlowId = dataFlow.properties.dataFlowId;
+  RemoteNotifyArgs notifyArgs = {
+      .fn =
+          [dataFlowId](const RemoteEndpointId &id) {
+            EventLoopManagerSingleton::get()
+                ->getDataFlowManager()
+                .sendDataFlowAlertToRemoteSink(
+                    dataFlowId, static_cast<uint64_t>(id.aidlId.hubId),
+                    static_cast<uint64_t>(id.aidlId.endpointId));
+          },
+      .id =
+          {
+              .aidlId = {.hubId = static_cast<int64_t>(
+                             ChreMessageHubManager::kChreMessageHubId),
+                         .endpointId =
+                             static_cast<int64_t>(nanoapp->getAppId())},
+          },
+  };
+
+  if (dataFlow.properties.elementSize == 0) {
+    pw::Result<VariableDataProducer> producer =
+        VariableDataProducer::createRemote(
+            dataFlow.allocatorRegion,
+            dataFlow.properties.blockConfig.blockCapacity,
+            dataFlow.properties.blockConfig.maxBlockCount,
+            dataFlow.properties.blockConfig.minBlockCount, mDataNotifier,
+            std::move(notifyArgs), dataFlow.memoryAccess);
+    if (!producer.ok()) {
+      LOGE("Failed to create variable producer: %s", producer.status().str());
+      return producer.status();
+    }
+    dataFlow.producer = std::move(*producer);
+  } else {
+    pw::Result<UntypedProducer> producer = UntypedProducer::createRemote(
+        dataFlow.allocatorRegion, dataFlow.properties.blockConfig.blockCapacity,
+        dataFlow.properties.elementSize, dataFlow.properties.alignment,
+        dataFlow.properties.blockConfig.maxBlockCount,
+        dataFlow.properties.blockConfig.minBlockCount, mDataNotifier,
+        std::move(notifyArgs), dataFlow.memoryAccess);
+    if (!producer.ok()) {
+      LOGE("Failed to create untyped producer: %s", producer.status().str());
+      return producer.status();
+    }
+    dataFlow.producer = std::move(*producer);
+  }
+
+  return pw::OkStatus();
 }
 
 }  // namespace chre

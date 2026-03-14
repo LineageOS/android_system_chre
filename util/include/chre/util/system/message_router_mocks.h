@@ -19,6 +19,7 @@
 #include "gmock/gmock.h"
 
 #include "chre/util/system/message_common.h"
+#include "chre/util/system/message_hub_callback_v2.h"
 #include "chre/util/system/message_router.h"
 
 #include "pw_allocator/unique_ptr.h"
@@ -58,6 +59,52 @@ class MockMessageHubCallback : public MessageRouter::MessageHubCallback {
               (MessageHubId messageHubId, EndpointId endpointId), (override));
   MOCK_METHOD(void, onEndpointUnregistered,
               (MessageHubId messageHubId, EndpointId endpointId), (override));
+
+  void pw_recycle() override {
+    delete this;
+  }
+};
+
+class MockMessageHubCallbackV2 : public MessageHubCallbackV2 {
+ public:
+  MOCK_METHOD(bool, onMessageReceived,
+              (pw::UniquePtr<std::byte[]> && data, uint32_t messageType,
+               uint32_t messagePermissions, const Session &session,
+               bool sentBySessionInitiator),
+              (override));
+  MOCK_METHOD(void, onSessionOpenRequest, (const Session &session), (override));
+  MOCK_METHOD(void, onSessionOpened, (const Session &session), (override));
+  MOCK_METHOD(void, onSessionClosed, (const Session &session, Reason reason),
+              (override));
+  MOCK_METHOD(void, forEachEndpoint,
+              (const pw::Function<bool(const EndpointInfo &)> &function),
+              (override));
+  MOCK_METHOD(std::optional<EndpointInfo>, getEndpointInfo,
+              (EndpointId endpointId), (override));
+  MOCK_METHOD(std::optional<EndpointId>, getEndpointForService,
+              (const char *serviceDescriptor), (override));
+  MOCK_METHOD(bool, doesEndpointHaveService,
+              (EndpointId endpointId, const char *serviceDescriptor),
+              (override));
+  MOCK_METHOD(
+      void, forEachService,
+      (const pw::Function<bool(const EndpointInfo &,
+                               const message::ServiceInfo &)> &function),
+      (override));
+  MOCK_METHOD(void, onHubRegistered, (const MessageHubInfo &), (override));
+  MOCK_METHOD(void, onHubUnregistered, (MessageHubId), (override));
+  MOCK_METHOD(void, onEndpointRegistered,
+              (MessageHubId messageHubId, EndpointId endpointId), (override));
+  MOCK_METHOD(void, onEndpointUnregistered,
+              (MessageHubId messageHubId, EndpointId endpointId), (override));
+
+  MOCK_METHOD(void, onRegisterDataFlowSink,
+              (DataFlowSinkRegistration && registration), (override));
+  MOCK_METHOD(void, onDataFlowSinkUnregistered,
+              (const DataFlowSinkUnregistration &unregistration), (override));
+  MOCK_METHOD(void, onDataFlowStopped, (const DataFlowStopped &stopped),
+              (override));
+  MOCK_METHOD(void, onDataFlowAlert, (const DataFlowAlert &alert), (override));
 
   void pw_recycle() override {
     delete this;

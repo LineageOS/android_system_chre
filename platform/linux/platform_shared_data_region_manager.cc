@@ -16,25 +16,54 @@
 
 #include "chre/platform/platform_shared_data_region_manager.h"
 
+#include "chre/core/event_loop_manager.h"
+#include "chre/core/shared_data_region_manager.h"
 #include "data_flow/queue.h"
 #include "pw_result/result.h"
 #include "pw_status/status.h"
 
+#include <thread>
+
 namespace chre {
+
+namespace {
+
+//! The region ID to use for all regions.
+constexpr int32_t kRegionId = 0;
+
+}  // anonymous namespace
 
 pw::Result<uintptr_t>
 PlatformSharedDataRegionManager::allocateDataFlowRegionAsync(
     uint32_t /*domains*/, uint32_t /*size*/,
     uint64_t /*minAverageWriteIntervalNs*/,
     uint32_t /*maxAverageWriteBandwidthBytesPerSecond*/) {
-  // TODO(b/475656750): Implement this.
-  return pw::Status::Unimplemented();
+  // For the linux implementation,  we only have one region, which is just the
+  // whole heap. Our allocator just calls (eventually) malloc() and free(). This
+  // should be large enough to allocate any data flow in this region.
+
+  uintptr_t cookie = mCookie++;
+  auto callback = [](uint16_t /*type*/, void *data, void *extraData) {
+    auto *manager = static_cast<PlatformSharedDataRegionManager *>(extraData);
+    auto cookieValue = reinterpret_cast<uintptr_t>(data);
+    EventLoopManagerSingleton::get()
+        ->getSharedDataRegionManager()
+        .handleAllocateDataFlowRegionAsyncResult(
+            cookieValue, pw::OkStatus(),
+            /* regionId= */ kRegionId,
+            /* region= */ {.allocator = &manager->mAllocator},
+            /* memoryAccess= */ nullptr);
+  };
+  EventLoopManagerSingleton::get()->deferCallback(
+      SystemCallbackType::AllocateDataFlowRegionAsyncResult,
+      reinterpret_cast<void *>(cookie), callback, this);
+  return cookie;
 }
 
 pw::Status PlatformSharedDataRegionManager::deallocateRegion(
     int32_t /*regionId*/) {
-  // TODO(b/475656750): Implement this.
-  return pw::Status::Unimplemented();
+  ++mNumCallsToDeallocateRegion;
+  return pw::OkStatus();
 }
 
 pw::Result<std::pair<android::contexthub::data_flow::Region,

@@ -20,8 +20,10 @@
 
 #include <cstdint>
 
+#include "chre/platform/mutex.h"
 #include "chre/platform/platform_shared_data_region_manager.h"
 #include "data_flow/queue.h"
+#include "pw_containers/vector.h"
 #include "pw_status/status.h"
 
 namespace chre {
@@ -34,6 +36,12 @@ namespace chre {
  */
 class SharedDataRegionManager : public PlatformSharedDataRegionManager {
  public:
+  /**
+   * Handles when a data flow stops on a region created using this manager.
+   * This will deallocate the region if needed.
+   */
+  void handleDataFlowStopped(int32_t regionId);
+
   /**
    * Delivers the result of the allocation of a shared data region on behalf of
    * a nanoapp that will be the source of a data flow in that region.
@@ -60,6 +68,31 @@ class SharedDataRegionManager : public PlatformSharedDataRegionManager {
    * @param regionId The ID of the region that is no longer valid
    */
   void handleRegionInvalidated(int32_t regionId);
+
+ private:
+  //! Maximum number of regions tracked in the reference counter
+  constexpr static size_t kMaxNumRegions = 10;
+
+  //! A struct to hold the result of an async data flow region allocation.
+  struct DataFlowAllocationResult {
+    uintptr_t cookie;
+    pw::Status status;
+    int32_t regionId;
+    android::contexthub::data_flow::AllocatorRegion region;
+    android::contexthub::data_flow::MemoryAccess *memoryAccess;
+  };
+
+  //! Region reference counter
+  struct RegionRefCounter {
+    int32_t regionId;
+    size_t refCount;
+  };
+
+  //! Lock for the regions vector
+  Mutex mMutex;
+
+  //! Regions created through this manager
+  pw::Vector<RegionRefCounter, kMaxNumRegions> mRegions;
 };
 
 }  // namespace chre

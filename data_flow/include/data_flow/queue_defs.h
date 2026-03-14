@@ -30,6 +30,19 @@
 
 namespace android::contexthub::data_flow {
 
+/** Describes the version of this implementation of the shared memory ABI. */
+using Version =
+    ::aidl::android::hardware::contexthub::SharedDataRegion::Version;
+
+/** The version of this implementation. */
+constexpr Version kVersion{.major = 0x01, .minor = 0x00, .patch = 0x0000};
+
+/**
+ * The minimum version that a remote endpoint must be on to be compatible with
+ * this implementation.
+ */
+constexpr uint8_t kMinCompatibleMajorVersion = 0x01;
+
 /** Sends a notification to an endpoint within the same "process". */
 using LocalNotifyFn = void (*)(void *context);
 
