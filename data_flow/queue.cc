@@ -711,13 +711,13 @@ void ProducerBase::updateWriteIndex(BlockHeader *tailBlock, uint32_t writeIndex,
 void ProducerBase::updateAvailable(uint32_t increment) {
   auto tail = ::chre::AtomicUint32Ref(mDesc->writeIndex).load() + mReserved;
   mAvailable = capacity() - mReserved;  // Reset available counts.
-  // Consumers that have been overwritten or would otherwise need to sync back
-  // to the producer position should not block writes to the queue, as well as
-  // consumers that are no longer in a valid state. Add them to the exclude
-  // mask. This effectively means all ProducerFlags states except kBlocking and
-  // kPendingInit.
+  // Only consider consumers that are in a valid state, including overwritten.
+  // Overwritten consumers should be considered because they may have synced or
+  // fast-forwarded their read positions and so need to be accounted in the
+  // available space calculation or to flag them overwritten again.
   auto excludeMask = ~(static_cast<uint16_t>(ProducerFlags::kBlocking) |
-                       static_cast<uint16_t>(ProducerFlags::kPendingInit));
+                       static_cast<uint16_t>(ProducerFlags::kPendingInit) |
+                       static_cast<uint16_t>(ProducerFlags::kOverwrite));
   forAllConsumers(
       excludeMask,
       [this](internal::ConsumerNode &node, uint32_t producerFlags,
@@ -726,13 +726,19 @@ void ProducerBase::updateAvailable(uint32_t increment) {
         auto diff = writeReadDiff(tail, readIndex);
         bool overwritable = node.policy.overwrite == OverwritePolicy::kAllowed;
         bool overwritten = false;
-        if (overwritable && diff + increment > capacity()) {
-          // If the consumer is behind by more than the current capacity or
-          // would be if the increment is applied, mark it overwritten.
-          // TODO(b/448384247): When the queue supports dynamic expansion,
-          // this needs to be more conservative.
-          setConsumerFlag(node, producerFlags, ProducerFlags::kOverwrite);
-          overwritten = true;
+        if (overwritable) {
+          if (diff + increment > capacity()) {
+            // If the consumer is behind by more than the current capacity or
+            // would be if the increment is applied, mark it overwritten.
+            setConsumerFlag(node, producerFlags, ProducerFlags::kOverwrite);
+            overwritten = true;
+          } else if (getProducerFlags(producerFlags) ==
+                     ProducerFlags::kOverwrite) {
+            // The consumer is no longer reading stale data. Clear the flag to
+            // hopefully avoid a DataLoss() error on next checkState() by this
+            // consumer.
+            setConsumerFlag(node, producerFlags, ProducerFlags::kNone);
+          }
         } else if (!overwritable && diff + increment >= capacity()) {
           // If the queue is at capacity or would be if the increment is
           // applied and the consumer cannot be overwritten, indicate that the
@@ -749,13 +755,17 @@ void ProducerBase::updateAvailable(uint32_t increment) {
 
 void ProducerBase::setConsumerFlag(ConsumerNode &node, uint32_t current,
                                    ProducerFlags flag, bool forceNotify) {
+  auto currentFlags = internal::getAndCheckProducerFlags(
+      current, ::chre::AtomicUint32Ref(node.desc->sinkFlags).load());
   uint32_t flagCounter = getFlagsCounter(current) + kFlagCountInc;
   ::chre::AtomicUint32Ref(node.desc->sourceFlags)
       .store(static_cast<uint32_t>(flag) | flagCounter);
+  // Notify the consumer if the flag is new, and if either forceNotify is set or
+  // the consumer policy allows notifications.
   // NOTE: If forceNotify, still check that the consumer has been initialized.
-  if ((forceNotify &&
-       getProducerFlags(current) != ProducerFlags::kPendingInit) ||
-      node.policy.notification != NotificationPolicy::kNever) {
+  if (currentFlags != flag &&
+      ((forceNotify && currentFlags != ProducerFlags::kPendingInit) ||
+       node.policy.notification != NotificationPolicy::kNever)) {
     notifyConsumer(*node.desc);
   }
 }
