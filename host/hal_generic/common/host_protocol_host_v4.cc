@@ -450,11 +450,15 @@ Offset<EndpointInfo> HostProtocolHostV4::aidlToFbsEndpointInfo(
         service.majorVersion, service.minorVersion));
   }
   auto servicesVector = builder.CreateVector(services);
+  Offset<Vector<int8_t>> tagOffset =
+      info.tag.has_value() ? addStringAsByteVector(builder, info.tag->c_str())
+                           : 0;
   return ::chre::fbs::CreateEndpointInfo(
       builder, aidlToFbsEndpointId(builder, info.id),
       static_cast<::chre::fbs::EndpointType>(info.type),
       addStringAsByteVector(builder, info.name.c_str()), info.version,
-      androidToChrePermissions(info.requiredPermissions), servicesVector);
+      androidToChrePermissions(info.requiredPermissions), servicesVector,
+      tagOffset);
 }
 
 AidlEndpointInfo HostProtocolHostV4::fbsEndpointInfoToAidl(
@@ -464,6 +468,7 @@ AidlEndpointInfo HostProtocolHostV4::fbsEndpointInfoToAidl(
       .type = static_cast<AidlEndpointInfo::EndpointType>(endpoint.type),
       .name = stringFromBytes(endpoint.name),
       .version = static_cast<int32_t>(endpoint.version),
+      .tag = stringFromBytes(endpoint.tag),
       .requiredPermissions =
           chreToAndroidPermissions(endpoint.required_permissions)};
   for (const auto &service : endpoint.services) {

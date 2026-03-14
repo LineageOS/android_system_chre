@@ -21,6 +21,7 @@
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/multi_threading_api_mutex.h"
 #include "chre/core/nanoapp.h"
+#include "chre/platform/assert.h"
 #include "chre/platform/context.h"
 #include "chre/platform/fatal_error.h"
 #include "chre/target_platform/log.h"
@@ -40,6 +41,7 @@
 
 #include <cinttypes>
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <optional>
@@ -164,6 +166,18 @@ bool ChreMessageHubManager::getEndpointInfo(MessageHubId hubId,
   info.maxMessageSize = chreGetMessageToHostMaxSize();
   std::strncpy(info.name, endpointInfo->name, CHRE_MAX_ENDPOINT_NAME_LEN);
   info.name[CHRE_MAX_ENDPOINT_NAME_LEN - 1] = '\0';
+
+  EventLoop *eventLoop = getCurrentEventLoop();
+  CHRE_ASSERT(eventLoop != nullptr);
+  Nanoapp *nanoapp = eventLoop->getCurrentNanoapp();
+  CHRE_ASSERT(nanoapp != nullptr);
+  uint32_t targetApiVersion = nanoapp->getTargetApiVersion();
+  if (targetApiVersion >= CHRE_API_VERSION_1_12) {
+    std::strncpy(info.tag, endpointInfo->tag, CHRE_MAX_ENDPOINT_TAG_LEN);
+    info.tag[CHRE_MAX_ENDPOINT_TAG_LEN - 1] = '\0';
+    info.isNameValid = (info.name[0] != '\0');
+    info.isTagValid = (info.tag[0] != '\0');
+  }
   return true;
 }
 

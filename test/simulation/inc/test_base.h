@@ -164,32 +164,17 @@ class TestBase : public testing::Test {
   std::optional<pw::bluetooth::proxy::rfcomm::RfcommManager> mRfcommProxyHost;
 };
 
-/*
- * A base class for all CHRE simulated tests that only requires a single thread.
- */
-class SingleThreadTestBase : public TestBase {
- public:
-  void printEventLoopInfo() override;
-
- protected:
-  void SetUp() override;
-  void TearDown() override;
-
-  EventLoop *getEventLoopForRequestedPriority(
-      int8_t /* requestedThreadPriority */) override {
-    return &mEventLoop.value();
-  }
-
-  std::optional<EventLoop> mEventLoop;
-  std::thread mChreThread;
-};
-
-/*
+/**
  * A base class for all CHRE simulated tests that require multiple threads.
  */
-template <size_t kNumEventLoops = 2>
+template <size_t kNumEventLoops>
 class MultiThreadTestBaseT : public TestBase {
  public:
+  // We only support max of 2 threads in the simulation tests for now.
+  // If more support is needed, simply update this value and implement all
+  // necessary methods.
+  static_assert(kNumEventLoops <= 2);
+
   void printEventLoopInfo() override;
 
  protected:
@@ -205,15 +190,22 @@ class MultiThreadTestBaseT : public TestBase {
 
   EventLoop *getEventLoopForRequestedPriority(
       int8_t requestedThreadPriority) override {
-    return requestedThreadPriority ==
-                   NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND
-               ? getEventLoop(1)
-               : getEventLoop(0);
+    if (kNumEventLoops > 1 &&
+        requestedThreadPriority ==
+            NANOAPP_REQUESTED_THREAD_PRIORITY_FOREGROUND) {
+      return getEventLoop(1);
+    }
+    return getEventLoop(0);
   }
 };
 
-// Defaults to multi-threading with size 2.
-using MultiThreadTestBase = MultiThreadTestBaseT<>;
+/*
+ * A base class for all CHRE simulated tests that only requires a single thread.
+ */
+using SingleThreadTestBase = MultiThreadTestBaseT<1>;
+
+// MultiThreadTestBase defaults to multi-threading with size 2.
+using MultiThreadTestBase = MultiThreadTestBaseT<2>;
 
 }  // namespace chre
 

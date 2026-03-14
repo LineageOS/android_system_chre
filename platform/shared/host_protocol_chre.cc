@@ -47,7 +47,6 @@ using message::ServiceInfo;
 using message::Session;
 using message::SessionId;
 
-
 namespace {
 
 void populateLeCocChannelInfo(const fbs::BtSocketOpen *btSocketOpen) {
@@ -360,11 +359,12 @@ bool HostProtocolChre::decodeMessageFromHost(const void *message,
             static_cast<const fbs::RegisterEndpoint *>(container->message())
                 ->endpoint();
         auto *maybeName = getStringFromByteVector(fbsEndpoint->name());
-        EndpointInfo endpoint(fbsEndpoint->id()->id(),
-                              maybeName ? maybeName : "",
-                              fbsEndpoint->version(),
-                              static_cast<EndpointType>(fbsEndpoint->type()),
-                              fbsEndpoint->required_permissions());
+        auto *maybeTag = getStringFromByteVector(fbsEndpoint->tag());
+        EndpointInfo endpoint(
+            fbsEndpoint->id()->id(), maybeName ? maybeName : "",
+            fbsEndpoint->version(),
+            static_cast<EndpointType>(fbsEndpoint->type()),
+            fbsEndpoint->required_permissions(), maybeTag ? maybeTag : "");
         DynamicVector<ServiceInfo> services;
         if (fbsEndpoint->services() && fbsEndpoint->services()->size()) {
           if (!services.reserve(fbsEndpoint->services()->size())) {
@@ -854,7 +854,8 @@ void HostProtocolChre::encodeRegisterEndpoint(ChreFlatBufferBuilder &builder,
   auto info = fbs::CreateEndpointInfo(
       builder, id, static_cast<fbs::EndpointType>(endpoint.type),
       addStringAsByteVector(builder, endpoint.name), endpoint.version,
-      endpoint.requiredPermissions);
+      endpoint.requiredPermissions, 0 /* services */,
+      addStringAsByteVector(builder, endpoint.tag));
   auto msg = fbs::CreateRegisterEndpoint(builder, info);
   finalize(builder, fbs::ChreMessage::RegisterEndpoint, msg.Union());
 }

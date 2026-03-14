@@ -210,30 +210,6 @@ TEST_F(SingleThreadTestBase, PostEventWithNullEventIsHandledGracefully) {
   EXPECT_FALSE(success);
 }
 
-void SingleThreadTestBase::printEventLoopInfo() {
-  LOGD("SingleThreadTestBase::printEventLoopInfo:");
-  LOGD("  EventLoop (all priorities): %p",
-       getEventLoopForRequestedPriority(
-           NANOAPP_REQUESTED_THREAD_PRIORITY_NORMAL));
-}
-
-void SingleThreadTestBase::SetUp() {
-  mEventLoop.emplace();
-  pw::span<EventLoop> span(&mEventLoop.value(), 1);
-  TestBase::SetUpBase(span);
-
-  mChreThread = std::thread([]() {
-    registerThreadContext(&EventLoopManagerSingleton::get()->getEventLoop());
-    EventLoopManagerSingleton::get()->getEventLoop().run();
-  });
-}
-
-void SingleThreadTestBase::TearDown() {
-  EventLoopManagerSingleton::get()->getEventLoop().stop();
-  mChreThread.join();
-  TestBase::TearDown();
-}
-
 template <size_t kNumEventLoops>
 void MultiThreadTestBaseT<kNumEventLoops>::SetUp() {
   mEventLoops.emplace();

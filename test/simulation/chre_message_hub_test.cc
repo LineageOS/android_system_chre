@@ -69,14 +69,16 @@ constexpr MessageHubId kOtherMessageHubId = 0xDEADBEEFBEEFDEAD;
 
 EndpointInfo kEndpointInfos[kNumEndpoints] = {
     EndpointInfo(/* id= */ 1, /* name= */ "endpoint1", /* version= */ 1,
-                 EndpointType::NANOAPP, CHRE_MESSAGE_PERMISSION_NONE),
+                 EndpointType::NANOAPP, CHRE_MESSAGE_PERMISSION_NONE, "tag1"),
     EndpointInfo(/* id= */ 2, /* name= */ "endpoint2", /* version= */ 10,
-                 EndpointType::HOST_NATIVE, CHRE_MESSAGE_PERMISSION_BLE),
+                 EndpointType::HOST_NATIVE, CHRE_MESSAGE_PERMISSION_BLE,
+                 "tag2"),
     EndpointInfo(/* id= */ 3, /* name= */ "endpoint3", /* version= */ 100,
-                 EndpointType::GENERIC, CHRE_MESSAGE_PERMISSION_AUDIO)};
+                 EndpointType::GENERIC, CHRE_MESSAGE_PERMISSION_AUDIO, "tag3")};
 EndpointInfo kDynamicEndpointInfo = EndpointInfo(
     /* id= */ 4, /* name= */ "DynamicallyRegisteredEndpoint",
-    /* version= */ 1, EndpointType::NANOAPP, CHRE_MESSAGE_PERMISSION_NONE);
+    /* version= */ 1, EndpointType::NANOAPP, CHRE_MESSAGE_PERMISSION_NONE,
+    "tag4");
 
 const char kServiceDescriptorForEndpoint2[] = "TEST_SERVICE.TEST";
 const char kServiceDescriptorForDynamicEndpoint[] = "TEST_DYNAMIC_SERVICE";
@@ -324,6 +326,9 @@ class EndpointInfoTestApp : public TestNanoapp {
               EXPECT_EQ(info.requiredPermissions,
                         kEndpointInfos[i].requiredPermissions);
               EXPECT_STREQ(info.name, kEndpointInfos[i].name);
+              EXPECT_STREQ(info.tag, kEndpointInfos[i].tag);
+              EXPECT_EQ(info.isNameValid, 1);
+              EXPECT_EQ(info.isTagValid, 1);
             }
             triggerWait(TEST_GET_EVENT_INFO);
             break;
