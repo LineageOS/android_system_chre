@@ -23,8 +23,8 @@
 
 #include "chpp/app.h"
 #include "chpp/clients.h"
-#include "chpp/common/timesync.h"
 #include "chpp/common/event_log.h"
+#include "chpp/common/timesync.h"
 #include "chpp/macros.h"
 
 #ifdef __cplusplus
@@ -107,11 +107,30 @@ bool chppDispatchTimesyncServiceResponse(struct ChppAppState *appState,
 /**
  * Initiates a CHPP timesync to measure time offset of the service.
  *
+ * See chppTimesyncMeasureOffsetSync() for the synchronous version of this
+ * function.
+ *
+ * Note that only one chppTimesyncMeasureOffset* test may be run at any time
+ * on each client.
+ *
  * @param appState Application layer state.
  *
  * @return Indicates success or failure.
  */
 bool chppTimesyncMeasureOffset(struct ChppAppState *appState);
+
+/**
+ * Same as chppTimesyncMeasureOffset() but blocks execution until a response is
+ * received or the request times out.
+ *
+ * Note that only one chppTimesyncMeasureOffset* test may be run at any time
+ * on each client.
+ *
+ * @param appState Application layer state.
+ *
+ * @return Indicates success or failure.
+ */
+bool chppTimesyncMeasureOffsetSync(struct ChppAppState *appState);
 
 /**
  * Provides the time offset of the service. If the latest measurement is within
@@ -153,7 +172,7 @@ const struct ChppEventLog *chppTimesyncGetEventLog(
  *
  * @return Name of the event type.
  */
-const char* chppGetEventLogName(enum ChppTimesyncClientEventType eventType);
+const char *chppGetEventLogName(enum ChppTimesyncClientEventType eventType);
 
 #ifdef __cplusplus
 }

@@ -120,6 +120,8 @@ bool chppDispatchTimesyncServiceResponse(struct ChppAppState *appState,
     CHPP_LOGE("Invalid timesync response - dropping");
     return false;
   }
+  chppMutexLock(&state->client.syncResponse.mutex);
+
   state->timesyncResult.rttNs =
       state->measureOffset.responseTimeNs - state->measureOffset.requestTimeNs;
   int64_t offsetNs =
@@ -177,10 +179,24 @@ bool chppDispatchTimesyncServiceResponse(struct ChppAppState *appState,
               state->timesyncResult.measurementTimeNs / CHPP_NSEC_PER_MSEC);
   }
 
+  // Notify waiting (synchronous) client
+  state->client.syncResponse.ready = true;
+  chppConditionVariableSignal(&state->client.syncResponse.condVar);
+  chppMutexUnlock(&state->client.syncResponse.mutex);
+
   return true;
 }
 
-bool chppTimesyncMeasureOffset(struct ChppAppState *appState) {
+/**
+ * Internal method for measuring timesync (sync or async).
+ *
+ * @param appState Application layer state.
+ * @param sync If true, runs the timesync in synchronous mode.
+ *
+ * @return Indicates success or failure.
+ */
+static bool chppTimesyncMeasureOffsetInternal(struct ChppAppState *appState,
+                                              bool sync) {
   const uint64_t kTimeoutNs = 5 * CHPP_NSEC_PER_SEC;
   bool result = false;
   CHPP_LOGD("Measuring timesync t=%" PRIu64,
@@ -210,20 +226,43 @@ bool chppTimesyncMeasureOffset(struct ChppAppState *appState) {
     state->timesyncResult.error = CHPP_APP_ERROR_OOM;
     CHPP_LOG_OOM();
 
+  } else if (sync) {
+    chppMutexLock(&state->client.syncResponse.mutex);
+    state->client.syncResponse.ready = false;
+    chppMutexUnlock(&state->client.syncResponse.mutex);
+
+    result = chppClientSendTimestampedRequestAndWaitTimeout(
+        &state->client, &state->measureOffset, request, requestLen, kTimeoutNs);
+    if (!result) {
+      state->timesyncResult.error = CHPP_APP_ERROR_UNSPECIFIED;
+    } else {
+      state->lastMeasurementTimeNs = nowNs;
+    }
+
+  } else {
     // We use an infinite timeout here because timeouts are not well-supported
     // for predefined clients in CHPP today. An opportunistic timeout will be
     // used using the lastMeasurementTimeNs check above.
-  } else if (!chppClientSendTimestampedRequestOrFail(
-                 &state->client, &state->measureOffset, request, requestLen,
-                 CHPP_REQUEST_TIMEOUT_INFINITE)) {
-    state->timesyncResult.error = CHPP_APP_ERROR_UNSPECIFIED;
+    result = chppClientSendTimestampedRequestOrFail(
+        &state->client, &state->measureOffset, request, requestLen,
+        CHPP_REQUEST_TIMEOUT_INFINITE);
 
-  } else {
-    state->lastMeasurementTimeNs = nowNs;
-    result = true;
+    if (!result) {
+      state->timesyncResult.error = CHPP_APP_ERROR_UNSPECIFIED;
+    } else {
+      state->lastMeasurementTimeNs = nowNs;
+    }
   }
 
   return result;
+}
+
+bool chppTimesyncMeasureOffset(struct ChppAppState *appState) {
+  return chppTimesyncMeasureOffsetInternal(appState, /* sync= */ false);
+}
+
+bool chppTimesyncMeasureOffsetSync(struct ChppAppState *appState) {
+  return chppTimesyncMeasureOffsetInternal(appState, /* sync= */ true);
 }
 
 int64_t chppTimesyncGetOffset(struct ChppAppState *appState,
