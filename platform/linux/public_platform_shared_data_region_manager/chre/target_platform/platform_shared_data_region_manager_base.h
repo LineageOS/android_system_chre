@@ -16,7 +16,8 @@
 
 #pragma once
 
-#include "chre/util/pigweed/default_pw_allocator.h"
+#include <cstddef>
+#include <cstdint>
 
 namespace chre {
 
@@ -37,8 +38,10 @@ class PlatformSharedDataRegionManagerBase {
   }
 
  protected:
-  DefaultPwAllocator mAllocator;
+  //! The number of calls to deallocateRegion.
   size_t mNumCallsToDeallocateRegion = 0;
+
+  //! The cookie to return for all async allocation requests.
   uintptr_t mCookie = 0xDEADBEEF;
 };
 
