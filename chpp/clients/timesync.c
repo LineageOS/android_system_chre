@@ -24,8 +24,8 @@
 #include "chpp/app.h"
 #include "chpp/clients.h"
 #include "chpp/clients/discovery.h"
-#include "chpp/common/timesync.h"
 #include "chpp/common/event_log.h"
+#include "chpp/common/timesync.h"
 #include "chpp/log.h"
 #include "chpp/memory.h"
 #include "chpp/time.h"
@@ -42,7 +42,7 @@
 struct ChppTimesyncClientState {
   struct ChppEndpointState client;                // CHPP client state
   struct ChppOutgoingRequestState measureOffset;  // Request response state
-  struct ChppTimesyncResult timesyncResult;  // Result of measureOffset
+  struct ChppTimesyncResult timesyncResult;       // Result of measureOffset
   struct ChppEventLog eventLog;
   uint64_t lastMeasurementTimeNs;  // The last time a timesync was started
   bool isOffsetClipping;  // If the offset was clipped on previous check
@@ -115,65 +115,66 @@ bool chppDispatchTimesyncServiceResponse(struct ChppAppState *appState,
 
   const struct ChppTimesyncResponse *response =
       (const struct ChppTimesyncResponse *)buf;
-  if (chppTimestampIncomingResponse(state->client.appContext,
-                                    &state->measureOffset, &response->header)) {
-    state->timesyncResult.rttNs = state->measureOffset.responseTimeNs -
-                                  state->measureOffset.requestTimeNs;
-    int64_t offsetNs = (int64_t)response->timeNs -
-                       (int64_t)state->measureOffset.responseTimeNs;
-    int64_t offsetChangeNs = offsetNs - state->timesyncResult.offsetNs;
+  if (!chppTimestampIncomingResponse(
+          state->client.appContext, &state->measureOffset, &response->header)) {
+    CHPP_LOGE("Invalid timesync response - dropping");
+    return false;
+  }
+  state->timesyncResult.rttNs =
+      state->measureOffset.responseTimeNs - state->measureOffset.requestTimeNs;
+  int64_t offsetNs =
+      (int64_t)response->timeNs - (int64_t)state->measureOffset.responseTimeNs;
+  int64_t offsetChangeNs = offsetNs - state->timesyncResult.offsetNs;
 
-    int64_t clippedOffsetChangeNs = offsetChangeNs;
-    if (state->timesyncResult.offsetNs != 0) {
-      clippedOffsetChangeNs = MIN(clippedOffsetChangeNs,
-                                  (int64_t)CHPP_CLIENT_TIMESYNC_MAX_CHANGE_NS);
-      clippedOffsetChangeNs = MAX(clippedOffsetChangeNs,
-                                  -(int64_t)CHPP_CLIENT_TIMESYNC_MAX_CHANGE_NS);
-    } else {
-      CHPP_LOGI("First timesync offset=%" PRId64 "ms at t=%" PRIu64,
-                offsetNs / (int64_t)CHPP_NSEC_PER_MSEC,
-                state->measureOffset.responseTimeNs / CHPP_NSEC_PER_MSEC);
-      chppLogEventInt64(&state->eventLog, CHPP_TIMESYNC_CLIENT_FIRST_OFFSET,
-                         offsetNs);
+  int64_t clippedOffsetChangeNs = offsetChangeNs;
+  if (state->timesyncResult.offsetNs != 0) {
+    clippedOffsetChangeNs =
+        MIN(clippedOffsetChangeNs, (int64_t)CHPP_CLIENT_TIMESYNC_MAX_CHANGE_NS);
+    clippedOffsetChangeNs = MAX(clippedOffsetChangeNs,
+                                -(int64_t)CHPP_CLIENT_TIMESYNC_MAX_CHANGE_NS);
+  } else {
+    CHPP_LOGI("First timesync offset=%" PRId64 "ms at t=%" PRIu64,
+              offsetNs / (int64_t)CHPP_NSEC_PER_MSEC,
+              state->measureOffset.responseTimeNs / CHPP_NSEC_PER_MSEC);
+    chppLogEventInt64(&state->eventLog, CHPP_TIMESYNC_CLIENT_FIRST_OFFSET,
+                      offsetNs);
+  }
+
+  bool clippingStatusChanged = false;
+  state->timesyncResult.offsetNs += clippedOffsetChangeNs;
+
+  if (offsetChangeNs != clippedOffsetChangeNs) {
+    if (!state->isOffsetClipping) {
+      CHPP_LOGI("Timesync offset newly required clipping");
+      state->isOffsetClipping = true;
+      clippingStatusChanged = true;
+      chppLogEvent(&state->eventLog,
+                   CHPP_TIMESYNC_CLIENT_START_OFFSET_CLIPPING);
     }
-
-    bool clippingStatusChanged = false;
-    state->timesyncResult.offsetNs += clippedOffsetChangeNs;
-
-    if (offsetChangeNs != clippedOffsetChangeNs) {
-      if (!state->isOffsetClipping) {
-        CHPP_LOGI("Timesync offset newly required clipping");
-        state->isOffsetClipping = true;
-        clippingStatusChanged = true;
-        chppLogEvent(&state->eventLog,
-                     CHPP_TIMESYNC_CLIENT_START_OFFSET_CLIPPING);
-      }
-      CHPP_LOGW("Drift=%" PRId64 " clipped to %" PRId64 " at t=%" PRIu64,
-                offsetChangeNs / (int64_t)CHPP_NSEC_PER_MSEC,
-                clippedOffsetChangeNs / (int64_t)CHPP_NSEC_PER_MSEC,
-                state->measureOffset.responseTimeNs / CHPP_NSEC_PER_MSEC);
-    } else {
-      if (state->isOffsetClipping) {
-        CHPP_LOGI("Timesync offset no longer requires clipping");
-        state->isOffsetClipping = false;
-        clippingStatusChanged = true;
-        chppLogEvent(&state->eventLog,
-                     CHPP_TIMESYNC_CLIENT_END_OFFSET_CLIPPING);
-      }
-      state->timesyncResult.measurementTimeNs =
-          state->measureOffset.responseTimeNs;
+    CHPP_LOGW("Drift=%" PRId64 " clipped to %" PRId64 " at t=%" PRIu64,
+              offsetChangeNs / (int64_t)CHPP_NSEC_PER_MSEC,
+              clippedOffsetChangeNs / (int64_t)CHPP_NSEC_PER_MSEC,
+              state->measureOffset.responseTimeNs / CHPP_NSEC_PER_MSEC);
+  } else {
+    if (state->isOffsetClipping) {
+      CHPP_LOGI("Timesync offset no longer requires clipping");
+      state->isOffsetClipping = false;
+      clippingStatusChanged = true;
+      chppLogEvent(&state->eventLog, CHPP_TIMESYNC_CLIENT_END_OFFSET_CLIPPING);
     }
+    state->timesyncResult.measurementTimeNs =
+        state->measureOffset.responseTimeNs;
+  }
 
-    state->timesyncResult.error = CHPP_APP_ERROR_NONE;
+  state->timesyncResult.error = CHPP_APP_ERROR_NONE;
 
-    if (clippingStatusChanged) {
-      CHPP_LOGI("Timesync RTT=%" PRIu64 " correction=%" PRId64
-                " offset=%" PRId64 " t=%" PRIu64,
-                state->timesyncResult.rttNs / CHPP_NSEC_PER_MSEC,
-                clippedOffsetChangeNs / (int64_t)CHPP_NSEC_PER_MSEC,
-                offsetNs / (int64_t)CHPP_NSEC_PER_MSEC,
-                state->timesyncResult.measurementTimeNs / CHPP_NSEC_PER_MSEC);
-    }
+  if (clippingStatusChanged) {
+    CHPP_LOGI("Timesync RTT=%" PRIu64 " correction=%" PRId64 " offset=%" PRId64
+              " t=%" PRIu64,
+              state->timesyncResult.rttNs / CHPP_NSEC_PER_MSEC,
+              clippedOffsetChangeNs / (int64_t)CHPP_NSEC_PER_MSEC,
+              offsetNs / (int64_t)CHPP_NSEC_PER_MSEC,
+              state->timesyncResult.measurementTimeNs / CHPP_NSEC_PER_MSEC);
   }
 
   return true;
@@ -209,9 +210,9 @@ bool chppTimesyncMeasureOffset(struct ChppAppState *appState) {
     state->timesyncResult.error = CHPP_APP_ERROR_OOM;
     CHPP_LOG_OOM();
 
-  // We use an infinite timeout here because timeouts are not well-supported for
-  // predefined clients in CHPP today. An opportunistic timeout will be used
-  // using the lastMeasurementTimeNs check above.
+    // We use an infinite timeout here because timeouts are not well-supported
+    // for predefined clients in CHPP today. An opportunistic timeout will be
+    // used using the lastMeasurementTimeNs check above.
   } else if (!chppClientSendTimestampedRequestOrFail(
                  &state->client, &state->measureOffset, request, requestLen,
                  CHPP_REQUEST_TIMEOUT_INFINITE)) {
@@ -254,14 +255,14 @@ const struct ChppTimesyncResult *chppTimesyncGetResult(
   return &appState->timesyncClientContext->timesyncResult;
 }
 
-const struct ChppEventLog *chppTimesyncGetEventLog(struct ChppAppState *appState) {
+const struct ChppEventLog *chppTimesyncGetEventLog(
+    struct ChppAppState *appState) {
   CHPP_DEBUG_NOT_NULL(appState);
   CHPP_DEBUG_NOT_NULL(appState->timesyncClientContext);
   return &appState->timesyncClientContext->eventLog;
 }
 
-
-const char* chppGetEventLogName(enum ChppTimesyncClientEventType eventType) {
+const char *chppGetEventLogName(enum ChppTimesyncClientEventType eventType) {
   switch (eventType) {
     case CHPP_TIMESYNC_CLIENT_INIT:
       return "CHPP_TIMESYNC_CLIENT_INIT";
