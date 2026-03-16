@@ -170,9 +170,9 @@ class ChreMessageHubManager : public NonCopyable {
   };
 
   //! The callback used to register the CHRE MessageHub with the MessageRouter
-  //! @see MessageRouter::MessageHubCallback
+  //! @see MessageRouter::MessageHubCallbackV2
   class ChreMessageHubCallback
-      : public message::MessageRouter::MessageHubCallback,
+      : public message::MessageRouter::MessageHubCallbackV2,
         pw::Recyclable<ChreMessageHubCallback> {
    public:
     explicit ChreMessageHubCallback(ChreMessageHubManager &manager)
@@ -214,6 +214,12 @@ class ChreMessageHubManager : public NonCopyable {
                               message::EndpointId endpointId) override;
     void onEndpointUnregistered(message::MessageHubId messageHubId,
                                 message::EndpointId endpointId) override;
+    void onRegisterDataFlowSink(
+        message::DataFlowSinkRegistration &&registration) override;
+    void onDataFlowSinkUnregistered(
+        const message::DataFlowSinkUnregistration &unregistration) override;
+    void onDataFlowStopped(const message::DataFlowStopped &stopped) override;
+    void onDataFlowAlert(const message::DataFlowAlert &alert) override;
 
     //! @see pw::Recyclable
     void pw_recycle() override;

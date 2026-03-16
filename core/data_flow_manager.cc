@@ -24,6 +24,7 @@
 #include "chre/platform/fatal_error.h"
 #include "chre/util/status.h"
 #include "chre/util/system/event_callbacks.h"
+#include "chre/util/system/message_common.h"
 #include "chre/util/unique_ptr.h"
 #include "data_flow/queue.h"
 #include "data_flow/untyped_queue.h"
@@ -289,6 +290,26 @@ void DataFlowManager::handleAllocateDataFlowRegionAsyncResult(
   if (!status.ok()) {
     mDataFlows.erase(foundDataFlow);
   }
+}
+
+void DataFlowManager::onRegisterDataFlowSink(
+    chre::message::DataFlowSinkRegistration && /*registration*/) {
+  // TODO(b/457453613): Implement this function.
+}
+
+void DataFlowManager::onDataFlowSinkUnregistered(
+    const chre::message::DataFlowSinkUnregistration & /*unregistration*/) {
+  // TODO(b/457453613): Implement this function.
+}
+
+void DataFlowManager::onDataFlowStopped(
+    const chre::message::DataFlowStopped & /*stopped*/) {
+  // TODO(b/457453613): Implement this function.
+}
+
+void DataFlowManager::onDataFlowAlert(
+    const chre::message::DataFlowAlert & /*alert*/) {
+  // TODO(b/457453613): Implement this function.
 }
 
 DataFlowManager::BlockConfig DataFlowManager::calculateBlockConfig(

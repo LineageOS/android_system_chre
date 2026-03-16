@@ -21,6 +21,7 @@
 
 #include "chre/core/nanoapp.h"
 #include "chre/util/non_copyable.h"
+#include "chre/util/system/message_common.h"
 #include "chre_api/chre/data_flow.h"
 #include "chre_api/chre/msg.h"
 #include "data_flow/queue.h"
@@ -307,6 +308,36 @@ class DataFlowManager : public NonCopyable {
       uintptr_t cookie, pw::Status status, int32_t regionId,
       const android::contexthub::data_flow::AllocatorRegion &region,
       android::contexthub::data_flow::MemoryAccess *memoryAccess);
+
+  /**
+   * Handles the registration of a nanoapp as the sink for a data flow.
+   *
+   * @param registration The registration to handle.
+   */
+  void onRegisterDataFlowSink(
+      chre::message::DataFlowSinkRegistration &&registration);
+
+  /**
+   * Handles the unregistration of a nanoapp as the sink for a data flow.
+   *
+   * @param unregistration The unregistration to handle.
+   */
+  void onDataFlowSinkUnregistered(
+      const chre::message::DataFlowSinkUnregistration &unregistration);
+
+  /**
+   * Handles a data flow stopped event where the nanoapp is a sink.
+   *
+   * @param stopped The stopped event to handle.
+   */
+  void onDataFlowStopped(const chre::message::DataFlowStopped &stopped);
+
+  /**
+   * Handles a data flow alert event where the nanoapp is a sink.
+   *
+   * @param alert The alert event to handle.
+   */
+  void onDataFlowAlert(const chre::message::DataFlowAlert &alert);
 
  private:
   //! The configuration for the block size and count for a data flow.
