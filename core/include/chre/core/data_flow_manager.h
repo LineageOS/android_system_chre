@@ -396,6 +396,15 @@ class DataFlowManager : public NonCopyable {
   //! The maximum number of data flows that can be active or pending.
   static constexpr uint32_t kMaxDataFlows = 10;
 
+  //! Builds a ConsumerPolicyBuilder from a chreDataFlowSinkPolicy.
+  //! @param sinkPolicy The sink policy to build from.
+  //! @param policyBuilderOut Pointer to the ConsumerPolicyBuilder to be
+  //! populated.
+  //! @return CHRE_STATUS_OK if successful, otherwise an error status.
+  static uint32_t buildConsumerPolicy(
+      const struct chreDataFlowSinkPolicy *sinkPolicy,
+      android::contexthub::data_flow::ConsumerPolicyBuilder *policyBuilderOut);
+
   //! Calculates the block configuration for a data flow.
   //! @param minElementCount The minimum element count of the data flow.
   //! @param maxElementCount The maximum element count of the data flow.

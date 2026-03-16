@@ -29,6 +29,7 @@
 #include "data_flow/queue.h"
 #include "data_flow/untyped_queue.h"
 
+using ::android::contexthub::data_flow::ConsumerPolicyBuilder;
 using ::android::contexthub::data_flow::Region;
 using ::android::contexthub::data_flow::RemoteEndpointId;
 using ::android::contexthub::data_flow::RemoteNotifyArgs;
@@ -309,6 +310,43 @@ void DataFlowManager::onDataFlowStopped(
 void DataFlowManager::onDataFlowAlert(
     const chre::message::DataFlowAlert & /*alert*/) {
   // TODO(b/457453613): Implement this function.
+}
+
+uint32_t DataFlowManager::buildConsumerPolicy(
+    const struct chreDataFlowSinkPolicy *sinkPolicy,
+    ConsumerPolicyBuilder *policyBuilderOut) {
+  switch (sinkPolicy->newDataAlertPolicy) {
+    case CHRE_DATA_FLOW_SINK_NEW_DATA_ALERT_POLICY_NEVER:
+      policyBuilderOut->setNeverNotify();
+      break;
+    case CHRE_DATA_FLOW_SINK_NEW_DATA_ALERT_POLICY_OPPORTUNISTIC:
+      policyBuilderOut->setOpportunistic(
+          sinkPolicy->newDataAlertPolicyData.lowWatermark);
+      break;
+    case CHRE_DATA_FLOW_SINK_NEW_DATA_ALERT_POLICY_HIGH_WATER_MARK:
+      policyBuilderOut->setHighWaterMark(
+          sinkPolicy->newDataAlertPolicyData.highWatermark);
+      break;
+    case CHRE_DATA_FLOW_SINK_NEW_DATA_ALERT_POLICY_PERIODIC:
+      policyBuilderOut->setPeriodic(
+          sinkPolicy->newDataAlertPolicyData.periodMs);
+      break;
+    case CHRE_DATA_FLOW_SINK_NEW_DATA_ALERT_POLICY_STREAMING:
+      policyBuilderOut->setStreaming();
+      break;
+    default:
+      LOGE("Invalid new data alert policy: %" PRIu32,
+           static_cast<uint32_t>(sinkPolicy->newDataAlertPolicy));
+      return CHRE_STATUS_INVALID_ARGUMENT;
+  }
+
+  if (sinkPolicy->overwritePolicy ==
+      CHRE_DATA_FLOW_SINK_OVERWRITE_POLICY_ALLOWED) {
+    policyBuilderOut->setOverwritable();
+  } else {
+    policyBuilderOut->setNonOverwritable();
+  }
+  return CHRE_STATUS_OK;
 }
 
 DataFlowManager::BlockConfig DataFlowManager::calculateBlockConfig(
