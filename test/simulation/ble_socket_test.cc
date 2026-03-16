@@ -413,6 +413,12 @@ TEST_F(BleSocketTest, BleSocketAcceptConnectionTest) {
       .handleSocketOpenedByHost(mSocketData);
   waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
 
+  // Now we send a NO_OP_EVENT as a barrier.
+  // Once NO_OP_EVENT is received it is guaranteed that the socket open response
+  // in the queue prior to it has been processed so we now can check the result.
+  sendEventToNanoapp(appId, NO_OP_EVENT);
+  waitForEvent(NO_OP_EVENT);
+
   EXPECT_TRUE(getSocketOpenSuccess());
 }
 
@@ -452,6 +458,12 @@ TEST_F(BleSocketTest, BleSocketDoNotAcceptConnectionTest) {
       ->getBleSocketManager()
       .handleSocketOpenedByHost(mSocketData);
   waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
+
+  // Now we send a NO_OP_EVENT as a barrier.
+  // Once NO_OP_EVENT is received it is guaranteed that the socket open response
+  // in the queue prior to it has been processed so we now can check the result.
+  sendEventToNanoapp(appId, NO_OP_EVENT);
+  waitForEvent(NO_OP_EVENT);
 
   EXPECT_FALSE(getSocketOpenSuccess());
   EXPECT_STREQ(getSocketOpenFailureReason(), "nanoapp did not accept socket");
@@ -700,6 +712,12 @@ TEST_F(BleSocketTest, RfcommSocketAcceptConnectionTest) {
       .handleSocketOpenedByHost(mRfcommSocketData);
   waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
 
+  // Now we send a NO_OP_EVENT as a barrier.
+  // Once NO_OP_EVENT is received it is guaranteed that the socket open response
+  // in the queue prior to it has been processed so we now can check the result.
+  sendEventToNanoapp(appId, NO_OP_EVENT);
+  waitForEvent(NO_OP_EVENT);
+
   EXPECT_TRUE(getSocketOpenSuccess());
 }
 
@@ -733,6 +751,12 @@ TEST_F(BleSocketTest, RfcommSocketDoNotAcceptConnectionTest) {
       ->getBleSocketManager()
       .handleSocketOpenedByHost(mRfcommSocketData);
   waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
+
+  // Now we send a NO_OP_EVENT as a barrier.
+  // Once NO_OP_EVENT is received it is guaranteed that the socket open response
+  // in the queue prior to it has been processed so we now can check the result.
+  sendEventToNanoapp(appId, NO_OP_EVENT);
+  waitForEvent(NO_OP_EVENT);
 
   EXPECT_FALSE(getSocketOpenSuccess());
   EXPECT_STREQ(getSocketOpenFailureReason(), "nanoapp did not accept socket");
