@@ -110,6 +110,15 @@ class ChreMessageHubManager : public NonCopyable {
                    chreMessageFreeFunction *freeCallback,
                    message::EndpointId fromEndpointId);
 
+  //! Creates a session message to be bundled with a registration or request.
+  //! This function verifies that the fromEndpointId is a member of the session.
+  //! @return The message if successful, std::nullopt otherwise.
+  std::optional<message::Message> createSessionMessage(
+      void *message, size_t messageSize, uint32_t messageType,
+      uint16_t sessionId, uint32_t messagePermissions,
+      chreMessageFreeFunction *freeCallback,
+      message::EndpointId fromEndpointId);
+
   //! Publishes a service from the given nanoapp.
   //! This function must be called from the event loop thread.
   //! @return true if the service was published successfully, false otherwise

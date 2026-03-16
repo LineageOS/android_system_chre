@@ -338,6 +338,52 @@ bool ChreMessageHubManager::sendMessage(void *message, size_t messageSize,
   return success;
 }
 
+std::optional<Message> ChreMessageHubManager::createSessionMessage(
+    void *message, size_t messageSize, uint32_t messageType, uint16_t sessionId,
+    uint32_t messagePermissions, chreMessageFreeFunction *freeCallback,
+    EndpointId fromEndpointId) {
+  if ((message == nullptr) != (freeCallback == nullptr)) {
+    LOGE("Mixing null and non-null message and free callback is not allowed");
+    return std::nullopt;
+  }
+
+  if ((messageSize == 0) != (message == nullptr)) {
+    LOGE("Invalid message size compared to message");
+    return std::nullopt;
+  }
+
+  std::optional<Session> session = mChreMessageHub.getSessionWithId(sessionId);
+  if (!session.has_value() || !session->isActive) {
+    LOGE("Cannot create session message for %s session with ID %" PRIu16,
+         session.has_value() ? "inactive" : "invalid", sessionId);
+    return std::nullopt;
+  }
+
+  Endpoint nanoapp(kChreMessageHubId, fromEndpointId);
+  if (session->initiator != nanoapp && session->peer != nanoapp) {
+    LOGE("Nanoapp with ID 0x%" PRIx64
+         " is not the initiator or peer of session with ID %" PRIu16,
+         fromEndpointId, sessionId);
+    return std::nullopt;
+  }
+
+  pw::UniquePtr<std::byte[]> messageData = nullptr;
+  if (message != nullptr) {
+    messageData = mAllocator.MakeUniqueArrayWithCallback(
+        reinterpret_cast<std::byte *>(message), messageSize,
+        MessageFreeCallbackData{.freeCallback = freeCallback,
+                                .nanoappId = fromEndpointId});
+    if (messageData == nullptr) {
+      LOG_OOM();
+      return std::nullopt;
+    }
+  }
+
+  bool isInitiator = (session->initiator == nanoapp);
+  return Message(std::move(messageData), messageType, messagePermissions,
+                 *session, isInitiator);
+}
+
 bool ChreMessageHubManager::publishServices(
     EndpointId fromEndpointId, const chreMsgServiceInfo *serviceInfos,
     size_t numServices) {
