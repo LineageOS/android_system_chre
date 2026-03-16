@@ -106,30 +106,29 @@ uint32_t DataFlowManager::createDataFlowAsync(
 
 uint32_t DataFlowManager::destroyDataFlow(Nanoapp *nanoapp,
                                           uint32_t dataFlowId) {
-  for (NanoappDataFlow &dataFlow : mDataFlows) {
-    if (dataFlow.properties.dataFlowId == dataFlowId) {
-      if (dataFlow.nanoappInstanceId != nanoapp->getInstanceId()) {
-        return CHRE_STATUS_PERMISSION_DENIED;
-      }
-
-      std::visit(
-          [](auto &&producer) -> void {
-            if constexpr (!std::is_same_v<std::decay_t<decltype(producer)>,
-                                          std::monostate>) {
-              producer.stop();
-            }
-          },
-          dataFlow.producer);
-      // TODO(b/457453613): Call reportDataFlowSinkUnregistered on the CHRE
-      // Message Hub.
-      mDataFlows.erase(&dataFlow);
-      EventLoopManagerSingleton::get()
-          ->getSharedDataRegionManager()
-          .handleDataFlowStopped(dataFlow.regionId);
-      return CHRE_STATUS_OK;
-    }
+  NanoappDataFlow *dataFlow = nullptr;
+  uint32_t status =
+      getNanoappDataFlow(dataFlowId, nanoapp->getInstanceId(), &dataFlow);
+  if (status != CHRE_STATUS_OK) {
+    return status;
   }
-  return CHRE_STATUS_NOT_FOUND;
+
+  std::visit(
+      [](auto &&producer) -> void {
+        if constexpr (!std::is_same_v<std::decay_t<decltype(producer)>,
+                                      std::monostate>) {
+          producer.stop();
+        }
+      },
+      dataFlow->producer);
+  // TODO(b/457453613): Call reportDataFlowSinkUnregistered on the CHRE
+  // Message Hub.
+  int32_t regionId = dataFlow->regionId;
+  mDataFlows.erase(dataFlow);
+  EventLoopManagerSingleton::get()
+      ->getSharedDataRegionManager()
+      .handleDataFlowStopped(regionId);
+  return CHRE_STATUS_OK;
 }
 
 uint32_t DataFlowManager::sourceAddSinkAsync(
@@ -403,6 +402,25 @@ pw::Status DataFlowManager::createProducer(NanoappDataFlow &dataFlow) {
   }
 
   return pw::OkStatus();
+}
+
+uint32_t DataFlowManager::getNanoappDataFlow(uint32_t dataFlowId,
+                                             uint16_t nanoappInstanceId,
+                                             NanoappDataFlow **dataFlowOut) {
+  for (NanoappDataFlow &dataFlow : mDataFlows) {
+    if (dataFlow.properties.dataFlowId == dataFlowId) {
+      if (dataFlow.nanoappInstanceId != nanoappInstanceId) {
+        LOGE("Nanoapp with instance ID 0x%" PRIx16
+             " does not own data flow with ID %" PRIu32,
+             nanoappInstanceId, dataFlowId);
+        return CHRE_STATUS_PERMISSION_DENIED;
+      }
+      *dataFlowOut = &dataFlow;
+      return CHRE_STATUS_OK;
+    }
+  }
+  LOGE("Data flow %" PRIu32 " not found", dataFlowId);
+  return CHRE_STATUS_NOT_FOUND;
 }
 
 }  // namespace chre

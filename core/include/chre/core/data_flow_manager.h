@@ -415,6 +415,16 @@ class DataFlowManager : public NonCopyable {
   //! @return pw::OkStatus() on success.
   pw::Status createProducer(NanoappDataFlow &dataFlow);
 
+  //! Helper function to find a data flow and check if the given nanoapp owns
+  //! it.
+  //! @param dataFlowId The ID of the data flow.
+  //! @param nanoappInstanceId The instance ID of the nanoapp to check.
+  //! @param dataFlowOut Pointer to a pointer to the NanoappDataFlow to be
+  //! populated.
+  //! @return CHRE_STATUS_OK if successful, otherwise an error status.
+  uint32_t getNanoappDataFlow(uint32_t dataFlowId, uint16_t nanoappInstanceId,
+                              NanoappDataFlow **dataFlowOut);
+
   //! The data flows owned by nanoapps.
   pw::Vector<NanoappDataFlow, kMaxDataFlows> mDataFlows;
 
