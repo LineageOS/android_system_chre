@@ -91,6 +91,13 @@ Code related to CHRE also exists in other parts of the Android tree, including:
 - ``frameworks/base/services/core/java/com/android/server/location/ContextHub*.java``:
   The Context Hub service implementation in system server
 
+## Using AI
+
+The project also includes several markdown files designed to support mainstream
+AI tools for debugging and development. The `.gemini` directory provides
+specific 'skills' for nanoapp development, which can be either automatically
+discovered or manually installed.
+
 # Have Questions?
 
 If you’re unable to find the answers you’re looking for in CHRE documentation

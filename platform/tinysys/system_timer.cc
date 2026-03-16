@@ -93,7 +93,6 @@ bool SystemTimer::set(SystemTimerCallback *callback, void *data,
 }
 
 bool SystemTimer::cancel() {
-  // TODO(b/254708051): This usage of critical section is pending confirmation.
   taskENTER_CRITICAL();
   if (isActive()) {
     rt_timer_stop(&rtSystemTimer);

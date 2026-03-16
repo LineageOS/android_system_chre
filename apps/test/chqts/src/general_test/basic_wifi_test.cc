@@ -427,20 +427,8 @@ void BasicWifiTest::handleChreWifiAsyncEvent(const chreAsyncResult *result) {
     }
   }
 
-  if (result->requestType == CHRE_WIFI_REQUEST_TYPE_RANGING) {
-    if (!mExpectedRangingAsyncResult.has_value()) {
-      EXPECT_FAIL_RETURN("Unexpected ranging async result");
-    }
-    // In cases where APs under-report their capabilities, it is possible that
-    // our ranging requests will unexpectedly succeed. We should still not let
-    // them unexpectedly fail though.
-    if (!result->success && mExpectedRangingAsyncResult.value()) {
-      EXPECT_FAIL_RETURN("Unexpected ranging async result failure");
-    }
-    mExpectedRangingAsyncResult.reset();
-  } else {
-    // Ranging async requests have their own expectations. For everything
-    // else, validate the async result in the usual way.
+  // Some ranging async requests are expected to fail. Validate those separately.
+  if (result->requestType != CHRE_WIFI_REQUEST_TYPE_RANGING) {
     validateChreAsyncResult(result, mCurrentWifiRequest.value());
   }
   processChreWifiAsyncResult(result);
@@ -449,8 +437,24 @@ void BasicWifiTest::handleChreWifiAsyncEvent(const chreAsyncResult *result) {
 void BasicWifiTest::processChreWifiAsyncResult(const chreAsyncResult *result) {
   switch (result->requestType) {
     case CHRE_WIFI_REQUEST_TYPE_RANGING:
-      // Reuse same start timestamp as the scan request since ranging fields
-      // may be retrieved automatically as part of that scan.
+      if (!mExpectedRangingAsyncResult.has_value()) {
+        EXPECT_FAIL_RETURN("Unexpected ranging async result");
+      }
+
+      // Note that a ranging async result failure is expected if no ranging
+      // capable APs are found.
+      if (!result->success) {
+        if (!mExpectedRangingAsyncResult.value()) {
+          // Received the expected async failure, so mark the RTT stage as complete.
+          mStartTimestampNs = 0;
+          mTestSuccessMarker.markStageAndSuccessOnFinish(
+              BASIC_WIFI_TEST_STAGE_SCAN_RTT);
+        } else {
+          EXPECT_FAIL_RETURN("Unexpected ranging async result failure");
+        }
+      }
+
+      mExpectedRangingAsyncResult.reset();
       break;
     case CHRE_WIFI_REQUEST_TYPE_REQUEST_SCAN:
       LOGI("Wifi scan result validated");
