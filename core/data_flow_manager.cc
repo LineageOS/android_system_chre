@@ -98,9 +98,8 @@ uint32_t DataFlowManager::createDataFlowAsync(
   dataFlow.cookie = maybeCookie.value();
   dataFlow.memoryAccess = nullptr;
   dataFlow.producer = std::monostate();
-  mDataFlows.push_back(std::move(dataFlow));
-
   *dataFlowId = dataFlow.properties.dataFlowId;
+  mDataFlows.push_back(std::move(dataFlow));
   return CHRE_STATUS_OK;
 }
 
