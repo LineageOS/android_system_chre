@@ -208,7 +208,7 @@ pw_add_library(chre.util.system STATIC
     chre.platform.system_time
     chre.util
     chre.variant.config
-    pw_allocator.deallocator
+    pw_allocator
     pw_containers.vector
     pw_intrusive_ptr
   SOURCES
