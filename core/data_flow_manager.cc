@@ -198,44 +198,208 @@ uint32_t DataFlowManager::sourceConfigureSink(
   return CHRE_STATUS_OK;
 }
 
-uint32_t DataFlowManager::sourceReserve(Nanoapp * /*nanoapp*/,
-                                        uint32_t /*dataFlowId*/,
-                                        uint32_t /*numBytes*/, void ** /*data*/,
-                                        uint32_t * /*reservedBytes*/) {
-  // TODO(b/457453613): Implement this function
-  return CHRE_STATUS_UNIMPLEMENTED;
+uint32_t DataFlowManager::sourceReserve(Nanoapp *nanoapp, uint32_t dataFlowId,
+                                        uint32_t numBytes, void **data,
+                                        uint32_t *reservedBytes) {
+  if (data == nullptr || reservedBytes == nullptr) {
+    return CHRE_STATUS_INVALID_ARGUMENT;
+  }
+
+  NanoappDataFlow *foundDataFlow = nullptr;
+  uint32_t status =
+      getNanoappDataFlow(dataFlowId, nanoapp->getInstanceId(), &foundDataFlow);
+  if (status != CHRE_STATUS_OK) {
+    return status;
+  }
+
+  pw::Result<pw::ByteSpan> reserveResult = std::visit(
+      [numBytes](auto &&producer) -> pw::Result<pw::ByteSpan> {
+        using T = std::decay_t<decltype(producer)>;
+        if constexpr (std::is_same_v<T, std::monostate>) {
+          return pw::Status::FailedPrecondition();
+        } else if constexpr (std::is_same_v<T, UntypedProducer>) {
+          if (numBytes % producer.getElementSize() != 0) {
+            return pw::Status::InvalidArgument();
+          }
+          return producer.reserve(numBytes / producer.getElementSize());
+        } else {
+          return producer.reserve(numBytes);
+        }
+      },
+      foundDataFlow->producer);
+  if (reserveResult.ok()) {
+    *data = reserveResult.value().data();
+    *reservedBytes = reserveResult.value().size();
+    return CHRE_STATUS_OK;
+  }
+
+  *data = nullptr;
+  *reservedBytes = 0;
+  return toChreStatus(reserveResult.status());
 }
 
-uint32_t DataFlowManager::sourceCommit(Nanoapp * /*nanoapp*/,
-                                       uint32_t /*dataFlowId*/,
-                                       uint32_t /*numBytes*/) {
-  // TODO(b/457453613): Implement this function
-  return CHRE_STATUS_UNIMPLEMENTED;
+uint32_t DataFlowManager::sourceCommit(Nanoapp *nanoapp, uint32_t dataFlowId,
+                                       uint32_t numBytes) {
+  NanoappDataFlow *foundDataFlow = nullptr;
+  uint32_t status =
+      getNanoappDataFlow(dataFlowId, nanoapp->getInstanceId(), &foundDataFlow);
+  if (status != CHRE_STATUS_OK) {
+    return status;
+  }
+
+  pw::Status commitStatus = std::visit(
+      [numBytes](auto &&producer) -> pw::Status {
+        using T = std::decay_t<decltype(producer)>;
+        if constexpr (std::is_same_v<T, std::monostate>) {
+          return pw::Status::FailedPrecondition();
+        } else if constexpr (std::is_same_v<T, UntypedProducer>) {
+          if (numBytes % producer.getElementSize() != 0) {
+            return pw::Status::InvalidArgument();
+          }
+          return producer.commit(numBytes / producer.getElementSize());
+        } else {
+          if (numBytes > 0) {
+            return producer.commit();
+          }
+          return pw::OkStatus();
+        }
+      },
+      foundDataFlow->producer);
+
+  if (commitStatus.IsOutOfRange()) {
+    return CHRE_STATUS_INVALID_ARGUMENT;
+  }
+  return toChreStatus(commitStatus);
 }
 
-uint32_t DataFlowManager::sourcePush(Nanoapp * /*nanoapp*/,
-                                     uint32_t /*dataFlowId*/,
-                                     const void * /*data*/,
-                                     uint32_t /*numBytes*/,
-                                     bool /*allOrNothing*/,
-                                     uint32_t * /*numberOfBytesPushed*/) {
-  // TODO(b/457453613): Implement this function
-  return CHRE_STATUS_UNIMPLEMENTED;
+uint32_t DataFlowManager::sourcePush(Nanoapp *nanoapp, uint32_t dataFlowId,
+                                     const void *data, uint32_t numBytes,
+                                     bool allOrNothing,
+                                     uint32_t *numberOfBytesPushed) {
+  if (data == nullptr || numberOfBytesPushed == nullptr || numBytes == 0) {
+    return CHRE_STATUS_INVALID_ARGUMENT;
+  }
+
+  NanoappDataFlow *foundDataFlow = nullptr;
+  uint32_t status =
+      getNanoappDataFlow(dataFlowId, nanoapp->getInstanceId(), &foundDataFlow);
+  if (status != CHRE_STATUS_OK) {
+    return status;
+  }
+
+  pw::Result<size_t> pushResult = std::visit(
+      [data, numBytes, allOrNothing](auto &&producer) -> pw::Result<size_t> {
+        using T = std::decay_t<decltype(producer)>;
+        if constexpr (std::is_same_v<T, std::monostate>) {
+          return pw::Status::FailedPrecondition();
+        } else if constexpr (std::is_same_v<T, UntypedProducer>) {
+          if (numBytes % producer.getElementSize() != 0) {
+            return pw::Status::InvalidArgument();
+          }
+          auto res =
+              producer.push(pw::span<const std::byte>(
+                                static_cast<const std::byte *>(data), numBytes),
+                            allOrNothing);
+          if (res.ok()) {
+            return res.value() * producer.getElementSize();
+          }
+          return res.status();
+        } else {
+          pw::Status producerStatus = producer.push(pw::span<const std::byte>(
+              static_cast<const std::byte *>(data), numBytes));
+          if (producerStatus.ok()) {
+            return numBytes;
+          }
+          return producerStatus;
+        }
+      },
+      foundDataFlow->producer);
+
+  if (pushResult.ok()) {
+    *numberOfBytesPushed = pushResult.value();
+    return CHRE_STATUS_OK;
+  }
+
+  if (pushResult.status().IsUnavailable() ||
+      pushResult.status().IsResourceExhausted()) {
+    if (allOrNothing) {
+      return CHRE_STATUS_RESOURCE_EXHAUSTED;
+    } else {
+      *numberOfBytesPushed = 0;
+      return CHRE_STATUS_OK;
+    }
+  }
+
+  return toChreStatus(pushResult.status());
 }
 
-uint32_t DataFlowManager::sourceGetSize(Nanoapp * /*nanoapp*/,
-                                        uint32_t /*dataFlowId*/,
-                                        bool /*includeReserved*/,
-                                        uint32_t * /*size*/) {
-  // TODO(b/457453613): Implement this function
-  return CHRE_STATUS_UNIMPLEMENTED;
+uint32_t DataFlowManager::sourceGetSize(Nanoapp *nanoapp, uint32_t dataFlowId,
+                                        bool includeReserved, uint32_t *size) {
+  if (size == nullptr) {
+    return CHRE_STATUS_INVALID_ARGUMENT;
+  }
+
+  NanoappDataFlow *foundDataFlow = nullptr;
+  uint32_t status =
+      getNanoappDataFlow(dataFlowId, nanoapp->getInstanceId(), &foundDataFlow);
+  if (status != CHRE_STATUS_OK) {
+    return status;
+  }
+
+  pw::Result<size_t> result = std::visit(
+      [includeReserved](auto &&producer) -> pw::Result<size_t> {
+        using T = std::decay_t<decltype(producer)>;
+        if constexpr (std::is_same_v<T, std::monostate>) {
+          return pw::Status::FailedPrecondition();
+        } else if constexpr (std::is_same_v<T, UntypedProducer>) {
+          return producer.size(includeReserved) * producer.getElementSize();
+        } else {
+          return producer.size(includeReserved);
+        }
+      },
+      foundDataFlow->producer);
+
+  if (!result.ok()) {
+    return toChreStatus(result.status());
+  }
+
+  *size = result.value();
+  return CHRE_STATUS_OK;
 }
 
-uint32_t DataFlowManager::sourceGetCapacity(Nanoapp * /*nanoapp*/,
-                                            uint32_t /*dataFlowId*/,
-                                            uint32_t * /*capacity*/) {
-  // TODO(b/457453613): Implement this function
-  return CHRE_STATUS_UNIMPLEMENTED;
+uint32_t DataFlowManager::sourceGetCapacity(Nanoapp *nanoapp,
+                                            uint32_t dataFlowId,
+                                            uint32_t *capacity) {
+  if (capacity == nullptr) {
+    return CHRE_STATUS_INVALID_ARGUMENT;
+  }
+
+  NanoappDataFlow *foundDataFlow = nullptr;
+  uint32_t status =
+      getNanoappDataFlow(dataFlowId, nanoapp->getInstanceId(), &foundDataFlow);
+  if (status != CHRE_STATUS_OK) {
+    return status;
+  }
+
+  pw::Result<size_t> result = std::visit(
+      [](auto &&producer) -> pw::Result<size_t> {
+        using T = std::decay_t<decltype(producer)>;
+        if constexpr (std::is_same_v<T, std::monostate>) {
+          return pw::Status::FailedPrecondition();
+        } else if constexpr (std::is_same_v<T, UntypedProducer>) {
+          return producer.capacity() * producer.getElementSize();
+        } else {
+          return producer.capacity();
+        }
+      },
+      foundDataFlow->producer);
+
+  if (!result.ok()) {
+    return toChreStatus(result.status());
+  }
+
+  *capacity = result.value();
+  return CHRE_STATUS_OK;
 }
 
 uint32_t DataFlowManager::sinkEnable(Nanoapp * /*nanoapp*/, uint64_t /*hubId*/,
