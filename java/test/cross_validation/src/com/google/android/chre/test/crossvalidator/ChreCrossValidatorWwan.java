@@ -228,10 +228,11 @@ public class ChreCrossValidatorWwan extends ChreCrossValidatorBase implements Ex
         Assert.assertNotNull("Timed out for cell info for AP", result);
 
         if (result.getErrorCode() != 0 || result.getErrorDetail() != null) {
-            Log.e(
-                    TAG,
-                    "AP requestCellInfoUpdate failed with detail="
-                            + result.getErrorDetail().getMessage());
+            String errorDetailMsg =
+                    (result.getErrorDetail() == null)
+                            ? "null"
+                            : result.getErrorDetail().getMessage();
+            Log.e(TAG, "AP requestCellInfoUpdate failed with detail=" + errorDetailMsg);
             Assert.fail("AP requestCellInfoUpdate failed with errorCode=" + result.getErrorCode());
         }
 

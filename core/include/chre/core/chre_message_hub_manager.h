@@ -110,6 +110,15 @@ class ChreMessageHubManager : public NonCopyable {
                    chreMessageFreeFunction *freeCallback,
                    message::EndpointId fromEndpointId);
 
+  //! Creates a session message to be bundled with a registration or request.
+  //! This function verifies that the fromEndpointId is a member of the session.
+  //! @return The message if successful, std::nullopt otherwise.
+  std::optional<message::Message> createSessionMessage(
+      void *message, size_t messageSize, uint32_t messageType,
+      uint16_t sessionId, uint32_t messagePermissions,
+      chreMessageFreeFunction *freeCallback,
+      message::EndpointId fromEndpointId);
+
   //! Publishes a service from the given nanoapp.
   //! This function must be called from the event loop thread.
   //! @return true if the service was published successfully, false otherwise
@@ -170,9 +179,9 @@ class ChreMessageHubManager : public NonCopyable {
   };
 
   //! The callback used to register the CHRE MessageHub with the MessageRouter
-  //! @see MessageRouter::MessageHubCallback
+  //! @see MessageRouter::MessageHubCallbackV2
   class ChreMessageHubCallback
-      : public message::MessageRouter::MessageHubCallback,
+      : public message::MessageRouter::MessageHubCallbackV2,
         pw::Recyclable<ChreMessageHubCallback> {
    public:
     explicit ChreMessageHubCallback(ChreMessageHubManager &manager)
@@ -214,6 +223,12 @@ class ChreMessageHubManager : public NonCopyable {
                               message::EndpointId endpointId) override;
     void onEndpointUnregistered(message::MessageHubId messageHubId,
                                 message::EndpointId endpointId) override;
+    void onRegisterDataFlowSink(
+        message::DataFlowSinkRegistration &&registration) override;
+    void onDataFlowSinkUnregistered(
+        const message::DataFlowSinkUnregistration &unregistration) override;
+    void onDataFlowStopped(const message::DataFlowStopped &stopped) override;
+    void onDataFlowAlert(const message::DataFlowAlert &alert) override;
 
     //! @see pw::Recyclable
     void pw_recycle() override;

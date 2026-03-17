@@ -17,6 +17,7 @@
 #ifdef CHRE_MESSAGE_ROUTER_SUPPORT_ENABLED
 
 #include "chre/core/chre_message_hub_manager.h"
+#include "chre/core/data_flow_manager.h"
 #include "chre/core/event_loop.h"
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/multi_threading_api_mutex.h"
@@ -27,6 +28,7 @@
 #include "chre/target_platform/log.h"
 #include "chre/util/conditional_lock_guard.h"
 #include "chre/util/lock_guard.h"
+#include "chre/util/macros.h"
 #include "chre/util/nested_data_ptr.h"
 #include "chre/util/system/event_callbacks.h"
 #include "chre/util/system/message_common.h"
@@ -138,9 +140,16 @@ void ChreMessageHubManager::init() {
   mChreMessageHubCallback =
       pw::IntrusivePtr<ChreMessageHubCallback>(callbackPtr);
 
+#ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
+  std::optional<MessageRouter::MessageHub> chreMessageHub =
+      MessageRouterSingleton::get()->registerMessageHubV2(
+          "CHRE", kChreMessageHubId, mChreMessageHubCallback);
+#else
   std::optional<MessageRouter::MessageHub> chreMessageHub =
       MessageRouterSingleton::get()->registerMessageHub(
           "CHRE", kChreMessageHubId, mChreMessageHubCallback);
+#endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
+
   if (chreMessageHub.has_value()) {
     mChreMessageHub = std::move(*chreMessageHub);
   } else {
@@ -327,6 +336,52 @@ bool ChreMessageHubManager::sendMessage(void *message, size_t messageSize,
     }
   }
   return success;
+}
+
+std::optional<Message> ChreMessageHubManager::createSessionMessage(
+    void *message, size_t messageSize, uint32_t messageType, uint16_t sessionId,
+    uint32_t messagePermissions, chreMessageFreeFunction *freeCallback,
+    EndpointId fromEndpointId) {
+  if ((message == nullptr) != (freeCallback == nullptr)) {
+    LOGE("Mixing null and non-null message and free callback is not allowed");
+    return std::nullopt;
+  }
+
+  if ((messageSize == 0) != (message == nullptr)) {
+    LOGE("Invalid message size compared to message");
+    return std::nullopt;
+  }
+
+  std::optional<Session> session = mChreMessageHub.getSessionWithId(sessionId);
+  if (!session.has_value() || !session->isActive) {
+    LOGE("Cannot create session message for %s session with ID %" PRIu16,
+         session.has_value() ? "inactive" : "invalid", sessionId);
+    return std::nullopt;
+  }
+
+  Endpoint nanoapp(kChreMessageHubId, fromEndpointId);
+  if (session->initiator != nanoapp && session->peer != nanoapp) {
+    LOGE("Nanoapp with ID 0x%" PRIx64
+         " is not the initiator or peer of session with ID %" PRIu16,
+         fromEndpointId, sessionId);
+    return std::nullopt;
+  }
+
+  pw::UniquePtr<std::byte[]> messageData = nullptr;
+  if (message != nullptr) {
+    messageData = mAllocator.MakeUniqueArrayWithCallback(
+        reinterpret_cast<std::byte *>(message), messageSize,
+        MessageFreeCallbackData{.freeCallback = freeCallback,
+                                .nanoappId = fromEndpointId});
+    if (messageData == nullptr) {
+      LOG_OOM();
+      return std::nullopt;
+    }
+  }
+
+  bool isInitiator = (session->initiator == nanoapp);
+  return Message(std::move(messageData), messageType, messagePermissions,
+                 *session, isInitiator);
 }
 
 bool ChreMessageHubManager::publishServices(
@@ -973,6 +1028,94 @@ void ChreMessageHubManager::ChreMessageHubCallback::onEndpointRegistered(
 void ChreMessageHubManager::ChreMessageHubCallback::onEndpointUnregistered(
     MessageHubId /* messageHubId */, EndpointId /* endpointId */) {
   // Ignore - we only care about registered endpoints
+}
+
+void ChreMessageHubManager::ChreMessageHubCallback::onRegisterDataFlowSink(
+    message::DataFlowSinkRegistration &&registration) {
+#if CHRE_DATA_FLOW_SUPPORT_ENABLED
+  auto data =
+      MakeUnique<message::DataFlowSinkRegistration>(std::move(registration));
+  if (data.isNull()) {
+    FATAL_ERROR_OOM();
+    return;
+  }
+
+  EventLoopManagerSingleton::get()->deferCallback(
+      SystemCallbackType::DataFlowSinkRegisteredEvent, std::move(data),
+      [](SystemCallbackType /* type */,
+         UniquePtr<message::DataFlowSinkRegistration> &&data) {
+        EventLoopManagerSingleton::get()
+            ->getDataFlowManager()
+            .onRegisterDataFlowSink(std::move(*data));
+      });
+#else
+  UNUSED_VAR(registration);
+#endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
+}
+
+void ChreMessageHubManager::ChreMessageHubCallback::onDataFlowSinkUnregistered(
+    const message::DataFlowSinkUnregistration &unregistration) {
+#if CHRE_DATA_FLOW_SUPPORT_ENABLED
+  auto data = MakeUnique<message::DataFlowSinkUnregistration>(unregistration);
+  if (data.isNull()) {
+    FATAL_ERROR_OOM();
+    return;
+  }
+
+  EventLoopManagerSingleton::get()->deferCallback(
+      SystemCallbackType::DataFlowSinkUnregisteredEvent, std::move(data),
+      [](SystemCallbackType /* type */,
+         UniquePtr<message::DataFlowSinkUnregistration> &&data) {
+        EventLoopManagerSingleton::get()
+            ->getDataFlowManager()
+            .onDataFlowSinkUnregistered(*data);
+      });
+#else
+  UNUSED_VAR(unregistration);
+#endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
+}
+
+void ChreMessageHubManager::ChreMessageHubCallback::onDataFlowStopped(
+    const message::DataFlowStopped &stopped) {
+#if CHRE_DATA_FLOW_SUPPORT_ENABLED
+  auto data = MakeUnique<message::DataFlowStopped>(stopped);
+  if (data.isNull()) {
+    FATAL_ERROR_OOM();
+    return;
+  }
+
+  EventLoopManagerSingleton::get()->deferCallback(
+      SystemCallbackType::DataFlowStoppedEvent, std::move(data),
+      [](SystemCallbackType /* type */,
+         UniquePtr<message::DataFlowStopped> &&data) {
+        EventLoopManagerSingleton::get()
+            ->getDataFlowManager()
+            .onDataFlowStopped(*data);
+      });
+#else
+  UNUSED_VAR(stopped);
+#endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
+}
+
+void ChreMessageHubManager::ChreMessageHubCallback::onDataFlowAlert(
+    const message::DataFlowAlert &alert) {
+#if CHRE_DATA_FLOW_SUPPORT_ENABLED
+  auto data = MakeUnique<message::DataFlowAlert>(alert);
+  if (data.isNull()) {
+    FATAL_ERROR_OOM();
+    return;
+  }
+
+  EventLoopManagerSingleton::get()->deferCallback(
+      SystemCallbackType::DataFlowAlertEvent, std::move(data),
+      [](SystemCallbackType /* type */,
+         UniquePtr<message::DataFlowAlert> &&data) {
+        EventLoopManagerSingleton::get()->getDataFlowManager().onDataFlowAlert(
+            *data);
+      });
+#else
+  UNUSED_VAR(alert);
+#endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
 }
 
 void ChreMessageHubManager::ChreMessageHubCallback::pw_recycle() {

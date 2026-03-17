@@ -24,10 +24,12 @@
 #include "chre/platform/fatal_error.h"
 #include "chre/util/status.h"
 #include "chre/util/system/event_callbacks.h"
+#include "chre/util/system/message_common.h"
 #include "chre/util/unique_ptr.h"
 #include "data_flow/queue.h"
 #include "data_flow/untyped_queue.h"
 
+using ::android::contexthub::data_flow::ConsumerPolicyBuilder;
 using ::android::contexthub::data_flow::Region;
 using ::android::contexthub::data_flow::RemoteEndpointId;
 using ::android::contexthub::data_flow::RemoteNotifyArgs;
@@ -98,38 +100,36 @@ uint32_t DataFlowManager::createDataFlowAsync(
   dataFlow.cookie = maybeCookie.value();
   dataFlow.memoryAccess = nullptr;
   dataFlow.producer = std::monostate();
-  mDataFlows.push_back(std::move(dataFlow));
-
   *dataFlowId = dataFlow.properties.dataFlowId;
+  mDataFlows.push_back(std::move(dataFlow));
   return CHRE_STATUS_OK;
 }
 
 uint32_t DataFlowManager::destroyDataFlow(Nanoapp *nanoapp,
                                           uint32_t dataFlowId) {
-  for (NanoappDataFlow &dataFlow : mDataFlows) {
-    if (dataFlow.properties.dataFlowId == dataFlowId) {
-      if (dataFlow.nanoappInstanceId != nanoapp->getInstanceId()) {
-        return CHRE_STATUS_PERMISSION_DENIED;
-      }
-
-      std::visit(
-          [](auto &&producer) -> void {
-            if constexpr (!std::is_same_v<std::decay_t<decltype(producer)>,
-                                          std::monostate>) {
-              producer.stop();
-            }
-          },
-          dataFlow.producer);
-      // TODO(b/457453613): Call reportDataFlowSinkUnregistered on the CHRE
-      // Message Hub.
-      mDataFlows.erase(&dataFlow);
-      EventLoopManagerSingleton::get()
-          ->getSharedDataRegionManager()
-          .handleDataFlowStopped(dataFlow.regionId);
-      return CHRE_STATUS_OK;
-    }
+  NanoappDataFlow *dataFlow = nullptr;
+  uint32_t status =
+      getNanoappDataFlow(dataFlowId, nanoapp->getInstanceId(), &dataFlow);
+  if (status != CHRE_STATUS_OK) {
+    return status;
   }
-  return CHRE_STATUS_NOT_FOUND;
+
+  std::visit(
+      [](auto &&producer) -> void {
+        if constexpr (!std::is_same_v<std::decay_t<decltype(producer)>,
+                                      std::monostate>) {
+          producer.stop();
+        }
+      },
+      dataFlow->producer);
+  // TODO(b/457453613): Call reportDataFlowSinkUnregistered on the CHRE
+  // Message Hub.
+  int32_t regionId = dataFlow->regionId;
+  mDataFlows.erase(dataFlow);
+  EventLoopManagerSingleton::get()
+      ->getSharedDataRegionManager()
+      .handleDataFlowStopped(regionId);
+  return CHRE_STATUS_OK;
 }
 
 uint32_t DataFlowManager::sourceAddSinkAsync(
@@ -292,6 +292,63 @@ void DataFlowManager::handleAllocateDataFlowRegionAsyncResult(
   }
 }
 
+void DataFlowManager::onRegisterDataFlowSink(
+    chre::message::DataFlowSinkRegistration && /*registration*/) {
+  // TODO(b/457453613): Implement this function.
+}
+
+void DataFlowManager::onDataFlowSinkUnregistered(
+    const chre::message::DataFlowSinkUnregistration & /*unregistration*/) {
+  // TODO(b/457453613): Implement this function.
+}
+
+void DataFlowManager::onDataFlowStopped(
+    const chre::message::DataFlowStopped & /*stopped*/) {
+  // TODO(b/457453613): Implement this function.
+}
+
+void DataFlowManager::onDataFlowAlert(
+    const chre::message::DataFlowAlert & /*alert*/) {
+  // TODO(b/457453613): Implement this function.
+}
+
+uint32_t DataFlowManager::buildConsumerPolicy(
+    const struct chreDataFlowSinkPolicy *sinkPolicy,
+    ConsumerPolicyBuilder *policyBuilderOut) {
+  switch (sinkPolicy->newDataAlertPolicy) {
+    case CHRE_DATA_FLOW_SINK_NEW_DATA_ALERT_POLICY_NEVER:
+      policyBuilderOut->setNeverNotify();
+      break;
+    case CHRE_DATA_FLOW_SINK_NEW_DATA_ALERT_POLICY_OPPORTUNISTIC:
+      policyBuilderOut->setOpportunistic(
+          sinkPolicy->newDataAlertPolicyData.lowWatermark);
+      break;
+    case CHRE_DATA_FLOW_SINK_NEW_DATA_ALERT_POLICY_HIGH_WATER_MARK:
+      policyBuilderOut->setHighWaterMark(
+          sinkPolicy->newDataAlertPolicyData.highWatermark);
+      break;
+    case CHRE_DATA_FLOW_SINK_NEW_DATA_ALERT_POLICY_PERIODIC:
+      policyBuilderOut->setPeriodic(
+          sinkPolicy->newDataAlertPolicyData.periodMs);
+      break;
+    case CHRE_DATA_FLOW_SINK_NEW_DATA_ALERT_POLICY_STREAMING:
+      policyBuilderOut->setStreaming();
+      break;
+    default:
+      LOGE("Invalid new data alert policy: %" PRIu32,
+           static_cast<uint32_t>(sinkPolicy->newDataAlertPolicy));
+      return CHRE_STATUS_INVALID_ARGUMENT;
+  }
+
+  if (sinkPolicy->overwritePolicy ==
+      CHRE_DATA_FLOW_SINK_OVERWRITE_POLICY_ALLOWED) {
+    policyBuilderOut->setOverwritable();
+  } else {
+    policyBuilderOut->setNonOverwritable();
+  }
+  return CHRE_STATUS_OK;
+}
+
 DataFlowManager::BlockConfig DataFlowManager::calculateBlockConfig(
     uint32_t minElementCount, uint32_t maxElementCount) {
   constexpr size_t kMinBlockCount = 1;
@@ -383,6 +440,25 @@ pw::Status DataFlowManager::createProducer(NanoappDataFlow &dataFlow) {
   }
 
   return pw::OkStatus();
+}
+
+uint32_t DataFlowManager::getNanoappDataFlow(uint32_t dataFlowId,
+                                             uint16_t nanoappInstanceId,
+                                             NanoappDataFlow **dataFlowOut) {
+  for (NanoappDataFlow &dataFlow : mDataFlows) {
+    if (dataFlow.properties.dataFlowId == dataFlowId) {
+      if (dataFlow.nanoappInstanceId != nanoappInstanceId) {
+        LOGE("Nanoapp with instance ID 0x%" PRIx16
+             " does not own data flow with ID %" PRIu32,
+             nanoappInstanceId, dataFlowId);
+        return CHRE_STATUS_PERMISSION_DENIED;
+      }
+      *dataFlowOut = &dataFlow;
+      return CHRE_STATUS_OK;
+    }
+  }
+  LOGE("Data flow %" PRIu32 " not found", dataFlowId);
+  return CHRE_STATUS_NOT_FOUND;
 }
 
 }  // namespace chre

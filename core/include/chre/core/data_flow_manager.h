@@ -21,6 +21,7 @@
 
 #include "chre/core/nanoapp.h"
 #include "chre/util/non_copyable.h"
+#include "chre/util/system/message_common.h"
 #include "chre_api/chre/data_flow.h"
 #include "chre_api/chre/msg.h"
 #include "data_flow/queue.h"
@@ -308,6 +309,36 @@ class DataFlowManager : public NonCopyable {
       const android::contexthub::data_flow::AllocatorRegion &region,
       android::contexthub::data_flow::MemoryAccess *memoryAccess);
 
+  /**
+   * Handles the registration of a nanoapp as the sink for a data flow.
+   *
+   * @param registration The registration to handle.
+   */
+  void onRegisterDataFlowSink(
+      chre::message::DataFlowSinkRegistration &&registration);
+
+  /**
+   * Handles the unregistration of a nanoapp as the sink for a data flow.
+   *
+   * @param unregistration The unregistration to handle.
+   */
+  void onDataFlowSinkUnregistered(
+      const chre::message::DataFlowSinkUnregistration &unregistration);
+
+  /**
+   * Handles a data flow stopped event where the nanoapp is a sink.
+   *
+   * @param stopped The stopped event to handle.
+   */
+  void onDataFlowStopped(const chre::message::DataFlowStopped &stopped);
+
+  /**
+   * Handles a data flow alert event where the nanoapp is a sink.
+   *
+   * @param alert The alert event to handle.
+   */
+  void onDataFlowAlert(const chre::message::DataFlowAlert &alert);
+
  private:
   //! The configuration for the block size and count for a data flow.
   struct BlockConfig {
@@ -365,6 +396,15 @@ class DataFlowManager : public NonCopyable {
   //! The maximum number of data flows that can be active or pending.
   static constexpr uint32_t kMaxDataFlows = 10;
 
+  //! Builds a ConsumerPolicyBuilder from a chreDataFlowSinkPolicy.
+  //! @param sinkPolicy The sink policy to build from.
+  //! @param policyBuilderOut Pointer to the ConsumerPolicyBuilder to be
+  //! populated.
+  //! @return CHRE_STATUS_OK if successful, otherwise an error status.
+  static uint32_t buildConsumerPolicy(
+      const struct chreDataFlowSinkPolicy *sinkPolicy,
+      android::contexthub::data_flow::ConsumerPolicyBuilder *policyBuilderOut);
+
   //! Calculates the block configuration for a data flow.
   //! @param minElementCount The minimum element count of the data flow.
   //! @param maxElementCount The maximum element count of the data flow.
@@ -383,6 +423,16 @@ class DataFlowManager : public NonCopyable {
   //! @param dataFlow The active data flow for which to create a producer.
   //! @return pw::OkStatus() on success.
   pw::Status createProducer(NanoappDataFlow &dataFlow);
+
+  //! Helper function to find a data flow and check if the given nanoapp owns
+  //! it.
+  //! @param dataFlowId The ID of the data flow.
+  //! @param nanoappInstanceId The instance ID of the nanoapp to check.
+  //! @param dataFlowOut Pointer to a pointer to the NanoappDataFlow to be
+  //! populated.
+  //! @return CHRE_STATUS_OK if successful, otherwise an error status.
+  uint32_t getNanoappDataFlow(uint32_t dataFlowId, uint16_t nanoappInstanceId,
+                              NanoappDataFlow **dataFlowOut);
 
   //! The data flows owned by nanoapps.
   pw::Vector<NanoappDataFlow, kMaxDataFlows> mDataFlows;

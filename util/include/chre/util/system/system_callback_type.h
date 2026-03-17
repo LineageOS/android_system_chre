@@ -93,6 +93,10 @@ enum class SystemCallbackType : uint16_t {
   PerformEventLoopAndNanoappDebugDump,
   AllocateDataFlowRegionAsyncResult,
   SharedDataRegionAllocation,
+  DataFlowSinkRegisteredEvent,
+  DataFlowSinkUnregisteredEvent,
+  DataFlowStoppedEvent,
+  DataFlowAlertEvent,
 };
 
 //! Deferred/delayed callbacks use the event subsystem but are invariably sent
