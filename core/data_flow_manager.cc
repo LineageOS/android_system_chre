@@ -25,9 +25,12 @@
 #include "chre/util/status.h"
 #include "chre/util/system/event_callbacks.h"
 #include "chre/util/system/message_common.h"
+#include "chre/util/system/message_router.h"
 #include "chre/util/unique_ptr.h"
 #include "data_flow/queue.h"
 #include "data_flow/untyped_queue.h"
+
+#include <cinttypes>
 
 using ::android::contexthub::data_flow::ConsumerPolicyBuilder;
 using ::android::contexthub::data_flow::Region;
@@ -133,30 +136,66 @@ uint32_t DataFlowManager::destroyDataFlow(Nanoapp *nanoapp,
 }
 
 uint32_t DataFlowManager::sourceAddSinkAsync(
-    Nanoapp * /*nanoapp*/, uint64_t /*hubId*/, uint64_t /*endpointId*/,
-    uint32_t /*dataFlowId*/,
-    const struct chreDataFlowSinkPolicy * /*sinkPolicy*/) {
-  // TODO(b/457453613): Implement this function
-  return CHRE_STATUS_UNIMPLEMENTED;
+    Nanoapp *nanoapp, uint64_t hubId, uint64_t endpointId, uint32_t dataFlowId,
+    const struct chreDataFlowSinkPolicy *sinkPolicy) {
+  return sourceAddSinkAsyncCommon(nanoapp, hubId, endpointId, dataFlowId,
+                                  sinkPolicy, /* hasMessage= */ false,
+                                  /* message= */ nullptr, /* messageSize= */ 0,
+                                  /* messageType= */ 0, /* sessionId= */ 0,
+                                  /* messagePermissions= */ 0,
+                                  /* freeCallback= */ nullptr);
 }
 
 uint32_t DataFlowManager::sourceAddSinkOverSessionAsync(
-    Nanoapp * /*nanoapp*/, uint64_t /*hubId*/, uint64_t /*endpointId*/,
-    uint32_t /*dataFlowId*/,
-    const struct chreDataFlowSinkPolicy * /*sinkPolicy*/, void * /*message*/,
-    size_t /*messageSize*/, uint32_t /*messageType*/, uint16_t /*sessionId*/,
-    uint32_t /*messagePermissions*/,
-    chreMessageFreeFunction * /*freeCallback*/) {
-  // TODO(b/457453613): Implement this function
-  return CHRE_STATUS_UNIMPLEMENTED;
+    Nanoapp *nanoapp, uint64_t hubId, uint64_t endpointId, uint32_t dataFlowId,
+    const struct chreDataFlowSinkPolicy *sinkPolicy, void *message,
+    size_t messageSize, uint32_t messageType, uint16_t sessionId,
+    uint32_t messagePermissions, chreMessageFreeFunction *freeCallback) {
+  return sourceAddSinkAsyncCommon(nanoapp, hubId, endpointId, dataFlowId,
+                                  sinkPolicy, /* hasMessage= */ true, message,
+                                  messageSize, messageType, sessionId,
+                                  messagePermissions, freeCallback);
 }
 
 uint32_t DataFlowManager::sourceConfigureSink(
-    Nanoapp * /*nanoapp*/, uint64_t /*hubId*/, uint64_t /*endpointId*/,
-    uint32_t /*dataFlowId*/,
-    const struct chreDataFlowSinkPolicy * /*sinkPolicy*/) {
-  // TODO(b/457453613): Implement this function
-  return CHRE_STATUS_UNIMPLEMENTED;
+    Nanoapp *nanoapp, uint64_t hubId, uint64_t endpointId, uint32_t dataFlowId,
+    const struct chreDataFlowSinkPolicy *sinkPolicy) {
+  NanoappDataFlow *foundDataFlow = nullptr;
+  android::contexthub::data_flow::ConsumerPolicyBuilder policyBuilder;
+  RemoteEndpointId remoteId{
+      .aidlId = {.hubId = static_cast<int64_t>(hubId),
+                 .endpointId = static_cast<int64_t>(endpointId)},
+  };
+  uint32_t status =
+      validateAndGetSinkRequest(nanoapp, hubId, endpointId, dataFlowId,
+                                sinkPolicy, &foundDataFlow, &policyBuilder);
+  if (status != CHRE_STATUS_OK) {
+    return status;
+  }
+
+  pw::Status updateStatus = std::visit(
+      [&remoteId, &policyBuilder](auto &&producer) -> pw::Status {
+        if constexpr (std::is_same_v<std::decay_t<decltype(producer)>,
+                                     std::monostate>) {
+          return pw::Status::FailedPrecondition();
+        } else {
+          return producer.getConsumerManager().updateConsumerPolicy(
+              remoteId, policyBuilder);
+        }
+      },
+      foundDataFlow->producer);
+
+  if (updateStatus.IsNotFound()) {
+    LOGE("Failed to find consumer to update for data flow %" PRIu32,
+         dataFlowId);
+    return CHRE_STATUS_NOT_FOUND;
+  } else if (!updateStatus.ok()) {
+    LOGE("Failed to update consumer policy for data flow %" PRIu32 ": %s",
+         dataFlowId, updateStatus.str());
+    return toChreStatus(updateStatus);
+  }
+
+  return CHRE_STATUS_OK;
 }
 
 uint32_t DataFlowManager::sourceReserve(Nanoapp * /*nanoapp*/,
@@ -459,6 +498,153 @@ uint32_t DataFlowManager::getNanoappDataFlow(uint32_t dataFlowId,
   }
   LOGE("Data flow %" PRIu32 " not found", dataFlowId);
   return CHRE_STATUS_NOT_FOUND;
+}
+
+uint32_t DataFlowManager::validateAndGetSinkRequest(
+    Nanoapp *nanoapp, uint64_t hubId, uint64_t endpointId, uint32_t dataFlowId,
+    const struct chreDataFlowSinkPolicy *sinkPolicy,
+    NanoappDataFlow **dataFlowOut, ConsumerPolicyBuilder *policyBuilderOut) {
+  if (sinkPolicy == nullptr) {
+    return CHRE_STATUS_INVALID_ARGUMENT;
+  }
+
+  if (!chre::message::MessageRouterSingleton::get()
+           ->getEndpointInfo(hubId, endpointId)
+           .has_value()) {
+    return CHRE_STATUS_INVALID_ARGUMENT;
+  }
+
+  uint32_t status =
+      getNanoappDataFlow(dataFlowId, nanoapp->getInstanceId(), dataFlowOut);
+  if (status != CHRE_STATUS_OK) {
+    return status;
+  }
+
+  status = buildConsumerPolicy(sinkPolicy, policyBuilderOut);
+  if (status != CHRE_STATUS_OK) {
+    return status;
+  }
+
+  return CHRE_STATUS_OK;
+}
+
+uint32_t DataFlowManager::sourceAddSinkAsyncCommon(
+    Nanoapp *nanoapp, uint64_t hubId, uint64_t endpointId, uint32_t dataFlowId,
+    const struct chreDataFlowSinkPolicy *sinkPolicy, bool hasMessage,
+    void *message, size_t messageSize, uint32_t messageType, uint16_t sessionId,
+    uint32_t messagePermissions, chreMessageFreeFunction *freeCallback) {
+  NanoappDataFlow *foundDataFlow = nullptr;
+  ConsumerPolicyBuilder policyBuilder;
+  RemoteEndpointId remoteId{
+      .aidlId = {.hubId = static_cast<int64_t>(hubId),
+                 .endpointId = static_cast<int64_t>(endpointId)},
+  };
+  uint32_t status =
+      validateAndGetSinkRequest(nanoapp, hubId, endpointId, dataFlowId,
+                                sinkPolicy, &foundDataFlow, &policyBuilder);
+  if (status != CHRE_STATUS_OK) {
+    return status;
+  }
+
+  std::optional<message::Message> sessionMessage = std::nullopt;
+  if (hasMessage) {
+    sessionMessage =
+        EventLoopManagerSingleton::get()
+            ->getChreMessageHubManager()
+            .createSessionMessage(message, messageSize, messageType, sessionId,
+                                  messagePermissions, freeCallback,
+                                  nanoapp->getAppId());
+    if (!sessionMessage.has_value()) {
+      return CHRE_STATUS_INVALID_ARGUMENT;
+    }
+  }
+
+  auto event = MakeUnique<chreDataFlowSinkConfigureInfo>();
+  if (event.isNull()) {
+    LOG_OOM();
+    return CHRE_STATUS_RESOURCE_EXHAUSTED;
+  }
+
+  uint32_t consumerOffset = 0;
+  uint32_t metadataOffset = 0;
+  pw::Status consumerStatus = std::visit(
+      [&metadataOffset, &consumerOffset, &remoteId,
+       &policyBuilder](auto &&producer) -> pw::Status {
+        if constexpr (std::is_same_v<std::decay_t<decltype(producer)>,
+                                     std::monostate>) {
+          return pw::Status::FailedPrecondition();
+        } else {
+          metadataOffset = producer.getQueueOffset();
+          auto result = producer.getConsumerManager().addConsumer(
+              remoteId, policyBuilder);
+          if (result.ok()) {
+            consumerOffset = result.value();
+          } else {
+            LOGE("Failed to add consumer with hub ID 0x%" PRIx64
+                 " and endpoint ID 0x%" PRIx64 ": %s",
+                 remoteId.aidlId.hubId, remoteId.aidlId.endpointId,
+                 result.status().str());
+          }
+          return result.status();
+        }
+      },
+      foundDataFlow->producer);
+  if (!consumerStatus.ok()) {
+    LOGE("Failed to add consumer to data flow %" PRIu32 ": %s", dataFlowId,
+         consumerStatus.str());
+    return toChreStatus(consumerStatus);
+  }
+
+  // Send the registration over MessageRouter.
+  chre::message::DataFlowSinkRegistration registration;
+  registration.dataFlowId.hubId = ChreMessageHubManager::kChreMessageHubId;
+  registration.dataFlowId.id = dataFlowId;
+  registration.sourceId.messageHubId = ChreMessageHubManager::kChreMessageHubId;
+  registration.sourceId.endpointId = nanoapp->getAppId();
+  registration.sinkId.messageHubId = hubId;
+  registration.sinkId.endpointId = endpointId;
+  registration.primaryRegionId = foundDataFlow->regionId;
+  registration.metadataOffset = metadataOffset;
+  registration.sinkMetadataRegionId = foundDataFlow->regionId;
+  registration.sinkMetadataOffset = consumerOffset;
+  registration.sessionMessage = std::move(sessionMessage);
+  if (!EventLoopManagerSingleton::get()
+           ->getChreMessageHubManager()
+           .getMessageHub()
+           .registerDataFlowSink(std::move(registration))) {
+    LOGE("Failed to register data flow sink with MessageRouter");
+
+    // Prune the consumer we just added due to the failure.
+    std::visit(
+        [&remoteId](auto &&producer) -> void {
+          if constexpr (!std::is_same_v<std::decay_t<decltype(producer)>,
+                                        std::monostate>) {
+            auto result = producer.getConsumerManager().pruneConsumers(
+                [&remoteId](const RemoteEndpointId &matchId) {
+                  return matchId.aidlId.hubId == remoteId.aidlId.hubId &&
+                         matchId.aidlId.endpointId ==
+                             remoteId.aidlId.endpointId;
+                });
+            if (!result.ok()) {
+              FATAL_ERROR(
+                  "Failed to prune consumer during sink registration cleanup");
+            };
+          }
+        },
+        foundDataFlow->producer);
+    return CHRE_STATUS_INTERNAL;
+  }
+
+  // Send the event to the nanoapp.
+  event->status = CHRE_STATUS_OK;
+  event->dataFlowId = dataFlowId;
+  event->hubId = hubId;
+  event->endpointId = endpointId;
+  EventLoopManagerSingleton::get()->postEventOrDie(
+      CHRE_EVENT_DATA_FLOW_SINK_CONFIGURE_DONE, event.release(),
+      freeEventDataCallback, nanoapp->getInstanceId());
+
+  return CHRE_STATUS_OK;
 }
 
 }  // namespace chre
