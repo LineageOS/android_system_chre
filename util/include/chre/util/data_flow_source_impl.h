@@ -197,12 +197,20 @@ pw::Result<uint32_t> DataFlowSource<ElementType>::capacity() const {
 }
 
 inline pw::Result<VariableDataFlowSource> VariableDataFlowSource::createAsync(
-    uint32_t /*sinkDomains*/, uint64_t /*minAverageWriteIntervalNs*/,
-    uint32_t /*maxAverageWriteBandwidthBytesPerSecond*/,
-    uint32_t /*sinkPermissions*/, uint32_t /*minByteCount*/,
-    uint32_t /*maxByteCount*/, const char * /*name*/) {
-  // TODO(b/493930160): Implement this.
-  return pw::Status::Unimplemented();
+    uint32_t sinkDomains, uint64_t minAverageWriteIntervalNs,
+    uint32_t maxAverageWriteBandwidthBytesPerSecond, uint32_t sinkPermissions,
+    uint32_t minByteCount, uint32_t maxByteCount, const char *name) {
+  uint32_t dataFlowId;
+  uint32_t status = chreDataFlowCreateAsync(
+      sinkDomains, minAverageWriteIntervalNs,
+      maxAverageWriteBandwidthBytesPerSecond, sinkPermissions,
+      CHRE_DATA_FLOW_ELEMENT_SIZE_VARIABLE,
+      CHRE_DATA_FLOW_ELEMENT_ALIGNMENT_UNALIGNED, minByteCount, maxByteCount,
+      name, &dataFlowId);
+  if (status == CHRE_STATUS_OK) {
+    return VariableDataFlowSource(dataFlowId);
+  }
+  return toPwStatus(status);
 }
 
 inline VariableDataFlowSource::VariableDataFlowSource(
@@ -230,39 +238,66 @@ inline VariableDataFlowSource::~VariableDataFlowSource() {
 }
 
 inline pw::Status VariableDataFlowSource::addSinkAsync(
-    uint64_t /*hubId*/, uint64_t /*endpointId*/,
-    const chreDataFlowSinkPolicy & /*sinkPolicy*/) const {
-  // TODO(b/493930160): Implement this.
-  return pw::Status::Unimplemented();
+    uint64_t hubId, uint64_t endpointId,
+    const chreDataFlowSinkPolicy &sinkPolicy) const {
+  if (mDataFlowId == CHRE_DATA_FLOW_ID_INVALID) {
+    return pw::Status::NotFound();
+  }
+  uint32_t status = chreDataFlowSourceAddSinkAsync(hubId, endpointId,
+                                                   mDataFlowId, &sinkPolicy);
+  return toPwStatus(status);
 }
 
 inline pw::Status VariableDataFlowSource::addSinkOverSessionAsync(
-    uint64_t /*hubId*/, uint64_t /*endpointId*/,
-    const chreDataFlowSinkPolicy & /*sinkPolicy*/, uint16_t /*sessionId*/,
-    pw::ByteSpan /*message*/, uint32_t /*messageType*/,
-    uint32_t /*messagePermissions*/,
-    chreMessageFreeFunction * /*freeCallback*/) const {
-  // TODO(b/493930160): Implement this.
-  return pw::Status::Unimplemented();
+    uint64_t hubId, uint64_t endpointId,
+    const chreDataFlowSinkPolicy &sinkPolicy, uint16_t sessionId,
+    pw::ByteSpan message, uint32_t messageType, uint32_t messagePermissions,
+    chreMessageFreeFunction *freeCallback) const {
+  if (mDataFlowId == CHRE_DATA_FLOW_ID_INVALID) {
+    return pw::Status::NotFound();
+  }
+  uint32_t status = chreDataFlowSourceAddSinkOverSessionAsync(
+      hubId, endpointId, mDataFlowId, &sinkPolicy, message.data(),
+      message.size(), messageType, sessionId, messagePermissions, freeCallback);
+  return toPwStatus(status);
 }
 
 inline pw::Status VariableDataFlowSource::configureSink(
-    uint64_t /*hubId*/, uint64_t /*endpointId*/,
-    const chreDataFlowSinkPolicy & /*sinkPolicy*/) const {
-  // TODO(b/493930160): Implement this.
-  return pw::Status::Unimplemented();
+    uint64_t hubId, uint64_t endpointId,
+    const chreDataFlowSinkPolicy &sinkPolicy) const {
+  if (mDataFlowId == CHRE_DATA_FLOW_ID_INVALID) {
+    return pw::Status::NotFound();
+  }
+  uint32_t status = chreDataFlowSourceConfigureSink(hubId, endpointId,
+                                                    mDataFlowId, &sinkPolicy);
+  return toPwStatus(status);
 }
 
 inline pw::Status VariableDataFlowSource::push(
-    pw::ConstByteSpan /*element*/) const {
-  // TODO(b/493930160): Implement this.
-  return pw::Status::Unimplemented();
+    pw::ConstByteSpan element) const {
+  if (mDataFlowId == CHRE_DATA_FLOW_ID_INVALID) {
+    return pw::Status::NotFound();
+  }
+  uint32_t numberOfBytesPushed;
+  uint32_t status =
+      chreDataFlowSourcePush(mDataFlowId, element.data(), element.size(),
+                             /*allOrNothing=*/true, &numberOfBytesPushed);
+  return toPwStatus(status);
 }
 
 inline pw::Result<pw::ByteSpan> VariableDataFlowSource::reserve(
-    uint32_t /*numBytes*/) const {
-  // TODO(b/493930160): Implement this.
-  return pw::Status::Unimplemented();
+    uint32_t numBytes) const {
+  if (mDataFlowId == CHRE_DATA_FLOW_ID_INVALID) {
+    return pw::Status::NotFound();
+  }
+  void *data = nullptr;
+  uint32_t reservedBytes = 0;
+  uint32_t status =
+      chreDataFlowSourceReserve(mDataFlowId, numBytes, &data, &reservedBytes);
+  if (status == CHRE_STATUS_OK) {
+    return pw::ByteSpan(static_cast<std::byte *>(data), reservedBytes);
+  }
+  return toPwStatus(status);
 }
 
 inline pw::Status VariableDataFlowSource::truncate(
@@ -272,19 +307,38 @@ inline pw::Status VariableDataFlowSource::truncate(
 }
 
 inline pw::Status VariableDataFlowSource::commit() const {
-  // TODO(b/493930160): Implement this.
-  return pw::Status::Unimplemented();
+  if (mDataFlowId == CHRE_DATA_FLOW_ID_INVALID) {
+    return pw::Status::NotFound();
+  }
+  uint32_t status = chreDataFlowSourceCommit(mDataFlowId, 0 /* numBytes */);
+  return toPwStatus(status);
 }
 
 inline pw::Result<uint32_t> VariableDataFlowSource::size(
-    bool /*includeReserved*/) const {
-  // TODO(b/493930160): Implement this.
-  return pw::Status::Unimplemented();
+    bool includeReserved) const {
+  if (mDataFlowId == CHRE_DATA_FLOW_ID_INVALID) {
+    return pw::Status::NotFound();
+  }
+  uint32_t sizeInBytes = 0;
+  uint32_t status =
+      chreDataFlowSourceGetSize(mDataFlowId, includeReserved, &sizeInBytes);
+  if (status == CHRE_STATUS_OK) {
+    return sizeInBytes;
+  }
+  return toPwStatus(status);
 }
 
 inline pw::Result<uint32_t> VariableDataFlowSource::capacity() const {
-  // TODO(b/493930160): Implement this.
-  return pw::Status::Unimplemented();
+  if (mDataFlowId == CHRE_DATA_FLOW_ID_INVALID) {
+    return pw::Status::NotFound();
+  }
+  uint32_t capacityInBytes = 0;
+  uint32_t status =
+      chreDataFlowSourceGetCapacity(mDataFlowId, &capacityInBytes);
+  if (status == CHRE_STATUS_OK) {
+    return capacityInBytes;
+  }
+  return toPwStatus(status);
 }
 
 }  // namespace chre

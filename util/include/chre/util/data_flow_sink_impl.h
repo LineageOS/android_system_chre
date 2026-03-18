@@ -146,9 +146,12 @@ pw::Result<uint32_t> DataFlowSink<ElementType>::getOffset() const {
 }
 
 inline pw::Result<VariableDataFlowSink> VariableDataFlowSink::create(
-    uint64_t /*hubId*/, uint32_t /*dataFlowId*/) {
-  // TODO(b/493930160): Implement this.
-  return pw::Status::Unimplemented();
+    uint64_t hubId, uint32_t dataFlowId) {
+  uint32_t status = chreDataFlowSinkEnable(hubId, dataFlowId);
+  if (status == CHRE_STATUS_OK) {
+    return VariableDataFlowSink(hubId, dataFlowId);
+  }
+  return toPwStatus(status);
 }
 
 inline VariableDataFlowSink::VariableDataFlowSink(VariableDataFlowSink &&other)
@@ -178,8 +181,11 @@ inline VariableDataFlowSink::~VariableDataFlowSink() {
 }
 
 inline pw::Status VariableDataFlowSink::getState() const {
-  // TODO(b/493930160): Implement this.
-  return pw::Status::Unimplemented();
+  if (mDataFlowId == CHRE_DATA_FLOW_ID_INVALID) {
+    return pw::Status::NotFound();
+  }
+  uint32_t status = chreDataFlowSinkGetState(mHubId, mDataFlowId);
+  return toPwStatus(status);
 }
 
 inline pw::Result<uint32_t> VariableDataFlowSink::getHeadSize() const {
@@ -193,23 +199,45 @@ inline pw::Status VariableDataFlowSink::pop(pw::ByteSpan & /*element*/) const {
 }
 
 inline pw::Result<pw::ConstByteSpan> VariableDataFlowSink::peek() const {
-  // TODO(b/493930160): Implement this.
-  return pw::Status::Unimplemented();
+  if (mDataFlowId == CHRE_DATA_FLOW_ID_INVALID) {
+    return pw::Status::NotFound();
+  }
+  const void *data = nullptr;
+  uint32_t numBytes = 0;
+  uint32_t status =
+      chreDataFlowSinkPeek(mHubId, mDataFlowId, 0, &data, &numBytes);
+  if (status == CHRE_STATUS_OK) {
+    return pw::ConstByteSpan(static_cast<const std::byte *>(data), numBytes);
+  }
+  return toPwStatus(status);
 }
 
 inline pw::Status VariableDataFlowSink::release() const {
-  // TODO(b/493930160): Implement this.
-  return pw::Status::Unimplemented();
+  if (mDataFlowId == CHRE_DATA_FLOW_ID_INVALID) {
+    return pw::Status::NotFound();
+  }
+  uint32_t status = chreDataFlowSinkRelease(mHubId, mDataFlowId, 0);
+  return toPwStatus(status);
 }
 
-inline pw::Status VariableDataFlowSink::seek(uint32_t /*offsetBytes*/) const {
-  // TODO(b/493930160): Implement this.
-  return pw::Status::Unimplemented();
+inline pw::Status VariableDataFlowSink::seek(uint32_t offsetBytes) const {
+  if (mDataFlowId == CHRE_DATA_FLOW_ID_INVALID) {
+    return pw::Status::NotFound();
+  }
+  uint32_t status = chreDataFlowSinkSeek(mHubId, mDataFlowId, offsetBytes);
+  return toPwStatus(status);
 }
 
 inline pw::Result<uint32_t> VariableDataFlowSink::getOffset() const {
-  // TODO(b/493930160): Implement this.
-  return pw::Status::Unimplemented();
+  if (mDataFlowId == CHRE_DATA_FLOW_ID_INVALID) {
+    return pw::Status::NotFound();
+  }
+  uint32_t offset = 0;
+  uint32_t status = chreDataFlowSinkGetOffset(mHubId, mDataFlowId, &offset);
+  if (status == CHRE_STATUS_OK) {
+    return offset;
+  }
+  return toPwStatus(status);
 }
 
 }  // namespace chre
