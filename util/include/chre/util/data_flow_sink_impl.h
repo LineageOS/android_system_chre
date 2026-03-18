@@ -145,4 +145,71 @@ pw::Result<uint32_t> DataFlowSink<ElementType>::getOffset() const {
   return toPwStatus(status);
 }
 
+inline pw::Result<VariableDataFlowSink> VariableDataFlowSink::create(
+    uint64_t /*hubId*/, uint32_t /*dataFlowId*/) {
+  // TODO(b/493930160): Implement this.
+  return pw::Status::Unimplemented();
+}
+
+inline VariableDataFlowSink::VariableDataFlowSink(VariableDataFlowSink &&other)
+    : mHubId(other.mHubId), mDataFlowId(other.mDataFlowId) {
+  other.mHubId = 0;
+  other.mDataFlowId = CHRE_DATA_FLOW_ID_INVALID;
+}
+
+inline VariableDataFlowSink &VariableDataFlowSink::operator=(
+    VariableDataFlowSink &&other) {
+  if (this != &other) {
+    if (mDataFlowId != CHRE_DATA_FLOW_ID_INVALID) {
+      chreDataFlowSinkDisable(mHubId, mDataFlowId);
+    }
+    mHubId = other.mHubId;
+    mDataFlowId = other.mDataFlowId;
+    other.mHubId = 0;
+    other.mDataFlowId = CHRE_DATA_FLOW_ID_INVALID;
+  }
+  return *this;
+}
+
+inline VariableDataFlowSink::~VariableDataFlowSink() {
+  if (mDataFlowId != CHRE_DATA_FLOW_ID_INVALID) {
+    chreDataFlowSinkDisable(mHubId, mDataFlowId);
+  }
+}
+
+inline pw::Status VariableDataFlowSink::getState() const {
+  // TODO(b/493930160): Implement this.
+  return pw::Status::Unimplemented();
+}
+
+inline pw::Result<uint32_t> VariableDataFlowSink::getHeadSize() const {
+  // TODO(b/493930160): Implement this.
+  return pw::Status::Unimplemented();
+}
+
+inline pw::Status VariableDataFlowSink::pop(pw::ByteSpan & /*element*/) const {
+  // TODO(b/493930160): Implement this.
+  return pw::Status::Unimplemented();
+}
+
+inline pw::Result<pw::ConstByteSpan> VariableDataFlowSink::peek() const {
+  // TODO(b/493930160): Implement this.
+  return pw::Status::Unimplemented();
+}
+
+inline pw::Status VariableDataFlowSink::release() const {
+  // TODO(b/493930160): Implement this.
+  return pw::Status::Unimplemented();
+}
+
+inline pw::Status VariableDataFlowSink::seek(uint32_t /*offsetBytes*/) const {
+  // TODO(b/493930160): Implement this.
+  return pw::Status::Unimplemented();
+}
+
+inline pw::Result<uint32_t> VariableDataFlowSink::getOffset() const {
+  // TODO(b/493930160): Implement this.
+  return pw::Status::Unimplemented();
+}
+
 }  // namespace chre

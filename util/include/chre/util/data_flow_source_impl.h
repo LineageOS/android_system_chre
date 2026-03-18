@@ -196,4 +196,95 @@ pw::Result<uint32_t> DataFlowSource<ElementType>::capacity() const {
   return toPwStatus(status);
 }
 
+inline pw::Result<VariableDataFlowSource> VariableDataFlowSource::createAsync(
+    uint32_t /*sinkDomains*/, uint64_t /*minAverageWriteIntervalNs*/,
+    uint32_t /*maxAverageWriteBandwidthBytesPerSecond*/,
+    uint32_t /*sinkPermissions*/, uint32_t /*minByteCount*/,
+    uint32_t /*maxByteCount*/, const char * /*name*/) {
+  // TODO(b/493930160): Implement this.
+  return pw::Status::Unimplemented();
+}
+
+inline VariableDataFlowSource::VariableDataFlowSource(
+    VariableDataFlowSource &&other)
+    : mDataFlowId(other.mDataFlowId) {
+  other.mDataFlowId = CHRE_DATA_FLOW_ID_INVALID;
+}
+
+inline VariableDataFlowSource &VariableDataFlowSource::operator=(
+    VariableDataFlowSource &&other) {
+  if (this != &other) {
+    if (mDataFlowId != CHRE_DATA_FLOW_ID_INVALID) {
+      chreDataFlowDestroy(mDataFlowId);
+    }
+    mDataFlowId = other.mDataFlowId;
+    other.mDataFlowId = CHRE_DATA_FLOW_ID_INVALID;
+  }
+  return *this;
+}
+
+inline VariableDataFlowSource::~VariableDataFlowSource() {
+  if (mDataFlowId != CHRE_DATA_FLOW_ID_INVALID) {
+    chreDataFlowDestroy(mDataFlowId);
+  }
+}
+
+inline pw::Status VariableDataFlowSource::addSinkAsync(
+    uint64_t /*hubId*/, uint64_t /*endpointId*/,
+    const chreDataFlowSinkPolicy & /*sinkPolicy*/) const {
+  // TODO(b/493930160): Implement this.
+  return pw::Status::Unimplemented();
+}
+
+inline pw::Status VariableDataFlowSource::addSinkOverSessionAsync(
+    uint64_t /*hubId*/, uint64_t /*endpointId*/,
+    const chreDataFlowSinkPolicy & /*sinkPolicy*/, uint16_t /*sessionId*/,
+    pw::ByteSpan /*message*/, uint32_t /*messageType*/,
+    uint32_t /*messagePermissions*/,
+    chreMessageFreeFunction * /*freeCallback*/) const {
+  // TODO(b/493930160): Implement this.
+  return pw::Status::Unimplemented();
+}
+
+inline pw::Status VariableDataFlowSource::configureSink(
+    uint64_t /*hubId*/, uint64_t /*endpointId*/,
+    const chreDataFlowSinkPolicy & /*sinkPolicy*/) const {
+  // TODO(b/493930160): Implement this.
+  return pw::Status::Unimplemented();
+}
+
+inline pw::Status VariableDataFlowSource::push(
+    pw::ConstByteSpan /*element*/) const {
+  // TODO(b/493930160): Implement this.
+  return pw::Status::Unimplemented();
+}
+
+inline pw::Result<pw::ByteSpan> VariableDataFlowSource::reserve(
+    uint32_t /*numBytes*/) const {
+  // TODO(b/493930160): Implement this.
+  return pw::Status::Unimplemented();
+}
+
+inline pw::Status VariableDataFlowSource::truncate(
+    uint32_t /*numBytes*/) const {
+  // TODO(b/493930160): Implement this.
+  return pw::Status::Unimplemented();
+}
+
+inline pw::Status VariableDataFlowSource::commit() const {
+  // TODO(b/493930160): Implement this.
+  return pw::Status::Unimplemented();
+}
+
+inline pw::Result<uint32_t> VariableDataFlowSource::size(
+    bool /*includeReserved*/) const {
+  // TODO(b/493930160): Implement this.
+  return pw::Status::Unimplemented();
+}
+
+inline pw::Result<uint32_t> VariableDataFlowSource::capacity() const {
+  // TODO(b/493930160): Implement this.
+  return pw::Status::Unimplemented();
+}
+
 }  // namespace chre

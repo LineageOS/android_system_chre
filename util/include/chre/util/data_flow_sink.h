@@ -21,6 +21,7 @@
 
 #include "chre/util/non_copyable.h"
 #include "chre_api/chre.h"
+#include "pw_bytes/span.h"
 #include "pw_result/result.h"
 #include "pw_span/span.h"
 #include "pw_status/status.h"
@@ -145,6 +146,127 @@ class DataFlowSink : public NonCopyable {
 
  private:
   DataFlowSink(uint64_t hubId, uint32_t dataFlowId)
+      : mHubId(hubId), mDataFlowId(dataFlowId) {}
+
+  uint64_t mHubId = 0;
+  uint32_t mDataFlowId = CHRE_DATA_FLOW_ID_INVALID;
+};
+
+/**
+ * A wrapper around the CHRE API for data flow sinks with variable size
+ * elements. This class is thread hostile and expected to only be used in a
+ * single-threaded nanoapp context.
+ */
+class VariableDataFlowSink : public NonCopyable {
+ public:
+  /**
+   * Enables this nanoapp to be a sink of the given data flow.
+   *
+   * See {@link chreDataFlowSinkEnable()} for more details.
+   *
+   * @param hubId The ID of the hub associated with the data flow source.
+   * @param dataFlowId The ID of the data flow on which to enable the sink.
+   * @return A Result containing the created VariableDataFlowSink on success, or
+   *     a status indicating the failure reason.
+   */
+  static pw::Result<VariableDataFlowSink> create(uint64_t hubId,
+                                                 uint32_t dataFlowId);
+
+  VariableDataFlowSink(VariableDataFlowSink &&other);
+  VariableDataFlowSink &operator=(VariableDataFlowSink &&other);
+
+  /**
+   * Disables this nanoapp as a sink of the data flow.
+   *
+   * See {@link chreDataFlowSinkDisable()} for more details.
+   */
+  ~VariableDataFlowSink();
+
+  /**
+   * Gets the state of the sink on the data flow.
+   *
+   * See {@link chreDataFlowSinkGetState()} for more details.
+   *
+   * @return The state of the sink, or an error status.
+   */
+  pw::Status getState() const;
+
+  /**
+   * Returns the size of the head element in bytes.
+   *
+   * Calling this while peek()ing the current head element will still return the
+   * same value.
+   *
+   * See {@link chreDataFlowVariableSizeSinkGetHeadSize()} for more details.
+   *
+   * @return The size of the head element in bytes on success, or an error
+   *     status.
+   */
+  pw::Result<uint32_t> getHeadSize() const;
+
+  /**
+   * Pops an element from the data flow into the given span.
+   *
+   * See {@link chreDataFlowSinkPop()} for more details.
+   *
+   * @param element The span to pop the element into. The size must be greater
+   * than or equal to the size of the element. The span is resized to fit the
+   * element.
+   * @return OK on success, or an error status.
+   */
+  pw::Status pop(pw::ByteSpan &element) const;
+
+  /**
+   * Returns a view over the next contiguous span of the head element.
+   *
+   * See {@link chreDataFlowSinkPeek()} for more details.
+   *
+   * @return A span representing the peeked data on success, or an error status.
+   */
+  pw::Result<pw::ConstByteSpan> peek() const;
+
+  /**
+   * Releases the head element of the data flow.
+   *
+   * NOTE: This invalidates any views obtained from peek().
+   *
+   * See {@link chreDataFlowSinkRelease()} for more details.
+   *
+   * @return OK on success, or an error status.
+   */
+  pw::Status release() const;
+
+  /**
+   * Seeks the sink's read pointer on the given data flow.
+   *
+   * See {@link chreDataFlowSinkSeek()} for more details.
+   *
+   * @param offsetBytes The number of bytes behind the current write index.
+   * @return OK on success, or an error status.
+   */
+  pw::Status seek(uint32_t offsetBytes) const;
+
+  /**
+   * Retrieve the number of bytes available for this sink to read.
+   *
+   * See {@link chreDataFlowSinkGetOffset()} for more details.
+   *
+   * @return The offset in bytes on success, or an error status.
+   */
+  pw::Result<uint32_t> getOffset() const;
+
+  /** @return The hub ID associated with the data flow source. */
+  uint64_t hubId() const {
+    return mHubId;
+  }
+
+  /** @return The ID of this data flow. */
+  uint32_t dataFlowId() const {
+    return mDataFlowId;
+  }
+
+ private:
+  VariableDataFlowSink(uint64_t hubId, uint32_t dataFlowId)
       : mHubId(hubId), mDataFlowId(dataFlowId) {}
 
   uint64_t mHubId = 0;
