@@ -434,6 +434,26 @@ class DataFlowManager : public NonCopyable {
   uint32_t getNanoappDataFlow(uint32_t dataFlowId, uint16_t nanoappInstanceId,
                               NanoappDataFlow **dataFlowOut);
 
+  //! Helper function to validate sink parameters, get the data flow, and build
+  //! the consumer policy and remote endpoint ID.
+  //! @return CHRE_STATUS_OK if successful, otherwise an error status.
+  uint32_t validateAndGetSinkRequest(
+      Nanoapp *nanoapp, uint64_t hubId, uint64_t endpointId,
+      uint32_t dataFlowId, const struct chreDataFlowSinkPolicy *sinkPolicy,
+      NanoappDataFlow **dataFlowOut,
+      android::contexthub::data_flow::ConsumerPolicyBuilder *policyBuilderOut);
+
+  //! Helper function shared by sourceAddSinkAsync and
+  //! sourceAddSinkOverSessionAsync. If hasMessage is true, then the message
+  //! parameters are used to create a session message to bundle with the
+  //! registration.
+  uint32_t sourceAddSinkAsyncCommon(
+      Nanoapp *nanoapp, uint64_t hubId, uint64_t endpointId,
+      uint32_t dataFlowId, const struct chreDataFlowSinkPolicy *sinkPolicy,
+      bool hasMessage, void *message, size_t messageSize, uint32_t messageType,
+      uint16_t sessionId, uint32_t messagePermissions,
+      chreMessageFreeFunction *freeCallback);
+
   //! The data flows owned by nanoapps.
   pw::Vector<NanoappDataFlow, kMaxDataFlows> mDataFlows;
 

@@ -561,6 +561,32 @@ TEST_F(HalClientManagerTest, handleChreRestart) {
   halClientManager->handleChreRestart();
 }
 
+TEST_F(HalClientManagerTest, IsSystemServer) {
+  auto halClientManager = std::make_unique<HalClientManagerForTest>(
+      mockDeadClientUnlinker, kClientIdMappingFilePath);
+  std::shared_ptr<ContextHubCallbackForTest> systemCallback =
+      ContextHubCallbackForTest::make<ContextHubCallbackForTest>(
+          kSystemServerUuid);
+  std::shared_ptr<ContextHubCallbackForTest> vendorCallback =
+      ContextHubCallbackForTest::make<ContextHubCallbackForTest>(kVendorUuid);
+
+  // Register the system server callback
+  EXPECT_TRUE(halClientManager->registerCallback(
+      kSystemServerPid, systemCallback, /* deathRecipientCookie= */ nullptr));
+  // Register the vendor callback
+  EXPECT_TRUE(halClientManager->registerCallback(
+      kVendorPid, vendorCallback, /* deathRecipientCookie= */ nullptr));
+
+  // Check isSystemServer for a known system server pid, expecting true.
+  EXPECT_TRUE(halClientManager->isSystemServer(kSystemServerPid));
+
+  // Check isSystemServer for a known vendor pid, expecting false.
+  EXPECT_FALSE(halClientManager->isSystemServer(kVendorPid));
+
+  // Check isSystemServer for an unknown pid, expecting false.
+  EXPECT_FALSE(halClientManager->isSystemServer(kSystemServerPid + kVendorPid));
+}
+
 TEST_F(HalClientManagerTest, getAllConnectedCallbacks) {
   auto halClientManager = std::make_unique<HalClientManagerForTest>(
       mockDeadClientUnlinker, kClientIdMappingFilePath);
