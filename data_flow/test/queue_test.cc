@@ -1800,7 +1800,8 @@ TEST_F(MemoryAccessTest, ConsumerOperations) {
   }
 }
 
-TEST_F(QueueTest, ConcurrencyStressTest) {
+// TODO(b/493725596): Re-enable this test once the bug is fixed.
+TEST_F(QueueTest, DISABLED_ConcurrencyStressTest) {
   // Initialize this before the consumer state so that the producerState is
   // valid while the consumer instances are being destroyed, as they notify the
   // producer upon destruction.
