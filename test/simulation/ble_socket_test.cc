@@ -876,11 +876,12 @@ TEST_F(BleSocketTest, RfcommSocketInvalidRxTest) {
       .handleSocketOpenedByHost(mRfcommSocketData);
   waitForEvent(CHRE_EVENT_BLE_SOCKET_CONNECTION);
 
-  // Specify frame size larger than Rx config to trigger invalid rx event
-  constexpr uint16_t kInvalidFrameSize = 201;
+  // Wrong FCS value to trigger invalid Rx event
+  std::array<uint8_t, 11> sendPayload = {0x07, 0x00, 0x03, 0x00, 0x0D, 0xEF,
+                                         0x07, 0xAB, 0xCD, 0xEF, 0x45};
 
   std::array<uint8_t, pbe::AclDataFrameHeader::IntrinsicSizeInBytes() +
-                          kInvalidFrameSize>
+                          sendPayload.size()>
       hciArray;
   hciArray.fill(0);
   pw::bluetooth::proxy::H4PacketWithHci h4Packet{pbe::H4PacketType::ACL_DATA,
@@ -888,11 +889,20 @@ TEST_F(BleSocketTest, RfcommSocketInvalidRxTest) {
 
   pw::Result<pbe::AclDataFrameWriter> acl =
       pw::bluetooth::MakeEmbossWriter<pbe::AclDataFrameWriter>(hciArray);
-  acl->header().handle().Write(mSocketData.connectionHandle);
-  acl->data_total_length().Write(kInvalidFrameSize);
+  acl->header().handle().Write(mRfcommSocketData.connectionHandle);
+  acl->data_total_length().Write(sendPayload.size());
+  std::copy(sendPayload.begin(), sendPayload.end(),
+            acl->payload().BackingStorage().data());
 
-  EXPECT_CALL(mMockBtOffload, sendToHost(_)).Times(1);
+  // Expect the packet to be sent to the host for handling since the FCS value
+  // is invalid.
+  bool sendToHostCalled = false;
+  EXPECT_CALL(mMockBtOffload, sendToHost(_))
+      .WillOnce([&sendToHostCalled](pw::bluetooth::proxy::H4PacketWithHci &&) {
+        sendToHostCalled = true;
+      });
   mProxyHost->HandleH4HciFromController(std::move(h4Packet));
+  EXPECT_TRUE(sendToHostCalled);
 
   SocketSendData data = {
       .data = mDefaultMessage,
@@ -903,7 +913,8 @@ TEST_F(BleSocketTest, RfcommSocketInvalidRxTest) {
   sendEventToNanoapp(appId, SOCKET_SEND, data);
   int32_t status = 0;
   waitForEvent(SOCKET_SEND, &status);
-  // Failure due to ProxyHost stopping channel
+  // Should be successful since the invalid Rx event is handled by the host.
+  // The RFCOMM socket should be kept open.
   EXPECT_EQ(status, CHRE_BLE_SOCKET_SEND_STATUS_SUCCESS);
   // Free callback is invoked asynchronously because MultiBuf has been created
   waitForEvent(SOCKET_SEND_FREE_CALLBACK);

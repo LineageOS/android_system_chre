@@ -143,7 +143,12 @@ TEST_F(ChppAppTest, FragmentedLoopback) {
 
 TEST_F(ChppAppTest, Timesync) {
   // Upper bound for the RTT (response received - request sent).
-  constexpr uint64_t kMaxRttNs = 20 * CHPP_NSEC_PER_MSEC;
+  // We use a larger threshold here to account for potential delays in the
+  // simulation environment, where the transport work thread might be delayed by
+  // the OS scheduler for up to one maintenance cycle (represented by
+  // CHPP_TRANSPORT_TX_TIMEOUT_NS).
+  constexpr uint64_t kMaxRttNs =
+      20 * CHPP_NSEC_PER_MSEC + CHPP_TRANSPORT_TX_TIMEOUT_NS;
   // The offset is defined as (Time when the service sent the response) - (Time
   // when the client got the response).
   // We use half the RTT as the upper bound.
@@ -151,9 +156,7 @@ TEST_F(ChppAppTest, Timesync) {
 
   CHPP_LOGI("Starting timesync test...");
 
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  EXPECT_TRUE(chppTimesyncMeasureOffset(&mClientAppContext));
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  EXPECT_TRUE(chppTimesyncMeasureOffsetSync(&mClientAppContext));
 
   EXPECT_EQ(chppTimesyncGetResult(&mClientAppContext)->error,
             CHPP_APP_ERROR_NONE);

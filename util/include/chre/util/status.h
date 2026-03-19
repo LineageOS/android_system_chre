@@ -71,6 +71,53 @@ inline uint32_t toChreStatus(pw::Status status) {
   }
 }
 
+/**
+ * Converts a chreStatus to a pw::Status.
+ *
+ * @param status The chreStatus to convert.
+ * @return The corresponding pw::Status.
+ */
+inline pw::Status toPwStatus(uint32_t status) {
+  switch (status) {
+    case CHRE_STATUS_OK:
+      return pw::OkStatus();
+    case CHRE_STATUS_CANCELLED:
+      return pw::Status::Cancelled();
+    case CHRE_STATUS_INVALID_ARGUMENT:
+      return pw::Status::InvalidArgument();
+    case CHRE_STATUS_DEADLINE_EXCEEDED:
+      return pw::Status::DeadlineExceeded();
+    case CHRE_STATUS_NOT_FOUND:
+      return pw::Status::NotFound();
+    case CHRE_STATUS_ALREADY_EXISTS:
+      return pw::Status::AlreadyExists();
+    case CHRE_STATUS_PERMISSION_DENIED:
+      return pw::Status::PermissionDenied();
+    case CHRE_STATUS_RESOURCE_EXHAUSTED:
+      return pw::Status::ResourceExhausted();
+    case CHRE_STATUS_FAILED_PRECONDITION:
+      return pw::Status::FailedPrecondition();
+    case CHRE_STATUS_ABORTED:
+      return pw::Status::Aborted();
+    case CHRE_STATUS_OUT_OF_RANGE:
+      return pw::Status::OutOfRange();
+    case CHRE_STATUS_UNIMPLEMENTED:
+      return pw::Status::Unimplemented();
+    case CHRE_STATUS_INTERNAL:
+      return pw::Status::Internal();
+    case CHRE_STATUS_UNAVAILABLE:
+      return pw::Status::Unavailable();
+    case CHRE_STATUS_DATA_LOSS:
+      return pw::Status::DataLoss();
+    case CHRE_STATUS_UNAUTHENTICATED:
+      return pw::Status::Unauthenticated();
+    case CHRE_STATUS_UNKNOWN:
+      [[fallthrough]];
+    default:
+      return pw::Status::Unknown();
+  }
+}
+
 }  // namespace chre
 
 #endif  // CHRE_UTIL_STATUS_H_
