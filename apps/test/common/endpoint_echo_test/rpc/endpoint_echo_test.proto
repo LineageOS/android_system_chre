@@ -8,9 +8,27 @@ option java_package = "dev.chre.rpc.proto";
 
 // RPC for the endpoint echo test
 service EndpointEchoTestService {
-  // Run the nanoapp-to-host test
+  // Run the nanoapp-to-host endpoint echo test.
+  // The nanoapp opens a session with the host endpoint,
+  // sends a message to the host, verifies the same message is
+  // echoed back, and then closes the session.
   rpc RunNanoappToHostTest(google.protobuf.Empty)
       returns (stream ReturnStatus) {}
+
+  // Run the nanoapp get endpoint info test.
+  // The nanoapp opens a session with the host endpoint,
+  // then verifies the endpoint info returned via CHRE API
+  // matches the RPC request, and then closes the session.
+  rpc RunNanoappGetEndpointInfoTest(HostEndpointInfo)
+      returns (stream ReturnStatus) {}
+}
+
+// Request for RunNanoappGetEndpointInfoTest
+message HostEndpointInfo {
+  string expected_name = 1;
+  string expected_tag = 2;
+  uint32 expected_type = 3;
+  uint32 expected_version = 4;
 }
 
 // Received in response to a test pass or fail

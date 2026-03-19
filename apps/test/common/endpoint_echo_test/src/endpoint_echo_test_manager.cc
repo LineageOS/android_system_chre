@@ -23,11 +23,19 @@
 #include "pb_encode.h"
 
 #include <cstring>
+#include <utility>
 
 void EndpointEchoTestService::RunNanoappToHostTest(
     const google_protobuf_Empty & /* request */,
     EndpointEchoTestService::ServerWriter<chre_rpc_ReturnStatus> &writer) {
   EndpointEchoTestManagerSingleton::get()->startTest(std::move(writer));
+}
+
+void EndpointEchoTestService::RunNanoappGetEndpointInfoTest(
+    const chre_rpc_HostEndpointInfo &request,
+    EndpointEchoTestService::ServerWriter<chre_rpc_ReturnStatus> &writer) {
+  EndpointEchoTestManagerSingleton::get()->startTest(std::move(writer),
+                                                     request);
 }
 
 bool EndpointEchoTestManager::start() {
@@ -81,11 +89,17 @@ void EndpointEchoTestManager::setPermissionForNextMessage(uint32_t permission) {
 }
 
 void EndpointEchoTestManager::startTest(
-    EndpointEchoTestService::ServerWriter<chre_rpc_ReturnStatus> &&writer) {
-  LOGD("Started nanoapp-initiated message test");
+    EndpointEchoTestService::ServerWriter<chre_rpc_ReturnStatus> &&writer,
+    chre::Optional<chre_rpc_HostEndpointInfo> hostEndpointInfo) {
+  if (hostEndpointInfo.has_value()) {
+    LOGD("Started endpoint info verification test");
+  } else {
+    LOGD("Started nanoapp-initiated message echo test");
+  }
 
   mNanoappToHostTestInProgress = true;
   mWriter = std::move(writer);
+  mHostEndpointInfo = std::move(hostEndpointInfo);
   mTimerHandle =
       chreTimerSet(kTestTimeout.toRawNanoseconds(), /* cookie= */ nullptr,
                    /* oneShot= */ true);
@@ -120,6 +134,9 @@ bool EndpointEchoTestManager::handleEventNanoappToHostTest(
           failTest(
               "Received a corrupted session opened event with an invalid "
               "session ID");
+        } else if (mHostEndpointInfo.has_value()) {
+          validateEndpointInfo(info);
+          runNanoappToHostTest(TestPhase::kCloseSession);
         } else {
           runNanoappToHostTest(TestPhase::kSendMessage);
         }
@@ -308,4 +325,43 @@ void EndpointEchoTestManager::passTest() {
 
 void EndpointEchoTestManager::failTest(const char *errorMessage) {
   sendTestStatus(/* success= */ false, errorMessage);
+}
+
+void EndpointEchoTestManager::validateEndpointInfo(
+    const chreMsgSessionInfo *info) {
+  struct chreMsgEndpointInfo endpointInfo;
+  if (!chreMsgGetEndpointInfo(info->hubId, info->endpointId, &endpointInfo)) {
+    failTest("Failed to get endpoint info");
+  } else if (std::strcmp(endpointInfo.name, mHostEndpointInfo->expected_name) !=
+             0) {
+    LOGE("Name mismatch: expected %s, actual %s",
+         mHostEndpointInfo->expected_name, endpointInfo.name);
+    failTest("Endpoint name mismatch");
+  } else if (endpointInfo.type != mHostEndpointInfo->expected_type) {
+    LOGE("Type mismatch: expected %" PRIu32 ", actual %" PRIu32,
+         mHostEndpointInfo->expected_type, endpointInfo.type);
+    failTest("Endpoint type mismatch");
+  } else if (endpointInfo.version != mHostEndpointInfo->expected_version) {
+    LOGE("Version mismatch: expected %" PRIu32 ", actual %" PRIu32,
+         mHostEndpointInfo->expected_version, endpointInfo.version);
+    failTest("Endpoint version mismatch");
+  } else if (chreGetApiVersion() >= CHRE_API_VERSION_1_12) {
+    if (std::strlen(mHostEndpointInfo->expected_name) > 0 &&
+        !endpointInfo.isNameValid) {
+      LOGE("Expected isNameValid=1 for Name: %s",
+           mHostEndpointInfo->expected_name);
+      failTest("Endpoint name is invalid");
+    } else if (std::strlen(mHostEndpointInfo->expected_tag) > 0 &&
+               !endpointInfo.isTagValid) {
+      LOGE("Expected isTagValid=1 for Tag: %s",
+           mHostEndpointInfo->expected_tag);
+      failTest("Endpoint tag is invalid");
+    } else if (std::strcmp(endpointInfo.tag, mHostEndpointInfo->expected_tag) !=
+               0) {
+      LOGE("Tag mismatch: expected %s, actual %s",
+           mHostEndpointInfo->expected_tag, endpointInfo.tag);
+      failTest("Endpoint tag mismatch");
+    }
+  }
+  LOGD("Completed host endpoint info validation");
 }
