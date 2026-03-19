@@ -16,7 +16,8 @@
 package com.google.android.gts.locationcontext;
 
 import android.chre.flags.Flags;
-import android.os.Build;
+import android.os.Build.VERSION;
+import android.os.Build.VERSION_CODES;
 import android.platform.test.annotations.RequiresFlagsEnabled;
 import android.platform.test.flag.junit.CheckFlagsRule;
 import android.platform.test.flag.junit.DeviceFlagsValueProvider;
@@ -24,6 +25,7 @@ import android.platform.test.flag.junit.DeviceFlagsValueProvider;
 import androidx.test.filters.SdkSuppress;
 
 import com.android.compatibility.common.util.GmsTest;
+import com.android.compatibility.common.util.PropertyUtil;
 
 import com.google.android.chre.test.endpoint.ContextHubEndpointEchoExecutor;
 import com.google.android.utils.chre.ContextHubHostTestUtil;
@@ -35,6 +37,9 @@ import org.junit.Test;
 
 /** A class testing echo endpoint service. */
 public class GtsContextHubEndpointEchoTest extends GtsContextHubServiceTestBase {
+
+    private static final int VENDOR_API_LEVEL_C = 202604;
+
     @Rule
     public final CheckFlagsRule mCheckFlagsRule = DeviceFlagsValueProvider.createCheckFlagsRule();
 
@@ -136,10 +141,24 @@ public class GtsContextHubEndpointEchoTest extends GtsContextHubServiceTestBase 
 
     @Test
     @GmsTest(requirement = "GMS-6.17-001")
-    @SdkSuppress(minSdkVersion = Build.VERSION_CODES.CINNAMON_BUN, codeName = "CinnamonBun")
+    @SdkSuppress(minSdkVersion = VERSION_CODES.CINNAMON_BUN, codeName = "CinnamonBun")
+    @RequiresFlagsEnabled(Flags.FLAG_OFFLOAD_API)
+    public void testChreGetEndpointInfo() throws Exception {
+        if (VERSION.DEVICE_INITIAL_SDK_INT >= VERSION_CODES.CINNAMON_BUN
+                && PropertyUtil.getVendorApiLevel() >= VENDOR_API_LEVEL_C) {
+            mExecutor.testChreGetEndpointInfo();
+        }
+    }
+
+    @Test
+    @GmsTest(requirement = "GMS-6.17-001")
+    @SdkSuppress(minSdkVersion = VERSION_CODES.CINNAMON_BUN, codeName = "CinnamonBun")
     @RequiresFlagsEnabled(Flags.FLAG_GET_HUBS_API)
     public void testGetHubs() throws Exception {
-        mExecutor.testGetHubs();
+        if (VERSION.DEVICE_INITIAL_SDK_INT >= VERSION_CODES.CINNAMON_BUN
+                && PropertyUtil.getVendorApiLevel() >= VENDOR_API_LEVEL_C) {
+            mExecutor.testGetHubs();
+        }
     }
 
     @After
