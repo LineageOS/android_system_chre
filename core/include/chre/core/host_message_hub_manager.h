@@ -344,6 +344,12 @@ class HostMessageHubManager : public NonCopyable {
    */
   void reportDataFlowAlert(const message::DataFlowAlert &alert);
 
+  /**
+   * Checks if a given hub ID corresponds to a host-managed hub.
+   * @return true if the hub ID is found in mHubs.
+   */
+  bool isHostHub(message::MessageHubId id);
+
  private:
   /**
    * Wrapper around EndpointInfo and ServiceInfos which can be allocated from a
@@ -522,12 +528,6 @@ class HostMessageHubManager : public NonCopyable {
    * @return An intrusive pointer to the hub, or null if not found.
    */
   pw::IntrusivePtr<Hub> getHub(message::MessageHubId id);
-
-  /**
-   * Checks if a given hub ID corresponds to a host-managed hub.
-   * @return true if the hub ID is found in mHubs.
-   */
-  bool isHostHub(message::MessageHubId id);
 
   // The ID of the internal hub used to generate hub/endpoint registration
   // callbacks.
