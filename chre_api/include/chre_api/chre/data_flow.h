@@ -53,6 +53,8 @@
  *
  * - Source nanoapp:
  *  - Pushes data into the data flow
+ *  - May receive a CHRE_EVENT_DATA_FLOW_ALERT event, indicating an underlying
+ *    change in the data flow, i.e. that the source can push more data.
  *
  * - Sink nanoapp:
  *  - Receives the CHRE_EVENT_DATA_FLOW_ALERT event, indicating data is
@@ -236,7 +238,8 @@ struct chreDataFlowSinkConfigureInfo {
 };
 
 /**
- * Data provided in the CHRE_EVENT_DATA_FLOW_SINK_CREATED event.
+ * Data provided in the CHRE_EVENT_DATA_FLOW_SINK_CREATED and
+ * CHRE_EVENT_DATA_FLOW_SINK_STOPPED event.
  */
 struct chreDataFlowSinkInfo {
   /** The message hub ID of the source that created this sink. */
