@@ -81,7 +81,7 @@ class QueueTest : public ::testing::Test {
   static constexpr size_t kBaseMaxBlockCount = 3;
 
   void SetUp() override {
-    mStorage.resize(4096);
+    mStorage.resize(8192);
     mAllocator.Init(pw::ByteSpan(mStorage.data(), mStorage.size()));
   }
 
@@ -575,6 +575,121 @@ TEST_F(QueueTest, PushBlockedNonOverwritableConsumer) {
   EXPECT_EQ(mConsumers[0].pop(output), pw::OkStatus());
   EXPECT_EQ(output, data);
   EXPECT_EQ(mProducer->size(), 0);
+}
+
+TEST_F(QueueTest, PushBlockedNonOverwritableConsumerExpandQueue) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  mProducer->setMaxBlockCountTarget(kBaseMaxBlockCount + 1);
+
+  // Fill the queue to its initial capacity.
+  size_t initialCapacity = mProducer->capacity();
+  std::vector<int> data(initialCapacity);
+  for (int i = 0; i < data.size(); ++i) {
+    data[i] = i;
+  }
+  EXPECT_RESULT_EQ(mProducer->push(data), data.size());
+  EXPECT_EQ(mProducer->size(), initialCapacity);
+
+  // Pushing a single element after should succeed, expanding the queue.
+  EXPECT_EQ(mProducer->push(1), pw::OkStatus());
+  EXPECT_EQ(mProducer->size(), initialCapacity + 1);
+  EXPECT_EQ(mProducer->capacity(), initialCapacity + kBlockCapacity);
+  EXPECT_RESULT_EQ(mConsumers[0].size(), initialCapacity + 1);
+
+  std::vector<int> expectedData = data;
+  expectedData.push_back(1);
+  std::vector<int> output(expectedData.size());
+  EXPECT_EQ(mConsumers[0].pop(output), pw::OkStatus());
+  EXPECT_EQ(output, expectedData);
+  EXPECT_EQ(mProducer->size(), 0);
+}
+
+TEST_F(QueueTest,
+       PushBlockedNonOverwritableConsumerExpandQueueSlowAndFastConsumer) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()},
+       {kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  mProducer->setMaxBlockCountTarget(kBaseMaxBlockCount + 1);
+
+  // Fill the queue to its initial capacity.
+  size_t initialCapacity = mProducer->capacity();
+  std::vector<int> data(initialCapacity);
+  for (int i = 0; i < data.size(); ++i) {
+    data[i] = i;
+  }
+  EXPECT_RESULT_EQ(mProducer->push(data), data.size());
+  EXPECT_EQ(mProducer->size(), initialCapacity);
+
+  // Have one of the consumers read all of the existing data. This will put it
+  // back to the same position in the first block as the slow consumer.
+  std::vector<int> expectedData = data;
+  std::vector<int> output(expectedData.size());
+  EXPECT_EQ(mConsumers[1].pop(output), pw::OkStatus());
+  EXPECT_EQ(output, expectedData);
+  EXPECT_EQ(mProducer->size(), initialCapacity);
+
+  // Pushing a single element after should succeed, expanding the queue.
+  EXPECT_EQ(mProducer->push(0xdeadbeef), pw::OkStatus());
+  EXPECT_EQ(mProducer->size(), initialCapacity + 1);
+  EXPECT_EQ(mProducer->capacity(), initialCapacity + kBlockCapacity);
+  EXPECT_RESULT_EQ(mConsumers[0].size(), initialCapacity + 1);
+  EXPECT_RESULT_EQ(mConsumers[1].size(), 1);
+
+  // Check that the slow consumer can pop everything.
+  expectedData = data;
+  expectedData.push_back(0xdeadbeef);
+  output.resize(expectedData.size());
+  EXPECT_EQ(mConsumers[0].pop(output), pw::OkStatus());
+  EXPECT_EQ(output, expectedData);
+
+  // Check that the fast consumer can pop the last element.
+  output.resize(1);
+  EXPECT_EQ(mConsumers[1].pop(output), pw::OkStatus());
+  expectedData.resize(1);
+  expectedData[0] = 0xdeadbeef;
+  EXPECT_EQ(output, expectedData);
+  EXPECT_EQ(mProducer->size(), 0);
+}
+
+TEST_F(QueueTest, PushBlockedNonOverwritableConsumerExpandQueueFailsNoMemory) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  mProducer->setMaxBlockCountTarget(kBaseMaxBlockCount + 1);
+
+  // Allocate all remaining memory to prevent queue expansion.
+  std::vector<void *> tmps;
+  auto layout = internal::blockLayout<int>(kBlockCapacity);
+  auto *tmp = mAllocator.Allocate(layout);
+  while (tmp) {
+    tmps.push_back(tmp);
+    tmp = mAllocator.Allocate(layout);
+  }
+
+  // Fill the queue to its initial capacity.
+  size_t initialCapacity = mProducer->capacity();
+  std::vector<int> data(initialCapacity);
+  for (int i = 0; i < data.size(); ++i) {
+    data[i] = i;
+  }
+  auto res = mProducer->push(data);
+  EXPECT_EQ(res.status(), pw::OkStatus());
+  EXPECT_EQ(res.value(), data.size());
+  EXPECT_EQ(mProducer->size(), initialCapacity);
+
+  // Pushing a single element after should fail due to no memory.
+  EXPECT_EQ(mProducer->push(1), pw::Status::Unavailable());
+  EXPECT_EQ(mProducer->capacity(), initialCapacity);
+
+  for (auto *tmp : tmps) {
+    mAllocator.Deallocate(tmp);
+  }
 }
 
 TEST_F(QueueTest, PushBlockedOverwritableConsumer) {
@@ -1502,6 +1617,16 @@ TEST_F(QueueTest, OverwriteFastForwardCalculation) {
   EXPECT_EQ(poppedData, expectedData);
 }
 
+TEST_F(QueueTest, IncreaseMinimumTargetBlockCount) {
+  initLocalProducer(kEmptyLocalNotifyArgs);
+
+  EXPECT_EQ(mProducer->getMinBlockCountTarget(), kBaseMinBlockCount);
+  EXPECT_EQ(mProducer->capacity(), kBlockCapacity * kBaseMinBlockCount);
+  mProducer->setMinBlockCountTarget(kBaseMinBlockCount + 1);
+  EXPECT_EQ(mProducer->getMinBlockCountTarget(), kBaseMinBlockCount + 1);
+  EXPECT_EQ(mProducer->capacity(), kBlockCapacity * (kBaseMinBlockCount + 1));
+}
+
 class MockMemoryAccess : public MemoryAccess {
  public:
   MOCK_METHOD(void, acquire, (), (override));
@@ -1836,6 +1961,7 @@ TEST_F(QueueTest, DISABLED_ConcurrencyStressTest) {
   RemoteNotifyArgs prodArgs = {.fn = std::move(producerNotifyFn),
                                .id = getId(0)};
   initRemoteProducer(std::move(prodArgs));
+  mProducer->setMaxBlockCountTarget(kBaseMaxBlockCount + 1);
 
   auto getConsumerNotifyFn = [&producerState]() -> RemoteNotifyFn {
     return [&producerState](const RemoteEndpointId & /*id*/) {
@@ -1874,6 +2000,7 @@ TEST_F(QueueTest, DISABLED_ConcurrencyStressTest) {
 
   auto producerThreadFunc = [&]() {
     int data = 0;
+    auto kMaxBlockCount = kBaseMaxBlockCount + 4;
     while (!stopTest.load(std::memory_order_relaxed)) {
       if (auto status = mProducer->push(data); !status.ok()) {
         ASSERT_EQ(status, pw::Status::Unavailable());
@@ -1885,6 +2012,12 @@ TEST_F(QueueTest, DISABLED_ConcurrencyStressTest) {
         producerState.notified = false;
       } else {
         data++;
+      }
+      auto maxBlockCountTarget = mProducer->getMaxBlockCountTarget();
+      if (data % (1 << 17) == 0 && maxBlockCountTarget < kMaxBlockCount) {
+        mProducer->setMaxBlockCountTarget(maxBlockCountTarget + 1);
+        PW_LOG_INFO("Increased max block target count: %zu -> %zu",
+                    maxBlockCountTarget, mProducer->getMaxBlockCountTarget());
       }
     }
     PW_LOG_INFO("Producer thread exiting, push count %d", data);
@@ -1920,8 +2053,9 @@ TEST_F(QueueTest, DISABLED_ConcurrencyStressTest) {
         if (!popLoop(state)) {
           PW_LOG_ERROR(
               "Consumer thread %d exiting due to error, last popped %d, "
-              "overwrite count %d",
-              index, state.lastPopped, state.overwriteCount);
+              "overwrite count %d, state: %d",
+              index, state.lastPopped, state.overwriteCount,
+              state.consumer->checkState().code());
           return;
         }
         // This consumer will not be notified for new data. Sleep a bit to wait
@@ -1938,8 +2072,9 @@ TEST_F(QueueTest, DISABLED_ConcurrencyStressTest) {
         if (!popLoop(state)) {
           PW_LOG_ERROR(
               "Consumer thread %d exiting due to error, last popped %d, "
-              "overwrite count %d",
-              index, state.lastPopped, state.overwriteCount);
+              "overwrite count %d, state: %d",
+              index, state.lastPopped, state.overwriteCount,
+              state.consumer->checkState().code());
           return;
         }
       }
