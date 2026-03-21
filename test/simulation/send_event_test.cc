@@ -36,16 +36,26 @@ namespace {
 // A nanoapp-to-nanoapp send event type used for tests in this file
 #define NANOAPP_SEND_EVENT (CHRE_EVENT_TEST_EVENT + 0x1000)
 
+// The data to use for sending SEND_EVENT_CONFIG
+struct SendEventConfig {
+  uint64_t appId;
+};
 CREATE_CHRE_TEST_EVENT(SEND_EVENT_CONFIG, 0);
-CREATE_CHRE_TEST_EVENT(SEND_EVENT_FREE, 1);
+
+// The data to use for sending SEND_EVENT_RESPONSE
+struct SendEventResponse {
+  bool success;
+  // Only valid if success is true
+  uint32_t value;
+};
+CREATE_CHRE_TEST_EVENT(SEND_EVENT_RESPONSE, 1);
+
+// No payload.
+CREATE_CHRE_TEST_EVENT(SEND_EVENT_FREE, 2);
 
 const uint32_t kEventValue = 0x12345678;
 const uint64_t kSenderAppId = 0x1234567890abcdef;
 const uint64_t kTargetAppId = 0xfedcba987654321;
-
-struct SendEventConfig {
-  uint64_t appId;
-};
 
 class App : public TestNanoapp {
  public:
@@ -68,7 +78,9 @@ class App : public TestNanoapp {
 
       case NANOAPP_SEND_EVENT: {
         uint32_t value = *static_cast<const uint32_t *>(eventData);
-        TestEventQueueSingleton::get()->pushEvent(NANOAPP_SEND_EVENT, value);
+        TestEventQueueSingleton::get()->pushEvent(
+            SEND_EVENT_RESPONSE,
+            SendEventResponse{.success = true, .value = value});
         break;
       }
       default:
@@ -110,7 +122,10 @@ class App : public TestNanoapp {
         }
       }
     }
-    TestEventQueueSingleton::get()->pushEvent(SEND_EVENT_CONFIG, success);
+    if (!success) {
+      TestEventQueueSingleton::get()->pushEvent(
+          SEND_EVENT_RESPONSE, SendEventResponse{.success = false, .value = 0});
+    }
   }
 };
 
@@ -124,13 +139,12 @@ TEST_F(SingleThreadTestBase, SendEvent) {
 
   SendEventConfig config{.appId = info2.id};
   sendEventToNanoapp(appId, SEND_EVENT_CONFIG, config);
-  bool success;
-  waitForEvent(SEND_EVENT_CONFIG, &success);
-  EXPECT_TRUE(success);
 
-  uint32_t eventValue;
-  waitForEvent(NANOAPP_SEND_EVENT, &eventValue);
-  EXPECT_EQ(eventValue, kEventValue);
+  SendEventResponse response;
+  waitForEvent(SEND_EVENT_RESPONSE, &response);
+  ASSERT_TRUE(response.success);
+  EXPECT_EQ(response.value, kEventValue);
+
   waitForEvent(SEND_EVENT_FREE);
 }
 
@@ -146,13 +160,12 @@ TEST_F(MultiThreadTestBase, SendEventMultiThread) {
 
   SendEventConfig config{.appId = info2.id};
   sendEventToNanoapp(appId, SEND_EVENT_CONFIG, config);
-  bool success;
-  waitForEvent(SEND_EVENT_CONFIG, &success);
-  EXPECT_TRUE(success);
 
-  uint32_t eventValue;
-  waitForEvent(NANOAPP_SEND_EVENT, &eventValue);
-  EXPECT_EQ(eventValue, kEventValue);
+  SendEventResponse response;
+  waitForEvent(SEND_EVENT_RESPONSE, &response);
+  ASSERT_TRUE(response.success);
+  EXPECT_EQ(response.value, kEventValue);
+
   waitForEvent(SEND_EVENT_FREE);
 }
 
