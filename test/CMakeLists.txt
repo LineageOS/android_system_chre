@@ -14,6 +14,7 @@ pw_add_library(chre.test.unit_test STATIC
     integration/location/lbs/contexthub/test_suite/chre_fake_api/chre_api_fake_detector.h
     integration/location/lbs/contexthub/test_suite/chre_fake_api/chre_api_fake_provider.h
     integration/location/lbs/contexthub/test_suite/chre_fake_api/chre_api_gnss_fake.h
+    integration/location/lbs/contexthub/test_suite/chre_fake_api/chre_api_msg_fake.h
     integration/location/lbs/contexthub/test_suite/chre_fake_api/chre_api_re_fake.h
     integration/location/lbs/contexthub/test_suite/chre_fake_api/chre_api_sensor_fake.h
     integration/location/lbs/contexthub/test_suite/chre_fake_api/chre_api_wifi_fake.h
@@ -34,6 +35,7 @@ pw_add_library(chre.test.unit_test STATIC
     integration/location/lbs/contexthub/test_suite/chre_fake_api/chre_api_event_fake.cc
     integration/location/lbs/contexthub/test_suite/chre_fake_api/chre_api_fake_provider.cc
     integration/location/lbs/contexthub/test_suite/chre_fake_api/chre_api_gnss_fake.cc
+    integration/location/lbs/contexthub/test_suite/chre_fake_api/chre_api_msg_fake.cc
     integration/location/lbs/contexthub/test_suite/chre_fake_api/chre_api_re_fake.cc
     integration/location/lbs/contexthub/test_suite/chre_fake_api/chre_api_sensor_fake.cc
     integration/location/lbs/contexthub/test_suite/chre_fake_api/chre_api_wifi_fake.cc

@@ -88,7 +88,7 @@ Code related to CHRE also exists in other parts of the Android tree, including:
 - ``hardware/interfaces/contexthub/``: The Context Hub HAL definition
 - ``frameworks/base/core/java/android/hardware/location/ContextHub*.java``: The
   APIs used by privileged apps to interact with CHRE and nanoapps
-- ``frameworks/base/services/core/java/com/android/server/location/ContextHub*.java``:
+- ``frameworks/base/services/core/java/com/android/server/location/contexthub/``:
   The Context Hub service implementation in system server
 
 ## Using AI

@@ -43,6 +43,11 @@ import dev.chre.rpc.proto.ChreApiTest;
 public class ContextHubMultiDeviceBleBeaconTestExecutor extends ContextHubBleTestExecutor {
     private static final String TAG = "ContextHubMultiDeviceBleBeaconTestExecutor";
 
+    /**
+     * The VSR API level for Android V (202404).
+     */
+    private static final int VENDOR_API_LEVEL_V = 202404;
+
     private static final int NUM_EVENTS_TO_GATHER_PER_CYCLE = 1000;
 
     private static final long TIMEOUT_IN_S = 1;
@@ -452,7 +457,7 @@ public class ContextHubMultiDeviceBleBeaconTestExecutor extends ContextHubBleTes
             // to builds before V
             if (VERSION.SDK_INT <= VERSION_CODES.VANILLA_ICE_CREAM
                     || VERSION.DEVICE_INITIAL_SDK_INT <= VERSION_CODES.VANILLA_ICE_CREAM
-                    || PropertyUtil.getVendorApiLevel() <= VERSION_CODES.VANILLA_ICE_CREAM) {
+                    || PropertyUtil.getVendorApiLevel() <= VENDOR_API_LEVEL_V) {
                 continue;
             }
 

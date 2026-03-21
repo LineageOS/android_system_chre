@@ -20,6 +20,7 @@
 
 #include "chre/target_platform/platform_shared_data_region_manager_base.h"
 #include "chre/util/non_copyable.h"
+#include "chre/util/system/message_common_types.h"
 #include "data_flow/queue.h"
 #include "pw_result/result.h"
 #include "pw_status/status.h"
@@ -111,6 +112,21 @@ class PlatformSharedDataRegionManager
    * - pw::Status::Internal() if the request failed due to a platform error
    */
   pw::Status decrementRegionRefCount(int32_t regionId);
+
+  /**
+   * Checks if sink endpoints on the given hub need a separate metadata region.
+   *
+   * For a sink on a hub where memory protection is supported, the data flow
+   * source metadata and data storage are exposed to the sink in a read-only
+   * region. The sink metadata is stored in a separate read-write region so that
+   * it can update its read index and flags.
+   *
+   * @param hubId The ID of the hub to check.
+   *
+   * @return true if sink endpoints on the given hub need a separate metadata
+   * region, false otherwise.
+   */
+  bool sinkOnHubRequiresSeparateMetadataRegion(message::MessageHubId hubId);
 };
 
 }  // namespace chre

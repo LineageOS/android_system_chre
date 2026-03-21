@@ -77,4 +77,27 @@ TEST_NANOAPP(ChreApiBleFakeTest, StopScanAsyncV1_9) {
   ASSERT_TRUE(chreBleStopScanAsyncV1_9(nullptr /* cookie */));
 }
 
+TEST_NANOAPP(ChreApiBleFakeTest, GetScanStatus) {
+  EXPECT_CALL(*chre_api_fake_detector_, chreBleGetScanStatus);
+  // Returns true because request does not change maximal request in
+  // multiplexer.
+  ASSERT_FALSE(chreBleGetScanStatus(nullptr /* status */));
+}
+
+TEST_NANOAPP(ChreApiBleFakeTest, SocketAccept) {
+  EXPECT_CALL(*chre_api_fake_detector_, chreBleSocketAccept);
+  // Returns true because request does not change maximal request in
+  // multiplexer.
+  ASSERT_TRUE(chreBleSocketAccept(0 /* socketId */));
+}
+
+TEST_NANOAPP(ChreApiBleFakeTest, SocketSend) {
+  EXPECT_CALL(*chre_api_fake_detector_, chreBleSocketSend);
+  // Returns true because request does not change maximal request in
+  // multiplexer.
+  ASSERT_EQ(chreBleSocketSend(0 /* socketId */, nullptr /* data */,
+                              0 /* length */, nullptr /* freeCallback */),
+            chreBleSocketSendStatus::CHRE_BLE_SOCKET_SEND_STATUS_SUCCESS);
+}
+
 }  // namespace

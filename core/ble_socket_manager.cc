@@ -60,6 +60,8 @@ struct socketPacketData {
 bool handleSocketOpenedByHostSyncCore(PlatformBtSocket *btSocket,
                                       uint64_t endpointId, uint64_t socketId,
                                       uint16_t txMtu, uint16_t rxMtu) {
+  EventLoop *eventLoop = getCurrentEventLoop();
+  CHRE_ASSERT(eventLoop != nullptr);
   const char *errorReason = nullptr;
   uint16_t targetInstanceId;
 
@@ -67,10 +69,8 @@ bool handleSocketOpenedByHostSyncCore(PlatformBtSocket *btSocket,
     errorReason = "no available sockets";
   } else if (!btSocket->isInitialized()) {
     errorReason = "failed to initialize socket";
-  } else if (!EventLoopManagerSingleton::get()
-                  ->getEventLoop()
-                  .findNanoappInstanceIdByAppId(endpointId,
-                                                &targetInstanceId)) {
+  } else if (!eventLoop->findNanoappInstanceIdByAppId(endpointId,
+                                                      &targetInstanceId)) {
     errorReason = "failed to find nanoapp";
   } else {
     btSocket->setNanoappInstanceId(targetInstanceId);
@@ -80,8 +80,8 @@ bool handleSocketOpenedByHostSyncCore(PlatformBtSocket *btSocket,
                                           .socketName = nullptr,
                                           .maxTxPacketLength = txMtu,
                                           .maxRxPacketLength = rxMtu};
-    EventLoopManagerSingleton::get()->getEventLoop().distributeEventSync(
-        CHRE_EVENT_BLE_SOCKET_CONNECTION, &event, targetInstanceId);
+    eventLoop->distributeEventSync(CHRE_EVENT_BLE_SOCKET_CONNECTION, &event,
+                                   targetInstanceId);
     if (!btSocket->getSocketAccepted()) {
       errorReason = "nanoapp did not accept socket";
     }
@@ -118,6 +118,9 @@ void BleSocketManager::handleSocketOpenedByHost(
                                   /*reason=*/"out of memory");
     return;
   }
+  EventLoop *targetEventLoop =
+      EventLoopManagerSingleton::get()->getEventLoopByAppId(
+          socketData.endpointId);
   EventLoopManagerSingleton::get()->deferCallback(
       SystemCallbackType::BleSocketConnected, std::move(cbData),
       [](SystemCallbackType, UniquePtr<SocketDataType> &&data)
@@ -125,7 +128,8 @@ void BleSocketManager::handleSocketOpenedByHost(
             EventLoopManagerSingleton::get()
                 ->getBleSocketManager()
                 .handleSocketOpenedByHostSync(*data);
-          });
+          },
+      targetEventLoop);
 }
 
 void BleSocketManager::handleSocketCapabilitiesRequestByHost() {
@@ -249,6 +253,9 @@ void BleSocketManager::handlePlatformSocketEvent(uint64_t socketId,
 
 void BleSocketManager::handlePlatformSocketEventSync(uint64_t socketId,
                                                      SocketEvent event) {
+  EventLoop *currentEventLoop = getCurrentEventLoop();
+  CHRE_ASSERT(currentEventLoop != nullptr);
+
   PlatformBtSocket *btSocket = findPlatformBtSocket(socketId);
   if (btSocket == nullptr) {
     LOGW("Received event %" PRIu8
@@ -257,12 +264,22 @@ void BleSocketManager::handlePlatformSocketEventSync(uint64_t socketId,
     return;
   }
   switch (event) {
-    case SocketEvent::SEND_AVAILABLE:
-      EventLoopManagerSingleton::get()->getEventLoop().distributeEventSync(
-          CHRE_EVENT_BLE_SOCKET_SEND_AVAILABLE, nullptr,
-          btSocket->getNanoappInstanceId());
+    case SocketEvent::SEND_AVAILABLE: {
+      EventLoop *targetEventLoop =
+          EventLoopManagerSingleton::get()->getEventLoopByAppId(
+              btSocket->getNanoappAppId());
+      if (currentEventLoop == targetEventLoop) {
+        currentEventLoop->distributeEventSync(
+            CHRE_EVENT_BLE_SOCKET_SEND_AVAILABLE, /* eventData= */ nullptr,
+            btSocket->getNanoappInstanceId());
+      } else {
+        EventLoopManagerSingleton::get()->postEventOrDie(
+            CHRE_EVENT_BLE_SOCKET_SEND_AVAILABLE, /* eventData= */ nullptr,
+            /* freeCallback= */ nullptr, btSocket->getNanoappInstanceId());
+      }
       break;
-    case SocketEvent::SOCKET_CLOSURE_REQUEST:
+    }
+    case SocketEvent::SOCKET_CLOSURE_REQUEST: {
       LOGI(
           "The platform encountered an unrecoverable error and is requesting "
           "closure of socketId=%" PRIu64,
@@ -270,10 +287,12 @@ void BleSocketManager::handlePlatformSocketEventSync(uint64_t socketId,
       EventLoopManagerSingleton::get()->getHostCommsManager().sendBtSocketClose(
           btSocket->getId(), "offload stack requests socket closure");
       break;
-    default:
+    }
+    default: {
       LOGE("Received unknown event %" PRIu8 " for socketId=%" PRIu64,
            static_cast<uint8_t>(event), btSocket->getId());
       break;
+    }
   }
 }
 
@@ -294,7 +313,7 @@ void BleSocketManager::handlePlatformSocketPacket(uint64_t socketId,
           CHRE_REQUIRES(getMultiThreadingApiMutex()) {
             EventLoopManagerSingleton::get()
                 ->getBleSocketManager()
-                .handlePlatformSocketPacketSync(packetEvent.get());
+                .handlePlatformSocketPacketSync(std::move(packetEvent));
           };
   EventLoopManagerSingleton::get()->deferCallback(
       SystemCallbackType::BleSocketPacketEvent, std::move(packetEvent),
@@ -302,16 +321,43 @@ void BleSocketManager::handlePlatformSocketPacket(uint64_t socketId,
 }
 
 void BleSocketManager::handlePlatformSocketPacketSync(
-    chreBleSocketPacketEvent *event) {
+    UniquePtr<chreBleSocketPacketEvent> &&event, bool isSecondPass) {
   PlatformBtSocket *btSocket = findPlatformBtSocket(event->socketId);
   if (btSocket == nullptr) {
     LOGW("Received packet for disconnected/unknown BT socketId %" PRIu64,
          event->socketId);
     return;
   }
-  EventLoopManagerSingleton::get()->getEventLoop().distributeEventSync(
-      CHRE_EVENT_BLE_SOCKET_PACKET, event, btSocket->getNanoappInstanceId());
-  btSocket->freeReceivedSocketPacket();
+
+  uint16_t nanoappInstanceId = btSocket->getNanoappInstanceId();
+  EventLoop *targetEventLoop =
+      EventLoopManagerSingleton::get()->getEventLoopByInstanceId(
+          nanoappInstanceId);
+  EventLoop *currentEventLoop = getCurrentEventLoop();
+
+  if (isSecondPass) {
+    // This should not occur, assert to avoid infinite loops.
+    CHRE_ASSERT_LOG(currentEventLoop == targetEventLoop,
+                    "Recursively deferred to wrong event loop");
+  }
+  if (currentEventLoop == targetEventLoop) {
+    currentEventLoop->distributeEventSync(CHRE_EVENT_BLE_SOCKET_PACKET,
+                                          event.get(), nanoappInstanceId);
+    btSocket->freeReceivedSocketPacket();
+  } else {
+    auto callback =
+        [](SystemCallbackType,
+           UniquePtr<chreBleSocketPacketEvent> &&packetEvent)
+            CHRE_REQUIRES(getMultiThreadingApiMutex()) {
+              EventLoopManagerSingleton::get()
+                  ->getBleSocketManager()
+                  .handlePlatformSocketPacketSync(std::move(packetEvent),
+                                                  /* isSecondPass= */ true);
+            };
+    EventLoopManagerSingleton::get()->deferCallback(
+        SystemCallbackType::BleSocketPacketEvent, std::move(event), callback,
+        targetEventLoop);
+  }
 }
 
 uint32_t BleSocketManager::closeSocketsOnNanoappUnload(
@@ -342,25 +388,52 @@ void BleSocketManager::handleSocketClosedByHost(uint64_t socketId) {
           CHRE_REQUIRES(getMultiThreadingApiMutex()) {
             EventLoopManagerSingleton::get()
                 ->getBleSocketManager()
-                .handleSocketClosedByHostSync(*data);
+                .handleSocketClosedByHostSync(std::move(data));
           });
 }
 
-void BleSocketManager::handleSocketClosedByHostSync(uint64_t socketId) {
-  PlatformBtSocket *btSocket = findPlatformBtSocket(socketId);
+void BleSocketManager::handleSocketClosedByHostSync(
+    UniquePtr<uint64_t> &&socketId, bool isSecondPass) {
+  EventLoop *currentEventLoop = getCurrentEventLoop();
+  CHRE_ASSERT(currentEventLoop != nullptr);
+
+  PlatformBtSocket *btSocket = findPlatformBtSocket(*socketId);
   if (btSocket == nullptr) {
     LOGE("Received notification that host closed socketId=%" PRIu64
          " but socket does not exist.",
-         socketId);
+         *socketId);
     return;
   }
-  LOGI("Host closed socketId=%" PRIu64 " notifying nanoapp instanceId=%" PRIu16,
-       socketId, btSocket->getNanoappInstanceId());
-  chreBleSocketDisconnectionEvent event = {.socketId = btSocket->getId()};
-  EventLoopManagerSingleton::get()->getEventLoop().distributeEventSync(
-      CHRE_EVENT_BLE_SOCKET_DISCONNECTION, &event,
-      btSocket->getNanoappInstanceId());
-  mBtSockets.deallocate(btSocket);
+  uint16_t nanoappInstanceId = btSocket->getNanoappInstanceId();
+  EventLoop *targetEventLoop =
+      EventLoopManagerSingleton::get()->getEventLoopByInstanceId(
+          nanoappInstanceId);
+
+  if (isSecondPass) {
+    // This should not occur, assert to avoid infinite loops.
+    CHRE_ASSERT_LOG(currentEventLoop == targetEventLoop,
+                    "Recursively deferred to wrong event loop");
+  }
+  if (currentEventLoop == targetEventLoop) {
+    LOGI("Host closed socketId=%" PRIu64
+         " notifying nanoapp instanceId=0x%" PRIx16,
+         *socketId, nanoappInstanceId);
+    chreBleSocketDisconnectionEvent event = {.socketId = btSocket->getId()};
+    currentEventLoop->distributeEventSync(CHRE_EVENT_BLE_SOCKET_DISCONNECTION,
+                                          &event, nanoappInstanceId);
+    mBtSockets.deallocate(btSocket);
+  } else {
+    EventLoopManagerSingleton::get()->deferCallback(
+        SystemCallbackType::BleSocketClosed, std::move(socketId),
+        [](SystemCallbackType /*type*/, UniquePtr<uint64_t> &&data)
+            CHRE_REQUIRES(getMultiThreadingApiMutex()) {
+              EventLoopManagerSingleton::get()
+                  ->getBleSocketManager()
+                  .handleSocketClosedByHostSync(std::move(data),
+                                                /* isSecondPass= */ true);
+            },
+        targetEventLoop);
+  }
 }
 
 }  // namespace chre

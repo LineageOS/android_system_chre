@@ -27,7 +27,6 @@
 
 #include "chre/platform/atomic_ref.h"
 #include "data_flow/queue_defs.h"
-#include "pw_allocator/allocator.h"
 #include "pw_allocator/layout.h"
 #include "pw_bytes/span.h"
 #include "pw_containers/intrusive_list.h"
@@ -150,6 +149,15 @@ constexpr pw::allocator::Layout variableDataBlockLayout(size_t blockCapacity) {
                                alignof(VariableDataBlock));
 }
 
+/** Type of function used to initialize a block. */
+using InitBlockFn = void (*)(BlockHeader &block, uint32_t blockCapacity);
+
+/** Initializes a fixed-size data block. */
+void initFixedSizeDataBlock(BlockHeader &block, uint32_t blockCapacity);
+
+/** Initializes a variable-size data block. */
+void initVariableDataBlock(BlockHeader &block, uint32_t blockCapacity);
+
 /** Base class for item tracked in the consumer list for a queue. */
 struct ConsumerListNode
     : public pw::containers::future::IntrusiveList<ConsumerListNode>::Item {};
@@ -234,12 +242,19 @@ class ProducerBase {
         kBlockCapacity = other.kBlockCapacity;
         mDesc = other.mDesc;
         mCurrBlock = other.mCurrBlock;
+        mMinBlockCountTarget = other.mMinBlockCountTarget;
+        mMaxBlockCountTarget = other.mMaxBlockCountTarget;
         mBlockCount = other.mBlockCount;
         mReserved = other.mReserved;
         mAvailable = other.mAvailable;
+        mRawAvailable = other.mRawAvailable;
+        mExpansionCount = other.mExpansionCount;
+        mExpansionFreeAvailability = other.mExpansionFreeAvailability;
+        mUnavailableFromSkip = other.mUnavailableFromSkip;
         mCurrBlockIndex = other.mCurrBlockIndex;
         mState = other.mState;
         mMemAccessCnt = other.mMemAccessCnt;
+        mExpansionCountCountdown = other.mExpansionCountCountdown;
       }
       other.mState = State::kMovedFrom;
     }
@@ -271,20 +286,18 @@ class ProducerBase {
    *
    * Releases unused blocks if necessary to bring the queue size within the new
    * limit. If more blocks are in use than the new limit, asynchronously
-   * releases them.
+   * releases them. If the new maximum is less than the current minimum, sets
+   * the minimum to the new maximum.
    *
    * @param count The requested maximum.
    * @param force Iff true, forcibly releases blocks which may be in use at the
    * time.
-   * @return pw::OkStatus() on success. If the new maximum is less than the
-   * previous minimum, sets the minimum to the new maximum.
    */
-  pw::Status setMaxBlockCountTarget(size_t count, bool force = false);
+  void setMaxBlockCountTarget(size_t count, bool force = false);
 
   /** @return The current target maximum block count. */
   size_t getMaxBlockCountTarget() const {
-    // TODO(b/448384247): Support dynamic sizing.
-    return mBlockCount;
+    return mMaxBlockCountTarget;
   }
 
   /**
@@ -292,18 +305,16 @@ class ProducerBase {
    *
    * If the current queue size is below the new minimum, attempts to immediately
    * allocate new blocks to satisfy the minimum. If unavailable, asynchronously
-   * attempts to allocate the remainder.
+   * attempts to allocate the remainder. If the new minimum is greater than the
+   * current maximum, sets the maximum to the new minimum.
    *
    * @param count The requested minimum.
-   * @return pw::OkStatus() on success. If the new minimum is greater than the
-   * previous maximum, sets the maximum to the new minimum.
    */
-  pw::Status setMinBlockCountTarget(size_t count);
+  void setMinBlockCountTarget(size_t count);
 
   /** @return The current target minimum block count. */
   size_t getMinBlockCountTarget() const {
-    // TODO(b/448384247): Support dynamic sizing.
-    return mBlockCount;
+    return mMinBlockCountTarget;
   }
 
   /** @return The current block count. */
@@ -361,9 +372,14 @@ class ProducerBase {
    */
   size_t size(bool includeReserved = false);
 
-  /** @return the current queue capacity. */
-  size_t capacity() const {
-    return kBlockCapacity * mBlockCount;
+  /**
+   * @return the queue capacity in bytes
+   * @param maximum If true, returns the maximum capacity, otherwise the current
+   * capacity (NOTE: the maximum capacity is based on the target and may exceed
+   * the current capacity)
+   */
+  size_t capacity(bool maximum = false) const {
+    return kBlockCapacity * (maximum ? mMaxBlockCountTarget : mBlockCount);
   }
 
  protected:
@@ -416,10 +432,10 @@ class ProducerBase {
   /**
    * Allocates the initial block ring and finalizes the queue metadata.
    *
-   * @param variableData true iff this is a variable data queue.
+   * @param initBlockFn Function used to initialize each block.
    * @return pw::OkStatus() on success.
    */
-  pw::Status initialize(bool variableData);
+  pw::Status initialize(InitBlockFn initBlockFn);
 
   /**
    * Checks whether the queue can accommodate the given amount of data.
@@ -432,6 +448,19 @@ class ProducerBase {
    * than count if allOrNothing is unset.
    */
   pw::Result<size_t> checkAvailable(size_t count, bool allOrNothing);
+
+  /**
+   * Allocates new blocks and inserts them into the block ring.
+   *
+   * @param count The number of blocks to attempt to allocate and insert, must
+   * not cause the block count to exceed the maximum target.
+   * @return pw::OkStatus() on success (0 <= new allocation <= count),
+   * otherwise:
+   * - pw::Status::OutOfRange() if the block count would exceed the maximum
+   * target.
+   * - pw::Status::ResourceExhausted() if memory allocation fails.
+   */
+  pw::Status allocateAndInsertBlocks(size_t count);
 
   /**
    * Advances the write index, possibly copying data into the queue.
@@ -460,11 +489,15 @@ class ProducerBase {
    * in the next block. This is used to ensure that the conversion only happens
    * once per transition in case the producer iterates through the blocks
    * multiple times (e.g. reserve()/commit()).
+   * @param writeIndex [optional] If present, whenever leaving a block with the
+   * skip index set, updates the write index within the block to enable a
+   * following consumer to follow the skip index as appropriate.
    */
   void advanceBlockIndexWithData(BlockHeader *&block, uint32_t &index,
                                  uint32_t *correction, uint32_t count,
                                  std::optional<pw::ConstByteSpan> data,
-                                 bool convertSkipToBase);
+                                 bool convertSkipToBase,
+                                 std::optional<uint32_t> writeIndex);
 
   /**
    * Enters the next block, updating all of the given parameters.
@@ -476,9 +509,13 @@ class ProducerBase {
    * @param convertSkipToBase Iff true, converts the skip index to a base index
    * in the next block. This is used to avoid converting more than once on the
    * same block on commit() since it would have been done on reserve().
+   * @param writeIndex [optional] If present, whenever leaving a block with the
+   * skip index set, updates the write index within the block to enable a
+   * following consumer to follow the skip index as appropriate.
    */
   virtual void enterNextBlock(BlockHeader *&block, uint32_t *correction,
-                              uint32_t &index, bool convertSkipToBase);
+                              uint32_t &index, bool convertSkipToBase,
+                              std::optional<uint32_t> writeIndex);
 
   /**
    * Updates the write index.
@@ -501,7 +538,7 @@ class ProducerBase {
    * block the producer, flagging them accordingly. The optional increment is
    * used to determine whether a push()/reserve() would result in these states.
    *
-   * Consumers in that are overwritten or would block the producer are excluded
+   * Consumers that have been overwritten or are in a bad state are excluded
    * from the available space calculations.
    *
    * @param increment The size of a prospective push/reserve operation,
@@ -618,6 +655,20 @@ class ProducerBase {
   /** Clears the state of the producer, as if the destructor was called. */
   void clear();
 
+  /** Returns the InitBlockFn to use for this producer. */
+  virtual InitBlockFn getInitBlockFn() {
+    return internal::initFixedSizeDataBlock;
+  }
+
+  /** Returns the block index given the current write index. */
+  uint32_t getTailBlockIndex() const;
+
+  /** Get a pointer to the current tail block. */
+  BlockHeader *getTailBlock() const;
+
+  /** Advances the epoch counter by one. */
+  void incrementEpoch(bool start);
+
   // Members fixed on construction.
   AllocatorRegion mRegion;
   RemoteNotifyFn mRemoteNotifyFn;
@@ -630,12 +681,19 @@ class ProducerBase {
 
   ProducerDesc *mDesc;
   BlockHeader *mCurrBlock;
+  size_t mMinBlockCountTarget;
+  size_t mMaxBlockCountTarget;
   size_t mBlockCount;
   size_t mReserved = 0;
   size_t mAvailable = 0;
+  size_t mRawAvailable = 0;
+  size_t mExpansionCount = 0;
+  size_t mUnavailableFromSkip = 0;
+  size_t mExpansionFreeAvailability = 0;
   uint32_t mCurrBlockIndex = 0;
   State mState = State::kActive;
   uint8_t mMemAccessCnt = 0;
+  bool mExpansionCountCountdown = false;
 };
 
 /** Base class for Consumers of any ElementType. */
@@ -755,6 +813,18 @@ class ConsumerBase {
   pw::Result<bool> isOverwritable();
 
  protected:
+  /** Block header data used to calculate index and block advancements. */
+  struct BlockHeaderData {
+    BlockHeader *header;
+    uint32_t nextBlockOffset;
+    // NOTE: This write index is only relevant when determining whether or not
+    // to skip based off of the skip index.
+    uint32_t writeIndexFromDesc;
+    uint32_t baseIndex;
+    uint32_t skipIndex;
+    uint32_t readInBlock;
+  };
+
   /**
    * Checks arguments before initializing.
    *
@@ -833,8 +903,9 @@ class ConsumerBase {
    * than or equal to count.
    * @return The number of bytes actually advanced.
    */
-  size_t advanceReadIndex(size_t count, std::optional<pw::ByteSpan> buf,
-                          bool stopOnNextBlock = false);
+  pw::Result<size_t> advanceReadIndex(size_t count,
+                                      std::optional<pw::ByteSpan> buf,
+                                      bool stopOnNextBlock = false);
 
   /** Depending on whether the producer is blocked, notify it on read. */
   void maybeNotifyOnRead();
@@ -868,6 +939,20 @@ class ConsumerBase {
   /** Syncs to the producer. */
   pw::Status syncToProducer();
 
+  /**
+   * Possibly updates the block header data for moving through the queue.
+   *
+   * In the case that the producer has modified either the skip index
+   * (exclusive) or the base index, the data may not be updated if this consumer
+   * is intended to follow the old path through the queue, e.g. if the producer
+   * skipped to a new block to avoid overwriting this consumer.
+   */
+  void updateBlockHeaderData(BlockHeaderData &data, uint32_t blockIndex,
+                             uint32_t advanceOverReadIndex);
+
+  /** Loads the data from a BlockHeader, possibly updating the epoch. */
+  BlockHeaderData loadBlockHeader(BlockHeader &header);
+
   /** @return On success, the current producer descriptor. */
   pw::Result<ProducerDesc *> getProducerDesc();
 
@@ -894,10 +979,10 @@ class ConsumerBase {
   uint32_t kBlockCapacity;
   uint32_t kDataOffset;
 
-  BlockHeader *mHeadBlock;
-  BlockHeader *mCurrBlock;
+  BlockHeaderData mHeadBlock;
+  BlockHeaderData mCurrBlock;
   size_t mAvailable = 0;
-  size_t mPeeked = 0;
+  std::optional<size_t> mPeeked;
   uint32_t mCurrBlockIndex = 0;
   uint32_t mBlockListEpoch;
   uint32_t mCurrentFlags = static_cast<uint32_t>(ProducerFlags::kNone);
