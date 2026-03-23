@@ -110,8 +110,8 @@ bool EventLoopManager::postSystemEvent(uint16_t eventType, void *eventData,
   }
   Event *event = mEventPool.allocate(eventType, eventData, callback, extraData);
   if (!eventLoop->postEvent(event)) {
-    FATAL_ERROR("Failed to post critical system event 0x%" PRIx16,
-                event->eventType);
+    FATAL_ERROR("Failed to post critical system event 0x%" PRIx16 " %s",
+                eventType, event == nullptr ? ", allocation failed" : "");
   }
   return true;
 }
