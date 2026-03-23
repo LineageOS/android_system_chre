@@ -53,6 +53,8 @@ import dev.pigweed.pw_rpc.UnaryResult;
  * A set of helper functions for tests that use the CHRE API Test nanoapp.
  */
 public class ChreApiTestUtil {
+    private static final String TAG = "ChreApiTestUtil";
+
     /**
      * The default timeout for an RPC call in seconds.
      */
@@ -231,7 +233,7 @@ public class ChreApiTestUtil {
                                 TimeUnit.MILLISECONDS);
                 responses.add(responseResult.response());
             } catch (Exception exception) {
-                Log.e("ChreApiTestUtil", "Failed to get a response result: ", exception);
+                Log.e(TAG, "Failed to get a response result: ", exception);
                 success = false;
             }
         }
@@ -427,6 +429,7 @@ public class ChreApiTestUtil {
         Objects.requireNonNull(audioEvents);
         // Assert audioEvents isn't empty
         if (audioEvents.size() == 0) {
+            Log.w(TAG, "Audio events list is empty.");
             return null;
         }
 
