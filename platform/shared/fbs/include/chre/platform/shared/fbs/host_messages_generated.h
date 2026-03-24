@@ -141,6 +141,14 @@ struct BtSocketRfcommCapabilitiesBuilder;
 struct BtSocketCapabilitiesResponse;
 struct BtSocketCapabilitiesResponseBuilder;
 
+struct SharedDataLibraryVersion;
+
+struct SharedDataSupportVersion;
+struct SharedDataSupportVersionBuilder;
+
+struct SharedDataCapabilities;
+struct SharedDataCapabilitiesBuilder;
+
 struct VendorHubInfo;
 struct VendorHubInfoBuilder;
 
@@ -1081,6 +1089,39 @@ struct ChreMessageTraits<chre::fbs::DataFlowAlert> {
 
 bool VerifyChreMessage(flatbuffers::Verifier &verifier, const void *obj, ChreMessage type);
 bool VerifyChreMessageVector(flatbuffers::Verifier &verifier, const flatbuffers::Vector<flatbuffers::Offset<void>> *values, const flatbuffers::Vector<uint8_t> *types);
+
+/// Represents a version of support for shared data flows.
+FLATBUFFERS_MANUALLY_ALIGNED_STRUCT(2)
+SharedDataLibraryVersion FLATBUFFERS_FINAL_CLASS {
+ private:
+  uint8_t major_;
+  uint8_t minor_;
+  uint16_t patch_;
+
+ public:
+  SharedDataLibraryVersion() {
+    memset(static_cast<void *>(this), 0, sizeof(SharedDataLibraryVersion));
+  }
+  SharedDataLibraryVersion(uint8_t _major, uint8_t _minor, uint16_t _patch)
+      : major_(flatbuffers::EndianScalar(_major)),
+        minor_(flatbuffers::EndianScalar(_minor)),
+        patch_(flatbuffers::EndianScalar(_patch)) {}
+  /// Major version, which denotes compatibility-breaking changes. Different
+  /// struct definitions will be added for major version updates.
+  /// NOTE: This must be greater than 0.
+  uint8_t major() const {
+    return flatbuffers::EndianScalar(major_);
+  }
+  /// Minor version, which denotes backwards-compatible feature additions.
+  uint8_t minor() const {
+    return flatbuffers::EndianScalar(minor_);
+  }
+  /// Patch version, which denotes backwards-compatible minor changes.
+  uint16_t patch() const {
+    return flatbuffers::EndianScalar(patch_);
+  }
+};
+FLATBUFFERS_STRUCT_END(SharedDataLibraryVersion, 4);
 
 FLATBUFFERS_MANUALLY_ALIGNED_STRUCT(2) HostAddress FLATBUFFERS_FINAL_CLASS {
  private:
@@ -4074,6 +4115,119 @@ inline flatbuffers::Offset<BtSocketCapabilitiesResponse> CreateBtSocketCapabilit
   return builder_.Finish();
 }
 
+/// Represents a version of support for shared data flows. The major, minor, and
+/// patch versions are determined by the version of shared memory support
+/// library used by the endpoint (see
+/// /system/chre/data_flow:contexthub_data_flow).
+/// minimumCompatibleMajorVersion is used to determine whether the endpoint uses
+/// any capabilities that require a minimum version of the support library.
+struct SharedDataSupportVersion FLATBUFFERS_FINAL_CLASS
+    : private flatbuffers::Table {
+  typedef SharedDataSupportVersionBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_VERSION = 4,
+    VT_MINIMUMCOMPATIBLEMAJORVERSION = 6
+  };
+  /// This endpoint's version of the shared data flow implementation.
+  const chre::fbs::SharedDataLibraryVersion *version() const {
+    return GetStruct<const chre::fbs::SharedDataLibraryVersion *>(VT_VERSION);
+  }
+  /// Minimum major version the endpoint can interact with.
+  uint8_t minimumCompatibleMajorVersion() const {
+    return GetField<uint8_t>(VT_MINIMUMCOMPATIBLEMAJORVERSION, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<chre::fbs::SharedDataLibraryVersion>(verifier,
+                                                            VT_VERSION) &&
+           VerifyField<uint8_t>(verifier, VT_MINIMUMCOMPATIBLEMAJORVERSION) &&
+           verifier.EndTable();
+  }
+};
+
+struct SharedDataSupportVersionBuilder {
+  typedef SharedDataSupportVersion Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_version(const chre::fbs::SharedDataLibraryVersion *version) {
+    fbb_.AddStruct(SharedDataSupportVersion::VT_VERSION, version);
+  }
+  void add_minimumCompatibleMajorVersion(
+      uint8_t minimumCompatibleMajorVersion) {
+    fbb_.AddElement<uint8_t>(
+        SharedDataSupportVersion::VT_MINIMUMCOMPATIBLEMAJORVERSION,
+        minimumCompatibleMajorVersion, 0);
+  }
+  explicit SharedDataSupportVersionBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+      : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  SharedDataSupportVersionBuilder &operator=(
+      const SharedDataSupportVersionBuilder &);
+  flatbuffers::Offset<SharedDataSupportVersion> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<SharedDataSupportVersion>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<SharedDataSupportVersion>
+CreateSharedDataSupportVersion(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    const chre::fbs::SharedDataLibraryVersion *version = 0,
+    uint8_t minimumCompatibleMajorVersion = 0) {
+  SharedDataSupportVersionBuilder builder_(_fbb);
+  builder_.add_version(version);
+  builder_.add_minimumCompatibleMajorVersion(minimumCompatibleMajorVersion);
+  return builder_.Finish();
+}
+
+/// Describes the level of support for shared data flows with offload endpoints.
+struct SharedDataCapabilities FLATBUFFERS_FINAL_CLASS
+    : private flatbuffers::Table {
+  typedef SharedDataCapabilitiesBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_DATAFLOWSSUPPORTED = 4
+  };
+  /// Whether shared data flows to/from offload endpoints are supported.
+  bool dataFlowsSupported() const {
+    return GetField<uint8_t>(VT_DATAFLOWSSUPPORTED, 0) != 0;
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<uint8_t>(verifier, VT_DATAFLOWSSUPPORTED) &&
+           verifier.EndTable();
+  }
+};
+
+struct SharedDataCapabilitiesBuilder {
+  typedef SharedDataCapabilities Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_dataFlowsSupported(bool dataFlowsSupported) {
+    fbb_.AddElement<uint8_t>(SharedDataCapabilities::VT_DATAFLOWSSUPPORTED,
+                             static_cast<uint8_t>(dataFlowsSupported), 0);
+  }
+  explicit SharedDataCapabilitiesBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+      : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  SharedDataCapabilitiesBuilder &operator=(
+      const SharedDataCapabilitiesBuilder &);
+  flatbuffers::Offset<SharedDataCapabilities> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<SharedDataCapabilities>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<SharedDataCapabilities> CreateSharedDataCapabilities(
+    flatbuffers::FlatBufferBuilder &_fbb, bool dataFlowsSupported = false) {
+  SharedDataCapabilitiesBuilder builder_(_fbb);
+  builder_.add_dataFlowsSupported(dataFlowsSupported);
+  return builder_.Finish();
+}
+
 struct VendorHubInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   typedef VendorHubInfoBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
@@ -4162,7 +4316,8 @@ struct MessageHub FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_ID = 4,
     VT_DETAILS_TYPE = 6,
-    VT_DETAILS = 8
+    VT_DETAILS = 8,
+    VT_SHAREDDATACAPABILITIES = 10
   };
   /// The hub id. -1 is reserved and 0 is invalid. 0x416e64726f696400 represents
   /// the ContextHub service.
@@ -4183,12 +4338,19 @@ struct MessageHub FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const chre::fbs::VendorHubInfo *details_as_VendorHubInfo() const {
     return details_type() == chre::fbs::MessageHubDetails::VendorHubInfo ? static_cast<const chre::fbs::VendorHubInfo *>(details()) : nullptr;
   }
+  /// Shared data capabilities of the hub.
+  const chre::fbs::SharedDataCapabilities *sharedDataCapabilities() const {
+    return GetPointer<const chre::fbs::SharedDataCapabilities *>(
+        VT_SHAREDDATACAPABILITIES);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int64_t>(verifier, VT_ID) &&
            VerifyField<uint8_t>(verifier, VT_DETAILS_TYPE) &&
            VerifyOffset(verifier, VT_DETAILS) &&
            VerifyMessageHubDetails(verifier, details(), details_type()) &&
+           VerifyOffset(verifier, VT_SHAREDDATACAPABILITIES) &&
+           verifier.VerifyTable(sharedDataCapabilities()) &&
            verifier.EndTable();
   }
 };
@@ -4214,6 +4376,12 @@ struct MessageHubBuilder {
   void add_details(flatbuffers::Offset<void> details) {
     fbb_.AddOffset(MessageHub::VT_DETAILS, details);
   }
+  void add_sharedDataCapabilities(
+      flatbuffers::Offset<chre::fbs::SharedDataCapabilities>
+          sharedDataCapabilities) {
+    fbb_.AddOffset(MessageHub::VT_SHAREDDATACAPABILITIES,
+                   sharedDataCapabilities);
+  }
   explicit MessageHubBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -4227,12 +4395,15 @@ struct MessageHubBuilder {
 };
 
 inline flatbuffers::Offset<MessageHub> CreateMessageHub(
-    flatbuffers::FlatBufferBuilder &_fbb,
-    int64_t id = 0,
-    chre::fbs::MessageHubDetails details_type = chre::fbs::MessageHubDetails::NONE,
-    flatbuffers::Offset<void> details = 0) {
+    flatbuffers::FlatBufferBuilder &_fbb, int64_t id = 0,
+    chre::fbs::MessageHubDetails details_type =
+        chre::fbs::MessageHubDetails::NONE,
+    flatbuffers::Offset<void> details = 0,
+    flatbuffers::Offset<chre::fbs::SharedDataCapabilities>
+        sharedDataCapabilities = 0) {
   MessageHubBuilder builder_(_fbb);
   builder_.add_id(id);
+  builder_.add_sharedDataCapabilities(sharedDataCapabilities);
   builder_.add_details(details);
   builder_.add_details_type(details_type);
   return builder_.Finish();
@@ -4479,7 +4650,8 @@ struct EndpointInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     VT_VERSION = 10,
     VT_REQUIRED_PERMISSIONS = 12,
     VT_SERVICES = 14,
-    VT_TAG = 16
+    VT_TAG = 16,
+    VT_SHAREDDATASUPPORTVERSION = 18
   };
   const chre::fbs::EndpointId *id() const {
     return GetPointer<const chre::fbs::EndpointId *>(VT_ID);
@@ -4507,6 +4679,12 @@ struct EndpointInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::Vector<int8_t> *tag() const {
     return GetPointer<const flatbuffers::Vector<int8_t> *>(VT_TAG);
   }
+  /// The latest version of the shared data flow implementation this endpoint
+  /// supports.
+  const chre::fbs::SharedDataSupportVersion *sharedDataSupportVersion() const {
+    return GetPointer<const chre::fbs::SharedDataSupportVersion *>(
+        VT_SHAREDDATASUPPORTVERSION);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) && VerifyOffset(verifier, VT_ID) &&
            verifier.VerifyTable(id()) &&
@@ -4518,6 +4696,8 @@ struct EndpointInfo FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            verifier.VerifyVector(services()) &&
            verifier.VerifyVectorOfTables(services()) &&
            VerifyOffset(verifier, VT_TAG) && verifier.VerifyVector(tag()) &&
+           VerifyOffset(verifier, VT_SHAREDDATASUPPORTVERSION) &&
+           verifier.VerifyTable(sharedDataSupportVersion()) &&
            verifier.EndTable();
   }
 };
@@ -4547,6 +4727,12 @@ struct EndpointInfoBuilder {
   void add_tag(flatbuffers::Offset<flatbuffers::Vector<int8_t>> tag) {
     fbb_.AddOffset(EndpointInfo::VT_TAG, tag);
   }
+  void add_sharedDataSupportVersion(
+      flatbuffers::Offset<chre::fbs::SharedDataSupportVersion>
+          sharedDataSupportVersion) {
+    fbb_.AddOffset(EndpointInfo::VT_SHAREDDATASUPPORTVERSION,
+                   sharedDataSupportVersion);
+  }
   explicit EndpointInfoBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -4568,8 +4754,11 @@ inline flatbuffers::Offset<EndpointInfo> CreateEndpointInfo(
     flatbuffers::Offset<
         flatbuffers::Vector<flatbuffers::Offset<chre::fbs::Service>>>
         services = 0,
-    flatbuffers::Offset<flatbuffers::Vector<int8_t>> tag = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<int8_t>> tag = 0,
+    flatbuffers::Offset<chre::fbs::SharedDataSupportVersion>
+        sharedDataSupportVersion = 0) {
   EndpointInfoBuilder builder_(_fbb);
+  builder_.add_sharedDataSupportVersion(sharedDataSupportVersion);
   builder_.add_tag(tag);
   builder_.add_services(services);
   builder_.add_required_permissions(required_permissions);
@@ -4588,12 +4777,15 @@ inline flatbuffers::Offset<EndpointInfo> CreateEndpointInfoDirect(
     uint32_t required_permissions = 0,
     const std::vector<flatbuffers::Offset<chre::fbs::Service>> *services =
         nullptr,
-    const std::vector<int8_t> *tag = nullptr) {
+    const std::vector<int8_t> *tag = nullptr,
+    flatbuffers::Offset<chre::fbs::SharedDataSupportVersion>
+        sharedDataSupportVersion = 0) {
   auto name__ = name ? _fbb.CreateVector<int8_t>(*name) : 0;
   auto services__ = services ? _fbb.CreateVector<flatbuffers::Offset<chre::fbs::Service>>(*services) : 0;
   auto tag__ = tag ? _fbb.CreateVector<int8_t>(*tag) : 0;
   return chre::fbs::CreateEndpointInfo(_fbb, id, type, name__, version,
-                                       required_permissions, services__, tag__);
+                                       required_permissions, services__, tag__,
+                                       sharedDataSupportVersion);
 }
 
 struct RegisterEndpoint FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
