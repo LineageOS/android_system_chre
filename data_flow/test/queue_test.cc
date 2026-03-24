@@ -1321,6 +1321,25 @@ TEST_F(QueueTest, VariableDataProducerTruncateToReservedSizeDoesNothing) {
   EXPECT_EQ(mVarDataProducer->size(/*includeReserved=*/true), 14);
 }
 
+TEST_F(QueueTest, VariableDataProducerTruncateToZeroDiscardsReservation) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalVarDataEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  auto reservation = mVarDataProducer->reserve(10);
+  ASSERT_EQ(reservation.status(), pw::OkStatus());
+  EXPECT_EQ(mVarDataProducer->truncate(0), pw::OkStatus());
+  EXPECT_EQ(mVarDataProducer->size(/*includeReserved=*/true), 0);
+}
+
+TEST_F(QueueTest, VariableDataProducerTruncateWithNoElementFails) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalVarDataEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  EXPECT_EQ(mVarDataProducer->truncate(0), pw::Status::FailedPrecondition());
+}
+
 TEST_F(QueueTest, VariableDataProducerPushFailsWithReservation) {
   std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
       {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
