@@ -43,6 +43,12 @@ using AidlRpcFormat = ::aidl::android::hardware::contexthub::Service::RpcFormat;
 using AidlDataFlowInfo = ::aidl::android::hardware::contexthub::DataFlowInfo;
 using AidlSharedDataRegion =
     ::aidl::android::hardware::contexthub::SharedDataRegion;
+using AidlSharedDataSupportVersion = ::aidl::android::hardware::contexthub::
+    EndpointInfo::SharedDataSupportVersion;
+using AidlSharedDataCapabilities =
+    ::aidl::android::hardware::contexthub::SharedDataCapabilities;
+using AidlSharedDataLibraryVersion =
+    ::aidl::android::hardware::contexthub::SharedDataRegion::Version;
 
 void HostProtocolHostV4::encodeGetMessageHubsAndEndpointsRequest(
     FlatBufferBuilder &builder) {
@@ -405,8 +411,13 @@ Offset<MessageHub> HostProtocolHostV4::aidlToFbsMessageHub(
               .Union();
     } break;
   }
+  Offset<::chre::fbs::SharedDataCapabilities> sharedDataCapabilities;
+  if (info.sharedDataCapabilities) {
+    sharedDataCapabilities = ::chre::fbs::CreateSharedDataCapabilities(
+        builder, info.sharedDataCapabilities->dataFlowsSupported);
+  }
   return ::chre::fbs::CreateMessageHub(builder, info.hubId, detailsEnum,
-                                       detailsUnion);
+                                       detailsUnion, sharedDataCapabilities);
 }
 
 AidlHubInfo HostProtocolHostV4::fbsMessageHubToAidl(
@@ -437,6 +448,10 @@ AidlHubInfo HostProtocolHostV4::fbsMessageHubToAidl(
         .version = static_cast<int32_t>(fbsVendorHub.version)};
     info.hubDetails = AidlHubInfo::HubDetails(std::move(vendorHub));
   }
+  if (hub.sharedDataCapabilities != nullptr) {
+    info.sharedDataCapabilities = AidlSharedDataCapabilities{
+        .dataFlowsSupported = hub.sharedDataCapabilities->dataFlowsSupported};
+  }
   return info;
 }
 
@@ -453,12 +468,24 @@ Offset<EndpointInfo> HostProtocolHostV4::aidlToFbsEndpointInfo(
   Offset<Vector<int8_t>> tagOffset =
       info.tag.has_value() ? addStringAsByteVector(builder, info.tag->c_str())
                            : 0;
+
+  Offset<::chre::fbs::SharedDataSupportVersion> sharedDataSupportVersion;
+  if (info.sharedDataSupportVersion) {
+    auto version = ::chre::fbs::SharedDataLibraryVersion(
+        static_cast<uint8_t>(info.sharedDataSupportVersion->version.major),
+        static_cast<uint8_t>(info.sharedDataSupportVersion->version.minor),
+        static_cast<uint16_t>(info.sharedDataSupportVersion->version.patch));
+    sharedDataSupportVersion = ::chre::fbs::CreateSharedDataSupportVersion(
+        builder, &version,
+        info.sharedDataSupportVersion->minimumCompatibleMajorVersion);
+  }
+
   return ::chre::fbs::CreateEndpointInfo(
       builder, aidlToFbsEndpointId(builder, info.id),
       static_cast<::chre::fbs::EndpointType>(info.type),
       addStringAsByteVector(builder, info.name.c_str()), info.version,
       androidToChrePermissions(info.requiredPermissions), servicesVector,
-      tagOffset);
+      tagOffset, sharedDataSupportVersion);
 }
 
 AidlEndpointInfo HostProtocolHostV4::fbsEndpointInfoToAidl(
@@ -477,6 +504,18 @@ AidlEndpointInfo HostProtocolHostV4::fbsEndpointInfoToAidl(
          .serviceDescriptor = stringFromBytes(service->descriptor),
          .majorVersion = static_cast<int32_t>(service->major_version),
          .minorVersion = static_cast<int32_t>(service->minor_version)});
+  }
+  if (endpoint.sharedDataSupportVersion != nullptr &&
+      endpoint.sharedDataSupportVersion->version != nullptr) {
+    info.sharedDataSupportVersion = AidlSharedDataSupportVersion{
+        .version = {.major = static_cast<int8_t>(
+                        endpoint.sharedDataSupportVersion->version->major()),
+                    .minor = static_cast<int8_t>(
+                        endpoint.sharedDataSupportVersion->version->minor()),
+                    .patch = static_cast<char16_t>(
+                        endpoint.sharedDataSupportVersion->version->patch())},
+        .minimumCompatibleMajorVersion = static_cast<int8_t>(
+            endpoint.sharedDataSupportVersion->minimumCompatibleMajorVersion)};
   }
   return info;
 }

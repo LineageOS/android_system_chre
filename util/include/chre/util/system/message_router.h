@@ -93,19 +93,18 @@ class MessageRouter {
   //! callback must outlive the MessageHub. The ID must be unique and not
   //! registered before. When the returned MessageHub is destroyed, it will
   //! unregister itself from the MessageRouter.
-  //! @param name The name of the MessageHub
-  //! @param id The ID of the MessageHub
+  //! @param info The MessageHubInfo for the MessageHub
   //! @param callback The callback to handle messages sent to the MessageHub
   //! @return The MessageHub API or std::nullopt if the MessageHub could not be
   //! registered
   std::optional<MessageHub> registerMessageHub(
-      const char *name, MessageHubId id,
+      const MessageHubInfo &info,
       pw::IntrusivePtr<MessageHubCallback> callback);
 
   //! Registers a V2 MessageHub with the MessageRouter.
   //! @see registerMessageHub
   std::optional<MessageHub> registerMessageHubV2(
-      const char *name, MessageHubId id,
+      const MessageHubInfo &info,
       pw::IntrusivePtr<MessageHubCallbackV2> callback);
 
   //! Executes the function for each endpoint connected to this MessageHub.
@@ -178,8 +177,8 @@ class MessageRouter {
   //! @see registerMessageHub
   //! @param version The version of the callback to register.
   std::optional<MessageHub> registerMessageHub(
-      const char *name, MessageHubId id,
-      pw::IntrusivePtr<MessageHubCallback> callback, uint8_t version);
+      const MessageHubInfo &info, pw::IntrusivePtr<MessageHubCallback> callback,
+      uint8_t version);
 
   //! Unregisters a MessageHub from the MessageRouter. This function will
   //! close all sessions that were initiated by or connected to the MessageHub

@@ -31,6 +31,7 @@ namespace {
 using ::chre::message::DataFlowSinkRegistration;
 using ::chre::message::EndpointInfo;
 using ::chre::message::EndpointType;
+using ::chre::message::MessageHubInfo;
 using ::chre::message::MockMessageHubCallbackV2;
 using ::chre::message::SESSION_ID_INVALID;
 using ::chre::message::SessionId;
@@ -524,9 +525,13 @@ TEST_F(DataFlowTest, SourceAddSinkNoMessage) {
             EXPECT_EQ(registration.sinkId.endpointId, kTestEndpointId);
           }));
 
+  MessageHubInfo messageHubInfo = {
+      .id = kTestHubId,
+      .name = "TEST_HUB",
+      .sharedDataCapabilities = {.dataFlowsSupported = true}};
   std::optional<message::MessageRouter::MessageHub> messageHub =
       message::MessageRouterSingleton::get()->registerMessageHubV2(
-          "TEST_HUB", kTestHubId, callback);
+          messageHubInfo, callback);
   ASSERT_TRUE(messageHub.has_value());
 
   sendEventToNanoappAndWait(appId, TEST_CREATE_FIXED_DATA_FLOW,
@@ -577,9 +582,13 @@ TEST_F(DataFlowTest, SourceAddSinkWithMessage) {
             EXPECT_EQ(data[3], 4);
           }));
 
+  MessageHubInfo messageHubInfo = {
+      .id = kTestHubId,
+      .name = "TEST_HUB",
+      .sharedDataCapabilities = {.dataFlowsSupported = true}};
   std::optional<message::MessageRouter::MessageHub> messageHub =
       message::MessageRouterSingleton::get()->registerMessageHubV2(
-          "TEST_HUB", kTestHubId, callback);
+          messageHubInfo, callback);
   ASSERT_TRUE(messageHub.has_value());
 
   // TODO: We may not need this
@@ -633,9 +642,13 @@ TEST_F(DataFlowTest, SourceConfigureSink) {
       .WillRepeatedly(Return(endpointInfo));
   EXPECT_CALL(*callback, onRegisterDataFlowSink(_)).Times(1);
 
+  MessageHubInfo messageHubInfo = {
+      .id = kTestHubId,
+      .name = "TEST_HUB",
+      .sharedDataCapabilities = {.dataFlowsSupported = true}};
   std::optional<message::MessageRouter::MessageHub> messageHub =
       message::MessageRouterSingleton::get()->registerMessageHubV2(
-          "TEST_HUB", kTestHubId, callback);
+          messageHubInfo, callback);
   ASSERT_TRUE(messageHub.has_value());
 
   sendEventToNanoappAndWait(appId, TEST_CREATE_FIXED_DATA_FLOW,
@@ -692,9 +705,13 @@ TEST_F(DataFlowTest, SourceReserveAndCommit) {
         testConsumer.emplace(std::move(maybeConsumer.value()));
       }));
 
+  MessageHubInfo messageHubInfo = {
+      .id = kTestHubId,
+      .name = "TEST_HUB",
+      .sharedDataCapabilities = {.dataFlowsSupported = true}};
   std::optional<message::MessageRouter::MessageHub> messageHub =
       message::MessageRouterSingleton::get()->registerMessageHubV2(
-          "TEST_HUB", kTestHubId, callback);
+          messageHubInfo, callback);
   ASSERT_TRUE(messageHub.has_value());
 
   sendEventToNanoappAndWait(appId, TEST_CREATE_FIXED_DATA_FLOW,
@@ -759,9 +776,13 @@ TEST_F(DataFlowTest, SourcePush) {
         testConsumer.emplace(std::move(maybeConsumer.value()));
       }));
 
+  MessageHubInfo messageHubInfo = {
+      .id = kTestHubId,
+      .name = "TEST_HUB",
+      .sharedDataCapabilities = {.dataFlowsSupported = true}};
   std::optional<message::MessageRouter::MessageHub> messageHub =
       message::MessageRouterSingleton::get()->registerMessageHubV2(
-          "TEST_HUB", kTestHubId, callback);
+          messageHubInfo, callback);
   ASSERT_TRUE(messageHub.has_value());
 
   sendEventToNanoappAndWait(appId, TEST_CREATE_FIXED_DATA_FLOW,
@@ -799,9 +820,13 @@ TEST_F(DataFlowTest, SourceGetSizeAndCapacity) {
   EXPECT_CALL(*callback, getEndpointInfo(kTestEndpointId))
       .WillRepeatedly(Return(endpointInfo));
 
+  MessageHubInfo messageHubInfo = {
+      .id = kTestHubId,
+      .name = "TEST_HUB",
+      .sharedDataCapabilities = {.dataFlowsSupported = true}};
   std::optional<message::MessageRouter::MessageHub> messageHub =
       message::MessageRouterSingleton::get()->registerMessageHubV2(
-          "TEST_HUB", kTestHubId, callback);
+          messageHubInfo, callback);
   ASSERT_TRUE(messageHub.has_value());
 
   sendEventToNanoappAndWait(appId, TEST_CREATE_FIXED_DATA_FLOW,

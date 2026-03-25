@@ -46,6 +46,8 @@ using message::RpcFormat;
 using message::ServiceInfo;
 using message::Session;
 using message::SessionId;
+using message::SharedDataCapabilities;
+using message::SharedDataSupportVersion;
 
 namespace {
 
@@ -343,6 +345,11 @@ bool HostProtocolChre::decodeMessageFromHost(const void *message,
           hub.name = getStringFromByteVector(
               msg->hub()->details_as_HubInfoResponse()->name());
         }
+        if (msg->hub()->sharedDataCapabilities() != nullptr) {
+          hub.sharedDataCapabilities = {
+              .dataFlowsSupported =
+                  msg->hub()->sharedDataCapabilities()->dataFlowsSupported()};
+        }
         getHostHubManager().registerHub(hub);
         break;
       }
@@ -360,11 +367,30 @@ bool HostProtocolChre::decodeMessageFromHost(const void *message,
                 ->endpoint();
         auto *maybeName = getStringFromByteVector(fbsEndpoint->name());
         auto *maybeTag = getStringFromByteVector(fbsEndpoint->tag());
+
+        std::optional<SharedDataSupportVersion> sharedDataSupportVersion;
+        if (fbsEndpoint->sharedDataSupportVersion() != nullptr) {
+          sharedDataSupportVersion = SharedDataSupportVersion{
+              .version = {.major = fbsEndpoint->sharedDataSupportVersion()
+                                       ->version()
+                                       ->major(),
+                          .minor = fbsEndpoint->sharedDataSupportVersion()
+                                       ->version()
+                                       ->minor(),
+                          .patch = fbsEndpoint->sharedDataSupportVersion()
+                                       ->version()
+                                       ->patch()},
+              .minimumCompatibleMajorVersion =
+                  fbsEndpoint->sharedDataSupportVersion()
+                      ->minimumCompatibleMajorVersion()};
+        }
+
         EndpointInfo endpoint(
             fbsEndpoint->id()->id(), maybeName ? maybeName : "",
             fbsEndpoint->version(),
             static_cast<EndpointType>(fbsEndpoint->type()),
-            fbsEndpoint->required_permissions(), maybeTag ? maybeTag : "");
+            fbsEndpoint->required_permissions(), maybeTag ? maybeTag : "",
+            sharedDataSupportVersion);
         DynamicVector<ServiceInfo> services;
         if (fbsEndpoint->services() && fbsEndpoint->services()->size()) {
           if (!services.reserve(fbsEndpoint->services()->size())) {
@@ -833,9 +859,14 @@ void HostProtocolChre::encodeRegisterMessageHub(ChreFlatBufferBuilder &builder,
                                                 const MessageHubInfo &hub) {
   auto vendorHub = fbs::CreateVendorHubInfo(
       builder, addStringAsByteVector(builder, hub.name));
-  auto fbsHub = fbs::CreateMessageHub(builder, static_cast<int64_t>(hub.id),
-                                      fbs::MessageHubDetails::VendorHubInfo,
-                                      vendorHub.Union());
+
+  auto sharedDataCapabilities = fbs::CreateSharedDataCapabilities(
+      builder, hub.sharedDataCapabilities.dataFlowsSupported);
+
+  auto fbsHub =
+      fbs::CreateMessageHub(builder, static_cast<int64_t>(hub.id),
+                            fbs::MessageHubDetails::VendorHubInfo,
+                            vendorHub.Union(), sharedDataCapabilities);
   auto msg = fbs::CreateRegisterMessageHub(builder, fbsHub);
   finalize(builder, fbs::ChreMessage::RegisterMessageHub, msg.Union());
 }
@@ -851,11 +882,23 @@ void HostProtocolChre::encodeRegisterEndpoint(ChreFlatBufferBuilder &builder,
                                               const EndpointInfo &endpoint) {
   auto id = fbs::CreateEndpointId(builder, static_cast<int64_t>(hub),
                                   static_cast<int64_t>(endpoint.id));
+
+  Offset<fbs::SharedDataSupportVersion> sharedDataSupportVersion;
+  if (endpoint.sharedDataSupportVersion.has_value()) {
+    auto version = fbs::SharedDataLibraryVersion(
+        endpoint.sharedDataSupportVersion->version.major,
+        endpoint.sharedDataSupportVersion->version.minor,
+        endpoint.sharedDataSupportVersion->version.patch);
+    sharedDataSupportVersion = fbs::CreateSharedDataSupportVersion(
+        builder, &version,
+        endpoint.sharedDataSupportVersion->minimumCompatibleMajorVersion);
+  }
+
   auto info = fbs::CreateEndpointInfo(
       builder, id, static_cast<fbs::EndpointType>(endpoint.type),
       addStringAsByteVector(builder, endpoint.name), endpoint.version,
       endpoint.requiredPermissions, 0 /* services */,
-      addStringAsByteVector(builder, endpoint.tag));
+      addStringAsByteVector(builder, endpoint.tag), sharedDataSupportVersion);
   auto msg = fbs::CreateRegisterEndpoint(builder, info);
   finalize(builder, fbs::ChreMessage::RegisterEndpoint, msg.Union());
 }

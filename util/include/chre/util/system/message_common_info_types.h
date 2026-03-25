@@ -23,20 +23,62 @@
 #include <cstdint>
 #include <cstring>
 
+#include <optional>
+
 namespace chre::message {
+
+/**
+ * Represents a version of the shared data library.
+ */
+struct SharedDataLibraryVersion {
+  uint8_t major;
+  uint8_t minor;
+  uint16_t patch;
+
+  bool operator==(const SharedDataLibraryVersion &other) const {
+    return major == other.major && minor == other.minor && patch == other.patch;
+  }
+};
+
+/**
+ * Represents information about the shared data support of an endpoint.
+ */
+struct SharedDataSupportVersion {
+  SharedDataLibraryVersion version;
+  uint8_t minimumCompatibleMajorVersion;
+
+  bool operator==(const SharedDataSupportVersion &other) const {
+    return version == other.version &&
+           minimumCompatibleMajorVersion == other.minimumCompatibleMajorVersion;
+  }
+};
+
+/**
+ * Represents the shared data capabilities of a MessageHub.
+ */
+struct SharedDataCapabilities {
+  bool dataFlowsSupported = false;
+
+  bool operator==(const SharedDataCapabilities &other) const {
+    return dataFlowsSupported == other.dataFlowsSupported;
+  }
+};
 
 //! Represents information about an endpoint
 struct EndpointInfo {
   static constexpr size_t kMaxNameLength = 50;
   static constexpr size_t kMaxTagLength = 50;
 
-  EndpointInfo(EndpointId initId, const char *initName, uint32_t initVersion,
-               EndpointType initType, uint32_t initRequiredPermissions,
-               const char *initTag = nullptr)
+  EndpointInfo(
+      EndpointId initId, const char *initName, uint32_t initVersion,
+      EndpointType initType, uint32_t initRequiredPermissions,
+      const char *initTag = nullptr,
+      std::optional<SharedDataSupportVersion> initSupportVersion = std::nullopt)
       : id(initId),
         version(initVersion),
         type(initType),
-        requiredPermissions(initRequiredPermissions) {
+        requiredPermissions(initRequiredPermissions),
+        sharedDataSupportVersion(initSupportVersion) {
     if (initName != nullptr) {
       std::strncpy(this->name, initName, kMaxNameLength);
     } else {
@@ -57,12 +99,14 @@ struct EndpointInfo {
   EndpointType type;
   uint32_t requiredPermissions;
   char tag[kMaxTagLength + 1];
+  std::optional<SharedDataSupportVersion> sharedDataSupportVersion;
 
   bool operator==(const EndpointInfo &other) const {
     return id == other.id && version == other.version && type == other.type &&
            requiredPermissions == other.requiredPermissions &&
            std::strncmp(name, other.name, kMaxNameLength) == 0 &&
-           std::strncmp(tag, other.tag, kMaxTagLength) == 0;
+           std::strncmp(tag, other.tag, kMaxTagLength) == 0 &&
+           sharedDataSupportVersion == other.sharedDataSupportVersion;
   }
 
   bool operator!=(const EndpointInfo &other) const {
@@ -116,6 +160,7 @@ struct ServiceInfo {
 struct MessageHubInfo {
   MessageHubId id;
   const char *name;
+  SharedDataCapabilities sharedDataCapabilities;
 
   bool operator==(const MessageHubInfo &other) const {
     if (id != other.id) {
@@ -128,7 +173,7 @@ struct MessageHubInfo {
     if (name != nullptr && std::strcmp(name, other.name) != 0) {
       return false;
     }
-    return true;
+    return sharedDataCapabilities == other.sharedDataCapabilities;
   }
 
   bool operator!=(const MessageHubInfo &other) const {

@@ -183,8 +183,9 @@ class HostMessageHubTest : public SingleThreadTestBase {
     EXPECT_CALL(mHostCallback, onHubUnregistered(_)).Times(AnyNumber());
 
     // Register the embedded message hub with MessageRouter.
-    auto maybeEmbeddedHub = getRouter().registerMessageHub(
-        kEmbeddedHubName, kEmbeddedHub.id, mEmbeddedHubCb);
+    MessageHubInfo info = {.id = kEmbeddedHub.id, .name = kEmbeddedHubName};
+    auto maybeEmbeddedHub =
+        getRouter().registerMessageHub(info, mEmbeddedHubCb);
     if (maybeEmbeddedHub) {
       mEmbeddedHubIntf = std::move(*maybeEmbeddedHub);
     } else {
@@ -354,7 +355,8 @@ TEST_F(HostMessageHubTest, OnHubRegisteredAndUnregistered) {
   pw::IntrusivePtr<MockMessageHubCallback> newHubCb =
       pw::MakeRefCounted<MockMessageHubCallback>();
   const char *name = "test embedded hub";
-  auto newHub = getRouter().registerMessageHub(name, kHubId, newHubCb);
+  MessageHubInfo info = {.id = kHubId, .name = name};
+  auto newHub = getRouter().registerMessageHub(info, newHubCb);
   EXPECT_TRUE(newHub);
 
   EXPECT_CALL(mHostCallback, onHubUnregistered(kHubId));
