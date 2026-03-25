@@ -18,6 +18,8 @@
 #include <cstdint>
 #include <new>  // placement new
 
+#include <chre/util/nanoapp/log.h>
+
 #include <general_test/basic_audio_test.h>
 #include <general_test/basic_ble_test.h>
 #include <general_test/basic_flush_async_test.h>
@@ -159,6 +161,15 @@ void App::handleEvent(uint32_t senderInstanceId, uint16_t eventType,
     auto data = static_cast<const chreMessageFromHostData *>(eventData);
     adjustedData = adjustHostMessageForNYC(data);
     eventData = &adjustedData;
+    if (adjustedData.reservedMessageType ==
+        static_cast<uint32_t>(MessageType::kTestTeardown)) {
+      LOGD("Received TestTeardown event. Current test: %p", mCurrentTest);
+      if (mCurrentTest != nullptr) {
+        mCurrentTest->~Test();
+        mCurrentTest = nullptr;
+      }
+      return;
+    }
   }
 
   if (mCurrentTest != nullptr) {

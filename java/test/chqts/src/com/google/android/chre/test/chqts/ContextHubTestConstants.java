@@ -323,7 +323,15 @@ public class ContextHubTestConstants {
          * This message type should be used only for tests under the ContextHubServiceTestBase
          * framework.
          */
-        SERVICE_MESSAGE(0x0406);
+        SERVICE_MESSAGE(0x0406),
+
+        /**
+         * Explicit command to tear down a statically loaded test nanoapp.
+         *
+         * Sent by the Host during deinit() so the static nanoapp can reset
+         * its internal state for consecutive parameterized test runs.
+         */
+        TEST_TEARDOWN(0x8000);
 
         private final int mValue;
         MessageType(int value) {
