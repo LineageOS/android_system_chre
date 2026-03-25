@@ -91,6 +91,12 @@ void EndpointEchoTestManager::setPermissionForNextMessage(uint32_t permission) {
 void EndpointEchoTestManager::startTest(
     EndpointEchoTestService::ServerWriter<chre_rpc_ReturnStatus> &&writer,
     chre::Optional<chre_rpc_HostEndpointInfo> hostEndpointInfo) {
+  if (mNanoappToHostTestInProgress) {
+    LOGE("Test already in progress");
+    sendTestStatus(writer, false, "Test already in progress");
+    return;
+  }
+
   if (hostEndpointInfo.has_value()) {
     LOGD("Started endpoint info verification test");
   } else {
@@ -283,18 +289,9 @@ void EndpointEchoTestManager::runNanoappToHostTest(TestPhase phase) {
   }
 }
 
-void EndpointEchoTestManager::sendTestStatus(bool success,
-                                             const char *errorMessage) {
-  if (!mWriter.has_value()) {
-    LOGE("No writer available to send test status");
-    return;
-  }
-
-  if (mTimerHandle != CHRE_TIMER_INVALID) {
-    chreTimerCancel(mTimerHandle);
-    mTimerHandle = CHRE_TIMER_INVALID;
-  }
-
+void EndpointEchoTestManager::sendTestStatus(
+    EndpointEchoTestService::ServerWriter<chre_rpc_ReturnStatus> &writer,
+    bool success, const char *errorMessage) {
   chre_rpc_ReturnStatus status = chre_rpc_ReturnStatus_init_default;
   status.status = success;
 
@@ -309,9 +306,26 @@ void EndpointEchoTestManager::sendTestStatus(bool success,
   status.error_message.arg = const_cast<char *>(errorMessage);
 
   setPermissionForNextMessage(CHRE_MESSAGE_PERMISSION_NONE);
-  CHRE_ASSERT(mWriter->Write(status).ok());
+  if (!writer.Write(status).ok()) {
+    LOGE("Failed to write status message");
+  }
   setPermissionForNextMessage(CHRE_MESSAGE_PERMISSION_NONE);
-  mWriter->Finish();
+  writer.Finish();
+}
+
+void EndpointEchoTestManager::sendTestStatus(bool success,
+                                             const char *errorMessage) {
+  if (!mWriter.has_value()) {
+    LOGE("No writer available to send test status");
+    return;
+  }
+
+  if (mTimerHandle != CHRE_TIMER_INVALID) {
+    chreTimerCancel(mTimerHandle);
+    mTimerHandle = CHRE_TIMER_INVALID;
+  }
+
+  sendTestStatus(*mWriter, success, errorMessage);
   mWriter.reset();
 
   mNanoappToHostTestInProgress = false;

@@ -64,16 +64,11 @@ static void freeHeapMessage(void *message, size_t /* messageSize */) {
   chreHeapFree(message);
 }
 
-static void fatalError() {
-  // Attempt to send a context-less failure message, in the hopes that
-  // might get through.
-  chreSendMessageToHostEndpoint(nullptr, 0,
-                                static_cast<uint32_t>(MessageType::kFailure),
-                                CHRE_HOST_ENDPOINT_BROADCAST, nullptr);
-  // Whether or not that made it through, unambigiously fail this test
-  // by aborting.
-  nanoapp_testing::abort();
-}
+// We use a static boolean to only log allocation or send failures once.
+// If the underlying platform implements chreLog by sending a message to
+// the host, logging an error here when message sending is already failing
+// could trigger an infinite loop or a cascading failure. We log once so
+// the error is visible in logcat, but prevent the loop.
 
 // TODO(b/32114261): Remove this method.
 static bool needToPrependMessageType() {
@@ -84,6 +79,7 @@ static bool needToPrependMessageType() {
 }
 
 static void *getMessageMemory(size_t *size, bool *ChunkAlloc) {
+  static bool sLoggedOom = false;
   if (needToPrependMessageType()) {
     *size += sizeof(uint32_t);
   }
@@ -96,7 +92,10 @@ static void *getMessageMemory(size_t *size, bool *ChunkAlloc) {
     *ChunkAlloc = false;
     ret = chreHeapAlloc(static_cast<uint32_t>(*size));
     if (ret == nullptr) {
-      fatalError();
+      if (!sLoggedOom) {
+        LOGE("Failed to allocate message memory");
+        sLoggedOom = true;
+      }
     }
   }
   return ret;
@@ -117,9 +116,15 @@ static void *prependMessageType(MessageType messageType, void *memory) {
 
 static void internalSendMessage(MessageType messageType, void *data,
                                 size_t dataSize, bool ChunkAlloc) {
+  static bool sLoggedSendFail = false;
   if (gTestFailed) {
     LOGW("Test already failed: skipping sending message type %" PRIu32,
          static_cast<uint32_t>(messageType));
+    if (ChunkAlloc) {
+      freeChunkAllocMessage(data, dataSize);
+    } else {
+      freeHeapMessage(data, dataSize);
+    }
     return;
   } else if (messageType == MessageType::kFailure ||
              messageType == MessageType::kInternalFailure) {
@@ -133,7 +138,15 @@ static void internalSendMessage(MessageType messageType, void *data,
           data, dataSize, static_cast<uint32_t>(messageType),
           CHRE_HOST_ENDPOINT_BROADCAST,
           ChunkAlloc ? freeChunkAllocMessage : freeHeapMessage)) {
-    fatalError();
+    if (!sLoggedSendFail) {
+      LOGE("Failed to send message to host");
+      sLoggedSendFail = true;
+    }
+    if (ChunkAlloc) {
+      freeChunkAllocMessage(data, dataSize);
+    } else {
+      freeHeapMessage(data, dataSize);
+    }
   }
 }
 
@@ -145,6 +158,9 @@ void sendMessageToHost(MessageType messageType, const void *data,
   bool ChunkAlloc = true;
   size_t fullMessageSize = dataSize;
   void *myMessageBase = getMessageMemory(&fullMessageSize, &ChunkAlloc);
+  if (myMessageBase == nullptr) {
+    return;
+  }
   void *ptr = prependMessageType(messageType, myMessageBase);
   memcpy(ptr, data, dataSize);
   internalSendMessage(messageType, myMessageBase, fullMessageSize, ChunkAlloc);
@@ -165,6 +181,9 @@ void sendStringToHost(MessageType messageType, const char *message,
   size_t fullMessageLen = myMessageLen;
   char *fullMessage =
       static_cast<char *>(getMessageMemory(&fullMessageLen, &ChunkAlloc));
+  if (fullMessage == nullptr) {
+    return;
+  }
   char *ptr = static_cast<char *>(prependMessageType(messageType, fullMessage));
   memcpy(ptr, message, messageStrlen);
   ptr += messageStrlen;
@@ -185,10 +204,9 @@ void logFailureMessage(const char *message, const uint32_t *value) {
 }
 
 void sendInternalFailureToHost(const char *message, const uint32_t *value,
-                               AbortBlame reason) {
+                               AbortBlame /*reason*/) {
   sendStringToHost(MessageType::kInternalFailure, message, value);
   logFailureMessage(message, value);
-  nanoapp_testing::abort(reason);
 }
 
 }  // namespace nanoapp_testing

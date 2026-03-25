@@ -133,7 +133,17 @@ class EndpointEchoTestManager {
   void runNanoappToHostTest(TestPhase phase);
 
   /**
-   * Sends the test status to the host.
+   * Sends the test status to the host using the provided writer.
+   * @param writer The writer to use to send the test status.
+   * @param success Whether the test passed.
+   * @param errorMessage The error message if the test failed.
+   */
+  void sendTestStatus(
+      EndpointEchoTestService::ServerWriter<chre_rpc_ReturnStatus> &writer,
+      bool success, const char *errorMessage);
+
+  /**
+   * Sends the test status to the host using the internal writer.
    * @param success Whether the test passed.
    * @param errorMessage The error message if the test failed.
    */
