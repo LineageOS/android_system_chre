@@ -89,6 +89,7 @@ pw_add_library(chre.core STATIC
     static_nanoapps.cc
     system_health_monitor.cc
     timer_pool.cc
+    wakeup_stats_manager.cc
     wifi_request_manager.cc
     wifi_scan_request.cc
     wwan_request_manager.cc

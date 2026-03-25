@@ -249,11 +249,6 @@ class HostCommsManager : public HostLink, private TransactionManagerCallback {
   //! The maximum number of messages we can have outstanding at any given time.
   static constexpr size_t kMaxOutstandingMessages = 32;
 
-  //! Ensures that we do not blame more than once per host wakeup. This is
-  //! checked before calling host blame to make sure it is set once. The power
-  //! control managers then reset back to false on host suspend.
-  AtomicBool mIsNanoappBlamedForWakeup{false};
-
   //! Memory pool used to allocate message metadata (but not the contents of the
   //! messages themselves). Must be synchronized as the same HostCommsManager
   //! handles communications for all EventLoops, and also to support freeing

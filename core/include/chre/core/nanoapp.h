@@ -190,6 +190,13 @@ class Nanoapp : public PlatformNanoapp {
   void processEvent(Event *event);
 
   /**
+   * @return The number of wakeups attributed to this nanoapp since boot.
+   */
+  uint32_t getWakeupCountSinceBoot() const {
+    return mNumWakeupsSinceBoot;
+  }
+
+  /**
    * Log info about a single host wakeup that this nanoapp triggered by storing
    * the count of wakeups in mWakeupBuckets.
    */
