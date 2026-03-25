@@ -1779,9 +1779,20 @@ pw::Result<pw::ByteSpan> VariableDataProducer::reserve(size_t count) {
 
 pw::Status VariableDataProducer::truncate(size_t size) {
   ScopedMemoryAccess memAccessScope(mMemAccess, mMemAccessCnt);
-  PW_TRY(Base::truncate(size + sizeof(internal::VariableElementHeader)));
-  // Store the new size. The memory address of the element size has not changed.
-  mCurrentHdrPtr->sizeBytes = size;
+  if (!mCurrentHdrPtr) {
+    PW_LOG_ERROR("VariableDataProducer::truncate: No active reservation");
+    return pw::Status::FailedPrecondition();
+  }
+  if (size > 0) {
+    PW_TRY(Base::truncate(size + sizeof(internal::VariableElementHeader)));
+    // Store the new size. The memory address of the element size has not
+    // changed.
+    mCurrentHdrPtr->sizeBytes = size;
+  } else {
+    // The user is discarding the reservation. Clear mCurrentHdrPtr as well.
+    PW_TRY(Base::truncate(0));
+    mCurrentHdrPtr = nullptr;
+  }
   return pw::OkStatus();
 }
 

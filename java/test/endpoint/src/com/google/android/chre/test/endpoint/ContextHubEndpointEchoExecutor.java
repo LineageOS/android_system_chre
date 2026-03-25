@@ -15,6 +15,9 @@
  */
 package com.google.android.chre.test.endpoint;
 
+import static com.google.common.truth.Truth.assertThat;
+import static com.google.common.truth.Truth.assertWithMessage;
+
 import android.content.Context;
 import android.hardware.contexthub.HubDiscoveryInfo;
 import android.hardware.contexthub.HubEndpoint;
@@ -39,16 +42,15 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.test.InstrumentationRegistry;
 
-import com.google.android.utils.chre.pigweed.ChreRpcClient;
 import com.google.android.utils.chre.ChreApiTestUtil;
 import com.google.android.utils.chre.ChreTestUtil;
-import com.google.protobuf.ByteString;
+import com.google.android.utils.chre.pigweed.ChreRpcClient;
 import com.google.protobuf.Empty;
-import com.google.protobuf.MessageLite;
+
+import dev.chre.rpc.proto.EndpointEchoTest;
+import dev.pigweed.pw_rpc.Service;
 
 import org.junit.Assert;
-import static com.google.common.truth.Truth.assertThat;
-import static com.google.common.truth.Truth.assertWithMessage;
 import org.junit.Assume;
 
 import java.util.ArrayList;
@@ -64,13 +66,6 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
-
-import dev.chre.rpc.proto.EndpointEchoTest;
-import dev.pigweed.pw_rpc.Call.ServerStreamingFuture;
-import dev.pigweed.pw_rpc.Call.UnaryFuture;
-import dev.pigweed.pw_rpc.MethodClient;
-import dev.pigweed.pw_rpc.Service;
-import dev.pigweed.pw_rpc.UnaryResult;
 
 /**
  * A test to validate endpoint connection and messaging with an service on the device. The device
@@ -513,8 +508,50 @@ public class ContextHubEndpointEchoExecutor {
     }
 
     /**
-     * A test to see if the getHubs API returns a valid list of hubs.
+     * A test to verify that registered host endpoint info and can be read by the nanoapp via
+     * chreMsgGetEndpointInfo API.
      */
+    public void testChreGetEndpointInfo() throws Exception {
+        Context context = InstrumentationRegistry.getTargetContext();
+        String packageName = context.getPackageName();
+
+        TestLifecycleCallback callback = new TestLifecycleCallback(/* acceptSession= */ true);
+        TestEchoMessageCallback messageCallback = new TestEchoMessageCallback();
+        mRegisteredEndpoint =
+                registerDefaultEndpoint(
+                        callback, messageCallback, /* executor= */ null, createEchoServiceInfo());
+
+        if (mContextHubInfo == null || mEchoNanoappBinary == null) {
+            return; // skip rest of the test
+        }
+
+        loadEchoNanoapp();
+
+        ChreRpcClient rpcClient = getRpcClientForEchoNanoapp();
+        ChreApiTestUtil util = new ChreApiTestUtil();
+
+        EndpointEchoTest.HostEndpointInfo request =
+                EndpointEchoTest.HostEndpointInfo.newBuilder()
+                        .setExpectedName(packageName)
+                        .setExpectedTag(TAG)
+                        .setExpectedType(HubEndpointInfo.TYPE_APP)
+                        .setExpectedVersion(mRegisteredEndpoint.getVersion())
+                        .build();
+
+        List<EndpointEchoTest.ReturnStatus> responses =
+                util.callServerStreamingRpcMethodSync(
+                        rpcClient,
+                        "chre.rpc.EndpointEchoTestService.RunNanoappGetEndpointInfoTest",
+                        request);
+        Assert.assertNotNull(responses);
+        Assert.assertEquals(responses.size(), 1);
+        EndpointEchoTest.ReturnStatus status = responses.get(0);
+        Assert.assertTrue(status.getErrorMessage(), status.getStatus());
+
+        unregisterRegisteredEndpoint();
+    }
+
+    /** A test to see if the getHubs API returns a valid list of hubs. */
     public void testGetHubs() throws Exception {
         List<HubInfo> hubs = new ArrayList<>();
         checkApiSupport((manager) -> hubs.addAll(manager.getHubs()));
@@ -522,10 +559,12 @@ public class ContextHubEndpointEchoExecutor {
         Set<Long> hubIds = new HashSet<>();
         for (HubInfo hub : hubs) {
             Log.d(TAG, "Found hub: " + hub);
-            assertWithMessage("Hub type is invalid").that(hub.getType())
+            assertWithMessage("Hub type is invalid")
+                    .that(hub.getType())
                     .isAnyOf(HubInfo.TYPE_CONTEXT_HUB, HubInfo.TYPE_VENDOR_HUB);
-            Assert.assertFalse("Hub ID 0x" + Long.toHexString(hub.getId())
-                                + " is not unique", hubIds.contains(hub.getId()));
+            Assert.assertFalse(
+                    "Hub ID 0x" + Long.toHexString(hub.getId()) + " is not unique",
+                    hubIds.contains(hub.getId()));
             if (hub.getType() == HubInfo.TYPE_CONTEXT_HUB) {
                 Assert.assertNotNull("ContextHubInfo is null", hub.getContextHubInfo());
             } else if (hub.getType() == HubInfo.TYPE_VENDOR_HUB) {
@@ -603,9 +642,7 @@ public class ContextHubEndpointEchoExecutor {
                 (manager) -> manager.openSession(endpoint, target, ECHO_SERVICE_DESCRIPTOR));
     }
 
-    /**
-     * Same as openSessionOrFail but with no service descriptor.
-     */
+    /** Same as openSessionOrFail but with no service descriptor. */
     private void openSessionOrFailNoDescriptor(HubEndpoint endpoint, HubEndpointInfo target) {
         checkApiSupport((manager) -> manager.openSession(endpoint, target));
     }
@@ -713,16 +750,24 @@ public class ContextHubEndpointEchoExecutor {
                         Service.serverStreamingMethod(
                                 "RunNanoappToHostTest",
                                 Empty.parser(),
+                                EndpointEchoTest.ReturnStatus.parser()),
+                        Service.serverStreamingMethod(
+                                "RunNanoappGetEndpointInfoTest",
+                                EndpointEchoTest.HostEndpointInfo.parser(),
                                 EndpointEchoTest.ReturnStatus.parser()));
-        ChreRpcClient rpcClient = new ChreRpcClient(
-                mContextHubManager,
-                mContextHubInfo,
-                mEchoNanoappBinary.getNanoAppId(),
-                List.of(endpointEchoTestRpcService),
-                /* callback= */ null);
-        Assert.assertTrue(rpcClient.hasService(echoNanoAppState, ECHO_SERVICE_NANOAPP_ID,
-                                               ECHO_SERVICE_NANOAPP_RPC_SERVICE_ID,
-                                               ECHO_SERVICE_NANOAPP_RPC_SERVICE_VERSION));
+        ChreRpcClient rpcClient =
+                new ChreRpcClient(
+                        mContextHubManager,
+                        mContextHubInfo,
+                        mEchoNanoappBinary.getNanoAppId(),
+                        List.of(endpointEchoTestRpcService),
+                        /* callback= */ null);
+        Assert.assertTrue(
+                rpcClient.hasService(
+                        echoNanoAppState,
+                        ECHO_SERVICE_NANOAPP_ID,
+                        ECHO_SERVICE_NANOAPP_RPC_SERVICE_ID,
+                        ECHO_SERVICE_NANOAPP_RPC_SERVICE_VERSION));
         return rpcClient;
     }
 

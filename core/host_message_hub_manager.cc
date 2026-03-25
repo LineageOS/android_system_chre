@@ -327,11 +327,9 @@ bool HostMessageHubManager::Hub::createLocked(
   manager->addHub(hub);
   std::optional<MessageRouter::MessageHub> maybeHub =
 #ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
-      MessageRouterSingleton::get()->registerMessageHubV2(hub->kName, info.id,
-                                                          hub);
+      MessageRouterSingleton::get()->registerMessageHubV2(info, hub);
 #else   // CHRE_DATA_FLOW_SUPPORT_ENABLED
-      MessageRouterSingleton::get()->registerMessageHub(hub->kName, info.id,
-                                                        hub);
+      MessageRouterSingleton::get()->registerMessageHub(info, hub);
 #endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
   if (!maybeHub) {
     LOGE("Failed to register host hub 0x%" PRIx64, info.id);

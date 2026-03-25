@@ -140,14 +140,16 @@ void ChreMessageHubManager::init() {
   mChreMessageHubCallback =
       pw::IntrusivePtr<ChreMessageHubCallback>(callbackPtr);
 
+  MessageHubInfo info = {.id = kChreMessageHubId, .name = "CHRE"};
 #ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
+  info.sharedDataCapabilities = {.dataFlowsSupported = true};
   std::optional<MessageRouter::MessageHub> chreMessageHub =
       MessageRouterSingleton::get()->registerMessageHubV2(
-          "CHRE", kChreMessageHubId, mChreMessageHubCallback);
+          info, mChreMessageHubCallback);
 #else
   std::optional<MessageRouter::MessageHub> chreMessageHub =
       MessageRouterSingleton::get()->registerMessageHub(
-          "CHRE", kChreMessageHubId, mChreMessageHubCallback);
+          info, mChreMessageHubCallback);
 #endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
 
   if (chreMessageHub.has_value()) {

@@ -355,9 +355,11 @@ TEST_F(ChreMessageHubTest, NanoappGetsEndpointInfo) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo messageHubInfo = {.id = kOtherMessageHubId,
+                                   .name = "OTHER_TEST_HUB"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      MessageRouterSingleton::get()->registerMessageHub(
-          "OTHER_TEST_HUB", kOtherMessageHubId, callback);
+      MessageRouterSingleton::get()->registerMessageHub(messageHubInfo,
+                                                        callback);
   ASSERT_TRUE(messageHub.has_value());
   callback->setMessageHub(&(*messageHub));
 
@@ -477,9 +479,11 @@ void doSendMessageToNanoappTest(TestBase *test,
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo messageHubInfo = {.id = kOtherMessageHubId,
+                                   .name = "OTHER_TEST_HUB"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      MessageRouterSingleton::get()->registerMessageHub(
-          "OTHER_TEST_HUB", kOtherMessageHubId, callback);
+      MessageRouterSingleton::get()->registerMessageHub(messageHubInfo,
+                                                        callback);
   ASSERT_TRUE(messageHub.has_value());
   callback->setMessageHub(&(*messageHub));
 
@@ -556,9 +560,9 @@ TEST_F(ChreMessageHubTest, SendMessageToNanoappPermissionFailure) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo info = {.id = kOtherMessageHubId, .name = "OTHER_TEST_HUB"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      MessageRouterSingleton::get()->registerMessageHub(
-          "OTHER_TEST_HUB", kOtherMessageHubId, callback);
+      MessageRouterSingleton::get()->registerMessageHub(info, callback);
   ASSERT_TRUE(messageHub.has_value());
   callback->setMessageHub(&(*messageHub));
 
@@ -759,9 +763,11 @@ TEST_F(ChreMessageHubTest, NanoappOpensSessionWithGenericEndpoint) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo messageHubInfo = {.id = kOtherMessageHubId,
+                                   .name = "OTHER_TEST_HUB"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      MessageRouterSingleton::get()->registerMessageHub(
-          "OTHER_TEST_HUB", kOtherMessageHubId, callback);
+      MessageRouterSingleton::get()->registerMessageHub(messageHubInfo,
+                                                        callback);
   ASSERT_TRUE(messageHub.has_value());
   callback->setMessageHub(&(*messageHub));
 
@@ -811,9 +817,11 @@ TEST_F(ChreMessageHubTest, NanoappTriesToCloseNonPartySession) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo messageHubInfo = {.id = kOtherMessageHubId,
+                                   .name = "OTHER_TEST_HUB"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      MessageRouterSingleton::get()->registerMessageHub(
-          "OTHER_TEST_HUB", kOtherMessageHubId, callback);
+      MessageRouterSingleton::get()->registerMessageHub(messageHubInfo,
+                                                        callback);
   ASSERT_TRUE(messageHub.has_value());
   callback->setMessageHub(&(*messageHub));
 
@@ -849,9 +857,11 @@ TEST_F(ChreMessageHubTest, NanoappOpensDefaultSessionWithGenericEndpoint) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo messageHubInfo = {.id = kOtherMessageHubId,
+                                   .name = "OTHER_TEST_HUB"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      MessageRouterSingleton::get()->registerMessageHub(
-          "OTHER_TEST_HUB", kOtherMessageHubId, callback);
+      MessageRouterSingleton::get()->registerMessageHub(messageHubInfo,
+                                                        callback);
   ASSERT_TRUE(messageHub.has_value());
   callback->setMessageHub(&(*messageHub));
 
@@ -893,9 +903,11 @@ TEST_F(ChreMessageHubTest, NanoappClosesSessionWithGenericEndpoint) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       &session);
+  MessageHubInfo messageHubInfo = {.id = kOtherMessageHubId,
+                                   .name = "OTHER_TEST_HUB"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      MessageRouterSingleton::get()->registerMessageHub(
-          "OTHER_TEST_HUB", kOtherMessageHubId, callback);
+      MessageRouterSingleton::get()->registerMessageHub(messageHubInfo,
+                                                        callback);
   ASSERT_TRUE(messageHub.has_value());
   callback->setMessageHub(&(*messageHub));
 
@@ -933,9 +945,11 @@ TEST_F(ChreMessageHubTest, OtherHubClosesNanoappSessionWithGenericEndpoint) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       &session);
+  MessageHubInfo messageHubInfo = {.id = kOtherMessageHubId,
+                                   .name = "OTHER_TEST_HUB"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      MessageRouterSingleton::get()->registerMessageHub(
-          "OTHER_TEST_HUB", kOtherMessageHubId, callback);
+      MessageRouterSingleton::get()->registerMessageHub(messageHubInfo,
+                                                        callback);
   ASSERT_TRUE(messageHub.has_value());
   callback->setMessageHub(&(*messageHub));
 
@@ -971,18 +985,22 @@ TEST_F(ChreMessageHubTest, NanoappGetSessionInfoForNonPartySession) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       &session);
+  MessageHubInfo messageHubInfo = {.id = kOtherMessageHubId,
+                                   .name = "OTHER_TEST_HUB"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      MessageRouterSingleton::get()->registerMessageHub(
-          "OTHER_TEST_HUB", kOtherMessageHubId, callback);
+      MessageRouterSingleton::get()->registerMessageHub(messageHubInfo,
+                                                        callback);
   ASSERT_TRUE(messageHub.has_value());
   callback->setMessageHub(&(*messageHub));
 
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback2 =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       &session);
+  MessageHubInfo messageHubInfo2 = {.id = kOtherMessageHubId + 1,
+                                    .name = "OTHER_TEST_HUB2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      MessageRouterSingleton::get()->registerMessageHub(
-          "OTHER_TEST_HUB2", kOtherMessageHubId + 1, callback2);
+      MessageRouterSingleton::get()->registerMessageHub(messageHubInfo2,
+                                                        callback2);
   ASSERT_TRUE(messageHub2.has_value());
   callback2->setMessageHub(&(*messageHub2));
 
@@ -1015,9 +1033,11 @@ void doNanoappSendsMessageToGenericEndpointTest(
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(&message,
                                                       /* session= */ nullptr);
+  MessageHubInfo messageHubInfo = {.id = kOtherMessageHubId,
+                                   .name = "OTHER_TEST_HUB"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      MessageRouterSingleton::get()->registerMessageHub(
-          "OTHER_TEST_HUB", kOtherMessageHubId, callback);
+      MessageRouterSingleton::get()->registerMessageHub(messageHubInfo,
+                                                        callback);
   ASSERT_TRUE(messageHub.has_value());
   callback->setMessageHub(&(*messageHub));
 
@@ -1078,9 +1098,11 @@ TEST_F(ChreMessageHubTest,
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(&message,
                                                       /* session= */ nullptr);
+  MessageHubInfo messageHubInfo = {.id = kOtherMessageHubId,
+                                   .name = "OTHER_TEST_HUB"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      MessageRouterSingleton::get()->registerMessageHub(
-          "OTHER_TEST_HUB", kOtherMessageHubId, callback);
+      MessageRouterSingleton::get()->registerMessageHub(messageHubInfo,
+                                                        callback);
   ASSERT_TRUE(messageHub.has_value());
   callback->setMessageHub(&(*messageHub));
 
@@ -1124,9 +1146,11 @@ TEST_F(ChreMessageHubTest, NanoappGetsMessageFromGenericEndpoint) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(&message,
                                                       /* session= */ nullptr);
+  MessageHubInfo messageHubInfo = {.id = kOtherMessageHubId,
+                                   .name = "OTHER_TEST_HUB"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      MessageRouterSingleton::get()->registerMessageHub(
-          "OTHER_TEST_HUB", kOtherMessageHubId, callback);
+      MessageRouterSingleton::get()->registerMessageHub(messageHubInfo,
+                                                        callback);
   ASSERT_TRUE(messageHub.has_value());
   callback->setMessageHub(&(*messageHub));
 
@@ -1290,9 +1314,11 @@ void doOpenSessionWithNanoappServiceTest(TestBase *test,
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo messageHubInfo = {.id = kOtherMessageHubId,
+                                   .name = "OTHER_TEST_HUB"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      MessageRouterSingleton::get()->registerMessageHub(
-          "OTHER_TEST_HUB", kOtherMessageHubId, callback);
+      MessageRouterSingleton::get()->registerMessageHub(messageHubInfo,
+                                                        callback);
   ASSERT_TRUE(messageHub.has_value());
   callback->setMessageHub(&(*messageHub));
 
@@ -1357,9 +1383,11 @@ void doOpenTwoSessionsWithNanoappServiceAndNoServiceTest(
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo messageHubInfo = {.id = kOtherMessageHubId,
+                                   .name = "OTHER_TEST_HUB"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      MessageRouterSingleton::get()->registerMessageHub(
-          "OTHER_TEST_HUB", kOtherMessageHubId, callback);
+      MessageRouterSingleton::get()->registerMessageHub(messageHubInfo,
+                                                        callback);
   ASSERT_TRUE(messageHub.has_value());
   callback->setMessageHub(&(*messageHub));
 
@@ -1446,9 +1474,11 @@ void doOpenSessionWithNanoappLegacyServiceTest(TestBase *test,
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo messageHubInfo = {.id = kOtherMessageHubId,
+                                   .name = "OTHER_TEST_HUB"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      MessageRouterSingleton::get()->registerMessageHub(
-          "OTHER_TEST_HUB", kOtherMessageHubId, callback);
+      MessageRouterSingleton::get()->registerMessageHub(messageHubInfo,
+                                                        callback);
   ASSERT_TRUE(messageHub.has_value());
   callback->setMessageHub(&(*messageHub));
 
@@ -1500,12 +1530,14 @@ TEST_F(ChreMessageHubTest, ForEachServiceNanoappLegacyService) {
   ASSERT_NE(nanoapp, nullptr);
 
   // Create the other hub
+  MessageHubInfo messageHubInfo = {.id = kOtherMessageHubId,
+                                   .name = "OTHER_TEST_HUB"};
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
   std::optional<MessageRouter::MessageHub> messageHub =
-      MessageRouterSingleton::get()->registerMessageHub(
-          "OTHER_TEST_HUB", kOtherMessageHubId, callback);
+      MessageRouterSingleton::get()->registerMessageHub(messageHubInfo,
+                                                        callback);
   ASSERT_TRUE(messageHub.has_value());
   callback->setMessageHub(&(*messageHub));
 
@@ -1543,9 +1575,11 @@ void doNanoappFailsToPublishLegacyServiceInNewWayTest(
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo messageHubInfo = {.id = kOtherMessageHubId,
+                                   .name = "OTHER_TEST_HUB"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      MessageRouterSingleton::get()->registerMessageHub(
-          "OTHER_TEST_HUB", kOtherMessageHubId, callback);
+      MessageRouterSingleton::get()->registerMessageHub(messageHubInfo,
+                                                        callback);
   ASSERT_TRUE(messageHub.has_value());
   callback->setMessageHub(&(*messageHub));
 
@@ -1587,9 +1621,11 @@ void doNanoappOpensSessionWithServiceTest(TestBase *test,
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo messageHubInfo = {.id = kOtherMessageHubId,
+                                   .name = "OTHER_TEST_HUB"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      MessageRouterSingleton::get()->registerMessageHub(
-          "OTHER_TEST_HUB", kOtherMessageHubId, callback);
+      MessageRouterSingleton::get()->registerMessageHub(messageHubInfo,
+                                                        callback);
   ASSERT_TRUE(messageHub.has_value());
   callback->setMessageHub(&(*messageHub));
 
@@ -1623,9 +1659,11 @@ void doNanoappUnloadUnregistersProvidedServicesTest(
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo messageHubInfo = {.id = kOtherMessageHubId,
+                                   .name = "OTHER_TEST_HUB"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      MessageRouterSingleton::get()->registerMessageHub(
-          "OTHER_TEST_HUB", kOtherMessageHubId, callback);
+      MessageRouterSingleton::get()->registerMessageHub(messageHubInfo,
+                                                        callback);
   ASSERT_TRUE(messageHub.has_value());
   callback->setMessageHub(&(*messageHub));
 
@@ -1779,9 +1817,11 @@ void doNanoappSubscribesToEndpointReadyEventTest(
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo messageHubInfo = {.id = kOtherMessageHubId,
+                                   .name = "OTHER_TEST_HUB"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      MessageRouterSingleton::get()->registerMessageHub(
-          "OTHER_TEST_HUB", kOtherMessageHubId, callback);
+      MessageRouterSingleton::get()->registerMessageHub(messageHubInfo,
+                                                        callback);
   ASSERT_TRUE(messageHub.has_value());
   callback->setMessageHub(&(*messageHub));
 
@@ -1829,9 +1869,11 @@ void doNanoappSubscribesToEndpointReadyEventAlreadyExistsTest(
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo messageHubInfo = {.id = kOtherMessageHubId,
+                                   .name = "OTHER_TEST_HUB"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      MessageRouterSingleton::get()->registerMessageHub(
-          "OTHER_TEST_HUB", kOtherMessageHubId, callback);
+      MessageRouterSingleton::get()->registerMessageHub(messageHubInfo,
+                                                        callback);
   ASSERT_TRUE(messageHub.has_value());
   callback->setMessageHub(&(*messageHub));
 
@@ -1877,9 +1919,11 @@ void doNanoappSubscribesToServiceReadyEventTest(
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo messageHubInfo = {.id = kOtherMessageHubId,
+                                   .name = "OTHER_TEST_HUB"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      MessageRouterSingleton::get()->registerMessageHub(
-          "OTHER_TEST_HUB", kOtherMessageHubId, callback);
+      MessageRouterSingleton::get()->registerMessageHub(messageHubInfo,
+                                                        callback);
   ASSERT_TRUE(messageHub.has_value());
   callback->setMessageHub(&(*messageHub));
 
@@ -1918,9 +1962,11 @@ TEST_F(ChreMessageHubTest, NanoappLoadAndUnloadAreRegisteredAndUnregistered) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo messageHubInfo = {.id = kOtherMessageHubId,
+                                   .name = "OTHER_TEST_HUB"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      MessageRouterSingleton::get()->registerMessageHub(
-          "OTHER_TEST_HUB", kOtherMessageHubId, callback);
+      MessageRouterSingleton::get()->registerMessageHub(messageHubInfo,
+                                                        callback);
   ASSERT_TRUE(messageHub.has_value());
   callback->setMessageHub(&(*messageHub));
 

@@ -633,6 +633,40 @@ table BtSocketCapabilitiesResponse {
   rfcommCapabilities:BtSocketRfcommCapabilities;
 }
 
+/// Represents a version of support for shared data flows.
+struct SharedDataLibraryVersion {
+  /// Major version, which denotes compatibility-breaking changes. Different
+  /// struct definitions will be added for major version updates.
+  /// NOTE: This must be greater than 0.
+  major:ubyte;
+
+  /// Minor version, which denotes backwards-compatible feature additions.
+  minor:ubyte;
+
+  /// Patch version, which denotes backwards-compatible minor changes.
+  patch:ushort;
+}
+
+/// Represents a version of support for shared data flows. The major, minor, and
+/// patch versions are determined by the version of shared memory support
+/// library used by the endpoint (see
+/// /system/chre/data_flow:contexthub_data_flow).
+/// minimumCompatibleMajorVersion is used to determine whether the endpoint uses
+/// any capabilities that require a minimum version of the support library.
+table SharedDataSupportVersion {
+  /// This endpoint's version of the shared data flow implementation.
+  version:SharedDataLibraryVersion;
+
+  /// Minimum major version the endpoint can interact with.
+  minimumCompatibleMajorVersion:ubyte;
+}
+
+/// Describes the level of support for shared data flows with offload endpoints.
+table SharedDataCapabilities {
+  /// Whether shared data flows to/from offload endpoints are supported.
+  dataFlowsSupported:bool;
+}
+
 table VendorHubInfo {
   /// The name of the hub. Nominally a UTF-8 string, but note that we're not
   /// using the built-in "string" data type from FlatBuffers here, because the
@@ -658,6 +692,9 @@ table MessageHub {
 
   /// Details of the message hub.
   details:MessageHubDetails;
+
+  /// Shared data capabilities of the hub.
+  sharedDataCapabilities:SharedDataCapabilities;
 }
 
 table RegisterMessageHub {
@@ -730,6 +767,10 @@ table EndpointInfo {
 
   /// The tag associated with this endpoint.
   tag:[byte];
+
+  /// The latest version of the shared data flow implementation this endpoint
+  /// supports.
+  sharedDataSupportVersion:SharedDataSupportVersion;
 }
 
 table RegisterEndpoint {

@@ -298,15 +298,18 @@ TEST_F(MessageRouterTest, RegisterMessageHubNameIsUnique) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub1 =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub1.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback);
+      router.registerMessageHub(info2, callback);
   EXPECT_TRUE(messageHub2.has_value());
 
+  MessageHubInfo info3 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub3 =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info3, callback);
   EXPECT_FALSE(messageHub3.has_value());
 }
 
@@ -316,15 +319,18 @@ TEST_F(MessageRouterTest, RegisterMessageHubIdIsUnique) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub1 =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub1.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback);
+      router.registerMessageHub(info2, callback);
   EXPECT_TRUE(messageHub2.has_value());
 
+  MessageHubInfo info3 = {.id = 1, .name = "hub3"};
   std::optional<MessageRouter::MessageHub> messageHub3 =
-      router.registerMessageHub("hub3", /* id= */ 1, callback);
+      router.registerMessageHub(info3, callback);
   EXPECT_FALSE(messageHub3.has_value());
 }
 
@@ -334,14 +340,17 @@ TEST_F(MessageRouterTest, RegisterMessageHubGetListOfHubs) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub1 =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub1.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback);
+      router.registerMessageHub(info2, callback);
   EXPECT_TRUE(messageHub2.has_value());
+  MessageHubInfo info3 = {.id = 3, .name = "hub3"};
   std::optional<MessageRouter::MessageHub> messageHub3 =
-      router.registerMessageHub("hub3", /* id= */ 3, callback);
+      router.registerMessageHub(info3, callback);
   EXPECT_TRUE(messageHub3.has_value());
 
   DynamicVector<MessageHubInfo> messageHubs;
@@ -368,14 +377,17 @@ TEST_F(MessageRouterTest, RegisterMessageHubGetListOfHubsWithUnregister) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub1 =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub1.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback);
+      router.registerMessageHub(info2, callback);
   EXPECT_TRUE(messageHub2.has_value());
+  MessageHubInfo info3 = {.id = 3, .name = "hub3"};
   std::optional<MessageRouter::MessageHub> messageHub3 =
-      router.registerMessageHub("hub3", /* id= */ 3, callback);
+      router.registerMessageHub(info3, callback);
   EXPECT_TRUE(messageHub3.has_value());
 
   DynamicVector<MessageHubInfo> messageHubs;
@@ -423,15 +435,17 @@ TEST_F(MessageRouterTest, RegisterMessageHubTooManyFails) {
                                                       /* session= */ nullptr);
   MessageRouter::MessageHub messageHubs[kMaxMessageHubs];
   for (size_t i = 0; i < kMaxMessageHubs; ++i) {
+    MessageHubInfo info = {.id = static_cast<MessageHubId>(i),
+                           .name = kNames[i]};
     std::optional<MessageRouter::MessageHub> messageHub =
-        router.registerMessageHub(kNames[i], /* id= */ i, callback);
+        router.registerMessageHub(info, callback);
     EXPECT_TRUE(messageHub.has_value());
     messageHubs[i] = std::move(*messageHub);
   }
 
+  MessageHubInfo failInfo = {.id = kMaxMessageHubs * 2, .name = "shouldfail"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("shouldfail", /* id= */ kMaxMessageHubs * 2,
-                                callback);
+      router.registerMessageHub(failInfo, callback);
   EXPECT_FALSE(messageHub.has_value());
 }
 
@@ -441,14 +455,17 @@ TEST_F(MessageRouterTest, GetEndpointInfo) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub1 =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub1.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback);
+      router.registerMessageHub(info2, callback);
   EXPECT_TRUE(messageHub2.has_value());
+  MessageHubInfo info3 = {.id = 3, .name = "hub3"};
   std::optional<MessageRouter::MessageHub> messageHub3 =
-      router.registerMessageHub("hub3", /* id= */ 3, callback);
+      router.registerMessageHub(info3, callback);
   EXPECT_TRUE(messageHub3.has_value());
 
   for (size_t i = 0; i < kNumEndpoints; ++i) {
@@ -470,8 +487,9 @@ TEST_F(MessageRouterTest, GetEndpointForService) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub1 =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub1.has_value());
 
   std::optional<Endpoint> endpoint = router.getEndpointForService(
@@ -488,8 +506,9 @@ TEST_F(MessageRouterTest, DoesEndpointHaveService) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub1 =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub1.has_value());
 
   EXPECT_TRUE(router.doesEndpointHaveService(messageHub1->getId(),
@@ -503,8 +522,9 @@ TEST_F(MessageRouterTest, ForEachService) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub1 =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub1.has_value());
 
   router.forEachService([](const MessageHubInfo &hub,
@@ -526,8 +546,9 @@ TEST_F(MessageRouterTest, GetEndpointForServiceBadServiceDescriptor) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub1 =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub1.has_value());
 
   std::optional<Endpoint> endpoint = router.getEndpointForService(
@@ -550,11 +571,13 @@ TEST_F(MessageRouterTest, RegisterSessionTwoDifferentMessageHubs) {
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       &sessionFromCallback2);
 
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback2);
+      router.registerMessageHub(info2, callback2);
   EXPECT_TRUE(messageHub2.has_value());
 
   // Open session from messageHub:1 to messageHub2:2
@@ -606,11 +629,13 @@ TEST_F(MessageRouterTest, RegisterSessionVerifyAllCallbacksAreCalled) {
           /* message= */ nullptr, &sessionClosedFromCallback2,
           &sessionCloseReason2, &sessionOpenedFromCallback2);
 
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback2);
+      router.registerMessageHub(info2, callback2);
   EXPECT_TRUE(messageHub2.has_value());
 
   // Open session from messageHub:1 to messageHub2:2
@@ -672,11 +697,13 @@ TEST_F(MessageRouterTest, RegisterSessionGetsRejectedAndClosed) {
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       &sessionFromCallback2);
 
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback2);
+      router.registerMessageHub(info2, callback2);
   EXPECT_TRUE(messageHub2.has_value());
 
   // Open session from messageHub:1 to messageHub2:2
@@ -714,11 +741,13 @@ TEST_F(MessageRouterTest, RegisterSessionSecondHubDoesNotRespond) {
       pw::MakeRefCounted<MessageHubCallbackOpenSessionRequest>(
           &wasOpenSessionRequestCalled2);
 
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback2);
+      router.registerMessageHub(info2, callback2);
   EXPECT_TRUE(messageHub2.has_value());
 
   // Open session from messageHub:1 to messageHub2:2
@@ -755,11 +784,13 @@ TEST_F(MessageRouterTest, RegisterSessionWithServiceDescriptor) {
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       &sessionFromCallback2);
 
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback2);
+      router.registerMessageHub(info2, callback2);
   EXPECT_TRUE(messageHub2.has_value());
 
   // Open session from messageHub:1 to messageHub2:2
@@ -809,11 +840,13 @@ TEST_F(MessageRouterTest,
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       &sessionFromCallback2);
 
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback2);
+      router.registerMessageHub(info2, callback2);
   EXPECT_TRUE(messageHub2.has_value());
 
   // Open session from messageHub:1 to messageHub2:2 with service descriptor
@@ -877,11 +910,13 @@ TEST_F(MessageRouterTest, RegisterSessionWithBadServiceDescriptor) {
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       &sessionFromCallback2);
 
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback2);
+      router.registerMessageHub(info2, callback2);
   EXPECT_TRUE(messageHub2.has_value());
 
   // Open session from messageHub:1 to messageHub2:2
@@ -902,11 +937,13 @@ TEST_F(MessageRouterTest, UnregisterMessageHubCausesSessionClosed) {
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       &sessionFromCallback2);
 
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback2);
+      router.registerMessageHub(info2, callback2);
   EXPECT_TRUE(messageHub2.has_value());
 
   // Open session from messageHub:1 to messageHub2:2
@@ -949,11 +986,13 @@ TEST_F(MessageRouterTest, RegisterSessionSameMessageHubIsValid) {
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       &sessionFromCallback2);
 
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback2);
+      router.registerMessageHub(info2, callback2);
   EXPECT_TRUE(messageHub2.has_value());
 
   // Open session from messageHub:2 to messageHub:2
@@ -978,11 +1017,13 @@ TEST_F(MessageRouterTest, RegisterSessionReservedSessionIdAreRespected) {
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
 
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback2);
+      router.registerMessageHub(info2, callback2);
   EXPECT_TRUE(messageHub2.has_value());
 
   // Open session from messageHub:1 to messageHub:2 more than the max number of
@@ -1007,11 +1048,13 @@ TEST_F(MessageRouterTest, RegisterSessionOpenSessionNotReservedRegionRejected) {
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
 
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback2);
+      router.registerMessageHub(info2, callback2);
   EXPECT_TRUE(messageHub2.has_value());
 
   // Open session from messageHub:1 to messageHub:2 and provide an invalid
@@ -1033,11 +1076,13 @@ TEST_F(MessageRouterTest, RegisterSessionOpenSessionWithReservedSessionId) {
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
 
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback2);
+      router.registerMessageHub(info2, callback2);
   EXPECT_TRUE(messageHub2.has_value());
 
   // Open session from messageHub:1 to messageHub:2 and provide a reserved
@@ -1061,11 +1106,13 @@ TEST_F(MessageRouterTest, RegisterSessionDifferentMessageHubsSameEndpoints) {
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       &sessionFromCallback2);
 
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback2);
+      router.registerMessageHub(info2, callback2);
   EXPECT_TRUE(messageHub2.has_value());
 
   // Open session from messageHub:1 to messageHub:2
@@ -1085,11 +1132,13 @@ TEST_F(MessageRouterTest,
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
 
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback2);
+      router.registerMessageHub(info2, callback2);
   EXPECT_TRUE(messageHub2.has_value());
 
   // Open session from messageHub with other non-registered endpoint - not
@@ -1114,14 +1163,17 @@ TEST_F(MessageRouterTest, ThirdMessageHubTriesToFindOthersSession) {
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       &sessionFromCallback3);
 
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback2);
+      router.registerMessageHub(info2, callback2);
   EXPECT_TRUE(messageHub2.has_value());
+  MessageHubInfo info3 = {.id = 3, .name = "hub3"};
   std::optional<MessageRouter::MessageHub> messageHub3 =
-      router.registerMessageHub("hub3", /* id= */ 3, callback3);
+      router.registerMessageHub(info3, callback3);
   EXPECT_TRUE(messageHub3.has_value());
 
   // Open session from messageHub:1 to messageHub2:2
@@ -1187,14 +1239,17 @@ TEST_F(MessageRouterTest, ThreeMessageHubsAndThreeSessions) {
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
 
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback2);
+      router.registerMessageHub(info2, callback2);
   EXPECT_TRUE(messageHub2.has_value());
+  MessageHubInfo info3 = {.id = 3, .name = "hub3"};
   std::optional<MessageRouter::MessageHub> messageHub3 =
-      router.registerMessageHub("hub3", /* id= */ 3, callback3);
+      router.registerMessageHub(info3, callback3);
   EXPECT_TRUE(messageHub3.has_value());
 
   // Open session from messageHub:1 to messageHub2:2
@@ -1279,14 +1334,17 @@ TEST_F(MessageRouterTest, SendMessageToSession) {
       pw::MakeRefCounted<MessageHubCallbackStoreData>(&messageFromCallback3,
                                                       &sessionFromCallback3);
 
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback2);
+      router.registerMessageHub(info2, callback2);
   EXPECT_TRUE(messageHub2.has_value());
+  MessageHubInfo info3 = {.id = 3, .name = "hub3"};
   std::optional<MessageRouter::MessageHub> messageHub3 =
-      router.registerMessageHub("hub3", /* id= */ 3, callback3);
+      router.registerMessageHub(info3, callback3);
   EXPECT_TRUE(messageHub3.has_value());
 
   // Open session from messageHub:1 to messageHub2:2
@@ -1366,11 +1424,13 @@ TEST_F(MessageRouterTest, SendMessageOnHalfOpenSessionIsRejected) {
       pw::MakeRefCounted<MessageHubCallbackStoreData>(&messageFromCallback2,
                                                       &sessionFromCallback2);
 
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback2);
+      router.registerMessageHub(info2, callback2);
   EXPECT_TRUE(messageHub2.has_value());
 
   // Open session from messageHub:1 to messageHub2:2 but do not complete it
@@ -1468,14 +1528,17 @@ TEST_F(MessageRouterTest, SendMessageToSessionUsingPointerAndFreeCallback) {
       pw::MakeRefCounted<MessageHubCallbackStoreData>(&messageFromCallback3,
                                                       &sessionFromCallback3);
 
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback2);
+      router.registerMessageHub(info2, callback2);
   EXPECT_TRUE(messageHub2.has_value());
+  MessageHubInfo info3 = {.id = 3, .name = "hub3"};
   std::optional<MessageRouter::MessageHub> messageHub3 =
-      router.registerMessageHub("hub3", /* id= */ 3, callback3);
+      router.registerMessageHub(info3, callback3);
   EXPECT_TRUE(messageHub3.has_value());
 
   // Open session from messageHub:1 to messageHub2:2
@@ -1587,14 +1650,20 @@ TEST_F(MessageRouterTest, SendMessageToSessionInvalidHubAndSession) {
       pw::MakeRefCounted<MessageHubCallbackStoreData>(&messageFromCallback3,
                                                       &sessionFromCallback3);
 
+  MessageHubId id1 = 1;
+  MessageHubInfo info1 = {.id = id1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub.has_value());
+  MessageHubId id2 = 2;
+  MessageHubInfo info2 = {.id = id2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback2);
+      router.registerMessageHub(info2, callback2);
   EXPECT_TRUE(messageHub2.has_value());
+  MessageHubId id3 = 3;
+  MessageHubInfo info3 = {.id = id3, .name = "hub3"};
   std::optional<MessageRouter::MessageHub> messageHub3 =
-      router.registerMessageHub("hub3", /* id= */ 3, callback3);
+      router.registerMessageHub(info3, callback3);
   EXPECT_TRUE(messageHub3.has_value());
 
   // Open session from messageHub:1 to messageHub2:2
@@ -1656,14 +1725,17 @@ TEST_F(MessageRouterTest, SendMessageToSessionCallbackFailureClosesSession) {
           &wasMessageReceivedCalled3,
           /* wasSessionClosedCalled= */ nullptr);
 
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback1);
+      router.registerMessageHub(info1, callback1);
   EXPECT_TRUE(messageHub.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback2);
+      router.registerMessageHub(info2, callback2);
   EXPECT_TRUE(messageHub2.has_value());
+  MessageHubInfo info3 = {.id = 3, .name = "hub3"};
   std::optional<MessageRouter::MessageHub> messageHub3 =
-      router.registerMessageHub("hub3", /* id= */ 3, callback3);
+      router.registerMessageHub(info3, callback3);
   EXPECT_TRUE(messageHub3.has_value());
 
   // Open session from messageHub:1 to messageHub2:2
@@ -1748,16 +1820,19 @@ TEST_F(MessageRouterTest, MessageHubCallbackCanCallOtherMessageHubAPIs) {
       callback3 = pw::MakeRefCounted<
           MessageHubCallbackCallsMessageHubApisDuringCallback>();
 
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub.has_value());
   callback->setMessageHub(&messageHub.value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback2);
+      router.registerMessageHub(info2, callback2);
   EXPECT_TRUE(messageHub2.has_value());
   callback2->setMessageHub(&messageHub2.value());
+  MessageHubInfo info3 = {.id = 3, .name = "hub3"};
   std::optional<MessageRouter::MessageHub> messageHub3 =
-      router.registerMessageHub("hub3", /* id= */ 3, callback3);
+      router.registerMessageHub(info3, callback3);
   EXPECT_TRUE(messageHub3.has_value());
   callback3->setMessageHub(&messageHub3.value());
 
@@ -1807,8 +1882,9 @@ TEST_F(MessageRouterTest, ForEachEndpointOfHub) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo info = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info, callback);
   EXPECT_TRUE(messageHub.has_value());
 
   DynamicVector<EndpointInfo> endpoints;
@@ -1836,8 +1912,9 @@ TEST_F(MessageRouterTest, ForEachEndpoint) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo info = {.id = kHubId, .name = kHubName};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub(kHubName, kHubId, callback);
+      router.registerMessageHub(info, callback);
   EXPECT_TRUE(messageHub.has_value());
 
   DynamicVector<std::pair<MessageHubInfo, EndpointInfo>> endpoints;
@@ -1864,8 +1941,9 @@ TEST_F(MessageRouterTest, ForEachEndpointOfHubInvalidHub) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo info = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info, callback);
   EXPECT_TRUE(messageHub.has_value());
 
   DynamicVector<EndpointInfo> endpoints;
@@ -1885,12 +1963,14 @@ TEST_F(MessageRouterTest, RegisterEndpointCallbacksAreCalled) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback2 =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback2);
-  EXPECT_TRUE(messageHub.has_value());
+      router.registerMessageHub(info2, callback2);
+  EXPECT_TRUE(messageHub2.has_value());
 
   // Register the endpoint and verify that the callbacks were called
   EXPECT_TRUE(messageHub->registerEndpoint(kEndpointInfos[0].id));
@@ -1906,12 +1986,14 @@ TEST_F(MessageRouterTest, UnregisterEndpointCallbacksAreCalled) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback2 =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub.has_value());
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback2);
-  EXPECT_TRUE(messageHub.has_value());
+      router.registerMessageHub(info2, callback2);
+  EXPECT_TRUE(messageHub2.has_value());
 
   // Register the endpoint and verify that the callbacks were called
   // only on the other hub
@@ -1941,13 +2023,15 @@ TEST_F(MessageRouterTest, OnRegisterAndUnregisterHub) {
   pw::IntrusivePtr<MockMessageHubCallback> hub2Callback =
       pw::MakeRefCounted<MockMessageHubCallback>();
   MessageHubId hub1Id = 1, hub2Id = 2;
+  MessageHubInfo info1 = {.id = hub1Id, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> hub1 =
-      router.registerMessageHub("hub1", hub1Id, hub1Callback);
+      router.registerMessageHub(info1, hub1Callback);
   ASSERT_TRUE(hub1.has_value());
 
   EXPECT_CALL(*hub1Callback, onHubRegistered(HubMatcher(hub2Id)));
+  MessageHubInfo info2 = {.id = hub2Id, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> hub2 =
-      router.registerMessageHub("hub2", hub2Id, hub2Callback);
+      router.registerMessageHub(info2, hub2Callback);
   ASSERT_TRUE(hub2.has_value());
 
   EXPECT_CALL(*hub1Callback, onHubUnregistered(hub2Id));
@@ -1963,8 +2047,9 @@ TEST_F(MessageRouterTest, SessionCallbacksAreCalledOnceSameHub) {
   pw::IntrusivePtr<MockMessageHubCallback> hub1Callback =
       pw::MakeRefCounted<MockMessageHubCallback>();
   MessageHubId hub1Id = 1;
+  MessageHubInfo info = {.id = hub1Id, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> hub1 =
-      router.registerMessageHub("hub1", hub1Id, hub1Callback);
+      router.registerMessageHub(info, hub1Callback);
   ASSERT_TRUE(hub1.has_value());
 
   ON_CALL(*hub1Callback, forEachEndpoint).WillByDefault(forEachEndpoint);
@@ -2004,8 +2089,9 @@ TEST_F(MessageRouterTest, FindDefaultMessageHubId) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo info1 = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub1 =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info1, callback);
   EXPECT_TRUE(messageHub1.has_value());
 
   // One hub registered, find an existing endpoint.
@@ -2015,8 +2101,9 @@ TEST_F(MessageRouterTest, FindDefaultMessageHubId) {
   // One hub registered, try to find a non-existent endpoint.
   EXPECT_EQ(router.findDefaultMessageHubId(999), MESSAGE_HUB_ID_INVALID);
 
+  MessageHubInfo info2 = {.id = 2, .name = "hub2"};
   std::optional<MessageRouter::MessageHub> messageHub2 =
-      router.registerMessageHub("hub2", /* id= */ 2, callback);
+      router.registerMessageHub(info2, callback);
   EXPECT_TRUE(messageHub2.has_value());
 
   // Multiple hubs registered, endpoint exists on both. Should return the first.
@@ -2029,8 +2116,9 @@ TEST_F(MessageRouterTest, SearchForEndpoint) {
   pw::IntrusivePtr<MessageHubCallbackStoreData> callback =
       pw::MakeRefCounted<MessageHubCallbackStoreData>(/* message= */ nullptr,
                                                       /* session= */ nullptr);
+  MessageHubInfo info = {.id = 1, .name = "hub1"};
   std::optional<MessageRouter::MessageHub> messageHub1 =
-      router.registerMessageHub("hub1", /* id= */ 1, callback);
+      router.registerMessageHub(info, callback);
   ASSERT_TRUE(messageHub1.has_value());
 
   // === Path 1: Search by service descriptor only ===

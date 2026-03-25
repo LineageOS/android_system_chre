@@ -28,16 +28,16 @@ namespace chre::message {
 
 std::optional<typename MessageRouter::MessageHub>
 MessageRouter::registerMessageHub(
-    const char *name, MessageHubId id,
+    const MessageHubInfo &info,
     pw::IntrusivePtr<MessageRouter::MessageHubCallback> callback) {
-  return registerMessageHub(name, id, callback, /* version= */ 1);
+  return registerMessageHub(info, callback, /* version= */ 1);
 }
 
 std::optional<typename MessageRouter::MessageHub>
 MessageRouter::registerMessageHubV2(
-    const char *name, MessageHubId id,
+    const MessageHubInfo &info,
     pw::IntrusivePtr<MessageRouter::MessageHubCallbackV2> callback) {
-  return registerMessageHub(name, id,
+  return registerMessageHub(info,
                             pw::IntrusivePtr<MessageHubCallback>(callback),
                             /* version= */ 2);
 }
@@ -260,8 +260,8 @@ bool MessageRouter::forEachMessageHub(
 }
 
 std::optional<MessageRouter::MessageHub> MessageRouter::registerMessageHub(
-    const char *name, MessageHubId id,
-    pw::IntrusivePtr<MessageHubCallback> callback, uint8_t version) {
+    const MessageHubInfo &info, pw::IntrusivePtr<MessageHubCallback> callback,
+    uint8_t version) {
   DynamicVector<MessageHubRecord> hubsToNotify;
   std::optional<MessageHub> newHub;
   MessageHubInfo newHubInfo;
@@ -271,17 +271,17 @@ std::optional<MessageRouter::MessageHub> MessageRouter::registerMessageHub(
       LOGE(
           "Message hub '%s' not registered: maximum number of message hubs "
           "reached",
-          name);
+          info.name);
       return std::nullopt;
     }
 
     for (MessageHubRecord &messageHub : mMessageHubs) {
-      if (std::strcmp(messageHub.info.name, name) == 0 ||
-          messageHub.info.id == id) {
+      if (std::strcmp(messageHub.info.name, info.name) == 0 ||
+          messageHub.info.id == info.id) {
         LOGE("Message hub '%s' with ID 0x%" PRIx64
              " not registered: hub with same name or ID already "
              "exists",
-             name, id);
+             info.name, info.id);
         return std::nullopt;
       }
     }
@@ -293,13 +293,13 @@ std::optional<MessageRouter::MessageHub> MessageRouter::registerMessageHub(
     }
 
     MessageHubRecord messageHubRecord = {
-        .info = {.id = id, .name = name},
+        .info = info,
         .callback = std::move(callback),
         .version = version,
     };
     newHubInfo = messageHubRecord.info;
     mMessageHubs.push_back(std::move(messageHubRecord));
-    newHub = MessageHub(*this, id);
+    newHub = MessageHub(*this, info.id);
   }
 
   // NOTE: newHubInfo is guaranteed to be valid while we have newHub.
