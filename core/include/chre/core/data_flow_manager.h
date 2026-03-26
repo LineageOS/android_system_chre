@@ -21,6 +21,7 @@
 
 #include "chre/core/event_loop.h"
 #include "chre/core/nanoapp.h"
+#include "chre/core/shared_data_region_manager.h"
 #include "chre/util/non_copyable.h"
 #include "chre/util/system/message_common.h"
 #include "chre_api/chre/data_flow.h"
@@ -429,6 +430,64 @@ class DataFlowManager : public NonCopyable {
         producer;
   };
 
+  //! A data flow sink registered by a nanoapp.
+  struct NanoappDataFlowSink {
+    //! The hub ID of the source.
+    uint64_t sourceHubId;
+
+    //! The endpoint ID of the source.
+    uint64_t sourceEndpointId;
+
+    //! The ID of the data flow.
+    uint32_t dataFlowId;
+
+    //! Offset of the metadata in the primary region.
+    uint32_t metadataOffset;
+
+    //! Offset of the sink metadata.
+    uint32_t sinkMetadataOffset;
+
+    //! The size of each element in the data flow.
+    uint32_t elementSize;
+
+    //! The alignment of each element in the data flow.
+    uint32_t alignment;
+
+    //! The instance ID of the nanoapp that is the sink.
+    uint16_t nanoappInstanceId;
+
+    //! Whether the sink is active.
+    bool isActive;
+
+    //! Guard for the primary region of the data flow.
+    SharedDataRegionManager::RegionGuard primaryRegionGuard;
+
+    //! Guard for the sink metadata region of the data flow, may be invalid.
+    SharedDataRegionManager::RegionGuard sinkMetadataRegionGuard;
+
+    //! The consumer instance for this data flow sink.
+    std::variant<std::monostate,
+                 android::contexthub::data_flow::UntypedConsumer,
+                 android::contexthub::data_flow::VariableDataConsumer>
+        consumer;
+  };
+
+  //! A struct containing data flow sink registration info and a session
+  //! message.
+  struct NanoappSinkRegistrationWithMessage {
+    //! The info for the data flow sink registration.
+    chreDataFlowSinkInfo info;
+
+    //! The session message for the data flow sink registration.
+    chreMsgMessageFromEndpointData sessionMessage;
+
+    //! The message data.
+    pw::UniquePtr<std::byte[]> messageData;
+
+    //! The instance ID of the nanoapp that is the sink.
+    uint16_t nanoappInstanceId;
+  };
+
   //! The invalid region ID value.
   static constexpr int32_t kInvalidRegionId = -1;
 
@@ -486,6 +545,23 @@ class DataFlowManager : public NonCopyable {
   //! @return pw::OkStatus() on success.
   pw::Status createProducer(NanoappDataFlow &dataFlow);
 
+  //! Creates the consumer for the given sink registration.
+  //! @param registration The sink registration to create a consumer for.
+  //! @param nanoapp The nanoapp that is the sink.
+  //! @param primaryRegionGuard The region guard for the primary region.
+  //! @param sinkMetadataRegionGuard The region guard for the sink metadata
+  //! region.
+  //! @param elementSize The size of each element in the data flow.
+  //! @param alignment The alignment of each element in the data flow.
+  //! @return The consumer for the given sink registration.
+  std::variant<std::monostate, android::contexthub::data_flow::UntypedConsumer,
+               android::contexthub::data_flow::VariableDataConsumer>
+  createConsumer(const chre::message::DataFlowSinkRegistration &registration,
+                 const Nanoapp *nanoapp,
+                 SharedDataRegionManager::RegionGuard &primaryRegionGuard,
+                 SharedDataRegionManager::RegionGuard &sinkMetadataRegionGuard,
+                 uint32_t &elementSize, uint32_t &alignment);
+
   //! Helper function to find a data flow and check if the given nanoapp owns
   //! it.
   //! @param dataFlowId The ID of the data flow.
@@ -521,6 +597,9 @@ class DataFlowManager : public NonCopyable {
 
   //! The data flows owned by nanoapps.
   pw::Vector<NanoappDataFlow, kMaxDataFlows> mDataFlows;
+
+  //! The sinks registered for data flows.
+  pw::Vector<NanoappDataFlowSink, kMaxDataFlows> mSinks;
 
   //! The next available data flow ID. CHRE_DATA_FLOW_ID_INVALID is 0.
   uint32_t mNextDataFlowId = 1;

@@ -14,13 +14,16 @@
  * limitations under the License.
  */
 
+#include <cstddef>
 #ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
 
-#include "chre/core/data_flow_manager.h"
 #include "chre/core/chre_message_hub_manager.h"
+#include "chre/core/data_flow_manager.h"
 #include "chre/core/event_loop.h"
 #include "chre/core/event_loop_manager.h"
 #include "chre/core/nanoapp.h"
+#include "chre/core/shared_data_region_manager.h"
+#include "chre/platform/context.h"
 #include "chre/platform/fatal_error.h"
 #include "chre/util/status.h"
 #include "chre/util/system/event_callbacks.h"
@@ -38,8 +41,14 @@ using ::android::contexthub::data_flow::ConsumerPolicyBuilder;
 using ::android::contexthub::data_flow::Region;
 using ::android::contexthub::data_flow::RemoteEndpointId;
 using ::android::contexthub::data_flow::RemoteNotifyArgs;
+using ::android::contexthub::data_flow::ScopedMemoryAccess;
+using ::android::contexthub::data_flow::UntypedConsumer;
 using ::android::contexthub::data_flow::UntypedProducer;
+using ::android::contexthub::data_flow::VariableDataConsumer;
 using ::android::contexthub::data_flow::VariableDataProducer;
+using ::android::contexthub::data_flow::internal::ElementConfig;
+using ::android::contexthub::data_flow::internal::fromOffset;
+using ::android::contexthub::data_flow::internal::Queue;
 using message::DataFlowAlert;
 using message::DataFlowSinkRegistration;
 using message::DataFlowSinkUnregistration;
@@ -545,8 +554,142 @@ void DataFlowManager::handleAllocateDataFlowRegionAsyncResult(
 }
 
 void DataFlowManager::onRegisterDataFlowSink(
-    chre::message::DataFlowSinkRegistration && /*registration*/) {
-  // TODO(b/457453613): Implement this function.
+    DataFlowSinkRegistration &&registration) {
+  if (mSinks.full()) {
+    LOG_OOM();
+    return;
+  }
+
+  EventLoop *eventLoop = nullptr;
+  Nanoapp *nanoapp = getNanoapp(registration.sinkId.messageHubId,
+                                registration.sinkId.endpointId, &eventLoop);
+  if (nanoapp == nullptr) {
+    LOGE("Received sink registration for unknown nanoapp 0x%" PRIx64
+         ": 0x%" PRIx64,
+         registration.sinkId.messageHubId, registration.sinkId.endpointId);
+    return;
+  }
+
+  UniquePtr<NanoappSinkRegistrationWithMessage> registrationWithMessage =
+      nullptr;
+  UniquePtr<chreDataFlowSinkInfo> registrationInfo = nullptr;
+  if (registration.sessionMessage.has_value()) {
+    registrationWithMessage = MakeUnique<NanoappSinkRegistrationWithMessage>();
+    if (registrationWithMessage == nullptr) {
+      LOG_OOM();
+      return;
+    }
+  } else {
+    registrationInfo = MakeUnique<chreDataFlowSinkInfo>();
+    if (registrationInfo == nullptr) {
+      LOG_OOM();
+      return;
+    }
+  }
+
+  SharedDataRegionManager::RegionGuard primaryRegionGuard(
+      registration.primaryRegionId);
+  if (!primaryRegionGuard.isValid()) {
+    LOGE(
+        "Failed to get primary region for sink registration with region ID: "
+        "%" PRId32,
+        registration.primaryRegionId);
+    return;
+  }
+
+  SharedDataRegionManager::RegionGuard sinkMetadataRegionGuard;
+  if (registration.sinkMetadataRegionId != kInvalidRegionId &&
+      registration.sinkMetadataRegionId != registration.primaryRegionId) {
+    sinkMetadataRegionGuard =
+        SharedDataRegionManager::RegionGuard(registration.sinkMetadataRegionId);
+    if (!sinkMetadataRegionGuard.isValid()) {
+      LOGE(
+          "Failed to get sink metadata region for sink registration with "
+          "region "
+          "ID: %" PRId32,
+          registration.sinkMetadataRegionId);
+      return;
+    }
+  }
+
+  uint32_t elementSize = 0;
+  uint32_t alignment = 0;
+  std::variant<std::monostate, UntypedConsumer, VariableDataConsumer> consumer =
+      createConsumer(registration, nanoapp, primaryRegionGuard,
+                     sinkMetadataRegionGuard, elementSize, alignment);
+  if (std::holds_alternative<std::monostate>(consumer)) {
+    return;
+  }
+
+  uint16_t instanceId = nanoapp->getInstanceId();
+  NanoappDataFlowSink sink = {
+      .sourceHubId = registration.sourceId.messageHubId,
+      .sourceEndpointId = registration.sourceId.endpointId,
+      .dataFlowId = registration.dataFlowId.id,
+      .metadataOffset = registration.metadataOffset,
+      .sinkMetadataOffset = registration.sinkMetadataOffset,
+      .elementSize = elementSize,
+      .alignment = alignment,
+      .nanoappInstanceId = instanceId,
+      .isActive = false,
+      .primaryRegionGuard = std::move(primaryRegionGuard),
+      .sinkMetadataRegionGuard = std::move(sinkMetadataRegionGuard),
+      .consumer = std::move(consumer),
+  };
+
+  // Populate the registration event data.
+  if (registration.sessionMessage.has_value()) {
+    registrationWithMessage->info.hubId = sink.sourceHubId;
+    registrationWithMessage->info.endpointId = sink.sourceEndpointId;
+    registrationWithMessage->info.dataFlowId = sink.dataFlowId;
+    registrationWithMessage->info.elementSize = sink.elementSize;
+    registrationWithMessage->info.alignment = sink.alignment;
+    registrationWithMessage->info.messageFromEndpointData =
+        &registrationWithMessage->sessionMessage;
+    registrationWithMessage->sessionMessage.messageType =
+        registration.sessionMessage->messageType;
+    registrationWithMessage->sessionMessage.messagePermissions =
+        registration.sessionMessage->messagePermissions;
+    registrationWithMessage->sessionMessage.message =
+        registration.sessionMessage->data.get();
+    registrationWithMessage->sessionMessage.messageSize =
+        registration.sessionMessage->data.size();
+    registrationWithMessage->sessionMessage.sessionId =
+        registration.sessionMessage->sessionId;
+    registrationWithMessage->messageData =
+        std::move(registration.sessionMessage->data);
+    registrationWithMessage->nanoappInstanceId = instanceId;
+  } else {
+    registrationInfo->hubId = sink.sourceHubId;
+    registrationInfo->endpointId = sink.sourceEndpointId;
+    registrationInfo->dataFlowId = sink.dataFlowId;
+    registrationInfo->elementSize = sink.elementSize;
+    registrationInfo->alignment = sink.alignment;
+    registrationInfo->messageFromEndpointData = nullptr;
+  }
+
+  mSinks.push_back(std::move(sink));
+
+  // Send the registration event to the nanoapp.
+  if (registration.sessionMessage.has_value()) {
+    EventLoopManagerSingleton::get()->deferCallback(
+        SystemCallbackType::DataFlowSinkRegisteredWithMessageEvent,
+        std::move(registrationWithMessage),
+        [](SystemCallbackType /* type */,
+           UniquePtr<NanoappSinkRegistrationWithMessage> &&data) {
+          EventLoop *eventLoop = getCurrentEventLoop();
+          CHRE_ASSERT(eventLoop != nullptr);
+          eventLoop->distributeEventSync(CHRE_EVENT_DATA_FLOW_SINK_CREATED,
+                                         &data->info, data->nanoappInstanceId);
+          // The destructor of NanoappSinkRegistrationWithMessage will be
+          // called, which will release the message data.
+        },
+        eventLoop);
+  } else {
+    EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+        CHRE_EVENT_DATA_FLOW_SINK_CREATED, registrationInfo.release(),
+        freeEventDataCallback, instanceId);
+  }
 }
 
 void DataFlowManager::onDataFlowSinkUnregistered(
@@ -783,6 +926,84 @@ pw::Status DataFlowManager::createProducer(NanoappDataFlow &dataFlow) {
   }
 
   return pw::OkStatus();
+}
+
+std::variant<std::monostate, UntypedConsumer, VariableDataConsumer>
+DataFlowManager::createConsumer(
+    const DataFlowSinkRegistration &registration, const Nanoapp *nanoapp,
+    SharedDataRegionManager::RegionGuard &primaryRegionGuard,
+    SharedDataRegionManager::RegionGuard &sinkMetadataRegionGuard,
+    uint32_t &elementSize, uint32_t &alignment) {
+  // TODO(b/449573597): Expose non-host helper for extracting consumer
+  // information from shared memory.
+  ScopedMemoryAccess scope(primaryRegionGuard.getMemoryAccess());
+  auto *queue = fromOffset<Queue>(primaryRegionGuard.getRegion(),
+                                  registration.metadataOffset);
+  if (queue == nullptr) {
+    LOGE(
+        "Failed to map queue metadata for sink registration with region ID: "
+        "%" PRId32,
+        registration.primaryRegionId);
+    return std::monostate{};
+  }
+
+  auto tag = queue->elementConfig.getTag();
+  uint32_t dataFlowId = registration.dataFlowId.id;
+  RemoteNotifyArgs notifyArgsOptions = {
+      .fn =
+          [dataFlowId](const RemoteEndpointId &remoteId) {
+            EventLoopManagerSingleton::get()
+                ->getDataFlowManager()
+                .sendDataFlowAlertToRemoteSource(dataFlowId,
+                                                 remoteId.aidlId.hubId,
+                                                 remoteId.aidlId.endpointId);
+          },
+      .id =
+          {
+              .aidlId = {.hubId = static_cast<int64_t>(
+                             ChreMessageHubManager::kChreMessageHubId),
+                         .endpointId =
+                             static_cast<int64_t>(nanoapp->getAppId())},
+          },
+  };
+
+  std::optional<Region> descRegion =
+      sinkMetadataRegionGuard.isValid()
+          ? std::make_optional(sinkMetadataRegionGuard.getRegion())
+          : std::nullopt;
+  if (tag == ElementConfig::Tag::fixedSize) {
+    auto consumerResult =
+        android::contexthub::data_flow::UntypedConsumer::createRemote(
+            primaryRegionGuard.getRegion(), descRegion,
+            registration.metadataOffset, registration.sinkMetadataOffset,
+            std::move(notifyArgsOptions), primaryRegionGuard.getMemoryAccess());
+    if (consumerResult.ok()) {
+      elementSize = consumerResult->getElementSize();
+      alignment = consumerResult->getElementAlignment();
+      return std::move(consumerResult.value());
+    } else {
+      LOGE("Failed to create untyped consumer for nanoapp 0x%" PRIx64
+           " with status: %s",
+           registration.sinkId.endpointId, consumerResult.status().str());
+    }
+  } else if (tag == ElementConfig::Tag::variableSize) {
+    auto consumerResult =
+        android::contexthub::data_flow::VariableDataConsumer::createRemote(
+            primaryRegionGuard.getRegion(), descRegion,
+            registration.metadataOffset, registration.sinkMetadataOffset,
+            std::move(notifyArgsOptions), primaryRegionGuard.getMemoryAccess());
+    if (consumerResult.ok()) {
+      elementSize = CHRE_DATA_FLOW_ELEMENT_SIZE_VARIABLE;
+      alignment = CHRE_DATA_FLOW_ELEMENT_ALIGNMENT_UNALIGNED;
+      return std::move(consumerResult.value());
+    } else {
+      LOGE("Failed to create variable consumer for nanoapp 0x%" PRIx64
+           " with status: %s",
+           registration.sinkId.endpointId, consumerResult.status().str());
+    }
+  }
+
+  return std::monostate{};
 }
 
 uint32_t DataFlowManager::getNanoappDataFlow(uint32_t dataFlowId,
