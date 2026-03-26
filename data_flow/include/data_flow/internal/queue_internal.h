@@ -521,6 +521,20 @@ class ProducerBase {
                               std::optional<uint32_t> writeIndex);
 
   /**
+   * Updates the block list when moving from one block to another.
+   *
+   * If the target maximum block count has been exceeded, attempts to deallocate
+   * the next block(s) that are empty to bring the block count within the
+   * maximum.
+   *
+   * If the target minimum block count has not been reached, attempts to
+   * allocate and insert fresh blocks.
+   *
+   * NOTE: This function is expected to be called within enterNextBlock().
+   */
+  void updateBlockListAtBoundary();
+
+  /**
    * Updates the write index.
    *
    * If necessary, initializes a new block and updates the queue metadata to

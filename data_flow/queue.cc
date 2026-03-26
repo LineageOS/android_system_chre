@@ -24,6 +24,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <tuple>
 #include <utility>
 
 #include "chre/platform/atomic_ref.h"
@@ -49,7 +50,7 @@ constexpr uint32_t kFlagCountInc = 0x10000;
 constexpr uint32_t kFlagCountMask = 0xffff0000;
 
 /**
- * Deallocates the block ring starting at the given head.
+ * Deallocates a block chain starting at the given head.
  *
  * @param shmemBase The base address of the shared memory.
  * @param shmemSize The size of the shared memory.
@@ -57,8 +58,8 @@ constexpr uint32_t kFlagCountMask = 0xffff0000;
  * @param layout The layout of the block ring.
  * @param head The head of the block ring to deallocate. May be nullptr.
  */
-void deallocateBlockRing(const AllocatorRegion &region,
-                         pw::allocator::Layout layout, BlockHeader *head) {
+void deallocateBlockChain(const AllocatorRegion &region,
+                          pw::allocator::Layout layout, BlockHeader *head) {
   if (!head) {
     return;
   }
@@ -94,6 +95,39 @@ BlockHeader *allocateBlock(const AllocatorRegion &region,
 }
 
 /**
+ * Allocates a chain of blocks in shared memory.
+ *
+ * @param region The region to allocate the block(s) from.
+ * @param layout The layout of the block ring.
+ * @param blockCapacity The capacity of the block ring. This cannot be inferred
+ * from the layout as it is dependent on element size and alignment.
+ * @param count The number of blocks to allocate.
+ * @param initBlockFn Function used to initialize each block.
+ * @return A tuple of pointers to the first and last blocks in the chain and the
+ * number of blocks allocated.
+ */
+std::tuple<BlockHeader *, BlockHeader *, size_t> allocateBlockChain(
+    const AllocatorRegion &region, pw::allocator::Layout layout,
+    uint32_t blockCapacity, size_t count, InitBlockFn initBlockFn) {
+  BlockHeader *head = nullptr, *prev = nullptr;
+  size_t allocatedCount = 0;
+  for (; allocatedCount < count; ++allocatedCount) {
+    if (auto *block = allocateBlock(region, layout, blockCapacity, initBlockFn);
+        block) {
+      if (!head) {
+        head = block;
+      } else {
+        prev->nextBlockOffsetBytes = toOffset(region.base, block);
+      }
+      prev = block;
+    } else {
+      break;
+    }
+  }
+  return std::make_tuple(head, prev, allocatedCount);
+}
+
+/**
  * Allocates a block ring in shared memory.
  *
  * @param region The region to allocate the block(s) from.
@@ -113,23 +147,14 @@ pw::Result<BlockHeader *> allocateBlockRing(const AllocatorRegion &region,
     PW_LOG_ERROR("allocateBlockRing: requested 0 blocks.");
     return pw::Status::InvalidArgument();
   }
-  BlockHeader *head = nullptr, *prev = nullptr;
-  for (size_t i = 0; i < count; ++i) {
-    if (auto *block = allocateBlock(region, layout, blockCapacity, initBlockFn);
-        block) {
-      if (!head) {
-        head = block;
-      } else {
-        prev->nextBlockOffsetBytes = toOffset(region.base, block);
-      }
-      prev = block;
-    } else {
-      deallocateBlockRing(region, layout, head);
-      PW_LOG_ERROR("allocateBlockRing: Failed to allocate.");
-      return pw::Status::ResourceExhausted();
-    }
+  auto [head, tail, allocatedCount] =
+      allocateBlockChain(region, layout, blockCapacity, count, initBlockFn);
+  if (allocatedCount < count) {
+    deallocateBlockChain(region, layout, head);
+    PW_LOG_ERROR("allocateBlockRing: Failed to allocate.");
+    return pw::Status::ResourceExhausted();
   }
-  prev->nextBlockOffsetBytes = internal::toOffset(region.base, head);
+  tail->nextBlockOffsetBytes = internal::toOffset(region.base, head);
   return head;
 }
 
@@ -720,43 +745,40 @@ pw::Status ProducerBase::allocateAndInsertBlocks(size_t count) {
     }
     distanceToConsumer -= advance;
   }
-  auto *prevBlock = mCurrBlock;
-  for (size_t i = 0; i < count; ++i) {
-    auto block =
-        allocateBlock(mRegion, kBlockLayout, kBlockCapacity, getInitBlockFn());
-    if (!block) {
-      PW_LOG_ERROR(
-          "ProducerBase::allocateAndInsertBlocks: Failed to allocate block");
-      return pw::Status::ResourceExhausted();
-    }
-    incrementEpoch(/*start=*/true);
-    mBlockCount++;
-    ::chre::AtomicUint32Ref(block->nextBlockOffsetBytes)
-        .store(prevBlock->nextBlockOffsetBytes);
-    if (!blockBoundary) {
-      // Subsequent blocks if any will be inserted at a block boundary.
-      blockBoundary = true;
-      // We are skipping from the middle of a block to the new block, so set
-      // the skip index appropriately.
-      ::chre::AtomicUint32Ref(prevBlock->skipIndex).store(blockIndex);
-      // Free availability for expansion due to adding new blocks, starting with
-      // the distance to the skip index.
-      mExpansionFreeAvailability = mAvailable;
-      // Calculate the reduction to available space due to skipping from the
-      // current block. This applies until the producer returns to the skipped
-      // block, as it is blocked on the slowest non-overwritable consumers
-      // actually moving through the skipped portion of that block.
-      mUnavailableFromSkip =
-          ringDiff(prevBlock->baseIndex, prevBlock->skipIndex, kBlockCapacity);
-    }
-    ::chre::AtomicUint32Ref(prevBlock->nextBlockOffsetBytes)
-        .store(toOffset(mRegion.base, block));
-    incrementEpoch(/*start=*/false);
-    mAvailable += kBlockCapacity;
-    mExpansionFreeAvailability += kBlockCapacity;
-    mExpansionCount++;
-    prevBlock = block;
+  auto [head, tail, allocatedCount] = allocateBlockChain(
+      mRegion, kBlockLayout, kBlockCapacity, count, getInitBlockFn());
+  if (!allocatedCount) {
+    PW_LOG_WARN(
+        "ProducerBase::allocateAndInsertBlocks: Failed to allocate block");
+    return pw::Status::ResourceExhausted();
   }
+  incrementEpoch(/*start=*/true);
+  ::chre::AtomicUint32Ref(tail->nextBlockOffsetBytes)
+      .store(mCurrBlock->nextBlockOffsetBytes);
+  if (!blockBoundary) {
+    // Subsequent blocks if any will be inserted at a block boundary.
+    blockBoundary = true;
+    // We are skipping from the middle of a block to the new block, so set
+    // the skip index appropriately.
+    ::chre::AtomicUint32Ref(mCurrBlock->skipIndex).store(blockIndex);
+    // Free availability for expansion due to adding new blocks, starting with
+    // the distance to the skip index.
+    mExpansionFreeAvailability = mAvailable;
+    // Calculate the reduction to available space due to skipping from the
+    // current block. This applies until the producer returns to the skipped
+    // block, as it is blocked on the slowest non-overwritable consumers
+    // actually moving through the skipped portion of that block.
+    mUnavailableFromSkip =
+        ringDiff(mCurrBlock->baseIndex, mCurrBlock->skipIndex, kBlockCapacity);
+  }
+  ::chre::AtomicUint32Ref(mCurrBlock->nextBlockOffsetBytes)
+      .store(toOffset(mRegion.base, head));
+  // Update mBlockCount so that it is reflected in the new epoch.
+  mBlockCount += allocatedCount;
+  incrementEpoch(/*start=*/false);
+  mAvailable += allocatedCount * kBlockCapacity;
+  mExpansionFreeAvailability += allocatedCount * kBlockCapacity;
+  mExpansionCount += allocatedCount;
   return pw::OkStatus();
 }
 
@@ -805,6 +827,7 @@ void ProducerBase::advanceBlockIndexWithData(
 void ProducerBase::enterNextBlock(BlockHeader *&block, uint32_t *correction,
                                   uint32_t &index, bool convertSkipToBase,
                                   std::optional<uint32_t> writeIndex) {
+  updateBlockListAtBoundary();
   auto *nextBlock = fromOffset<BlockHeader>(
       mRegion, ::chre::AtomicUint32Ref(block->nextBlockOffsetBytes).load(),
       kBlockLayout);
@@ -853,6 +876,31 @@ void ProducerBase::enterNextBlock(BlockHeader *&block, uint32_t *correction,
   }
   block = nextBlock;
   index = ::chre::AtomicUint32Ref(block->baseIndex).load();
+}
+
+void ProducerBase::updateBlockListAtBoundary() {
+  if (mUnavailableFromSkip > 0) {
+    // Do not update the block list while handling a skip.
+    return;
+  }
+  if (mBlockCount < mMinBlockCountTarget) {
+    auto [head, tail, count] = allocateBlockChain(
+        mRegion, kBlockLayout, kBlockCapacity,
+        mMinBlockCountTarget - mBlockCount, getInitBlockFn());
+    if (!count) {
+      return;
+    }
+    incrementEpoch(/*start=*/true);
+    ::chre::AtomicUint32Ref(tail->nextBlockOffsetBytes)
+        .store(mCurrBlock->nextBlockOffsetBytes);
+    ::chre::AtomicUint32Ref(mCurrBlock->nextBlockOffsetBytes)
+        .store(toOffset(mRegion.base, head));
+    incrementEpoch(/*start=*/false);
+    mBlockCount += count;
+    mAvailable += count * kBlockCapacity;
+  } else if (mBlockCount > mMaxBlockCountTarget) {
+    // TODO(b/448384247): Implement deallocation of blocks.
+  }
 }
 
 void ProducerBase::updateWriteIndex(BlockHeader *tailBlock, uint32_t writeIndex,
@@ -1139,7 +1187,7 @@ void ProducerBase::clear() {
     eraseConsumerNode(node);
   }
   // Release element storage back to the region allocator.
-  deallocateBlockRing(mRegion, kBlockLayout, mCurrBlock);
+  deallocateBlockChain(mRegion, kBlockLayout, mCurrBlock);
   mRegion.allocator->Deallocate(mQueue);
 }
 
