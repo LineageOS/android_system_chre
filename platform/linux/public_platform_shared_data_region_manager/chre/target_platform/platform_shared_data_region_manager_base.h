@@ -19,6 +19,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "data_flow/queue_defs.h"
+
 namespace chre {
 
 /** Fake implementation of PlatformSharedDataRegionManagerBase for testing. */
@@ -36,6 +38,23 @@ class PlatformSharedDataRegionManagerBase {
   void resetNumCallsToDeallocateRegion() {
     mNumCallsToDeallocateRegion = 0;
   }
+
+  /**
+   * Sets the allocator region for a region with the given ID. Visible for
+   * testing.
+   *
+   * @param allocatorRegion The allocator region to set for the region.
+   */
+  void setAllocatorRegion(
+      const ::android::contexthub::data_flow::AllocatorRegion &allocatorRegion);
+
+  /**
+   * Clears the allocator region for a region with the given ID. Visible for
+   * testing.
+   *
+   * @param regionId The ID of the region to clear the allocator region for.
+   */
+  void clearAllocatorRegion();
 
  protected:
   //! The number of calls to deallocateRegion.
