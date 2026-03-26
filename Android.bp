@@ -89,6 +89,16 @@ filegroup {
     ],
 }
 
+filegroup {
+    name: "chre_hal_client_manager_srcs",
+    srcs: [
+        "host/hal_generic/common/hal_client_manager.cc",
+        "host/hal_generic/common/permissions_util.cc",
+        "host/common/fragmented_load_transaction.cc",
+        "host/hal_generic/aidl/event_logger.cc",
+    ],
+}
+
 cc_defaults {
     name: "contexthub_hal_defaults",
     vendor: true,
@@ -664,6 +674,20 @@ cc_library_headers {
     export_include_dirs: [
         "chre_api/include",
         "chre_api/include/chre_api",
+    ],
+    host_supported: true,
+}
+
+cc_library_headers {
+    name: "chre_host_common_headers",
+    vendor: true,
+    export_include_dirs: [
+        ".",
+        "host/common/include",
+        "host/hal_generic/common",
+        "platform/shared/fbs/include",
+        "platform/shared/include",
+        "util/include",
     ],
     host_supported: true,
 }
