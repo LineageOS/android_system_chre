@@ -32,14 +32,19 @@
 
 #include <cinttypes>
 
+namespace chre {
+
 using ::android::contexthub::data_flow::ConsumerPolicyBuilder;
 using ::android::contexthub::data_flow::Region;
 using ::android::contexthub::data_flow::RemoteEndpointId;
 using ::android::contexthub::data_flow::RemoteNotifyArgs;
 using ::android::contexthub::data_flow::UntypedProducer;
 using ::android::contexthub::data_flow::VariableDataProducer;
-
-namespace chre {
+using message::DataFlowAlert;
+using message::DataFlowSinkRegistration;
+using message::DataFlowSinkUnregistration;
+using message::DataFlowStopped;
+using message::Endpoint;
 
 void DataFlowManager::init() {}
 
@@ -117,16 +122,38 @@ uint32_t DataFlowManager::destroyDataFlow(Nanoapp *nanoapp,
     return status;
   }
 
+  DynamicVector<Endpoint> sinkEndpoints;
   std::visit(
-      [](auto &&producer) -> void {
+      [&sinkEndpoints](auto &&producer) -> void {
         if constexpr (!std::is_same_v<std::decay_t<decltype(producer)>,
                                       std::monostate>) {
           producer.stop();
+          sinkEndpoints.reserve(
+              producer.getConsumerManager().getNumConsumers());
+          producer.getConsumerManager().pruneConsumers(
+              [&sinkEndpoints](const RemoteEndpointId &endpointId) -> bool {
+                sinkEndpoints.emplace_back(endpointId.aidlId.hubId,
+                                           endpointId.aidlId.endpointId);
+                // Return false to not prune the consumer. It will be cleaned up
+                // automatically either when it marks itself removed in shared
+                // memory (since stop() was called) or when the data flow is
+                // destroyed.
+                return false;
+              });
         }
       },
       dataFlow->producer);
-  // TODO(b/457453613): Call reportDataFlowSinkUnregistered on the CHRE
-  // Message Hub.
+
+  // Report data flow stopped event to the sinks
+  DataFlowStopped stopped;
+  stopped.dataFlowId.hubId = ChreMessageHubManager::kChreMessageHubId;
+  stopped.dataFlowId.id = dataFlowId;
+  stopped.destinationEndpoints = sinkEndpoints;
+  EventLoopManagerSingleton::get()
+      ->getChreMessageHubManager()
+      .getMessageHub()
+      .reportDataFlowStopped(stopped);
+
   int32_t regionId = dataFlow->regionId;
   mDataFlows.erase(dataFlow);
   EventLoopManagerSingleton::get()
@@ -523,8 +550,28 @@ void DataFlowManager::onRegisterDataFlowSink(
 }
 
 void DataFlowManager::onDataFlowSinkUnregistered(
-    const chre::message::DataFlowSinkUnregistration & /*unregistration*/) {
-  // TODO(b/457453613): Implement this function.
+    const chre::message::DataFlowSinkUnregistration &unregistration) {
+  auto *nanoappDataFlow = findNanoappDataFlow(unregistration.dataFlowId);
+  if (!nanoappDataFlow) {
+    LOGE(
+        "Received data flow sink unregistration for unknown data flow: "
+        "%" PRIu32,
+        unregistration.dataFlowId.id);
+    return;
+  }
+
+  UniquePtr<chreDataFlowSinkInfo> event = MakeUnique<chreDataFlowSinkInfo>();
+  if (event == nullptr) {
+    LOG_OOM();
+    return;
+  }
+  *event = {.hubId = unregistration.endpoint.messageHubId,
+            .endpointId = unregistration.endpoint.endpointId,
+            .dataFlowId = unregistration.dataFlowId.id};
+
+  EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+      CHRE_EVENT_DATA_FLOW_SINK_STOPPED, event.release(), freeEventDataCallback,
+      nanoappDataFlow->nanoappInstanceId);
 }
 
 void DataFlowManager::onDataFlowStopped(
@@ -532,9 +579,32 @@ void DataFlowManager::onDataFlowStopped(
   // TODO(b/457453613): Implement this function.
 }
 
-void DataFlowManager::onDataFlowAlert(
-    const chre::message::DataFlowAlert & /*alert*/) {
-  // TODO(b/457453613): Implement this function.
+void DataFlowManager::onDataFlowAlert(const DataFlowAlert &alert) {
+  for (const Endpoint &endpoint : alert.receiverEndpoints) {
+    uint16_t instanceId;
+    auto nanoappDataFlow = findNanoappDataFlow(alert.dataFlowId);
+    if (!nanoappDataFlow) {
+      LOGE("Received data flow alert for unknown source: 0x%" PRIx64
+           " : 0x%" PRIx64 " : on data flow: %" PRIu32,
+           endpoint.messageHubId, endpoint.endpointId, alert.dataFlowId.id);
+      continue;
+    }
+    instanceId = nanoappDataFlow->nanoappInstanceId;
+    // TODO(b/457453613): Handle data flow alerts for nanoapp sinks.
+
+    UniquePtr<chreDataFlowNewDataAlert> event =
+        MakeUnique<chreDataFlowNewDataAlert>();
+    if (event == nullptr) {
+      LOG_OOM();
+      continue;
+    }
+    event->hubId = alert.dataFlowId.hubId;
+    event->dataFlowId = alert.dataFlowId.id;
+
+    EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+        CHRE_EVENT_DATA_FLOW_ALERT, event.release(), freeEventDataCallback,
+        instanceId);
+  }
 }
 
 uint32_t DataFlowManager::buildConsumerPolicy(
@@ -595,11 +665,59 @@ DataFlowManager::BlockConfig DataFlowManager::calculateBlockConfig(
   return {blockCapacity, kMinBlockCount, maxBlockCount};
 }
 
-void DataFlowManager::sendDataFlowAlertToRemoteSink(
-    uint32_t /*dataFlowId*/, uint64_t /*sinkHubId*/,
-    uint64_t /*sinkEndpointId*/) {
-  // TODO(b/457453613): Implement this function. This may be called from other
-  // DataFlowManager APIs.
+Nanoapp *DataFlowManager::getNanoapp(uint64_t hubId, uint64_t endpointId,
+                                     EventLoop **eventLoopOut) {
+  if (hubId != ChreMessageHubManager::kChreMessageHubId) {
+    return nullptr;
+  }
+
+  EventLoop *eventLoop =
+      EventLoopManagerSingleton::get()->getEventLoopByAppId(endpointId);
+  if (eventLoopOut != nullptr) {
+    *eventLoopOut = eventLoop;
+  }
+  if (eventLoop == nullptr) {
+    return nullptr;
+  }
+
+  return eventLoop->findNanoappByAppId(endpointId);
+}
+
+void DataFlowManager::sendDataFlowAlertToRemoteSource(
+    uint32_t dataFlowId, uint64_t sourceHubId, uint64_t sourceEndpointId) {
+  Endpoint receiverEndpoint(sourceHubId, sourceEndpointId);
+  DataFlowAlert alert = {
+      .dataFlowId =
+          {
+              .hubId = sourceHubId,
+              .id = dataFlowId,
+          },
+      .receiverEndpoints = pw::span<Endpoint>(&receiverEndpoint, 1),
+      .waking = true,
+  };
+  EventLoopManagerSingleton::get()
+      ->getChreMessageHubManager()
+      .getMessageHub()
+      .reportDataFlowAlert(alert);
+}
+
+void DataFlowManager::sendDataFlowAlertToRemoteSink(uint32_t dataFlowId,
+                                                    uint64_t sinkHubId,
+                                                    uint64_t sinkEndpointId) {
+  Endpoint receiverEndpoint(sinkHubId, sinkEndpointId);
+  DataFlowAlert alert = {
+      .dataFlowId =
+          {
+              .hubId = ChreMessageHubManager::kChreMessageHubId,
+              .id = dataFlowId,
+          },
+      .receiverEndpoints = pw::span<Endpoint>(&receiverEndpoint, 1),
+      .waking = true,
+  };
+  EventLoopManagerSingleton::get()
+      ->getChreMessageHubManager()
+      .getMessageHub()
+      .reportDataFlowAlert(alert);
 }
 
 pw::Status DataFlowManager::createProducer(NanoappDataFlow &dataFlow) {
@@ -831,6 +949,19 @@ uint32_t DataFlowManager::sourceAddSinkAsyncCommon(
       freeEventDataCallback, nanoapp->getInstanceId());
 
   return CHRE_STATUS_OK;
+}
+
+DataFlowManager::NanoappDataFlow *DataFlowManager::findNanoappDataFlow(
+    message::DataFlowId dataFlowId) {
+  if (dataFlowId.hubId != ChreMessageHubManager::kChreMessageHubId) {
+    return nullptr;
+  }
+  for (NanoappDataFlow &dataFlow : mDataFlows) {
+    if (dataFlow.properties.dataFlowId == dataFlowId.id) {
+      return &dataFlow;
+    }
+  }
+  return nullptr;
 }
 
 }  // namespace chre

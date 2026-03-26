@@ -19,6 +19,7 @@
 
 #ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
 
+#include "chre/core/event_loop.h"
 #include "chre/core/nanoapp.h"
 #include "chre/util/non_copyable.h"
 #include "chre/util/system/message_common.h"
@@ -353,8 +354,7 @@ class DataFlowManager : public NonCopyable {
    *
    * @param registration The registration to handle.
    */
-  void onRegisterDataFlowSink(
-      chre::message::DataFlowSinkRegistration &&registration);
+  void onRegisterDataFlowSink(message::DataFlowSinkRegistration &&registration);
 
   /**
    * Handles the unregistration of a nanoapp as the sink for a data flow.
@@ -362,21 +362,21 @@ class DataFlowManager : public NonCopyable {
    * @param unregistration The unregistration to handle.
    */
   void onDataFlowSinkUnregistered(
-      const chre::message::DataFlowSinkUnregistration &unregistration);
+      const message::DataFlowSinkUnregistration &unregistration);
 
   /**
    * Handles a data flow stopped event where the nanoapp is a sink.
    *
    * @param stopped The stopped event to handle.
    */
-  void onDataFlowStopped(const chre::message::DataFlowStopped &stopped);
+  void onDataFlowStopped(const message::DataFlowStopped &stopped);
 
   /**
    * Handles a data flow alert event where the nanoapp is a sink.
    *
    * @param alert The alert event to handle.
    */
-  void onDataFlowAlert(const chre::message::DataFlowAlert &alert);
+  void onDataFlowAlert(const message::DataFlowAlert &alert);
 
  private:
   //! The configuration for the block size and count for a data flow.
@@ -451,12 +451,35 @@ class DataFlowManager : public NonCopyable {
   static BlockConfig calculateBlockConfig(uint32_t minElementCount,
                                           uint32_t maxElementCount);
 
-  //! The callback for remote notifications on a data flow. This is used to
-  //! propagate an alert from a nanoapp source.
-  // TODO(b/457453613): Make this static to ensure it accesses no state or
-  // defer.
-  void sendDataFlowAlertToRemoteSink(uint32_t dataFlowId, uint64_t sinkHubId,
-                                     uint64_t sinkEndpointId);
+  //! Helper function to get a nanoapp from a hub ID and endpoint ID.
+  //!
+  //! @param hubId The hub ID.
+  //! @param endpointId The endpoint ID.
+  //! @param eventLoopOut Pointer to a pointer to the event loop to be
+  //! populated if it is not nullptr. Will be set to nullptr if this function
+  //! returns nullptr.
+  //! @return The nanoapp if the hub ID is the CHRE hub ID and the nanoapp
+  //! exists, otherwise nullptr.
+  static Nanoapp *getNanoapp(uint64_t hubId, uint64_t endpointId,
+                             EventLoop **eventLoopOut = nullptr);
+
+  //! Sends a data flow alert to a remote source.
+  //!
+  //! @param dataFlowId The ID of the data flow.
+  //! @param sourceHubId The hub ID of the source.
+  //! @param sourceEndpointId The endpoint ID of the source.
+  static void sendDataFlowAlertToRemoteSource(uint32_t dataFlowId,
+                                              uint64_t sourceHubId,
+                                              uint64_t sourceEndpointId);
+
+  //! Sends a data flow alert to a remote sink.
+  //!
+  //! @param dataFlowId The ID of the data flow.
+  //! @param sinkHubId The hub ID of the sink.
+  //! @param sinkEndpointId The endpoint ID of the sink.
+  static void sendDataFlowAlertToRemoteSink(uint32_t dataFlowId,
+                                            uint64_t sinkHubId,
+                                            uint64_t sinkEndpointId);
 
   //! Creates the producer for the given data flow.
   //! @param dataFlow The active data flow for which to create a producer.
@@ -492,6 +515,9 @@ class DataFlowManager : public NonCopyable {
       bool hasMessage, void *message, size_t messageSize, uint32_t messageType,
       uint16_t sessionId, uint32_t messagePermissions,
       chreMessageFreeFunction *freeCallback);
+
+  //! Helper to lookup the NanoappDataFlow for a given data flow ID.
+  NanoappDataFlow *findNanoappDataFlow(message::DataFlowId dataFlowId);
 
   //! The data flows owned by nanoapps.
   pw::Vector<NanoappDataFlow, kMaxDataFlows> mDataFlows;
