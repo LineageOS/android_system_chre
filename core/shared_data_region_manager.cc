@@ -24,6 +24,51 @@
 
 namespace chre {
 
+SharedDataRegionManager::RegionGuard::RegionGuard(int32_t regionId)
+    : mRegionId(regionId), mIsValid(false) {
+  pw::Result<std::pair<android::contexthub::data_flow::Region,
+                       android::contexthub::data_flow::MemoryAccess *>>
+      result = EventLoopManagerSingleton::get()
+                   ->getSharedDataRegionManager()
+                   .incrementRegionRefCount(regionId);
+  if (result.ok()) {
+    mRegion = result->first;
+    mMemoryAccess = result->second;
+    mIsValid = true;
+  } else {
+    LOGE("Failed to get existing region with ID: %" PRId32 " and status: %s",
+         regionId, result.status().str());
+  }
+}
+
+SharedDataRegionManager::RegionGuard::~RegionGuard() {
+  if (isValid()) {
+    EventLoopManagerSingleton::get()
+        ->getSharedDataRegionManager()
+        .decrementRegionRefCount(mRegionId);
+  }
+}
+
+SharedDataRegionManager::RegionGuard::RegionGuard(RegionGuard &&other) {
+  mRegionId = other.mRegionId;
+  mRegion = other.mRegion;
+  mMemoryAccess = other.mMemoryAccess;
+  mIsValid = other.mIsValid;
+  other.mIsValid = false;
+}
+
+SharedDataRegionManager::RegionGuard &
+SharedDataRegionManager::RegionGuard::operator=(RegionGuard &&other) {
+  if (this != &other) {
+    mRegionId = other.mRegionId;
+    mRegion = other.mRegion;
+    mMemoryAccess = other.mMemoryAccess;
+    mIsValid = other.mIsValid;
+    other.mIsValid = false;
+  }
+  return *this;
+}
+
 void SharedDataRegionManager::handleDataFlowStopped(int32_t regionId) {
   LockGuard lock(mMutex);
   for (RegionRefCounter &regionRef: mRegions) {

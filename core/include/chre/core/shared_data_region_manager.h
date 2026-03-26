@@ -19,9 +19,9 @@
 #if defined(CHRE_DATA_FLOW_SUPPORT_ENABLED)
 
 #include <cstdint>
-
 #include "chre/platform/mutex.h"
 #include "chre/platform/platform_shared_data_region_manager.h"
+#include "chre/util/non_copyable.h"
 #include "data_flow/queue.h"
 #include "pw_containers/vector.h"
 #include "pw_status/status.h"
@@ -36,6 +36,42 @@ namespace chre {
  */
 class SharedDataRegionManager : public PlatformSharedDataRegionManager {
  public:
+  /**
+   * RAII wrapper for shared data regions not allocated by CHRE.
+   *
+   * Increments the reference count of the region on construction and decrements
+   * it on destruction.
+   */
+  class RegionGuard : public NonCopyable {
+   public:
+    explicit RegionGuard(int32_t regionId);
+    ~RegionGuard();
+
+    RegionGuard(RegionGuard &&other);
+    RegionGuard &operator=(RegionGuard &&other);
+
+    bool isValid() const {
+      return mIsValid;
+    }
+    int32_t getRegionId() const {
+      return mRegionId;
+    }
+    android::contexthub::data_flow::Region getRegion() const {
+      return mRegion;
+    }
+    android::contexthub::data_flow::MemoryAccess *getMemoryAccess() const {
+      return mMemoryAccess;
+    }
+
+   private:
+    friend class SharedDataRegionManager;
+
+    int32_t mRegionId;
+    android::contexthub::data_flow::Region mRegion;
+    android::contexthub::data_flow::MemoryAccess *mMemoryAccess;
+    bool mIsValid;
+  };
+
   /**
    * Handles when a data flow stops on a region created using this manager.
    * This will deallocate the region if needed.
