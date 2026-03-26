@@ -84,13 +84,6 @@ class SynchronizedMemoryPool : public NonCopyable {
   }
 
   /**
-   * @return The number of elements currently allocated in the memory pool.
-   */
-  size_t size() {
-    return mMemoryPool.size();
-  }
-
-  /**
    * @return True if the memory pool is empty (contains no allocated elements).
    */
   bool empty() {

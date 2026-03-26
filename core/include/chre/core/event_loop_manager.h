@@ -34,6 +34,7 @@
 #include "chre/core/system_health_monitor.h"
 #include "chre/core/telemetry_manager.h"
 #include "chre/core/timer_pool.h"
+#include "chre/core/wakeup_stats_manager.h"
 #include "chre/core/wifi_request_manager.h"
 #include "chre/core/wwan_request_manager.h"
 #include "chre/platform/atomic.h"
@@ -566,6 +567,13 @@ class EventLoopManager : public NonCopyable {
   }
 
   /**
+   * @return A reference to the wakeup stats manager.
+   */
+  WakeupStatsManager &getWakeupStatsManager() {
+    return mWakeupStatsManager;
+  }
+
+  /**
    * @return A reference to the memory manager. This allows central control of
    *         the heap space allocated by nanoapps.
    */
@@ -829,6 +837,9 @@ Same as chreBleGetFilterCapabilities, but must be called with the global API
 
   //! Handles communications with the host processor.
   HostCommsManager mHostCommsManager;
+
+  //! Central manager for host wakeup attribution.
+  WakeupStatsManager mWakeupStatsManager;
 
   HostEndpointManager mHostEndpointManager;
 

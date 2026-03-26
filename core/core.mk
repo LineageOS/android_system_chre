@@ -26,6 +26,7 @@ COMMON_SRCS += $(CHRE_PREFIX)/core/shared_data_region_manager.cc
 COMMON_SRCS += $(CHRE_PREFIX)/core/static_nanoapps.cc
 COMMON_SRCS += $(CHRE_PREFIX)/core/system_health_monitor.cc
 COMMON_SRCS += $(CHRE_PREFIX)/core/timer_pool.cc
+COMMON_SRCS += $(CHRE_PREFIX)/core/wakeup_stats_manager.cc
 
 # Optional audio support.
 ifeq ($(CHRE_AUDIO_SUPPORT_ENABLED), true)

@@ -92,6 +92,17 @@ enum class MessageType : uint32_t {
    */
   kContinue = 0x0405,
 
+  /**
+   * Explicit command to tear down a statically loaded test nanoapp.
+   *
+   * Sent by the Host during test de-initialization so the static nanoapp
+   * can safely destroy its current test object, reset its internal state,
+   * and prepare for consecutive parameterized test runs.
+   *
+   * This type should only be sent by the Host code.
+   */
+  kTestTeardown = 0x8000,
+
   // Tests wanting to add custom message types for their protocols should
   // add them below.  Remember to update ContextHubTestConstants.java as
   // well (see NOTE at the top of this header).

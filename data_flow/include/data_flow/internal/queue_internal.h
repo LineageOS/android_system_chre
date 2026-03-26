@@ -150,13 +150,16 @@ constexpr pw::allocator::Layout variableDataBlockLayout(size_t blockCapacity) {
 }
 
 /** Type of function used to initialize a block. */
-using InitBlockFn = void (*)(BlockHeader &block, uint32_t blockCapacity);
+using InitBlockFn = void (*)(uintptr_t shmemBase, BlockHeader &block,
+                             uint32_t blockCapacity);
 
 /** Initializes a fixed-size data block. */
-void initFixedSizeDataBlock(BlockHeader &block, uint32_t blockCapacity);
+void initFixedSizeDataBlock(uintptr_t shmemBase, BlockHeader &block,
+                            uint32_t blockCapacity);
 
 /** Initializes a variable-size data block. */
-void initVariableDataBlock(BlockHeader &block, uint32_t blockCapacity);
+void initVariableDataBlock(uintptr_t shmemBase, BlockHeader &block,
+                           uint32_t blockCapacity);
 
 /** Base class for item tracked in the consumer list for a queue. */
 struct ConsumerListNode
@@ -822,7 +825,8 @@ class ConsumerBase {
     uint32_t writeIndexFromDesc;
     uint32_t baseIndex;
     uint32_t skipIndex;
-    uint32_t readInBlock;
+    uint32_t readInBlock = 0;
+    bool rejectUpdate = false;
   };
 
   /**

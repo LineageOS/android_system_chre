@@ -76,19 +76,19 @@ void deallocateBlockRing(const AllocatorRegion &region,
 /**
  * Allocate a block in shared memory.
  *
- * @param allocator The allocator used to allocate the block.
+ * @param region The region to allocate the block from.
  * @param layout The layout of the block.
  * @param blockCapacity The capacity of the block. This cannot be inferred from
  * the layout as it is dependent on element size and alignment.
  * @param initBlockFn Function used to initialize the block.
  * @return The allocated block on success, nullptr on failure.
  */
-BlockHeader *allocateBlock(pw::Allocator &allocator,
+BlockHeader *allocateBlock(const AllocatorRegion &region,
                            pw::allocator::Layout layout, uint32_t blockCapacity,
                            InitBlockFn initBlockFn) {
-  auto *block = static_cast<BlockHeader *>(allocator.Allocate(layout));
+  auto *block = static_cast<BlockHeader *>(region.allocator->Allocate(layout));
   if (block) {
-    initBlockFn(*block, blockCapacity);
+    initBlockFn(region.base, *block, blockCapacity);
   }
   return block;
 }
@@ -96,7 +96,7 @@ BlockHeader *allocateBlock(pw::Allocator &allocator,
 /**
  * Allocates a block ring in shared memory.
  *
- * @param shmemBase The shared memory region in which to allocate the blocks.
+ * @param region The region to allocate the block(s) from.
  * @param layout The layout of the block ring.
  * @param blockCapacity The capacity of the block ring. This cannot be inferred
  * from the layout as it is dependent on element size and alignment.
@@ -115,8 +115,7 @@ pw::Result<BlockHeader *> allocateBlockRing(const AllocatorRegion &region,
   }
   BlockHeader *head = nullptr, *prev = nullptr;
   for (size_t i = 0; i < count; ++i) {
-    if (auto *block = allocateBlock(*region.allocator, layout, blockCapacity,
-                                    initBlockFn);
+    if (auto *block = allocateBlock(region, layout, blockCapacity, initBlockFn);
         block) {
       if (!head) {
         head = block;
@@ -207,15 +206,11 @@ constexpr uint32_t ringDiff(uint32_t end, uint32_t begin, uint32_t size) {
  * @param writeIndex The current write index.
  * @param correction The correction to the write index for calculating the index
  * within Block::data.
- * @param tailBlock The tail block.
- * @param shmemBase The base address of the shared memory.
  */
 void initProducerDesc(ProducerDesc &desc, uint32_t writeIndex,
-                      uint32_t correction, BlockHeader *tailBlock,
-                      uintptr_t shmemBase) {
+                      uint32_t correction) {
   ::chre::AtomicUint32Ref(desc.writeIndex).store(writeIndex);
   desc.indexCorrection = correction;
-  desc.tailBlockOffsetBytes = toOffset(shmemBase, tailBlock);
 }
 
 /**
@@ -372,14 +367,16 @@ pw::allocator::Layout getBlockLayout(size_t blockCapacity, size_t elementSize,
 
 }  // namespace
 
-void initFixedSizeDataBlock(BlockHeader &block, uint32_t blockCapacity) {
+void initFixedSizeDataBlock(uintptr_t shmemBase, BlockHeader &block,
+                            uint32_t blockCapacity) {
   ::chre::AtomicUint32Ref(block.baseIndex).store(0);
   ::chre::AtomicUint32Ref(block.skipIndex).store(blockCapacity);
+  block.sourceMetadata.tailBlockOffsetBytes = toOffset(shmemBase, &block);
 }
 
-void initVariableDataBlock(internal::BlockHeader &block,
+void initVariableDataBlock(uintptr_t shmemBase, internal::BlockHeader &block,
                            uint32_t blockCapacity) {
-  initFixedSizeDataBlock(block, blockCapacity);
+  initFixedSizeDataBlock(shmemBase, block, blockCapacity);
   auto &varDataBlock = reinterpret_cast<internal::VariableDataBlock &>(block);
   varDataBlock.header.firstElementIndex = blockCapacity;
 }
@@ -488,8 +485,7 @@ pw::Status ProducerBase::initialize(InitBlockFn initBlockFn) {
                 allocateBlockRing(mRegion, kBlockLayout, kBlockCapacity,
                                   mBlockCount, initBlockFn));
   mDesc = &mCurrBlock->sourceMetadata;
-  initProducerDesc(*mDesc, /*writeIndex=*/0, /*correction=*/0, mCurrBlock,
-                   mRegion.base);
+  initProducerDesc(*mDesc, /*writeIndex=*/0, /*correction=*/0);
   ::chre::AtomicUint32Ref(mQueue->queue.blockListEpoch)
       .store(getBlockListEpoch(mBlockCount, /*epoch=*/0));
   ::chre::AtomicUint32Ref(mQueue->queue.sourceMetadataOffsetBytes)
@@ -726,8 +722,8 @@ pw::Status ProducerBase::allocateAndInsertBlocks(size_t count) {
   }
   auto *prevBlock = mCurrBlock;
   for (size_t i = 0; i < count; ++i) {
-    auto block = allocateBlock(*mRegion.allocator, kBlockLayout, kBlockCapacity,
-                               getInitBlockFn());
+    auto block =
+        allocateBlock(mRegion, kBlockLayout, kBlockCapacity, getInitBlockFn());
     if (!block) {
       PW_LOG_ERROR(
           "ProducerBase::allocateAndInsertBlocks: Failed to allocate block");
@@ -868,7 +864,7 @@ void ProducerBase::updateWriteIndex(BlockHeader *tailBlock, uint32_t writeIndex,
   } else {
     // Initialize the descriptor in the new tail block, then link it.
     auto &newDesc = tailBlock->sourceMetadata;
-    initProducerDesc(newDesc, writeIndex, correction, tailBlock, mRegion.base);
+    initProducerDesc(newDesc, writeIndex, correction);
     ::chre::AtomicUint32Ref(mQueue->queue.sourceMetadataOffsetBytes)
         .store(toOffset(mRegion.base, &newDesc));
     mDesc = &newDesc;
@@ -1530,44 +1526,74 @@ void ConsumerBase::updateBlockHeaderData(BlockHeaderData &data,
                                          uint32_t blockIndex,
                                          uint32_t advanceOverReadIndex) {
   auto newData = loadBlockHeader(*data.header);
+  // A previous pass through this method indicated that we should ignore any
+  // future updates to the block header.
+  if (data.rejectUpdate) {
+    return;
+  }
   newData.readInBlock = data.readInBlock;
   if (data.skipIndex == newData.skipIndex &&
       data.baseIndex == newData.baseIndex) {
-    // The relevant data for navigating this block have not changed. Store the
-    // new data and return.
-    data = newData;
-    return;
+    if (data.nextBlockOffset != newData.nextBlockOffset) {
+      // This specifically catches the following case: this consumer was
+      // up-to-date with the producer at the base of a block, after which the
+      // producer skipped. The consumer did not load the header again until
+      // after the producer had made it all the way around the queue, returning
+      // to the same block and clearing the skip index. Now the skip and base
+      // indices match, but the next block is new. So we infer that the consumer
+      // should skip immediately to the new next block.
+      data.skipIndex = newData.baseIndex;
+      data.nextBlockOffset = newData.nextBlockOffset;
+      data.rejectUpdate = true;
+    } else {
+      // The relevant data for navigating this block have not changed. Store the
+      // new data and return.
+      data = newData;
+    }
   } else if (data.baseIndex != newData.baseIndex) {
-    // The base index has changed while we are in the block, which may only
-    // happen when the producer enters a block. Only consumers following after
-    // the producer should follow the updated base index, so ignore the new
-    // data.
-    return;
-  }
-  // The skip index has changed, determine whether to follow it.
-  if (blockIndex != newData.skipIndex) {
+    if (data.skipIndex == kBlockCapacity) {
+      // The base index has changed, but our original state didn't capture the
+      // skip index. Infer the skip index from the new base index and continue
+      // to the new next block.
+      data.skipIndex = newData.baseIndex;
+      data.nextBlockOffset = newData.nextBlockOffset;
+      data.rejectUpdate = true;
+    } else {
+      // The base index has changed while we are in the block, which may only
+      // happen when the producer enters a block. Only consumers following after
+      // the producer should follow the updated base index, so ignore the new
+      // data.
+    }
+  } else if (data.skipIndex != kBlockCapacity) {
+    // This catches the case that we captured the original skip index in our
+    // block, but the producer has wrapped back around to the block, reset the
+    // base index (which must have been our skip index), and skipped again.
+    // Follow the original skip path.
+  } else if (blockIndex != newData.skipIndex) {
     auto newSkipIndexDiff =
         ringDiff(newData.skipIndex, blockIndex, kBlockCapacity);
-    if (data.readInBlock + newSkipIndexDiff > kBlockCapacity) {
+    if (data.readInBlock + newSkipIndexDiff >= kBlockCapacity) {
       // The skip index is behind our current block index, so we're intended to
       // move forward using the previous state.
-      return;
     } else {
       // The skip index is ahead of our current block index, so we're intended
       // to move forward using the new state.
       data = newData;
-      return;
     }
-  }
-  // The skip index is equal to our current block index. This is an ambiguous
-  // case as consumer state is insufficient to distinguish between a consumer
-  // following right behind the producer and a consumer a full queue's length
-  // behind. However, if the current read index (including the advance from
-  // peek) is equal to the stored write index in the block header, it indicates
-  // we should follow the producer over the skip index.
-  if (newData.writeIndexFromDesc ==
-      ::chre::AtomicUint32Ref(mDesc->readIndex).load() + advanceOverReadIndex) {
-    data = newData;
+  } else {
+    // The skip index is equal to our current block index. This is an ambiguous
+    // case as consumer state is insufficient to distinguish between a consumer
+    // following right behind the producer and a consumer a full queue's length
+    // behind. However, if the current read index (including the advance from
+    // peek) is equal to the stored write index in the block header, it
+    // indicates we should follow the producer over the skip index.
+    if (newData.writeIndexFromDesc ==
+        ::chre::AtomicUint32Ref(mDesc->readIndex).load() +
+            advanceOverReadIndex) {
+      data = newData;
+    } else {
+      data.rejectUpdate = true;
+    }
   }
 }
 
@@ -1583,9 +1609,7 @@ ConsumerBase::BlockHeaderData ConsumerBase::loadBlockHeader(
         .writeIndexFromDesc =
             ::chre::AtomicUint32Ref(header.sourceMetadata.writeIndex).load(),
         .baseIndex = ::chre::AtomicUint32Ref(header.baseIndex).load(),
-        .skipIndex = ::chre::AtomicUint32Ref(header.skipIndex).load(),
-        .readInBlock = 0,  // This should be set by the caller if needed.
-    };
+        .skipIndex = ::chre::AtomicUint32Ref(header.skipIndex).load()};
     mBlockListEpoch = epoch;
     epoch = ::chre::AtomicUint32Ref(mQueue->blockListEpoch).load();
   } while ((epoch != mBlockListEpoch) || (epoch % 2 != 0));

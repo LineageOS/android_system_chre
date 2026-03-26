@@ -94,11 +94,6 @@ class SynchronizedExpandableMemoryPool : public NonCopyable {
   inline bool full();
 
   /**
-   * @return The number of elements currently allocated in the memory pool.
-   */
-  inline size_t size();
-
-  /**
    * @return True if the memory pool is empty (contains no allocated elements).
    */
   inline bool empty();
