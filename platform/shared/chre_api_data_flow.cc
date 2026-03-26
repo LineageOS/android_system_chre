@@ -331,6 +331,23 @@ DLL_EXPORT uint32_t chreDataFlowSinkRelease(uint64_t hubId, uint32_t dataFlowId,
 #endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
 }
 
+DLL_EXPORT uint32_t chreDataFlowSinkPop(uint64_t hubId, uint32_t dataFlowId,
+                                        void *data, uint32_t *numBytes) {
+#ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
+  chreDataFlowPreApiCall();
+  Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+  GlobalApiLockGuard lock;
+  return EventLoopManagerSingleton::get()->getDataFlowManager().sinkPop(
+      nanoapp, hubId, dataFlowId, data, numBytes);
+#else
+  UNUSED_VAR(hubId);
+  UNUSED_VAR(dataFlowId);
+  UNUSED_VAR(data);
+  UNUSED_VAR(numBytes);
+  return CHRE_STATUS_UNIMPLEMENTED;
+#endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
+}
+
 DLL_EXPORT uint32_t chreDataFlowSinkSeek(uint64_t hubId, uint32_t dataFlowId,
                                          uint32_t offset) {
 #ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
@@ -360,6 +377,39 @@ DLL_EXPORT uint32_t chreDataFlowSinkGetOffset(uint64_t hubId,
   UNUSED_VAR(hubId);
   UNUSED_VAR(dataFlowId);
   UNUSED_VAR(offset);
+  return CHRE_STATUS_UNIMPLEMENTED;
+#endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
+}
+
+DLL_EXPORT uint32_t chreDataFlowSourceTruncateCurVariableElement(
+    uint32_t dataFlowId, uint32_t size) {
+#ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
+  chreDataFlowPreApiCall();
+  Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+  GlobalApiLockGuard lock;
+  return EventLoopManagerSingleton::get()
+      ->getDataFlowManager()
+      .variableSourceTruncate(nanoapp, dataFlowId, size);
+#else
+  UNUSED_VAR(dataFlowId);
+  UNUSED_VAR(size);
+  return CHRE_STATUS_UNIMPLEMENTED;
+#endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
+}
+
+DLL_EXPORT uint32_t chreDataFlowSinkGetHeadVariableElementSize(
+    uint64_t hubId, uint32_t dataFlowId, uint32_t *size) {
+#ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
+  chreDataFlowPreApiCall();
+  Nanoapp *nanoapp = EventLoopManager::validateChreApiCall(__func__);
+  GlobalApiLockGuard lock;
+  return EventLoopManagerSingleton::get()
+      ->getDataFlowManager()
+      .variableSinkGetHeadSize(nanoapp, hubId, dataFlowId, size);
+#else
+  UNUSED_VAR(hubId);
+  UNUSED_VAR(dataFlowId);
+  UNUSED_VAR(size);
   return CHRE_STATUS_UNIMPLEMENTED;
 #endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
 }

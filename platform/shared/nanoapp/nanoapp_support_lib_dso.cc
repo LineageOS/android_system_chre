@@ -859,6 +859,14 @@ uint32_t chreDataFlowSinkRelease(uint64_t hubId, uint32_t dataFlowId,
 }
 
 WEAK_SYMBOL
+uint32_t chreDataFlowSinkPop(uint64_t hubId, uint32_t dataFlowId, void *data,
+                             uint32_t *numBytes) {
+  auto *fptr = CHRE_NSL_LAZY_LOOKUP(chreDataFlowSinkPop);
+  return fptr != nullptr ? fptr(hubId, dataFlowId, data, numBytes)
+                         : CHRE_STATUS_UNIMPLEMENTED;
+}
+
+WEAK_SYMBOL
 uint32_t chreDataFlowSinkSeek(uint64_t hubId, uint32_t dataFlowId,
                               uint32_t offset) {
   auto *fptr = CHRE_NSL_LAZY_LOOKUP(chreDataFlowSinkSeek);
@@ -871,6 +879,23 @@ uint32_t chreDataFlowSinkGetOffset(uint64_t hubId, uint32_t dataFlowId,
                                    uint32_t *offset) {
   auto *fptr = CHRE_NSL_LAZY_LOOKUP(chreDataFlowSinkGetOffset);
   return fptr != nullptr ? fptr(hubId, dataFlowId, offset)
+                         : CHRE_STATUS_UNIMPLEMENTED;
+}
+
+WEAK_SYMBOL
+uint32_t chreDataFlowSourceTruncateCurVariableElement(uint32_t dataFlowId,
+                                                      uint32_t size) {
+  auto *fptr =
+      CHRE_NSL_LAZY_LOOKUP(chreDataFlowSourceTruncateCurVariableElement);
+  return fptr != nullptr ? fptr(dataFlowId, size) : CHRE_STATUS_UNIMPLEMENTED;
+}
+
+WEAK_SYMBOL
+uint32_t chreDataFlowSinkGetHeadVariableElementSize(uint64_t hubId,
+                                                    uint32_t dataFlowId,
+                                                    uint32_t *size) {
+  auto *fptr = CHRE_NSL_LAZY_LOOKUP(chreDataFlowSinkGetHeadVariableElementSize);
+  return fptr != nullptr ? fptr(hubId, dataFlowId, size)
                          : CHRE_STATUS_UNIMPLEMENTED;
 }
 #endif  // CHRE_NSL_SHOULD_PROVIDE_BACKCOMPAT_FOR(CHRE_API_VERSION_1_12)

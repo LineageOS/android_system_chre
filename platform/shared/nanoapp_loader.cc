@@ -279,8 +279,11 @@ const ExportedData kExportedData[] = {
     ADD_EXPORTED_C_SYMBOL(chreDataFlowSinkGetState),
     ADD_EXPORTED_C_SYMBOL(chreDataFlowSinkPeek),
     ADD_EXPORTED_C_SYMBOL(chreDataFlowSinkRelease),
+    ADD_EXPORTED_C_SYMBOL(chreDataFlowSinkPop),
     ADD_EXPORTED_C_SYMBOL(chreDataFlowSinkSeek),
     ADD_EXPORTED_C_SYMBOL(chreDataFlowSinkGetOffset),
+    ADD_EXPORTED_C_SYMBOL(chreDataFlowSourceTruncateCurVariableElement),
+    ADD_EXPORTED_C_SYMBOL(chreDataFlowSinkGetHeadVariableElementSize),
 #endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
     ADD_EXPORTED_C_SYMBOL(chreSendEvent),
     ADD_EXPORTED_C_SYMBOL(chreSendMessageToHost),

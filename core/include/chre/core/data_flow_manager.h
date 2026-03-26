@@ -166,6 +166,18 @@ class DataFlowManager : public NonCopyable {
                         uint32_t numBytes);
 
   /**
+   * Truncates reserved space in a variable-size element data flow source.
+   *
+   * @param nanoapp The nanoapp truncating the space.
+   * @param dataFlowId The ID of the data flow.
+   * @param size The size to truncate to.
+   *
+   * @return one of chreStatus codes.
+   */
+  uint32_t variableSourceTruncate(Nanoapp *nanoapp, uint32_t dataFlowId,
+                                  uint32_t size);
+
+  /**
    * Pushes data to a data flow source.
    *
    * @param nanoapp The nanoapp pushing the data.
@@ -269,6 +281,20 @@ class DataFlowManager : public NonCopyable {
                        uint32_t numBytes);
 
   /**
+   * Pops data from a data flow sink.
+   *
+   * @param nanoapp The nanoapp popping the data.
+   * @param hubId The ID of the hub hosting the sink.
+   * @param dataFlowId The ID of the data flow.
+   * @param data A pointer to the data.
+   * @param[in,out] numBytes The number of bytes to pop.
+   *
+   * @return one of chreStatus codes.
+   */
+  uint32_t sinkPop(Nanoapp *nanoapp, uint64_t hubId, uint32_t dataFlowId,
+                   void *data, uint32_t *numBytes);
+
+  /**
    * Seeks to an offset in the data flow.
    *
    * @param nanoapp The nanoapp seeking.
@@ -293,6 +319,19 @@ class DataFlowManager : public NonCopyable {
    */
   uint32_t sinkGetOffset(Nanoapp *nanoapp, uint64_t hubId, uint32_t dataFlowId,
                          uint32_t *offset);
+
+  /**
+   * Gets the size of the head element in a variable data flow sink.
+   *
+   * @param nanoapp The nanoapp getting the size.
+   * @param hubId The ID of the hub hosting the sink.
+   * @param dataFlowId The ID of the data flow.
+   * @param size The size of the head element.
+   *
+   * @return one of chreStatus codes.
+   */
+  uint32_t variableSinkGetHeadSize(Nanoapp *nanoapp, uint64_t hubId,
+                                   uint32_t dataFlowId, uint32_t *size);
 
   /**
    * Handles the result of an async allocation of a data flow region.

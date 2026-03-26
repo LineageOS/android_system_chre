@@ -284,6 +284,14 @@ struct chreDataFlowNewDataAlert {
 };
 
 /**
+ * Data provided in the CHRE_EVENT_DATA_FLOW_INVALIDATED event.
+ */
+struct chreDataFlowInvalidated {
+  /** The data flow ID associated with this data flow invalidation. */
+  uint32_t dataFlowId;
+};
+
+/**
  * Data flow sink domains, a bitmask of uint32_t.
  *
  * @defgroup CHRE_DATA_FLOW sink domains
@@ -437,6 +445,14 @@ struct chreDataFlowNewDataAlert {
  * Event sent when data is available in the data flow for consumption.
  */
 #define CHRE_EVENT_DATA_FLOW_ALERT CHRE_DATA_FLOW_EVENT_ID(5)
+
+/**
+ * nanoappHandleEvent argument: struct chreDataFlowInvalidated.
+ *
+ * Event sent when a data flow owned by the nanoapp is invalidated, e.g. if
+ * the underlying shared memory becomes unavailable due to a crash.
+ */
+#define CHRE_EVENT_DATA_FLOW_INVALIDATED CHRE_DATA_FLOW_EVENT_ID(6)
 
 // NOTE: Do not add new events with ID > 15
 /** @} */
@@ -695,6 +711,7 @@ uint32_t chreDataFlowSourceConfigureSink(uint64_t hubId,
  *    size for only a fixed-size data flow or if data or reservedBytes is
  *    NULL.
  *  - CHRE_STATUS_FAILED_PRECONDITION if the data flow is not active.
+ *  - CHRE_STATUS_UNAVAILABLE if there is not enough available capacity.
  *
  * @since v1.12
  */
@@ -745,8 +762,7 @@ uint32_t chreDataFlowSourceCommit(uint32_t dataFlowId, uint32_t numBytes);
  *  - CHRE_STATUS_OK on success.
  *  - CHRE_STATUS_PERMISSION_DENIED if the data flow is not owned by this
  *    nanoapp.
- *  - CHRE_STATUS_RESOURCE_EXHAUSTED if the data flow is full and
- *    allOrNothing is true.
+ *  - CHRE_STATUS_UNAVAILABLE if the data flow is full and allOrNothing is true.
  *  - CHRE_STATUS_FAILED_PRECONDITION if there is an active reservation or if
  *    the data flow is not active.
  *  - CHRE_STATUS_INVALID_ARGUMENT if numBytes is 0 or not a multiple of the
@@ -871,11 +887,20 @@ uint32_t chreDataFlowSinkGetState(uint64_t hubId, uint32_t dataFlowId);
 
 /**
  * Returns a const view over the next contiguous block of data, up to
- * numRequestedBytes. This function returns CHRE_STATUS_OK if the
- * request was successful, i.e. if the sink is valid on a valid data flow
- * and there are greater than zero bytes available to consume. *data and
- * *numBytes will contain the available data to consume if successful, otherwise
- * they will be unchanged. This data will follow the data previously peeked.
+ * numRequestedBytes. "Next" means that the returned view contains data that
+ * comes logically after any previous call to chreDataFlowSinkPeek() or
+ * chreDataFlowSinkPop(). This function returns CHRE_STATUS_OK if the request
+ * was successful, i.e. if the sink is valid on a valid data flow and
+ * numRequestedBytes are available to consume. *data will point to the
+ * contiguous block of data, and *numBytes will be populated with the size of
+ * the block, which may be less than numRequestedBytes. In such a case, the user
+ * may call this function again with numRequestedBytes set to the remainder to
+ * peek the next contiguous block of data.
+ *
+ * NOTE: For data flows with variable-size elements, chreDataFlowSinkPeek() will
+ * only return views over the single head element i.e. once the entire element
+ * has been peeked, it will continue to return views of size 0, until the
+ * element is released with chreDataFlowSinkRelease().
  *
  * WARNING: If the source configured this sink to be overwritable, it is
  * expected that the source may overwrite this sink. The contents of a
@@ -890,17 +915,18 @@ uint32_t chreDataFlowSinkGetState(uint64_t hubId, uint32_t dataFlowId);
  * @param numRequestedBytes The requested number of bytes to peek.
  * @param data A pointer to a buffer to store the peeked bytes if
  *     successful, otherwise unchanged. This pointer is only valid in the
- *     nanoapp event context in which this function is called.
- * @param numBytes A pointer to an integer to store the number of bytes
- *     available to peek if successful, otherwise unchanged. This value will
- *     be less than or equal to numRequestedBytes.
+ *     nanoapp event context in which this function is called. Cannot be NULL.
+ * @param[out] numBytes A pointer to an integer to store the number of
+ *     contiguous bytes to read at data if successful, otherwise unchanged. This
+ *     value will be less than or equal to numRequestedBytes. Cannot be NULL.
  * @return one of chreStatus:
- *  - CHRE_STATUS_OK if the request was successful, i.e. if the sink is
- *    valid on a valid data flow and there are greater than zero bytes
- *    available to consume.
+ *  - CHRE_STATUS_OK if the request was successful, i.e. if numRequestedBytes
+ *    are available to consume.
  *  - CHRE_STATUS_INVALID_ARGUMENT if numRequestedBytes is not a multiple of
  *    the element size.
  *  - CHRE_STATUS_NOT_FOUND if the sink is not enabled.
+ *  - CHRE_STATUS_UNAVAILABLE if the available data in the data flow is less
+ *    than numRequestedBytes.
  *
  * @since v1.12
  */
@@ -909,33 +935,72 @@ uint32_t chreDataFlowSinkPeek(uint64_t hubId, uint32_t dataFlowId,
                               const void **data, uint32_t *numBytes);
 
 /**
- * Releases the first numBytes bytes from the data flow. This function returns
- * true if the request was successful, i.e. if the sink is valid on a valid
- * data flow and there are numBytes bytes that can be released after being
- * consumed.
+ * For data flows with fixed-size elements, releases the first numBytes bytes
+ * available to read, i.e. advances the sink's read index by numBytes bytes. For
+ * data flows with variable-size elements, releases the head element.
  *
- * NOTE: This invalidates the pointers and associated values previously returned
- * by chreDataFlowSinkPeek() if the request was successful.
+ * This method can be used to signal that the memory backing data which was
+ * peeked via chreDataFlowSinkPeek() can be released. It can also be used to
+ * advance the read index without first peeking, effectively discarding the
+ * data.
  *
- * If numBytes is not a multiple of the element size provided to the sink
- * nanoapp by the CHRE_DATA_FLOW_SINK_CREATED event, this function will
- * return CHRE_STATUS_INVALID_ARGUMENT.
+ * NOTE: On success, this call invalidates the pointers and associated values
+ * previously returned by chreDataFlowSinkPeek().
+ *
+ * For fixed-size data flows, if numBytes is not a multiple of the element size
+ * provided to the sink nanoapp by the CHRE_DATA_FLOW_SINK_CREATED event, this
+ * function will return CHRE_STATUS_INVALID_ARGUMENT.
  *
  * @param hubId The ID of the hub associated with the data flow.
  * @param dataFlowId The ID of the data flow on which to release the consumed
  *                   bytes.
- * @param numBytes The number of bytes to release.
+ * @param numBytes The number of bytes to release for fixed-size element data
+ *                 flows.
  *
  * @return one of chreStatus:
  *  - CHRE_STATUS_OK if the request was successful.
  *  - CHRE_STATUS_NOT_FOUND if the sink is not enabled.
- *  - CHRE_STATUS_INVALID_ARGUMENT if numBytes is not a multiple of the
- *    element size.
+ *  - CHRE_STATUS_INVALID_ARGUMENT for fixed-size elements if numBytes is not a
+ *    multiple of the element size.
  *
  * @since v1.12
  */
 uint32_t chreDataFlowSinkRelease(uint64_t hubId, uint32_t dataFlowId,
                                  uint32_t numBytes);
+
+/**
+ * Pops the next element(s) from the data flow into the provided buffer.
+ *
+ * If the data flow has fixed-size elements, this function will pop an integral
+ * number of elements into the buffer, which must be a multiple of the element
+ * size.
+ *
+ * If the data flow has variable-size elements, this function will pop the next
+ * element into the buffer. The buffer must be large enough to hold the
+ * element (see {@link chreDataFlowVariableSinkGetHeadSize()}). If larger than
+ * the element size, numBytes will be updated to the size of the element.
+ *
+ * @param hubId The ID of the hub associated with the data flow.
+ * @param dataFlowId The ID of the data flow on which to pop data.
+ * @param data A pointer to a buffer to store the popped bytes. Cannot be NULL.
+ * @param[in,out] numBytes A pointer to an integer that on entry specifies the
+ *     size of the buffer, and on exit stores the number of bytes that were
+ *     successfully popped. Cannot be NULL.
+ * @return one of chreStatus:
+ *  - CHRE_STATUS_OK if the request was successful.
+ *  - CHRE_STATUS_INVALID_ARGUMENT if the popped number of bytes is not a
+ *    multiple of the element size for a fixed-size data flow, if data or
+ *    numBytes is NULL, or if the provided buffer is too small to hold the next
+ *    element in a variable-size data flow.
+ *  - CHRE_STATUS_NOT_FOUND if the sink is not enabled.
+ *  - CHRE_STATUS_UNAVAILABLE if there are no elements available to read or if
+ *    the flow contains fixed-size elements and numBytes exceeds the number of
+ *    available elements.
+ *
+ * @since v1.12
+ */
+uint32_t chreDataFlowSinkPop(uint64_t hubId, uint32_t dataFlowId,
+                             void *data, uint32_t *numBytes);
 
 /**
  * Seeks the sink's read pointer on the given data flow to an offset defined as
@@ -945,6 +1010,8 @@ uint32_t chreDataFlowSinkRelease(uint64_t hubId, uint32_t dataFlowId,
  *
  * NOTE: The sink's read pointer is initialized to the current write index
  * during sink creation.
+ * NOTE: All views returned by chreDataFlowSinkPeek() are invalidated by this
+ * call.
  *
  * @param hubId The ID of the hub associated with the data flow.
  * @param dataFlowId The ID of the data flow.
@@ -982,6 +1049,59 @@ uint32_t chreDataFlowSinkSeek(uint64_t hubId, uint32_t dataFlowId,
  */
 uint32_t chreDataFlowSinkGetOffset(uint64_t hubId, uint32_t dataFlowId,
                                    uint32_t *offset);
+
+/**
+ * Truncates the currently reserved element in the data flow to the given size.
+ *
+ * This method is only valid for data flows with variable-size elements.
+ *
+ * This is only valid if there is an active reservation. If size is 0, the
+ * reservation is effectively released (i.e. chreDataFlowSourcePush() may be
+ * called).
+ *
+ * @param dataFlowId The ID of the data flow.
+ * @param size The size to truncate the current element reservation to. Must be
+ *     less than or equal to the current size of the reservation.
+ * @return One of chreStatus:
+ *  - CHRE_STATUS_OK on success.
+ *  - CHRE_STATUS_PERMISSION_DENIED if the data flow is not owned by this
+ *    nanoapp.
+ *  - CHRE_STATUS_INVALID_ARGUMENT if size is greater than the current size of
+ *    the reservation.
+ *  - CHRE_STATUS_FAILED_PRECONDITION if there is no active reservation, if the
+ *    data flow is not active, or if the data flow does not have variable-size
+ *    elements.
+ *
+ * @since v1.12
+ */
+uint32_t chreDataFlowSourceTruncateCurVariableElement(uint32_t dataFlowId,
+                                                      uint32_t size);
+
+/**
+ * Returns the size of the next available element in the data flow.
+ *
+ * This is only applicable to data flows with variable-size elements.
+ *
+ * If the current head element has been partially peek()ed, this API will
+ * continue to return the total size of that element.
+ *
+ * @param hubId The ID of the hub associated with the data flow.
+ * @param dataFlowId The ID of the data flow.
+ * @param[out] size A pointer to an integer to store the size of the next element.
+ *     Cannot be NULL.
+ * @return One of chreStatus:
+ *  - CHRE_STATUS_OK on success.
+ *  - CHRE_STATUS_NOT_FOUND if the sink is not enabled.
+ *  - CHRE_STATUS_UNAVAILABLE if there are no elements available to read.
+ *  - CHRE_STATUS_INVALID_ARGUMENT if size is NULL or the data flow does not have
+ *    variable-size elements.
+ *  - CHRE_STATUS_FAILED_PRECONDITION if the data flow does not contain
+ *    variable-size elements.
+ *
+ * @since v1.12
+ */
+uint32_t chreDataFlowSinkGetHeadVariableElementSize(uint64_t hubId, uint32_t dataFlowId,
+                                             uint32_t *size);
 
 #ifdef __cplusplus
 }

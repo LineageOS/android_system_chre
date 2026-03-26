@@ -272,6 +272,13 @@ uint32_t DataFlowManager::sourceCommit(Nanoapp *nanoapp, uint32_t dataFlowId,
   return toChreStatus(commitStatus);
 }
 
+uint32_t DataFlowManager::variableSourceTruncate(Nanoapp * /*nanoapp*/,
+                                                 uint32_t /*dataFlowId*/,
+                                                 uint32_t /*size*/) {
+  // TODO(b/457453613): Implement this function
+  return CHRE_STATUS_UNIMPLEMENTED;
+}
+
 uint32_t DataFlowManager::sourcePush(Nanoapp *nanoapp, uint32_t dataFlowId,
                                      const void *data, uint32_t numBytes,
                                      bool allOrNothing,
@@ -437,6 +444,13 @@ uint32_t DataFlowManager::sinkRelease(Nanoapp * /*nanoapp*/, uint64_t /*hubId*/,
   return CHRE_STATUS_UNIMPLEMENTED;
 }
 
+uint32_t DataFlowManager::sinkPop(Nanoapp * /*nanoapp*/, uint64_t /*hubId*/,
+                                  uint32_t /*dataFlowId*/, void * /*data*/,
+                                  uint32_t * /*numBytes*/) {
+  // TODO(b/457453613): Implement this function
+  return CHRE_STATUS_UNIMPLEMENTED;
+}
+
 uint32_t DataFlowManager::sinkSeek(Nanoapp * /*nanoapp*/, uint64_t /*hubId*/,
                                    uint32_t /*dataFlowId*/,
                                    uint32_t /*offset*/) {
@@ -448,6 +462,14 @@ uint32_t DataFlowManager::sinkGetOffset(Nanoapp * /*nanoapp*/,
                                         uint64_t /*hubId*/,
                                         uint32_t /*dataFlowId*/,
                                         uint32_t * /*offset*/) {
+  // TODO(b/457453613): Implement this function
+  return CHRE_STATUS_UNIMPLEMENTED;
+}
+
+uint32_t DataFlowManager::variableSinkGetHeadSize(Nanoapp * /*nanoapp*/,
+                                                  uint64_t /*hubId*/,
+                                                  uint32_t /*dataFlowId*/,
+                                                  uint32_t * /*size*/) {
   // TODO(b/457453613): Implement this function
   return CHRE_STATUS_UNIMPLEMENTED;
 }
