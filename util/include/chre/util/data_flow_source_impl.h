@@ -300,10 +300,12 @@ inline pw::Result<pw::ByteSpan> VariableDataFlowSource::reserve(
   return toPwStatus(status);
 }
 
-inline pw::Status VariableDataFlowSource::truncate(
-    uint32_t /*numBytes*/) const {
-  // TODO(b/493930160): Implement this.
-  return pw::Status::Unimplemented();
+inline pw::Status VariableDataFlowSource::truncate(uint32_t numBytes) const {
+  if (mDataFlowId == CHRE_DATA_FLOW_ID_INVALID) {
+    return pw::Status::NotFound();
+  }
+  return toPwStatus(
+      chreDataFlowSourceTruncateCurVariableElement(mDataFlowId, numBytes));
 }
 
 inline pw::Status VariableDataFlowSource::commit() const {

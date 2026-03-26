@@ -81,18 +81,25 @@ pw::Result<ElementType> DataFlowSink<ElementType>::pop() const {
   if (mDataFlowId == CHRE_DATA_FLOW_ID_INVALID) {
     return pw::Status::NotFound();
   }
-  // TODO(b/493930160): Implement this.
-  return pw::Status::Unimplemented();
+  ElementType element;
+  uint32_t numBytes = sizeof(ElementType);
+  uint32_t status =
+      chreDataFlowSinkPop(mHubId, mDataFlowId, &element, &numBytes);
+  if (status == CHRE_STATUS_OK) {
+    return element;
+  }
+  return toPwStatus(status);
 }
 
 template <typename ElementType>
 pw::Status DataFlowSink<ElementType>::pop(
-    pw::span<ElementType> /*elements*/) const {
+    pw::span<ElementType> elements) const {
   if (mDataFlowId == CHRE_DATA_FLOW_ID_INVALID) {
     return pw::Status::NotFound();
   }
-  // TODO(b/493930160): Implement this.
-  return pw::Status::Unimplemented();
+  uint32_t numBytes = elements.size_bytes();
+  return toPwStatus(
+      chreDataFlowSinkPop(mHubId, mDataFlowId, elements.data(), &numBytes));
 }
 
 template <typename ElementType>
@@ -189,13 +196,29 @@ inline pw::Status VariableDataFlowSink::getState() const {
 }
 
 inline pw::Result<uint32_t> VariableDataFlowSink::getHeadSize() const {
-  // TODO(b/493930160): Implement this.
-  return pw::Status::Unimplemented();
+  if (mDataFlowId == CHRE_DATA_FLOW_ID_INVALID) {
+    return pw::Status::NotFound();
+  }
+  uint32_t size;
+  uint32_t status =
+      chreDataFlowSinkGetHeadVariableElementSize(mHubId, mDataFlowId, &size);
+  if (status == CHRE_STATUS_OK) {
+    return size;
+  }
+  return toPwStatus(status);
 }
 
-inline pw::Status VariableDataFlowSink::pop(pw::ByteSpan & /*element*/) const {
-  // TODO(b/493930160): Implement this.
-  return pw::Status::Unimplemented();
+inline pw::Status VariableDataFlowSink::pop(pw::ByteSpan &element) const {
+  if (mDataFlowId == CHRE_DATA_FLOW_ID_INVALID) {
+    return pw::Status::NotFound();
+  }
+  uint32_t numBytes = element.size();
+  uint32_t status =
+      chreDataFlowSinkPop(mHubId, mDataFlowId, element.data(), &numBytes);
+  if (status == CHRE_STATUS_OK) {
+    element = element.first(numBytes);
+  }
+  return toPwStatus(status);
 }
 
 inline pw::Result<pw::ConstByteSpan> VariableDataFlowSink::peek() const {
