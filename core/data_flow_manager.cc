@@ -445,39 +445,110 @@ uint32_t DataFlowManager::sourceGetCapacity(Nanoapp *nanoapp,
   return CHRE_STATUS_OK;
 }
 
-uint32_t DataFlowManager::sinkEnable(Nanoapp * /*nanoapp*/, uint64_t /*hubId*/,
-                                     uint32_t /*dataFlowId*/) {
-  // TODO(b/457453613): Implement this function
-  return CHRE_STATUS_UNIMPLEMENTED;
+uint32_t DataFlowManager::sinkEnable(Nanoapp *nanoapp, uint64_t hubId,
+                                     uint32_t dataFlowId) {
+  auto *sink = findNanoappSinkWithInstanceId(hubId, dataFlowId,
+                                             nanoapp->getInstanceId());
+  if (sink == nullptr) {
+    return CHRE_STATUS_NOT_FOUND;
+  } else if (sink->isActive) {
+    return CHRE_STATUS_ALREADY_EXISTS;
+  }
+  sink->isActive = true;
+  return CHRE_STATUS_OK;
 }
 
-uint32_t DataFlowManager::sinkDisable(Nanoapp * /*nanoapp*/, uint64_t /*hubId*/,
-                                      uint32_t /*dataFlowId*/) {
-  // TODO(b/457453613): Implement this function
-  return CHRE_STATUS_UNIMPLEMENTED;
+uint32_t DataFlowManager::sinkDisable(Nanoapp *nanoapp, uint64_t hubId,
+                                      uint32_t dataFlowId) {
+  auto *sink = findNanoappSinkWithInstanceId(hubId, dataFlowId,
+                                             nanoapp->getInstanceId());
+  if (sink == nullptr || !sink->isActive) {
+    return CHRE_STATUS_NOT_FOUND;
+  }
+  removeSink(*sink);
+  return CHRE_STATUS_OK;
 }
 
-uint32_t DataFlowManager::sinkGetState(Nanoapp * /*nanoapp*/,
-                                       uint64_t /*hubId*/,
-                                       uint32_t /*dataFlowId*/) {
-  // TODO(b/457453613): Implement this function
-  return CHRE_STATUS_UNIMPLEMENTED;
+uint32_t DataFlowManager::sinkGetState(Nanoapp *nanoapp, uint64_t hubId,
+                                       uint32_t dataFlowId) {
+  auto *sink = findNanoappSinkWithInstanceId(hubId, dataFlowId,
+                                             nanoapp->getInstanceId());
+  if (sink == nullptr || !sink->isActive) {
+    return CHRE_STATUS_NOT_FOUND;
+  }
+
+  return toChreStatus(std::visit(
+      [](auto &&consumer) -> pw::Status {
+        using T = std::decay_t<decltype(consumer)>;
+        if constexpr (std::is_same_v<T, std::monostate>) {
+          return pw::Status::FailedPrecondition();
+        } else {
+          return consumer.checkState();
+        }
+      },
+      sink->consumer));
 }
 
-uint32_t DataFlowManager::sinkPeek(Nanoapp * /*nanoapp*/, uint64_t /*hubId*/,
-                                   uint32_t /*dataFlowId*/,
-                                   uint32_t /*numRequestedBytes*/,
-                                   const void ** /*data*/,
-                                   uint32_t * /*numBytes*/) {
-  // TODO(b/457453613): Implement this function
-  return CHRE_STATUS_UNIMPLEMENTED;
+uint32_t DataFlowManager::sinkPeek(Nanoapp *nanoapp, uint64_t hubId,
+                                   uint32_t dataFlowId,
+                                   uint32_t numRequestedBytes,
+                                   const void **data, uint32_t *numBytes) {
+  if (data == nullptr || numBytes == nullptr) {
+    return CHRE_STATUS_INVALID_ARGUMENT;
+  }
+  auto *sink = findNanoappSinkWithInstanceId(hubId, dataFlowId,
+                                             nanoapp->getInstanceId());
+  if (sink == nullptr || !sink->isActive) {
+    return CHRE_STATUS_NOT_FOUND;
+  }
+
+  pw::Result<pw::ConstByteSpan> result = std::visit(
+      [numRequestedBytes](auto &&consumer) -> pw::Result<pw::ConstByteSpan> {
+        using T = std::decay_t<decltype(consumer)>;
+        if constexpr (std::is_same_v<T, std::monostate>) {
+          return pw::Status::FailedPrecondition();
+        } else if constexpr (std::is_same_v<T, UntypedConsumer>) {
+          if (numRequestedBytes % consumer.getElementSize() != 0) {
+            return pw::Status::InvalidArgument();
+          }
+          return consumer.peek(numRequestedBytes / consumer.getElementSize());
+        } else {
+          return consumer.peek();
+        }
+      },
+      sink->consumer);
+
+  if (result.ok()) {
+    *data = result.value().data();
+    *numBytes =
+        std::min(result.value().size(), static_cast<size_t>(numRequestedBytes));
+  }
+  return toChreStatus(result.status());
 }
 
-uint32_t DataFlowManager::sinkRelease(Nanoapp * /*nanoapp*/, uint64_t /*hubId*/,
-                                      uint32_t /*dataFlowId*/,
-                                      uint32_t /*numBytes*/) {
-  // TODO(b/457453613): Implement this function
-  return CHRE_STATUS_UNIMPLEMENTED;
+uint32_t DataFlowManager::sinkRelease(Nanoapp *nanoapp, uint64_t hubId,
+                                      uint32_t dataFlowId, uint32_t numBytes) {
+  auto *sink = findNanoappSinkWithInstanceId(hubId, dataFlowId,
+                                             nanoapp->getInstanceId());
+  if (sink == nullptr || !sink->isActive) {
+    return CHRE_STATUS_NOT_FOUND;
+  }
+
+  return toChreStatus(std::visit(
+      [numBytes](auto &&consumer) -> pw::Status {
+        using T = std::decay_t<decltype(consumer)>;
+        if constexpr (std::is_same_v<T, std::monostate>) {
+          return pw::Status::FailedPrecondition();
+        } else if constexpr (std::is_same_v<T, UntypedConsumer>) {
+          if (numBytes % consumer.getElementSize() != 0) {
+            return pw::Status::InvalidArgument();
+          }
+          return consumer.release(numBytes / consumer.getElementSize());
+        } else {
+          return consumer.release();
+        }
+      },
+      sink->consumer));
 }
 
 uint32_t DataFlowManager::sinkPop(Nanoapp * /*nanoapp*/, uint64_t /*hubId*/,
@@ -487,19 +558,57 @@ uint32_t DataFlowManager::sinkPop(Nanoapp * /*nanoapp*/, uint64_t /*hubId*/,
   return CHRE_STATUS_UNIMPLEMENTED;
 }
 
-uint32_t DataFlowManager::sinkSeek(Nanoapp * /*nanoapp*/, uint64_t /*hubId*/,
-                                   uint32_t /*dataFlowId*/,
-                                   uint32_t /*offset*/) {
-  // TODO(b/457453613): Implement this function
-  return CHRE_STATUS_UNIMPLEMENTED;
+uint32_t DataFlowManager::sinkSeek(Nanoapp *nanoapp, uint64_t hubId,
+                                   uint32_t dataFlowId, uint32_t offset) {
+  auto *sink = findNanoappSinkWithInstanceId(hubId, dataFlowId,
+                                             nanoapp->getInstanceId());
+  if (sink == nullptr || !sink->isActive) {
+    return CHRE_STATUS_NOT_FOUND;
+  }
+
+  return toChreStatus(std::visit(
+      [offset](auto &&consumer) -> pw::Status {
+        using T = std::decay_t<decltype(consumer)>;
+        if constexpr (std::is_same_v<T, std::monostate>) {
+          return pw::Status::FailedPrecondition();
+        } else if constexpr (std::is_same_v<T, UntypedConsumer>) {
+          if (offset % consumer.getElementSize() != 0) {
+            return pw::Status::InvalidArgument();
+          }
+          return consumer.resync(offset / consumer.getElementSize());
+        } else {
+          return consumer.resync(offset);
+        }
+      },
+      sink->consumer));
 }
 
-uint32_t DataFlowManager::sinkGetOffset(Nanoapp * /*nanoapp*/,
-                                        uint64_t /*hubId*/,
-                                        uint32_t /*dataFlowId*/,
-                                        uint32_t * /*offset*/) {
-  // TODO(b/457453613): Implement this function
-  return CHRE_STATUS_UNIMPLEMENTED;
+uint32_t DataFlowManager::sinkGetOffset(Nanoapp *nanoapp, uint64_t hubId,
+                                        uint32_t dataFlowId, uint32_t *offset) {
+  if (offset == nullptr) {
+    return CHRE_STATUS_INVALID_ARGUMENT;
+  }
+  auto *sink = findNanoappSinkWithInstanceId(hubId, dataFlowId,
+                                             nanoapp->getInstanceId());
+  if (sink == nullptr || !sink->isActive) {
+    return CHRE_STATUS_NOT_FOUND;
+  }
+
+  pw::Result<size_t> result = std::visit(
+      [](auto &&consumer) -> pw::Result<size_t> {
+        using T = std::decay_t<decltype(consumer)>;
+        if constexpr (std::is_same_v<T, std::monostate>) {
+          return pw::Status::FailedPrecondition();
+        } else {
+          return consumer.size();
+        }
+      },
+      sink->consumer);
+
+  if (result.ok()) {
+    *offset = result.value() * (sink->elementSize == 0 ? 1 : sink->elementSize);
+  }
+  return toChreStatus(result.status());
 }
 
 uint32_t DataFlowManager::variableSinkGetHeadSize(Nanoapp * /*nanoapp*/,
@@ -718,25 +827,43 @@ void DataFlowManager::onDataFlowSinkUnregistered(
 }
 
 void DataFlowManager::onDataFlowStopped(
-    const chre::message::DataFlowStopped & /*stopped*/) {
-  // TODO(b/457453613): Implement this function.
+    const chre::message::DataFlowStopped &stopped) {
+  for (auto it = mSinks.begin(); it != mSinks.end();) {
+    if (it->sourceHubId == stopped.dataFlowId.hubId &&
+        it->dataFlowId == stopped.dataFlowId.id) {
+      auto event = MakeUnique<chreDataFlowStoppedInfo>();
+      if (event == nullptr) {
+        LOG_OOM();
+        continue;
+      }
+      *event = {.hubId = it->sourceHubId, .dataFlowId = it->dataFlowId};
+      EventLoopManagerSingleton::get()->getEventLoop().postEventOrDie(
+          CHRE_EVENT_DATA_FLOW_STOPPED, event.release(), freeEventDataCallback,
+          it->nanoappInstanceId);
+      it = mSinks.erase(it);
+    } else {
+      ++it;
+    }
+  }
 }
 
 void DataFlowManager::onDataFlowAlert(const DataFlowAlert &alert) {
   for (const Endpoint &endpoint : alert.receiverEndpoints) {
     uint16_t instanceId;
-    auto nanoappDataFlow = findNanoappDataFlow(alert.dataFlowId);
-    if (!nanoappDataFlow) {
-      LOGE("Received data flow alert for unknown source: 0x%" PRIx64
+    if (auto *source = findNanoappDataFlow(alert.dataFlowId); source) {
+      instanceId = source->nanoappInstanceId;
+    } else if (auto *sink =
+                   findNanoappSink(alert.dataFlowId.hubId, alert.dataFlowId.id);
+               sink) {
+      instanceId = sink->nanoappInstanceId;
+    } else {
+      LOGE("Received data flow alert for unknown source or sink: 0x%" PRIx64
            " : 0x%" PRIx64 " : on data flow: %" PRIu32,
            endpoint.messageHubId, endpoint.endpointId, alert.dataFlowId.id);
       continue;
     }
-    instanceId = nanoappDataFlow->nanoappInstanceId;
-    // TODO(b/457453613): Handle data flow alerts for nanoapp sinks.
 
-    UniquePtr<chreDataFlowNewDataAlert> event =
-        MakeUnique<chreDataFlowNewDataAlert>();
+    auto event = MakeUnique<chreDataFlowNewDataAlert>();
     if (event == nullptr) {
       LOG_OOM();
       continue;
@@ -1172,6 +1299,16 @@ uint32_t DataFlowManager::sourceAddSinkAsyncCommon(
   return CHRE_STATUS_OK;
 }
 
+void DataFlowManager::removeSink(NanoappDataFlowSink &sink) {
+  EventLoopManagerSingleton::get()
+      ->getChreMessageHubManager()
+      .getMessageHub()
+      .reportDataFlowSinkUnregistered(
+          {.dataFlowId = {.hubId = sink.sourceHubId, .id = sink.dataFlowId},
+           .endpoint = Endpoint(sink.sourceHubId, sink.sourceEndpointId)});
+  mSinks.erase(&sink);
+}
+
 DataFlowManager::NanoappDataFlow *DataFlowManager::findNanoappDataFlow(
     message::DataFlowId dataFlowId) {
   if (dataFlowId.hubId != ChreMessageHubManager::kChreMessageHubId) {
@@ -1180,6 +1317,28 @@ DataFlowManager::NanoappDataFlow *DataFlowManager::findNanoappDataFlow(
   for (NanoappDataFlow &dataFlow : mDataFlows) {
     if (dataFlow.properties.dataFlowId == dataFlowId.id) {
       return &dataFlow;
+    }
+  }
+  return nullptr;
+}
+
+DataFlowManager::NanoappDataFlowSink *
+DataFlowManager::findNanoappSinkWithInstanceId(uint64_t hubId,
+                                               uint32_t dataFlowId,
+                                               uint16_t nanoappInstanceId) {
+  if (auto *sink = findNanoappSink(hubId, dataFlowId); sink != nullptr) {
+    if (sink->nanoappInstanceId == nanoappInstanceId) {
+      return sink;
+    }
+  }
+  return nullptr;
+}
+
+DataFlowManager::NanoappDataFlowSink *DataFlowManager::findNanoappSink(
+    uint64_t hubId, uint32_t dataFlowId) {
+  for (NanoappDataFlowSink &sink : mSinks) {
+    if (sink.sourceHubId == hubId && sink.dataFlowId == dataFlowId) {
+      return &sink;
     }
   }
   return nullptr;

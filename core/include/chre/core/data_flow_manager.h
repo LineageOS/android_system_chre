@@ -465,7 +465,8 @@ class DataFlowManager : public NonCopyable {
     //! Guard for the sink metadata region of the data flow, may be invalid.
     SharedDataRegionManager::RegionGuard sinkMetadataRegionGuard;
 
-    //! The consumer instance for this data flow sink.
+    //! The consumer instance for this data flow sink. Must come after the
+    //! guards to ensure that memory remains valid.
     std::variant<std::monostate,
                  android::contexthub::data_flow::UntypedConsumer,
                  android::contexthub::data_flow::VariableDataConsumer>
@@ -592,8 +593,20 @@ class DataFlowManager : public NonCopyable {
       uint16_t sessionId, uint32_t messagePermissions,
       chreMessageFreeFunction *freeCallback);
 
+  //! Helper function to remove a sink from the list of sinks. This will also
+  //! report the unregistration to MessageRouter.
+  //! @param sink The sink to remove.
+  void removeSink(NanoappDataFlowSink &sink);
+
   //! Helper to lookup the NanoappDataFlow for a given data flow ID.
   NanoappDataFlow *findNanoappDataFlow(message::DataFlowId dataFlowId);
+
+  //! Helper to lookup and validate a NanoappDataFlowSink.
+  NanoappDataFlowSink *findNanoappSinkWithInstanceId(
+      uint64_t hubId, uint32_t dataFlowId, uint16_t nanoappInstanceId);
+
+  //! Helper to lookup a NanoappDataFlowSink.
+  NanoappDataFlowSink *findNanoappSink(uint64_t hubId, uint32_t dataFlowId);
 
   //! The data flows owned by nanoapps.
   pw::Vector<NanoappDataFlow, kMaxDataFlows> mDataFlows;
