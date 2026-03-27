@@ -15,6 +15,8 @@
  */
 
 #include <cstddef>
+#include <type_traits>
+
 #ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
 
 #include "chre/core/chre_message_hub_manager.h"
@@ -315,11 +317,26 @@ uint32_t DataFlowManager::sourceCommit(Nanoapp *nanoapp, uint32_t dataFlowId,
   return toChreStatus(commitStatus);
 }
 
-uint32_t DataFlowManager::variableSourceTruncate(Nanoapp * /*nanoapp*/,
-                                                 uint32_t /*dataFlowId*/,
-                                                 uint32_t /*size*/) {
-  // TODO(b/457453613): Implement this function
-  return CHRE_STATUS_UNIMPLEMENTED;
+uint32_t DataFlowManager::variableSourceTruncate(Nanoapp *nanoapp,
+                                                 uint32_t dataFlowId,
+                                                 uint32_t size) {
+  NanoappDataFlow *foundDataFlow = nullptr;
+  uint32_t status =
+      getNanoappDataFlow(dataFlowId, nanoapp->getInstanceId(), &foundDataFlow);
+  if (status != CHRE_STATUS_OK) {
+    return status;
+  }
+
+  return toChreStatus(std::visit(
+      [size](auto &&producer) -> pw::Status {
+        using T = std::decay_t<decltype(producer)>;
+        if constexpr (std::is_same_v<T, VariableDataProducer>) {
+          return producer.truncate(size);
+        } else {
+          return pw::Status::FailedPrecondition();
+        }
+      },
+      foundDataFlow->producer));
 }
 
 uint32_t DataFlowManager::sourcePush(Nanoapp *nanoapp, uint32_t dataFlowId,
@@ -558,11 +575,39 @@ uint32_t DataFlowManager::sinkRelease(Nanoapp *nanoapp, uint64_t hubId,
       sink->consumer));
 }
 
-uint32_t DataFlowManager::sinkPop(Nanoapp * /*nanoapp*/, uint64_t /*hubId*/,
-                                  uint32_t /*dataFlowId*/, void * /*data*/,
-                                  uint32_t * /*numBytes*/) {
-  // TODO(b/457453613): Implement this function
-  return CHRE_STATUS_UNIMPLEMENTED;
+uint32_t DataFlowManager::sinkPop(Nanoapp *nanoapp, uint64_t hubId,
+                                  uint32_t dataFlowId, void *data,
+                                  uint32_t *numBytes) {
+  if (data == nullptr || numBytes == nullptr) {
+    return CHRE_STATUS_INVALID_ARGUMENT;
+  }
+
+  auto *sink = findNanoappSinkWithInstanceId(hubId, dataFlowId,
+                                             nanoapp->getInstanceId());
+  if (sink == nullptr || !sink->isActive) {
+    return CHRE_STATUS_NOT_FOUND;
+  }
+
+  pw::Status popStatus = std::visit(
+      [data, numBytes](auto &&consumer) -> pw::Status {
+        using T = std::decay_t<decltype(consumer)>;
+        if constexpr (std::is_same_v<T, UntypedConsumer>) {
+          return consumer.pop(
+              pw::ByteSpan(static_cast<std::byte *>(data), *numBytes));
+        } else if constexpr (std::is_same_v<T, VariableDataConsumer>) {
+          pw::ByteSpan buffer(static_cast<std::byte *>(data), *numBytes);
+          pw::Status status = consumer.pop(buffer);
+          if (status.ok()) {
+            *numBytes = static_cast<uint32_t>(buffer.size());
+          }
+          return status;
+        } else {
+          return pw::Status::FailedPrecondition();
+        }
+      },
+      sink->consumer);
+
+  return toChreStatus(popStatus);
 }
 
 uint32_t DataFlowManager::sinkSeek(Nanoapp *nanoapp, uint64_t hubId,
@@ -618,12 +663,35 @@ uint32_t DataFlowManager::sinkGetOffset(Nanoapp *nanoapp, uint64_t hubId,
   return toChreStatus(result.status());
 }
 
-uint32_t DataFlowManager::variableSinkGetHeadSize(Nanoapp * /*nanoapp*/,
-                                                  uint64_t /*hubId*/,
-                                                  uint32_t /*dataFlowId*/,
-                                                  uint32_t * /*size*/) {
-  // TODO(b/457453613): Implement this function
-  return CHRE_STATUS_UNIMPLEMENTED;
+uint32_t DataFlowManager::variableSinkGetHeadSize(Nanoapp *nanoapp,
+                                                  uint64_t hubId,
+                                                  uint32_t dataFlowId,
+                                                  uint32_t *size) {
+  if (size == nullptr) {
+    return CHRE_STATUS_INVALID_ARGUMENT;
+  }
+
+  auto *sink = findNanoappSinkWithInstanceId(hubId, dataFlowId,
+                                             nanoapp->getInstanceId());
+  if (sink == nullptr || !sink->isActive) {
+    return CHRE_STATUS_NOT_FOUND;
+  }
+
+  pw::Result<size_t> result = std::visit(
+      [](auto &&consumer) -> pw::Result<size_t> {
+        using T = std::decay_t<decltype(consumer)>;
+        if constexpr (std::is_same_v<T, VariableDataConsumer>) {
+          return consumer.getHeadSize();
+        } else {
+          return pw::Status::FailedPrecondition();
+        }
+      },
+      sink->consumer);
+
+  if (result.ok()) {
+    *size = static_cast<uint32_t>(result.value());
+  }
+  return toChreStatus(result.status());
 }
 
 void DataFlowManager::handleAllocateDataFlowRegionAsyncResult(
