@@ -43,7 +43,9 @@ public class ContextHubAudioDiagnosticsTestExecutor extends ContextHubChreApiTes
     private static final String TAG = "ContextHubAudioDiagnosticsTestExecutor";
     private static final int CHRE_EVENT_AUDIO_DATA = 0x0330 + 1;
     // Amount of time in a single audio data packet
-    private static final long AUDIO_DATA_TIMEOUT_NS = 2000000000L; // 2s
+    private static final long AUDIO_DATA_TIMEOUT_NS = 2_000_000_000L; // 2s
+    // Amount of audio data timeout buffer to account for system latency
+    private static final long AUDIO_DATA_TIMEOUT_BUFFER_NS = 10_000_000L; // 10ms
     private static final int GATHER_SINGLE_AUDIO_EVENT = 1;
     private static final int CHRE_MIC_HANDLE = 0;
     private static final int DC_OFFSET_LIMIT = 15;
@@ -67,7 +69,7 @@ public class ContextHubAudioDiagnosticsTestExecutor extends ContextHubChreApiTes
                     getRpcClient(),
                     CHRE_EVENT_AUDIO_DATA,
                     GATHER_SINGLE_AUDIO_EVENT,
-                    AUDIO_DATA_TIMEOUT_NS);
+                    AUDIO_DATA_TIMEOUT_NS + AUDIO_DATA_TIMEOUT_BUFFER_NS);
         disableChreAudio();
 
         Assert.assertNotNull(audioEvent);
