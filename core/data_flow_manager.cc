@@ -37,6 +37,7 @@
 
 namespace chre {
 
+using ::android::contexthub::data_flow::AllocatorRegion;
 using ::android::contexthub::data_flow::ConsumerPolicyBuilder;
 using ::android::contexthub::data_flow::Region;
 using ::android::contexthub::data_flow::RemoteEndpointId;
@@ -163,11 +164,17 @@ uint32_t DataFlowManager::destroyDataFlow(Nanoapp *nanoapp,
       .getMessageHub()
       .reportDataFlowStopped(stopped);
 
+  // Clean up the data flow and deallocate regions as appropriate.
   int32_t regionId = dataFlow->regionId;
+  auto sinksWithMetadataRegions =
+      std::move(dataFlow->sinkIdsWithMetadataRegions);
   mDataFlows.erase(dataFlow);
   EventLoopManagerSingleton::get()
       ->getSharedDataRegionManager()
       .handleDataFlowStopped(regionId);
+  for (auto &sink : sinksWithMetadataRegions) {
+    decrementSinkMetadataRegionRefCount(sink);
+  }
   return CHRE_STATUS_OK;
 }
 
@@ -633,9 +640,12 @@ void DataFlowManager::handleAllocateDataFlowRegionAsyncResult(
     }
   }
   if (foundDataFlow == nullptr) {
-    LOGE("Received async result for unknown data flow with cookie: %" PRIuPTR
-         " and status: %s",
-         cookie, status.str());
+    if (!handleAllocateSinkMetadataRegionAsyncResult(cookie, status, regionId,
+                                                     region)) {
+      LOGE("Received async allocation result with cookie: %" PRIuPTR
+           " and status: %s",
+           cookie, status.str());
+    }
     return;
   }
 
@@ -811,6 +821,8 @@ void DataFlowManager::onDataFlowSinkUnregistered(
         unregistration.dataFlowId.id);
     return;
   }
+
+  decrementSinkMetadataRegionRefCount(unregistration.endpoint);
 
   UniquePtr<chreDataFlowSinkInfo> event = MakeUnique<chreDataFlowSinkInfo>();
   if (event == nullptr) {
@@ -1187,10 +1199,6 @@ uint32_t DataFlowManager::sourceAddSinkAsyncCommon(
     uint32_t messagePermissions, chreMessageFreeFunction *freeCallback) {
   NanoappDataFlow *foundDataFlow = nullptr;
   ConsumerPolicyBuilder policyBuilder;
-  RemoteEndpointId remoteId{
-      .aidlId = {.hubId = static_cast<int64_t>(hubId),
-                 .endpointId = static_cast<int64_t>(endpointId)},
-  };
   uint32_t status =
       validateAndGetSinkRequest(nanoapp, hubId, endpointId, dataFlowId,
                                 sinkPolicy, &foundDataFlow, &policyBuilder);
@@ -1211,92 +1219,201 @@ uint32_t DataFlowManager::sourceAddSinkAsyncCommon(
     }
   }
 
-  auto event = MakeUnique<chreDataFlowSinkConfigureInfo>();
-  if (event.isNull()) {
+  // Create the sink registration. If a separate sink metadata region isn't
+  // required or already exists for the sink endpoint, complete the
+  // registration. Otherwise, wait for a pending allocation to complete or start
+  // a new one.
+  chre::message::DataFlowSinkRegistration registration{
+      .dataFlowId = {.hubId = ChreMessageHubManager::kChreMessageHubId,
+                     .id = dataFlowId},
+      .sourceId = Endpoint(ChreMessageHubManager::kChreMessageHubId,
+                           nanoapp->getAppId()),
+      .sinkId = Endpoint(hubId, endpointId),
+      .primaryRegionId = foundDataFlow->regionId,
+      .sinkMetadataRegionId = kInvalidRegionId,
+      .sessionMessage = std::move(sessionMessage),
+  };
+  bool separateMetadataRegion =
+      EventLoopManagerSingleton::get()
+          ->getSharedDataRegionManager()
+          .sinkOnHubRequiresSeparateMetadataRegion(hubId);
+  if (!separateMetadataRegion) {
+    return completeSinkRegistration(std::move(registration), policyBuilder,
+                                    foundDataFlow->allocatorRegion,
+                                    foundDataFlow);
+  } else if (auto *existingSinkRegion =
+                 findSinkMetadataRegion(Endpoint(hubId, endpointId));
+             existingSinkRegion) {
+    registration.sinkMetadataRegionId = existingSinkRegion->regionId;
+    status =
+        completeSinkRegistration(std::move(registration), policyBuilder,
+                                 existingSinkRegion->region, foundDataFlow);
+    if (status == CHRE_STATUS_OK) {
+      existingSinkRegion->refCount++;
+    }
+    return status;
+  }
+  PendingSinkRegistration pendingReg{.registration = std::move(registration),
+                                     .policyBuilder = policyBuilder};
+  if (auto *pendingAlloc =
+          findPendingSinkRegionAllocation(Endpoint(hubId, endpointId));
+      pendingAlloc) {
+    pendingAlloc->registrations.push_back(std::move(pendingReg));
+    return CHRE_STATUS_OK;
+  }
+  return allocateSinkMetadataRegionAsync(foundDataFlow, std::move(pendingReg));
+}
+
+uint32_t DataFlowManager::allocateSinkMetadataRegionAsync(
+    NanoappDataFlow *dataFlow, PendingSinkRegistration &&pendingReg) {
+  if (mSinkMetadataRegions.full() || mPendingSinkRegionAllocations.full()) {
+    LOGE("Sink metadata region limit reached");
+    return CHRE_STATUS_RESOURCE_EXHAUSTED;
+  }
+  pw::Result<uintptr_t> maybeCookie =
+      EventLoopManagerSingleton::get()
+          ->getSharedDataRegionManager()
+          .allocateDataFlowRegionAsync(
+              dataFlow->properties.sinkDomains, 4096,
+              CHRE_DATA_FLOW_MIN_AVERAGE_WRITE_INTERVAL_HIGH,
+              CHRE_DATA_FLOW_MAX_AVERAGE_WRITE_BANDWIDTH_LOW);
+  if (!maybeCookie.ok()) {
+    return maybeCookie.status() == pw::Status::InvalidArgument()
+               ? CHRE_STATUS_INVALID_ARGUMENT
+               : CHRE_STATUS_RESOURCE_EXHAUSTED;
+  }
+  PendingSinkRegionAllocation pendingAlloc{.cookie = maybeCookie.value()};
+  if (!pendingAlloc.registrations.emplace_back(std::move(pendingReg))) {
     LOG_OOM();
     return CHRE_STATUS_RESOURCE_EXHAUSTED;
   }
+  mPendingSinkRegionAllocations.push_back(std::move(pendingAlloc));
+  return CHRE_STATUS_OK;
+}
 
-  uint32_t consumerOffset = 0;
-  uint32_t metadataOffset = 0;
+bool DataFlowManager::handleAllocateSinkMetadataRegionAsyncResult(
+    uintptr_t cookie, pw::Status status, int32_t regionId,
+    const AllocatorRegion &region) {
+  bool found = false;
+  for (PendingSinkRegionAllocation &pendingAlloc :
+       mPendingSinkRegionAllocations) {
+    if (pendingAlloc.cookie != cookie) {
+      continue;
+    }
+    found = true;
+    auto sinkId = pendingAlloc.registrations[0].registration.sinkId;
+    SinkMetadataRegion sinkMetadataRegion{.region = region,
+                                          .sinkId = sinkId,
+                                          .regionId = regionId,
+                                          .refCount = 0};
+    if (status.ok()) {
+      for (PendingSinkRegistration &registration : pendingAlloc.registrations) {
+        registration.registration.sinkMetadataRegionId = regionId;
+        if (completeSinkRegistration(std::move(registration.registration),
+                                     registration.policyBuilder,
+                                     region) == CHRE_STATUS_OK) {
+          sinkMetadataRegion.refCount++;
+        }
+      }
+    }
+    mPendingSinkRegionAllocations.erase(&pendingAlloc);
+    if (sinkMetadataRegion.refCount > 0) {
+      mSinkMetadataRegions.push_back(std::move(sinkMetadataRegion));
+    } else {
+      break;
+    }
+    return true;
+  }
+  if (status.ok()) {
+    EventLoopManagerSingleton::get()
+        ->getSharedDataRegionManager()
+        .deallocateRegion(regionId);
+  }
+  return found;
+}
+
+uint32_t DataFlowManager::completeSinkRegistration(
+    message::DataFlowSinkRegistration &&registration,
+    ConsumerPolicyBuilder &policyBuilder,
+    const AllocatorRegion &sinkMetadataRegion, NanoappDataFlow *dataFlow) {
+  if (!dataFlow) {
+    if (dataFlow = findNanoappDataFlow(registration.dataFlowId); !dataFlow) {
+      LOGE("Data flow %" PRIu32 " not found", registration.dataFlowId.id);
+      return CHRE_STATUS_NOT_FOUND;
+    }
+  }
+
+  RemoteEndpointId remoteId{
+      .aidlId = {
+          .hubId = static_cast<int64_t>(registration.sinkId.messageHubId),
+          .endpointId = static_cast<int64_t>(registration.sinkId.endpointId)}};
   pw::Status consumerStatus = std::visit(
-      [&metadataOffset, &consumerOffset, &remoteId,
+      [&registration, &sinkMetadataRegion, &remoteId,
        &policyBuilder](auto &&producer) -> pw::Status {
         if constexpr (std::is_same_v<std::decay_t<decltype(producer)>,
                                      std::monostate>) {
           return pw::Status::FailedPrecondition();
         } else {
-          metadataOffset = producer.getQueueOffset();
+          registration.metadataOffset = producer.getQueueOffset();
           auto result = producer.getConsumerManager().addConsumer(
-              remoteId, policyBuilder);
+              remoteId, policyBuilder, &sinkMetadataRegion);
           if (result.ok()) {
-            consumerOffset = result.value();
+            registration.sinkMetadataOffset = result.value();
           } else {
             LOGE("Failed to add consumer with hub ID 0x%" PRIx64
                  " and endpoint ID 0x%" PRIx64 ": %s",
-                 remoteId.aidlId.hubId, remoteId.aidlId.endpointId,
-                 result.status().str());
+                 registration.sinkId.messageHubId,
+                 registration.sinkId.endpointId, result.status().str());
           }
           return result.status();
         }
       },
-      foundDataFlow->producer);
+      dataFlow->producer);
   if (!consumerStatus.ok()) {
-    LOGE("Failed to add consumer to data flow %" PRIu32 ": %s", dataFlowId,
-         consumerStatus.str());
+    LOGE("Failed to add consumer to data flow %" PRIu32 ": %s",
+         dataFlow->properties.dataFlowId, consumerStatus.str());
     return toChreStatus(consumerStatus);
   }
 
-  // Send the registration over MessageRouter.
-  chre::message::DataFlowSinkRegistration registration;
-  registration.dataFlowId.hubId = ChreMessageHubManager::kChreMessageHubId;
-  registration.dataFlowId.id = dataFlowId;
-  registration.sourceId.messageHubId = ChreMessageHubManager::kChreMessageHubId;
-  registration.sourceId.endpointId = nanoapp->getAppId();
-  registration.sinkId.messageHubId = hubId;
-  registration.sinkId.endpointId = endpointId;
-  registration.primaryRegionId = foundDataFlow->regionId;
-  registration.metadataOffset = metadataOffset;
-  registration.sinkMetadataRegionId = foundDataFlow->regionId;
-  registration.sinkMetadataOffset = consumerOffset;
-  registration.sessionMessage = std::move(sessionMessage);
+  auto event = MakeUnique<chreDataFlowSinkConfigureInfo>();
+  if (event.isNull()) {
+    LOG_OOM();
+    return CHRE_STATUS_RESOURCE_EXHAUSTED;
+  }
+  auto returnStatus = CHRE_STATUS_OK;
+  event->dataFlowId = registration.dataFlowId.id;
+  event->hubId = registration.sinkId.messageHubId;
+  event->endpointId = registration.sinkId.endpointId;
+
   if (!EventLoopManagerSingleton::get()
            ->getChreMessageHubManager()
            .getMessageHub()
            .registerDataFlowSink(std::move(registration))) {
     LOGE("Failed to register data flow sink with MessageRouter");
-
-    // Prune the consumer we just added due to the failure.
     std::visit(
         [&remoteId](auto &&producer) -> void {
           if constexpr (!std::is_same_v<std::decay_t<decltype(producer)>,
                                         std::monostate>) {
             auto result = producer.getConsumerManager().pruneConsumers(
                 [&remoteId](const RemoteEndpointId &matchId) {
-                  return matchId.aidlId.hubId == remoteId.aidlId.hubId &&
-                         matchId.aidlId.endpointId ==
-                             remoteId.aidlId.endpointId;
+                  return matchId.aidlId == remoteId.aidlId;
                 });
             if (!result.ok()) {
               FATAL_ERROR(
-                  "Failed to prune consumer during sink registration cleanup");
+                  "Failed to prune consumer during sink registration "
+                  "cleanup");
             };
           }
         },
-        foundDataFlow->producer);
-    return CHRE_STATUS_INTERNAL;
+        dataFlow->producer);
+    returnStatus = CHRE_STATUS_INTERNAL;
   }
+  event->status = returnStatus;
 
-  // Send the event to the nanoapp.
-  event->status = CHRE_STATUS_OK;
-  event->dataFlowId = dataFlowId;
-  event->hubId = hubId;
-  event->endpointId = endpointId;
   EventLoopManagerSingleton::get()->postEventOrDie(
       CHRE_EVENT_DATA_FLOW_SINK_CONFIGURE_DONE, event.release(),
-      freeEventDataCallback, nanoapp->getInstanceId());
-
-  return CHRE_STATUS_OK;
+      freeEventDataCallback, dataFlow->nanoappInstanceId);
+  return returnStatus;
 }
 
 void DataFlowManager::removeSink(NanoappDataFlowSink &sink) {
@@ -1339,6 +1456,38 @@ DataFlowManager::NanoappDataFlowSink *DataFlowManager::findNanoappSink(
   for (NanoappDataFlowSink &sink : mSinks) {
     if (sink.sourceHubId == hubId && sink.dataFlowId == dataFlowId) {
       return &sink;
+    }
+  }
+  return nullptr;
+}
+
+DataFlowManager::PendingSinkRegionAllocation *
+DataFlowManager::findPendingSinkRegionAllocation(Endpoint endpoint) {
+  for (PendingSinkRegionAllocation &pendingReg :
+       mPendingSinkRegionAllocations) {
+    if (pendingReg.registrations[0].registration.sinkId == endpoint) {
+      return &pendingReg;
+    }
+  }
+  return nullptr;
+}
+
+void DataFlowManager::decrementSinkMetadataRegionRefCount(Endpoint sinkId) {
+  if (auto *region = findSinkMetadataRegion(sinkId); region) {
+    if (--region->refCount == 0) {
+      EventLoopManagerSingleton::get()
+          ->getSharedDataRegionManager()
+          .deallocateRegion(region->regionId);
+      mSinkMetadataRegions.erase(region);
+    }
+  }
+}
+
+DataFlowManager::SinkMetadataRegion *DataFlowManager::findSinkMetadataRegion(
+    Endpoint endpoint) {
+  for (SinkMetadataRegion &sinkMetadataRegion : mSinkMetadataRegions) {
+    if (sinkMetadataRegion.sinkId == endpoint) {
+      return &sinkMetadataRegion;
     }
   }
   return nullptr;
