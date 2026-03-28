@@ -94,6 +94,11 @@ public class ChdtsHostTestCases extends BaseHostJUnit4Test {
             + "for ContextHubHostTest.")
     private String mStressTestDurationSeconds = null;
 
+    @Option(name = "static_nanoapps",
+            description = "Whether to use built in static nanoapps "
+            + "instead of dynamically loading them.")
+    private boolean mStaticNanoapps = false;
+
     @Before
     public void setUp() throws Exception {
         mDevice = getDevice();
@@ -158,6 +163,11 @@ public class ChdtsHostTestCases extends BaseHostJUnit4Test {
 
         // Avoid placing files in isolated storage (b/124903752)
         deviceTestRunOptions.setDisableIsolatedStorage(true);
+
+        if (mStaticNanoapps) {
+            deviceTestRunOptions.addInstrumentationArg(
+                    "static_nanoapps", String.valueOf(mStaticNanoapps));
+        }
 
         if (mExternalNanoAppPath != null) {
             deviceTestRunOptions.addInstrumentationArg("externalNanoAppPath", mExternalNanoAppPath);

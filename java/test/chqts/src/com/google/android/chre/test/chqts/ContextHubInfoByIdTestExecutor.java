@@ -43,6 +43,12 @@ public class ContextHubInfoByIdTestExecutor extends ContextHubGeneralTestExecuto
         super(manager, info, new GeneralTestNanoApp(binary, testName));
     }
 
+
+    public ContextHubInfoByIdTestExecutor(ContextHubManager manager, ContextHubInfo info,
+            Long nanoAppId, ContextHubTestConstants.TestNames testName) {
+        super(manager, info, new GeneralTestNanoApp(nanoAppId, testName));
+    }
+
     @Override
     protected void handleMessageFromNanoApp(long nanoAppId,
             ContextHubTestConstants.MessageType type, byte[] data) {
@@ -51,6 +57,7 @@ public class ContextHubInfoByIdTestExecutor extends ContextHubGeneralTestExecuto
         int version =
                 ChreTestUtil.getNanoAppVersion(getContextHubManager(), getContextHubInfo(),
                         nanoAppId);
+
         ByteBuffer buffer = ByteBuffer.allocate(4)
                 .order(ByteOrder.LITTLE_ENDIAN)
                 .putInt(version);

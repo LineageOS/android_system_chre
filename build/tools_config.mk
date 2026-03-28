@@ -33,7 +33,7 @@ COMMON_CFLAGS += -ffunction-sections
 COMMON_DEBUG_CFLAGS += -g
 
 # Dependency Resolution
-DEP_CFLAGS = -MM -MG -MP -MF $$(basename $$@).d
+DEP_CFLAGS = -MM -MG -MP -MF $$(basename $$@).d -MT $$(basename $$@).o
 
 # Compile with hidden visibility by default.
 COMMON_CFLAGS += -fvisibility=hidden

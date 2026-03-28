@@ -1636,14 +1636,62 @@ TEST_F(QueueTest, OverwriteFastForwardCalculation) {
   EXPECT_EQ(poppedData, expectedData);
 }
 
-TEST_F(QueueTest, IncreaseMinimumTargetBlockCount) {
+TEST_F(QueueTest, SetMinTargetBlockCountImmediateAllocation) {
   initLocalProducer(kEmptyLocalNotifyArgs);
 
   EXPECT_EQ(mProducer->getMinBlockCountTarget(), kBaseMinBlockCount);
   EXPECT_EQ(mProducer->capacity(), kBlockCapacity * kBaseMinBlockCount);
-  mProducer->setMinBlockCountTarget(kBaseMinBlockCount + 1);
-  EXPECT_EQ(mProducer->getMinBlockCountTarget(), kBaseMinBlockCount + 1);
-  EXPECT_EQ(mProducer->capacity(), kBlockCapacity * (kBaseMinBlockCount + 1));
+  mProducer->setMinBlockCountTarget(kBaseMinBlockCount + 2);
+  EXPECT_EQ(mProducer->getMinBlockCountTarget(), kBaseMinBlockCount + 2);
+  EXPECT_EQ(mProducer->capacity(), kBlockCapacity * (kBaseMinBlockCount + 2));
+}
+
+TEST_F(QueueTest, SetMinTargetBlockCountDeferredAllocationAtBoundary) {
+  std::vector<std::pair<LocalNotifyArgs, ConsumerPolicyBuilder>> consumerArgs =
+      {{kEmptyLocalNotifyArgs, ConsumerPolicyBuilder().setNonOverwritable()}};
+  initLocalEndpoints(kEmptyLocalNotifyArgs, consumerArgs);
+
+  // Allocate all remaining memory to prevent immediate allocation
+  std::vector<void *> tmps;
+  auto layout = internal::blockLayout<int>(kBlockCapacity);
+  auto *tmp = mAllocator.Allocate(layout);
+  while (tmp) {
+    tmps.push_back(tmp);
+    tmp = mAllocator.Allocate(layout);
+  }
+
+  size_t initialCapacity = mProducer->capacity();
+  EXPECT_EQ(initialCapacity, kBlockCapacity * kBaseMinBlockCount);
+
+  // Set the min target block count higher
+  constexpr size_t kTarget = kBaseMinBlockCount + 2;
+  mProducer->setMinBlockCountTarget(kTarget);
+
+  // Capacity should not change because we are out of memory
+  EXPECT_EQ(mProducer->capacity(), initialCapacity);
+
+  // Deallocate memory to allow allocation on boundary crossing
+  for (auto *tmp : tmps) {
+    mAllocator.Deallocate(tmp);
+  }
+
+  // Push data up to the target minimum capacity.
+  std::vector<int> data(kBlockCapacity);
+  for (int i = 0; i < data.size(); ++i) {
+    data[i] = i;
+  }
+  for (auto i = 0; i < kTarget; ++i) {
+    EXPECT_RESULT_EQ(mProducer->push(data), data.size());
+  }
+  // Capacity should now be updated
+  EXPECT_EQ(mProducer->capacity(), kBlockCapacity * kTarget);
+
+  // Check the data can be read
+  std::vector<int> output(data.size());
+  for (auto i = 0; i < kTarget; ++i) {
+    EXPECT_EQ(mConsumers[0].pop(output), pw::OkStatus());
+    EXPECT_EQ(output, data);
+  }
 }
 
 class MockMemoryAccess : public MemoryAccess {

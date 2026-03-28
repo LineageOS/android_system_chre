@@ -108,6 +108,7 @@ public abstract class ContextHubGeneralTestExecutor extends ContextHubClientCall
      */
     public static class GeneralTestNanoApp {
         private final NanoAppBinary mNanoAppBinary;
+        private Long mNanoAppId;
         private final ContextHubTestConstants.TestNames mTestName;
 
         // Set to false if the nanoapp should not be loaded at init. An example of why this may be
@@ -120,6 +121,12 @@ public abstract class ContextHubGeneralTestExecutor extends ContextHubClientCall
         // require a start message (e.g. starts on load like the busy_startup nanoapp).
         private final boolean mSendStartMessage;
 
+        /**
+         * Constructs a dynamic test nanoapp that is loaded and started automatically.
+         *
+         * @param nanoAppBinary The binary of the nanoapp to be dynamically loaded onto the device.
+         * @param testName      The specific test to be run by the nanoapp.
+         */
         public GeneralTestNanoApp(NanoAppBinary nanoAppBinary,
                 ContextHubTestConstants.TestNames testName) {
             mTestName = testName;
@@ -128,6 +135,14 @@ public abstract class ContextHubGeneralTestExecutor extends ContextHubClientCall
             mSendStartMessage = true;
         }
 
+        /**
+         * Constructs a dynamic test nanoapp with custom load timing.
+         *
+         * @param nanoAppBinary The binary of the nanoapp to be dynamically loaded onto the device.
+         * @param testName      The specific test to be run by the nanoapp.
+         * @param loadAtInit    If true, the nanoapp is loaded during test initialization.
+         * If false, the test executor must manually load it mid-execution.
+         */
         public GeneralTestNanoApp(NanoAppBinary nanoAppBinary,
                 ContextHubTestConstants.TestNames testName, boolean loadAtInit) {
             mTestName = testName;
@@ -136,6 +151,14 @@ public abstract class ContextHubGeneralTestExecutor extends ContextHubClientCall
             mSendStartMessage = true;
         }
 
+        /**
+         * Constructs a dynamic test nanoapp with full control over load and startup behavior.
+         *
+         * @param nanoAppBinary    The binary of the nanoapp to be dynamically loaded to the device.
+         * @param testName         The specific test to be run by the nanoapp.
+         * @param loadAtInit       If true, the nanoapp is loaded during test initialization.
+         * @param sendStartMessage If true, a start message is sent to the nanoapp upon loading.
+         */
         public GeneralTestNanoApp(NanoAppBinary nanoAppBinary,
                 ContextHubTestConstants.TestNames testName,
                 boolean loadAtInit, boolean sendStartMessage) {
@@ -145,8 +168,60 @@ public abstract class ContextHubGeneralTestExecutor extends ContextHubClientCall
             mSendStartMessage = sendStartMessage;
         }
 
+        /**
+         * Constructs a static/preloaded test nanoapp.
+         * Because static nanoapps are baked into the firmware, no binary file is required.
+         *
+         * @param nanoAppId        The 64-bit ID of the preloaded nanoapp.
+         * @param testName         The specific test to be run by the nanoapp.
+         * @param loadAtInit       If true, the test assumes the nanoapp is ready at initialization.
+         * (Note: the actual binary load step is skipped for static apps).
+         * @param sendStartMessage If true, a start message is sent to the nanoapp to trigger it.
+         */
+        public GeneralTestNanoApp(Long nanoAppId,
+                ContextHubTestConstants.TestNames testName,
+                boolean loadAtInit, boolean sendStartMessage) {
+            mTestName = testName;
+            mNanoAppBinary = null;
+            mNanoAppId = nanoAppId;
+            mLoadAtInit = loadAtInit;
+            mSendStartMessage = sendStartMessage;
+        }
+
+        /**
+         * Convenience constructor for a static/preloaded test nanoapp.
+         * Assumes the app is ready at initialization and requires a start message.
+         *
+         * @param nanoAppId The 64-bit ID of the preloaded nanoapp.
+         * @param testName  The specific test to be run by the nanoapp.
+         */
+        public GeneralTestNanoApp(Long nanoAppId,
+                ContextHubTestConstants.TestNames testName) {
+            this(nanoAppId, testName,
+                    true /* loadAtInit */,
+                    true /* sendStartMessage */);
+        }
+
+        /**
+         * Retrieves the binary file associated with this test nanoapp.
+         *
+         * @return The nanoapp binary, or null if this is a static/preloaded nanoapp.
+         */
         public NanoAppBinary getNanoAppBinary() {
             return mNanoAppBinary;
+        }
+
+        /**
+         * Retrieves the 64-bit ID of the nanoapp.
+         *
+         * Returns the nanoapp ID, resolved either from the explicitly provided static ID
+         * or extracted from the loaded binary.
+         * throws assertionError if the test was configured without an ID or a binary.
+         */
+        public Long getNanoAppId() {
+            if (mNanoAppId != null) return mNanoAppId;
+            if (mNanoAppBinary != null) return mNanoAppBinary.getNanoAppId();
+            throw new AssertionError("NanoApp ID is null.");
         }
 
         public ContextHubTestConstants.TestNames getTestName() {
@@ -160,6 +235,10 @@ public abstract class ContextHubGeneralTestExecutor extends ContextHubClientCall
         public boolean sendStartMessage() {
             return mSendStartMessage;
         }
+
+        public boolean isStatic() {
+            return mNanoAppBinary == null;
+        }
     }
 
     /**
@@ -172,7 +251,8 @@ public abstract class ContextHubGeneralTestExecutor extends ContextHubClientCall
         mGeneralTestNanoAppList = new ArrayList<>(Arrays.asList(tests));
         mNanoAppIdSet = new HashSet<>();
         for (GeneralTestNanoApp test : mGeneralTestNanoAppList) {
-            mNanoAppIdSet.add(test.getNanoAppBinary().getNanoAppId());
+            Long appId = test.getNanoAppId();
+            mNanoAppIdSet.add(appId);
         }
         mSettingsUtil = new SettingsUtil(mContext);
     }
@@ -233,9 +313,15 @@ public abstract class ContextHubGeneralTestExecutor extends ContextHubClientCall
             if (test.getTestName() == ContextHubTestConstants.TestNames.BASIC_BLE_TEST) {
                 handleBleTestSetup();
             }
+            Long appId = test.getNanoAppId();
             if (test.loadAtInit()) {
-                ChreTestUtil.loadNanoAppAssertSuccess(mContextHubManager, mContextHubInfo,
-                        test.getNanoAppBinary());
+                if (test.isStatic()) {
+                    Log.i(TAG, "Nanoapp 0x" + Long.toHexString(appId)
+                            + " is static. Skipping load.");
+                } else {
+                    ChreTestUtil.loadNanoAppAssertSuccess(mContextHubManager, mContextHubInfo,
+                            test.getNanoAppBinary());
+                }
             }
         }
 
@@ -273,7 +359,7 @@ public abstract class ContextHubGeneralTestExecutor extends ContextHubClientCall
 
         for (GeneralTestNanoApp test : mGeneralTestNanoAppList) {
             if (test.loadAtInit() && test.sendStartMessage()) {
-                sendMessageToNanoAppOrFail(test.getNanoAppBinary().getNanoAppId(),
+                sendMessageToNanoAppOrFail(test.getNanoAppId(),
                         test.getTestName().asInt(), new byte[0] /* data */);
             }
         }
@@ -302,8 +388,15 @@ public abstract class ContextHubGeneralTestExecutor extends ContextHubClientCall
                     && !mInitialBluetoothEnabled) {
                 mSettingsUtil.setBluetooth(mInitialBluetoothEnabled);
             }
-            ChreTestUtil.unloadNanoApp(mContextHubManager, mContextHubInfo,
-                    test.getNanoAppBinary().getNanoAppId());
+
+            if (test.isStatic()) {
+                sendMessageToNanoAppOrFail(test.getNanoAppId(),
+                        ContextHubTestConstants.MessageType.TEST_TEARDOWN.asInt(),
+                        new byte[0]);
+            } else {
+                ChreTestUtil.unloadNanoApp(mContextHubManager, mContextHubInfo,
+                        test.getNanoAppId());
+            }
         }
 
         mContextHubClient.close();

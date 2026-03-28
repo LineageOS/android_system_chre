@@ -50,9 +50,20 @@ public class ContextHubEstimatedHostTimeTestExecutor extends ContextHubGeneralTe
 
     public ContextHubEstimatedHostTimeTestExecutor(ContextHubManager manager, ContextHubInfo info,
             NanoAppBinary binary) {
-        super(manager, info, new GeneralTestNanoApp(binary,
-                ContextHubTestConstants.TestNames.ESTIMATED_HOST_TIME));
-        mNanoappId = binary.getNanoAppId();
+        this(manager, info, new GeneralTestNanoApp(binary,
+                ContextHubTestConstants.TestNames.ESTIMATED_HOST_TIME), binary.getNanoAppId());
+    }
+
+    public ContextHubEstimatedHostTimeTestExecutor(ContextHubManager manager, ContextHubInfo info,
+            Long nanoAppId) {
+        this(manager, info, new GeneralTestNanoApp(nanoAppId,
+                ContextHubTestConstants.TestNames.ESTIMATED_HOST_TIME), nanoAppId);
+    }
+
+    public ContextHubEstimatedHostTimeTestExecutor(ContextHubManager manager, ContextHubInfo info,
+            GeneralTestNanoApp testNanoApp, long nanoappId) {
+        super(manager, info, testNanoApp);
+        mNanoappId = nanoappId;
         mDeltas = new ArrayList<>();
     }
 
