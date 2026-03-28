@@ -19,7 +19,12 @@
 
 #ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
 
+#include <variant>
+
+#include "chre/core/event_loop.h"
 #include "chre/core/nanoapp.h"
+#include "chre/core/shared_data_region_manager.h"
+#include "chre/util/dynamic_vector.h"
 #include "chre/util/non_copyable.h"
 #include "chre/util/system/message_common.h"
 #include "chre_api/chre/data_flow.h"
@@ -28,8 +33,6 @@
 #include "data_flow/untyped_queue.h"
 #include "pw_containers/vector.h"
 #include "pw_status/status.h"
-
-#include <variant>
 
 namespace chre {
 
@@ -353,8 +356,7 @@ class DataFlowManager : public NonCopyable {
    *
    * @param registration The registration to handle.
    */
-  void onRegisterDataFlowSink(
-      chre::message::DataFlowSinkRegistration &&registration);
+  void onRegisterDataFlowSink(message::DataFlowSinkRegistration &&registration);
 
   /**
    * Handles the unregistration of a nanoapp as the sink for a data flow.
@@ -362,21 +364,21 @@ class DataFlowManager : public NonCopyable {
    * @param unregistration The unregistration to handle.
    */
   void onDataFlowSinkUnregistered(
-      const chre::message::DataFlowSinkUnregistration &unregistration);
+      const message::DataFlowSinkUnregistration &unregistration);
 
   /**
    * Handles a data flow stopped event where the nanoapp is a sink.
    *
    * @param stopped The stopped event to handle.
    */
-  void onDataFlowStopped(const chre::message::DataFlowStopped &stopped);
+  void onDataFlowStopped(const message::DataFlowStopped &stopped);
 
   /**
    * Handles a data flow alert event where the nanoapp is a sink.
    *
    * @param alert The alert event to handle.
    */
-  void onDataFlowAlert(const chre::message::DataFlowAlert &alert);
+  void onDataFlowAlert(const message::DataFlowAlert &alert);
 
  private:
   //! The configuration for the block size and count for a data flow.
@@ -427,6 +429,88 @@ class DataFlowManager : public NonCopyable {
                  android::contexthub::data_flow::UntypedProducer,
                  android::contexthub::data_flow::VariableDataProducer>
         producer;
+
+    //! Sinks on this data flow that have a dedicated metadata region.
+    DynamicVector<chre::message::Endpoint> sinkIdsWithMetadataRegions;
+  };
+
+  //! A region tracking struct for dedicated sink metadata regions.
+  struct SinkMetadataRegion {
+    android::contexthub::data_flow::AllocatorRegion region;
+    chre::message::Endpoint sinkId;
+    int32_t regionId;
+    uint32_t refCount;
+  };
+
+  //! A pending sink registration with its consumer policy builder.
+  struct PendingSinkRegistration {
+    chre::message::DataFlowSinkRegistration registration;
+    android::contexthub::data_flow::ConsumerPolicyBuilder policyBuilder;
+  };
+
+  //! Pending sink metadata region allocation.
+  struct PendingSinkRegionAllocation {
+    DynamicVector<PendingSinkRegistration> registrations;
+    uintptr_t cookie;
+  };
+
+  //! A data flow sink registered by a nanoapp.
+  struct NanoappDataFlowSink {
+    //! The hub ID of the source.
+    uint64_t sourceHubId;
+
+    //! The endpoint ID of the source.
+    uint64_t sourceEndpointId;
+
+    //! The ID of the data flow.
+    uint32_t dataFlowId;
+
+    //! Offset of the metadata in the primary region.
+    uint32_t metadataOffset;
+
+    //! Offset of the sink metadata.
+    uint32_t sinkMetadataOffset;
+
+    //! The size of each element in the data flow.
+    uint32_t elementSize;
+
+    //! The alignment of each element in the data flow.
+    uint32_t alignment;
+
+    //! The instance ID of the nanoapp that is the sink.
+    uint16_t nanoappInstanceId;
+
+    //! Whether the sink is active.
+    bool isActive;
+
+    //! Guard for the primary region of the data flow.
+    SharedDataRegionManager::RegionGuard primaryRegionGuard;
+
+    //! Guard for the sink metadata region of the data flow, may be invalid.
+    SharedDataRegionManager::RegionGuard sinkMetadataRegionGuard;
+
+    //! The consumer instance for this data flow sink. Must come after the
+    //! guards to ensure that memory remains valid.
+    std::variant<std::monostate,
+                 android::contexthub::data_flow::UntypedConsumer,
+                 android::contexthub::data_flow::VariableDataConsumer>
+        consumer;
+  };
+
+  //! A struct containing data flow sink registration info and a session
+  //! message.
+  struct NanoappSinkRegistrationWithMessage {
+    //! The info for the data flow sink registration.
+    chreDataFlowSinkInfo info;
+
+    //! The session message for the data flow sink registration.
+    chreMsgMessageFromEndpointData sessionMessage;
+
+    //! The message data.
+    pw::UniquePtr<std::byte[]> messageData;
+
+    //! The instance ID of the nanoapp that is the sink.
+    uint16_t nanoappInstanceId;
   };
 
   //! The invalid region ID value.
@@ -434,6 +518,12 @@ class DataFlowManager : public NonCopyable {
 
   //! The maximum number of data flows that can be active or pending.
   static constexpr uint32_t kMaxDataFlows = 10;
+
+  //! The maximum number of sink metadata regions that can be tracked.
+  static constexpr uint32_t kMaxSinkMetadataRegions = 10;
+
+  //! The maximum number of pending sink region allocations.
+  static constexpr uint32_t kMaxPendingSinkRegionAllocations = 3;
 
   //! Builds a ConsumerPolicyBuilder from a chreDataFlowSinkPolicy.
   //! @param sinkPolicy The sink policy to build from.
@@ -451,17 +541,57 @@ class DataFlowManager : public NonCopyable {
   static BlockConfig calculateBlockConfig(uint32_t minElementCount,
                                           uint32_t maxElementCount);
 
-  //! The callback for remote notifications on a data flow. This is used to
-  //! propagate an alert from a nanoapp source.
-  // TODO(b/457453613): Make this static to ensure it accesses no state or
-  // defer.
-  void sendDataFlowAlertToRemoteSink(uint32_t dataFlowId, uint64_t sinkHubId,
-                                     uint64_t sinkEndpointId);
+  //! Helper function to get a nanoapp from a hub ID and endpoint ID.
+  //!
+  //! @param hubId The hub ID.
+  //! @param endpointId The endpoint ID.
+  //! @param eventLoopOut Pointer to a pointer to the event loop to be
+  //! populated if it is not nullptr. Will be set to nullptr if this function
+  //! returns nullptr.
+  //! @return The nanoapp if the hub ID is the CHRE hub ID and the nanoapp
+  //! exists, otherwise nullptr.
+  static Nanoapp *getNanoapp(uint64_t hubId, uint64_t endpointId,
+                             EventLoop **eventLoopOut = nullptr);
+
+  //! Sends a data flow alert to a remote source.
+  //!
+  //! @param dataFlowId The ID of the data flow.
+  //! @param sourceHubId The hub ID of the source.
+  //! @param sourceEndpointId The endpoint ID of the source.
+  static void sendDataFlowAlertToRemoteSource(uint32_t dataFlowId,
+                                              uint64_t sourceHubId,
+                                              uint64_t sourceEndpointId);
+
+  //! Sends a data flow alert to a remote sink.
+  //!
+  //! @param dataFlowId The ID of the data flow.
+  //! @param sinkHubId The hub ID of the sink.
+  //! @param sinkEndpointId The endpoint ID of the sink.
+  static void sendDataFlowAlertToRemoteSink(uint32_t dataFlowId,
+                                            uint64_t sinkHubId,
+                                            uint64_t sinkEndpointId);
 
   //! Creates the producer for the given data flow.
   //! @param dataFlow The active data flow for which to create a producer.
   //! @return pw::OkStatus() on success.
   pw::Status createProducer(NanoappDataFlow &dataFlow);
+
+  //! Creates the consumer for the given sink registration.
+  //! @param registration The sink registration to create a consumer for.
+  //! @param nanoapp The nanoapp that is the sink.
+  //! @param primaryRegionGuard The region guard for the primary region.
+  //! @param sinkMetadataRegionGuard The region guard for the sink metadata
+  //! region.
+  //! @param elementSize The size of each element in the data flow.
+  //! @param alignment The alignment of each element in the data flow.
+  //! @return The consumer for the given sink registration.
+  std::variant<std::monostate, android::contexthub::data_flow::UntypedConsumer,
+               android::contexthub::data_flow::VariableDataConsumer>
+  createConsumer(const chre::message::DataFlowSinkRegistration &registration,
+                 const Nanoapp *nanoapp,
+                 SharedDataRegionManager::RegionGuard &primaryRegionGuard,
+                 SharedDataRegionManager::RegionGuard &sinkMetadataRegionGuard,
+                 uint32_t &elementSize, uint32_t &alignment);
 
   //! Helper function to find a data flow and check if the given nanoapp owns
   //! it.
@@ -493,8 +623,79 @@ class DataFlowManager : public NonCopyable {
       uint16_t sessionId, uint32_t messagePermissions,
       chreMessageFreeFunction *freeCallback);
 
+  //! Helper function to start an asynchronous allocation of a sink metadata
+  //! region.
+  //! @param dataFlow The nanoapp owned data flow to start the allocation for.
+  //! @param registration The pending registration to start the allocation for.
+  //! @return CHRE_STATUS_OK if successful, otherwise an error status.
+  uint32_t allocateSinkMetadataRegionAsync(
+      NanoappDataFlow *dataFlow, PendingSinkRegistration &&pendingReg);
+
+  //! Helper function to handle asynchronous allocation of a sink metadata
+  //! region.
+  //! @param cookie The cookie returned by
+  //! PlatformSharedDataRegionManager::allocateDataFlowRegionAsync()
+  //! @param status The status of the request, pw::OkStatus() on success
+  //! @param regionId The ID of the region that was allocated
+  //! @param region Details of the allocated region including the allocator
+  //! used to manage it
+  //! @return true if the pending registration was found, false otherwise.
+  bool handleAllocateSinkMetadataRegionAsyncResult(
+      uintptr_t cookie, pw::Status status, int32_t regionId,
+      const android::contexthub::data_flow::AllocatorRegion &region);
+
+  //! Helper function to complete the given sink registration, allocating sink
+  //! metadata, sending the message to MessageRouter, and notifying the nanoapp.
+  //! @param registration The registration to complete.
+  //! @param policyBuilder The consumer policy builder to use for the sink.
+  //! @param sinkMetadataRegion The region containing the sink metadata.
+  //! @param dataFlow The data flow to complete the registration for.
+  //! @return CHRE_STATUS_OK if successful, otherwise an error status.
+  uint32_t completeSinkRegistration(
+      message::DataFlowSinkRegistration &&registration,
+      android::contexthub::data_flow::ConsumerPolicyBuilder &policyBuilder,
+      const android::contexthub::data_flow::AllocatorRegion &sinkMetadataRegion,
+      NanoappDataFlow *dataFlow = nullptr);
+
+  //! Helper function to remove a sink from the list of sinks. This will also
+  //! report the unregistration to MessageRouter.
+  //! @param sink The sink to remove.
+  void removeSink(NanoappDataFlowSink &sink);
+
+  //! Helper to lookup the NanoappDataFlow for a given data flow ID.
+  NanoappDataFlow *findNanoappDataFlow(message::DataFlowId dataFlowId);
+
+  //! Helper to lookup and validate a NanoappDataFlowSink.
+  NanoappDataFlowSink *findNanoappSinkWithInstanceId(
+      uint64_t hubId, uint32_t dataFlowId, uint16_t nanoappInstanceId);
+
+  //! Helper to lookup a NanoappDataFlowSink.
+  NanoappDataFlowSink *findNanoappSink(uint64_t hubId, uint32_t dataFlowId);
+
+  //! Helper to lookup a PendingSinkRegistration.
+  PendingSinkRegionAllocation *findPendingSinkRegionAllocation(
+      message::Endpoint sinkId);
+
+  //! Helper to decrement the ref count of a sink metadata region if it exists,
+  //! possibly deallocating the region.
+  //! @param sinkId The sink ID of the sink metadata region to decrement.
+  void decrementSinkMetadataRegionRefCount(message::Endpoint sinkId);
+
+  //! Helper to lookup a SinkMetadataRegion.
+  SinkMetadataRegion *findSinkMetadataRegion(message::Endpoint sinkId);
+
+  //! Sink metadata regions managed for external endpoints.
+  pw::Vector<SinkMetadataRegion, kMaxSinkMetadataRegions> mSinkMetadataRegions;
+
+  //! Pending registrations waiting for a sink metadata region block.
+  pw::Vector<PendingSinkRegionAllocation, kMaxPendingSinkRegionAllocations>
+      mPendingSinkRegionAllocations;
+
   //! The data flows owned by nanoapps.
   pw::Vector<NanoappDataFlow, kMaxDataFlows> mDataFlows;
+
+  //! The sinks registered for data flows.
+  pw::Vector<NanoappDataFlowSink, kMaxDataFlows> mSinks;
 
   //! The next available data flow ID. CHRE_DATA_FLOW_ID_INVALID is 0.
   uint32_t mNextDataFlowId = 1;

@@ -97,6 +97,7 @@ enum class SystemCallbackType : uint16_t {
   DataFlowSinkUnregisteredEvent,
   DataFlowStoppedEvent,
   DataFlowAlertEvent,
+  DataFlowSinkRegisteredWithMessageEvent,
 };
 
 //! Deferred/delayed callbacks use the event subsystem but are invariably sent

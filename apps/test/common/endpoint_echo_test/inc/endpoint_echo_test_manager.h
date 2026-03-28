@@ -20,6 +20,8 @@
 #include <cinttypes>
 #include <cstdint>
 
+#include "chre/util/data_flow_sink.h"
+#include "chre/util/data_flow_source.h"
 #include "chre/util/optional.h"
 #include "chre/util/pigweed/rpc_server.h"
 #include "chre/util/singleton.h"
@@ -129,6 +131,53 @@ class EndpointEchoTestManager {
   bool handleEventHostToNanoappTest(uint32_t senderInstanceId,
                                     uint16_t eventType, const void *eventData);
 
+  /**
+   * Handle a CHRE event for the data flow echo test path.
+   */
+  bool handleEventDataFlowTest(uint32_t senderInstanceId, uint16_t eventType,
+                               const void *eventData);
+
+  /**
+   * Handles the CHRE_EVENT_DATA_FLOW_SINK_CREATED event for variable size data
+   * flow.
+   */
+  bool handleVariableDataFlowSinkCreated(const chreDataFlowSinkInfo *info);
+
+  /**
+   * Handles the CHRE_EVENT_DATA_FLOW_SINK_CREATED event for fixed size data
+   * flow.
+   */
+  bool handleFixedDataFlowSinkCreated(const chreDataFlowSinkInfo *info);
+
+  /**
+   * Handles the CHRE_EVENT_DATA_FLOW_CREATED event for variable size data flow.
+   */
+  bool handleVariableDataFlowCreated();
+
+  /**
+   * Handles the CHRE_EVENT_DATA_FLOW_CREATED event for fixed size data flow.
+   */
+  bool handleFixedDataFlowCreated();
+
+  /**
+   * Handles the CHRE_EVENT_DATA_FLOW_ALERT event for variable size data flow.
+   */
+  bool handleVariableDataFlowAlert();
+
+  /**
+   * Handles the CHRE_EVENT_DATA_FLOW_ALERT event for fixed size data flow.
+   */
+  bool handleFixedDataFlowAlert();
+
+  /**
+   * Closes and resets all data flow sinks and sources.
+   *
+   * This should be called when both the source and sink sides of the data flow
+   * have signaled that they are stopped to ensure resources are properly
+   * released.
+   */
+  void closeDataFlows();
+
   /** Runs the nanoapp-initiated part of the test. */
   void runNanoappToHostTest(TestPhase phase);
 
@@ -188,6 +237,18 @@ class EndpointEchoTestManager {
 
   /** The message to send for the test. */
   uint8_t mMessageBuffer[10];
+
+  /** Data Flow members for echoing. */
+  uint64_t mMessageDataFlowEndpointId = 0;
+
+  chre::Optional<chre::DataFlowSink<uint8_t>> mDataFlowSink;
+  chre::Optional<chre::VariableDataFlowSink> mVariableDataFlowSink;
+  chre::Optional<chre::DataFlowSource<uint8_t>> mDataFlowSource;
+  chre::Optional<chre::VariableDataFlowSource> mVariableDataFlowSource;
+
+  bool mMessageDataFlowStopped = false;
+  bool mEchoDataFlowSinkStopped = false;
+  bool mIsDataFlowSinkConfigured = false;
 };
 
 typedef chre::Singleton<EndpointEchoTestManager>

@@ -16,7 +16,10 @@
 
 #include "endpoint_echo_test_manager.h"
 
+#include "chre/util/data_flow_sink.h"
+#include "chre/util/data_flow_source.h"
 #include "chre/util/nanoapp/log.h"
+#include "chre/util/unique_ptr.h"
 #include "chre_api/chre.h"
 
 #include "pb.h"
@@ -73,6 +76,10 @@ void EndpointEchoTestManager::handleEvent(uint32_t senderInstanceId,
   // the host-initiated part of the test as during the host-initiated part of
   // the test, the nanoapp acts as a simple echo service with no control
   // information.
+  if (handleEventDataFlowTest(senderInstanceId, eventType, eventData)) {
+    return;
+  }
+
   if (handleEventNanoappToHostTest(senderInstanceId, eventType, eventData)) {
     return;
   }
@@ -378,4 +385,332 @@ void EndpointEchoTestManager::validateEndpointInfo(
     }
   }
   LOGD("Completed host endpoint info validation");
+}
+
+void EndpointEchoTestManager::closeDataFlows() {
+  if (mMessageDataFlowStopped && mEchoDataFlowSinkStopped) {
+    mDataFlowSink.reset();
+    mVariableDataFlowSink.reset();
+    mDataFlowSource.reset();
+    mVariableDataFlowSource.reset();
+    mMessageDataFlowStopped = false;
+    mEchoDataFlowSinkStopped = false;
+    mIsDataFlowSinkConfigured = false;
+  }
+}
+
+bool EndpointEchoTestManager::handleEventDataFlowTest(
+    uint32_t /* senderInstanceId */, uint16_t eventType,
+    const void *eventData) {
+  switch (eventType) {
+    case CHRE_EVENT_DATA_FLOW_SINK_CREATED: {
+      const auto *info = static_cast<const chreDataFlowSinkInfo *>(eventData);
+      mMessageDataFlowEndpointId = info->endpointId;
+
+      LOGI("Data flow sink created: hubId=%" PRIx64 ", endpointId=%" PRIx64
+           ", dataFlowId=%" PRIu32 ", elementSize=%" PRIu32,
+           info->hubId, info->endpointId, info->dataFlowId, info->elementSize);
+
+      if (info->elementSize == CHRE_DATA_FLOW_ELEMENT_SIZE_VARIABLE) {
+        return handleVariableDataFlowSinkCreated(info);
+      } else {
+        return handleFixedDataFlowSinkCreated(info);
+      }
+    }
+
+    case CHRE_EVENT_DATA_FLOW_CREATED: {
+      const auto *info =
+          static_cast<const chreDataFlowCreatedInfo *>(eventData);
+      LOGI("Data flow created: status=%" PRIu32 ", dataFlowId=%" PRIu32,
+           info->status, info->dataFlowId);
+
+      if (info->status != CHRE_ERROR_NONE) {
+        LOGE("Failed to create echo data flow, status=%" PRIu32, info->status);
+        failTest("Failed to create echo data flow");
+        return true;
+      }
+
+      if (mVariableDataFlowSource.has_value()) {
+        return handleVariableDataFlowCreated();
+      } else if (mDataFlowSource.has_value()) {
+        return handleFixedDataFlowCreated();
+      }
+      return true;
+    }
+
+    case CHRE_EVENT_DATA_FLOW_SINK_CONFIGURE_DONE: {
+      const auto *info =
+          static_cast<const chreDataFlowSinkConfigureInfo *>(eventData);
+      LOGI("Data flow sink configure done: status=%" PRIu32
+           ", dataFlowId=%" PRIu32,
+           info->status, info->dataFlowId);
+
+      if (info->status != CHRE_ERROR_NONE) {
+        LOGE("Failed to configure echo data flow sink, status=%" PRIu32,
+             info->status);
+        failTest("Failed to configure echo data flow sink");
+        return true;
+      }
+      mIsDataFlowSinkConfigured = true;
+      return true;
+    }
+
+    case CHRE_EVENT_DATA_FLOW_ALERT: {
+      LOGI("Received data flow alert");
+      if (!mIsDataFlowSinkConfigured) {
+        LOGE("Received data flow alert before sink configure done");
+        failTest("Received data flow alert before sink configure done");
+        return true;
+      }
+
+      if (mVariableDataFlowSink.has_value()) {
+        return handleVariableDataFlowAlert();
+      } else if (mDataFlowSink.has_value()) {
+        return handleFixedDataFlowAlert();
+      } else {
+        LOGE("No data flow sink configured");
+        failTest("No data flow sink configured");
+        return true;
+      }
+    }
+
+    case CHRE_EVENT_DATA_FLOW_SINK_STOPPED: {
+      LOGI("Data flow sink stopped");
+      mEchoDataFlowSinkStopped = true;
+      closeDataFlows();
+      return true;
+    }
+
+    case CHRE_EVENT_DATA_FLOW_STOPPED: {
+      LOGI("Data flow stopped");
+      mMessageDataFlowStopped = true;
+      closeDataFlows();
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool EndpointEchoTestManager::handleVariableDataFlowSinkCreated(
+    const chreDataFlowSinkInfo *info) {
+  LOGI("Creating VariableDataFlowSource");
+  auto source = chre::VariableDataFlowSource::createAsync(
+      CHRE_DATA_FLOW_SINK_DOMAIN_HOST_AVAILABLE, 0, 0,
+      CHRE_MESSAGE_PERMISSION_NONE, 1024, 16384, "EchoVariableDataFlow");
+  if (!source.ok()) {
+    LOGE("Failed to create VariableDataFlowSource");
+    failTest("Failed to create VariableDataFlowSource");
+    return true;
+  }
+  mVariableDataFlowSource = std::move(source.value());
+
+  LOGI("Creating VariableDataFlowSink");
+  auto sink = chre::VariableDataFlowSink::create(info->hubId, info->dataFlowId);
+  if (!sink.ok()) {
+    LOGE("Failed to create VariableDataFlowSink");
+    failTest("Failed to create VariableDataFlowSink");
+    return true;
+  }
+  mVariableDataFlowSink = std::move(sink.value());
+  return true;
+}
+
+bool EndpointEchoTestManager::handleFixedDataFlowSinkCreated(
+    const chreDataFlowSinkInfo *info) {
+  LOGI("Creating DataFlowSource");
+  auto source = chre::DataFlowSource<uint8_t>::createAsync(
+      CHRE_DATA_FLOW_SINK_DOMAIN_HOST_AVAILABLE, 0, 0,
+      CHRE_MESSAGE_PERMISSION_NONE, 1024, 16384, "EchoDataFlow");
+  if (!source.ok()) {
+    LOGE("Failed to create DataFlowSource");
+    failTest("Failed to create DataFlowSource");
+    return true;
+  }
+  mDataFlowSource = std::move(source.value());
+
+  LOGI("Creating DataFlowSink");
+  auto sink =
+      chre::DataFlowSink<uint8_t>::create(info->hubId, info->dataFlowId);
+  if (!sink.ok()) {
+    LOGE("Failed to create DataFlowSink");
+    failTest("Failed to create DataFlowSink");
+    return true;
+  }
+  mDataFlowSink = std::move(sink.value());
+  return true;
+}
+
+bool EndpointEchoTestManager::handleVariableDataFlowCreated() {
+  chreDataFlowSinkPolicy policy = {};
+  policy.newDataAlertPolicy =
+      CHRE_DATA_FLOW_SINK_NEW_DATA_ALERT_POLICY_STREAMING;
+  policy.overwritePolicy = CHRE_DATA_FLOW_SINK_OVERWRITE_POLICY_DISALLOWED;
+
+  LOGI("Adding sink to VariableDataFlowSource");
+  if (!mVariableDataFlowSource
+           ->addSinkAsync(mVariableDataFlowSink->hubId(),
+                          mMessageDataFlowEndpointId, policy)
+           .ok()) {
+    LOGE("Failed to add sink to VariableDataFlowSource");
+    failTest("Failed to add sink to VariableDataFlowSource");
+  }
+  return true;
+}
+
+bool EndpointEchoTestManager::handleFixedDataFlowCreated() {
+  chreDataFlowSinkPolicy policy = {};
+  policy.newDataAlertPolicy =
+      CHRE_DATA_FLOW_SINK_NEW_DATA_ALERT_POLICY_STREAMING;
+  policy.overwritePolicy = CHRE_DATA_FLOW_SINK_OVERWRITE_POLICY_DISALLOWED;
+
+  LOGI("Adding sink to DataFlowSource");
+  if (!mDataFlowSource
+           ->addSinkAsync(mDataFlowSink->hubId(), mMessageDataFlowEndpointId,
+                          policy)
+           .ok()) {
+    LOGE("Failed to add sink to DataFlowSource");
+    failTest("Failed to add sink to DataFlowSource");
+  }
+  return true;
+}
+
+bool EndpointEchoTestManager::handleVariableDataFlowAlert() {
+  auto offsetResult = mVariableDataFlowSink->getOffset();
+  if (!offsetResult.ok()) {
+    LOGE("Failed to get offset from data flow sink");
+    failTest("Failed to get offset from data flow sink");
+    return true;
+  }
+  uint32_t offset = offsetResult.value();
+  LOGI("Data flow sink offset is %" PRIu32, offset);
+
+  while (offset > 0) {
+    auto headSizeResult = mVariableDataFlowSink->getHeadSize();
+    if (headSizeResult.status().IsUnavailable()) {
+      LOGI("Data flow sink head size returned UNAVAILABLE, breaking");
+      break;
+    } else if (!headSizeResult.ok()) {
+      LOGE("Failed to get head size from data flow sink with status %d",
+           static_cast<int>(headSizeResult.status().code()));
+      mMessageDataFlowStopped = true;
+      mEchoDataFlowSinkStopped = true;
+      closeDataFlows();
+      failTest("Failed to get head size from data flow sink");
+      return true;
+    }
+
+    uint32_t numBytes = headSizeResult.value();
+    if (numBytes == 0) {
+      LOGE("Failed to handle variable data flow alert, numBytes == 0");
+      failTest("Failed to handle variable data flow alert, numBytes == 0");
+      return true;
+    }
+
+    auto buffer = chre::MakeUniqueArray<uint8_t[]>(numBytes);
+    if (buffer.isNull()) {
+      LOGE("Failed to allocate memory for popping element");
+      failTest("Failed to allocate memory for popping element");
+      return true;
+    }
+
+    pw::ByteSpan element(reinterpret_cast<std::byte *>(buffer.get()), numBytes);
+    auto popStatus = mVariableDataFlowSink->pop(element);
+    if (!popStatus.ok()) {
+      LOGE("Failed to pop from data flow sink with status %d",
+           static_cast<int>(popStatus.code()));
+      mMessageDataFlowStopped = true;
+      mEchoDataFlowSinkStopped = true;
+      closeDataFlows();
+      failTest("Failed to pop from data flow sink");
+      return true;
+    }
+
+    LOGI("Popped %" PRIu32 " bytes from data flow sink", numBytes);
+
+    if (!mVariableDataFlowSource.has_value()) {
+      LOGE("No VariableDataFlowSource available to push");
+      failTest("No VariableDataFlowSource available to push");
+      return true;
+    }
+
+    if (!mVariableDataFlowSource->push(pw::span<const std::byte>(element))
+             .ok()) {
+      LOGE("Failed to push to VariableDataFlowSource");
+      failTest("Failed to push to VariableDataFlowSource");
+      return true;
+    }
+    LOGI("Pushed %" PRIu32 " bytes to VariableDataFlowSource", numBytes);
+
+    auto newOffsetResult = mVariableDataFlowSink->getOffset();
+    if (!newOffsetResult.ok()) {
+      LOGE("Failed to get offset from data flow sink");
+      failTest("Failed to get offset from data flow sink");
+      return true;
+    }
+    offset = newOffsetResult.value();
+    LOGI("Remaining offset is %" PRIu32, offset);
+  }
+  return true;
+}
+
+bool EndpointEchoTestManager::handleFixedDataFlowAlert() {
+  auto offsetResult = mDataFlowSink->getOffset();
+  if (!offsetResult.ok()) {
+    LOGE("Failed to get offset from data flow sink");
+    failTest("Failed to get offset from data flow sink");
+    return true;
+  }
+  uint32_t offset = offsetResult.value();
+  LOGI("Data flow sink offset is %" PRIu32, offset);
+
+  while (offset > 0) {
+    auto peekResult = mDataFlowSink->peek(offset);
+    if (peekResult.status().IsUnavailable()) {
+      LOGI("Data flow sink peek returned UNAVAILABLE, breaking");
+      break;
+    } else if (!peekResult.ok()) {
+      LOGE("Failed to peek from data flow sink with status %d",
+           static_cast<int>(peekResult.status().code()));
+      mMessageDataFlowStopped = true;
+      mEchoDataFlowSinkStopped = true;
+      closeDataFlows();
+      failTest("Failed to peek from data flow sink");
+      return true;
+    }
+    pw::span<const uint8_t> data = peekResult.value();
+    uint32_t numBytes = data.size();
+
+    LOGI("Peeked %" PRIu32 " bytes from data flow sink", numBytes);
+
+    if (!mDataFlowSource.has_value()) {
+      LOGE("No DataFlowSource available to push");
+      failTest("No DataFlowSource available to push");
+      return true;
+    }
+
+    auto pushResult = mDataFlowSource->push(data, /* allOrNothing= */ true);
+    if (!pushResult.ok()) {
+      LOGE("Failed to push to DataFlowSource");
+      failTest("Failed to push to DataFlowSource");
+      return true;
+    }
+    numBytes = pushResult.value();
+    LOGI("Pushed %" PRIu32 " elements to DataFlowSource", numBytes);
+
+    if (!mDataFlowSink->release(numBytes).ok()) {
+      LOGE("Failed to release from data flow sink");
+      failTest("Failed to release from data flow sink");
+      return true;
+    }
+    auto newOffsetResult = mDataFlowSink->getOffset();
+    if (!newOffsetResult.ok()) {
+      LOGE("Failed to get offset from data flow sink");
+      failTest("Failed to get offset from data flow sink");
+      return true;
+    }
+    offset = newOffsetResult.value();
+    LOGI("Remaining offset is %" PRIu32, offset);
+  }
+  return true;
 }

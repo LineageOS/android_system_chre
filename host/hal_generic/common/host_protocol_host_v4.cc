@@ -49,6 +49,7 @@ using AidlSharedDataCapabilities =
     ::aidl::android::hardware::contexthub::SharedDataCapabilities;
 using AidlSharedDataLibraryVersion =
     ::aidl::android::hardware::contexthub::SharedDataRegion::Version;
+using ::aidl::android::hardware::contexthub::IEndpointCommunication;
 
 void HostProtocolHostV4::encodeGetMessageHubsAndEndpointsRequest(
     FlatBufferBuilder &builder) {
@@ -345,6 +346,8 @@ void HostProtocolHostV4::decodeRegisterDataFlowSink(
     uint16_t sessionId;
     decodeEndpointSessionMessage(*msg.msg, hubIdIgnore, sessionId, *params.msg);
     params.sessionId = static_cast<int32_t>(sessionId);
+  } else {
+    params.sessionId = IEndpointCommunication::SESSION_ID_INVALID;
   }
 }
 

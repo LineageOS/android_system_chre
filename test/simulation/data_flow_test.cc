@@ -14,9 +14,11 @@
  * limitations under the License.
  */
 
+#include "chre/util/dynamic_vector.h"
 #include "chre/util/system/message_hub_callback_v2.h"
 #include "chre/util/system/message_router_mocks.h"
 #include "chre_api/chre.h"
+#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "inc/test_util.h"
 #include "test_base.h"
@@ -28,7 +30,9 @@
 namespace chre {
 namespace {
 
+using ::chre::message::DataFlowId;
 using ::chre::message::DataFlowSinkRegistration;
+using ::chre::message::Endpoint;
 using ::chre::message::EndpointInfo;
 using ::chre::message::EndpointType;
 using ::chre::message::MessageHubInfo;
@@ -42,25 +46,87 @@ using ::testing::Return;
 constexpr uint64_t kTestHubId = 0x1234567812345678;
 constexpr uint64_t kTestEndpointId = 0x8765432187654321;
 
+constexpr int32_t kRegionId = 0;
+constexpr size_t kRegionSize = 1024 * 1024;
+std::byte gRegionBuffer[kRegionSize];
+pw::span<std::byte> gRegionSpan(gRegionBuffer, gRegionBuffer + kRegionSize);
+
+class MockHostCallback : public HostMessageHubManager::HostCallback {
+ public:
+  MOCK_METHOD(void, onReset, (), (override));
+  MOCK_METHOD(void, onHubRegistered, (const message::MessageHubInfo &),
+              (override));
+  MOCK_METHOD(void, onHubUnregistered, (message::MessageHubId), (override));
+  MOCK_METHOD(void, onEndpointRegistered,
+              (message::MessageHubId, const message::EndpointInfo &),
+              (override));
+  MOCK_METHOD(void, onEndpointService,
+              (message::MessageHubId, message::EndpointId,
+               const message::ServiceInfo &),
+              (override));
+  MOCK_METHOD(void, onEndpointReady,
+              (message::MessageHubId, message::EndpointId), (override));
+  MOCK_METHOD(void, onEndpointUnregistered,
+              (message::MessageHubId, message::EndpointId), (override));
+  MOCK_METHOD(bool, onMessageReceived,
+              (message::MessageHubId, message::SessionId,
+               pw::UniquePtr<std::byte[]> &&, uint32_t, uint32_t),
+              (override));
+  MOCK_METHOD(bool, onMessageDeliveryStatus,
+              (message::MessageHubId, message::SessionId, uint32_t, uint8_t),
+              (override));
+  MOCK_METHOD(void, onSessionOpenRequest, (const message::Session &),
+              (override));
+  MOCK_METHOD(void, onSessionOpened,
+              (message::MessageHubId, message::SessionId), (override));
+  MOCK_METHOD(void, onSessionClosed,
+              (message::MessageHubId, message::SessionId, message::Reason),
+              (override));
+
+#ifdef CHRE_DATA_FLOW_SUPPORT_ENABLED
+  MOCK_METHOD(void, onRegisterDataFlowSink,
+              (message::DataFlowSinkRegistration &&), (override));
+  MOCK_METHOD(void, onDataFlowSinkUnregistered,
+              (const message::DataFlowSinkUnregistration &), (override));
+  MOCK_METHOD(void, onDataFlowStopped, (const message::DataFlowStopped &),
+              (override));
+  MOCK_METHOD(void, onDataFlowAlert, (const message::DataFlowAlert &),
+              (override));
+#endif  // CHRE_DATA_FLOW_SUPPORT_ENABLED
+};
+
+//! Returns the allocator for the region.
+pw::Allocator *getAllocator() {
+  static pw::allocator::BestFitAllocator<pw::allocator::BestFitBlock<uintptr_t>>
+      sAllocator(gRegionSpan);
+  return &sAllocator;
+}
+
 CREATE_CHRE_TEST_EVENT(TEST_CREATE_FIXED_DATA_FLOW, 0);
 CREATE_CHRE_TEST_EVENT(TEST_CREATE_FIXED_DATA_FLOW_2, 1);
-CREATE_CHRE_TEST_EVENT(TEST_CREATE_VARIABLE_DATA_FLOW, 2);
-CREATE_CHRE_TEST_EVENT(TEST_DESTROY_DATA_FLOW, 3);
-CREATE_CHRE_TEST_EVENT(TEST_CREATE_WITH_NULL_NAME, 4);
-CREATE_CHRE_TEST_EVENT(TEST_CREATE_WITH_UNGRANTED_PERMISSION, 5);
-CREATE_CHRE_TEST_EVENT(TEST_DESTROY_INVALID_DATA_FLOW, 6);
-CREATE_CHRE_TEST_EVENT(TEST_DESTROY_UNOWNED_DATA_FLOW, 7);
-CREATE_CHRE_TEST_EVENT(TEST_CREATE_WITH_DUPLICATE_NAME, 8);
-CREATE_CHRE_TEST_EVENT(TEST_SOURCE_ADD_SINK_NO_MESSAGE, 9);
-CREATE_CHRE_TEST_EVENT(TEST_SOURCE_ADD_SINK_WITH_MESSAGE, 10);
-CREATE_CHRE_TEST_EVENT(TEST_SOURCE_CONFIGURE_SINK, 11);
-CREATE_CHRE_TEST_EVENT(TEST_SOURCE_RESERVE, 12);
-CREATE_CHRE_TEST_EVENT(TEST_SOURCE_COMMIT, 13);
-CREATE_CHRE_TEST_EVENT(TEST_SOURCE_PUSH, 14);
-CREATE_CHRE_TEST_EVENT(TEST_SOURCE_GET_SIZE_EMPTY, 15);
-CREATE_CHRE_TEST_EVENT(TEST_SOURCE_GET_CAPACITY_EMPTY, 16);
-CREATE_CHRE_TEST_EVENT(TEST_SOURCE_GET_SIZE_ONE_ELEMENT, 17);
-CREATE_CHRE_TEST_EVENT(TEST_SOURCE_GET_CAPACITY_ONE_ELEMENT, 18);
+CREATE_CHRE_TEST_EVENT(TEST_CREATE_DATA_FLOW_TO_HOST, 2);
+CREATE_CHRE_TEST_EVENT(TEST_CREATE_VARIABLE_DATA_FLOW, 3);
+CREATE_CHRE_TEST_EVENT(TEST_DESTROY_DATA_FLOW, 4);
+CREATE_CHRE_TEST_EVENT(TEST_CREATE_WITH_NULL_NAME, 5);
+CREATE_CHRE_TEST_EVENT(TEST_CREATE_WITH_UNGRANTED_PERMISSION, 6);
+CREATE_CHRE_TEST_EVENT(TEST_DESTROY_INVALID_DATA_FLOW, 7);
+CREATE_CHRE_TEST_EVENT(TEST_DESTROY_UNOWNED_DATA_FLOW, 8);
+CREATE_CHRE_TEST_EVENT(TEST_CREATE_WITH_DUPLICATE_NAME, 9);
+CREATE_CHRE_TEST_EVENT(TEST_SOURCE_ADD_SINK_NO_MESSAGE, 10);
+CREATE_CHRE_TEST_EVENT(TEST_SOURCE_ADD_SINK_WITH_MESSAGE, 11);
+CREATE_CHRE_TEST_EVENT(TEST_SOURCE_CONFIGURE_SINK, 12);
+CREATE_CHRE_TEST_EVENT(TEST_SOURCE_RESERVE, 13);
+CREATE_CHRE_TEST_EVENT(TEST_SOURCE_COMMIT, 14);
+CREATE_CHRE_TEST_EVENT(TEST_SOURCE_PUSH, 15);
+CREATE_CHRE_TEST_EVENT(TEST_SOURCE_GET_SIZE_EMPTY, 16);
+CREATE_CHRE_TEST_EVENT(TEST_SOURCE_GET_CAPACITY_EMPTY, 17);
+CREATE_CHRE_TEST_EVENT(TEST_SOURCE_GET_SIZE_ONE_ELEMENT, 18);
+CREATE_CHRE_TEST_EVENT(TEST_SOURCE_GET_CAPACITY_ONE_ELEMENT, 19);
+CREATE_CHRE_TEST_EVENT(TEST_SINK_ENABLE, 20);
+CREATE_CHRE_TEST_EVENT(TEST_SINK_GET_STATE_OK, 21);
+CREATE_CHRE_TEST_EVENT(TEST_SINK_POP, 22);
+CREATE_CHRE_TEST_EVENT(TEST_SINK_PEEK_AND_RELEASE, 23);
+CREATE_CHRE_TEST_EVENT(TEST_SINK_DISABLE, 24);
 
 class DataFlowTestApp : public TestNanoapp {
  public:
@@ -89,6 +155,16 @@ class DataFlowTestApp : public TestNanoapp {
         EXPECT_EQ(info->hubId, kTestHubId);
         EXPECT_EQ(info->endpointId, kTestEndpointId);
         triggerWait(CHRE_EVENT_DATA_FLOW_SINK_CONFIGURE_DONE);
+        break;
+      }
+      case CHRE_EVENT_DATA_FLOW_SINK_CREATED: {
+        auto *info = static_cast<const chreDataFlowSinkInfo *>(eventData);
+        EXPECT_EQ(info->hubId, kTestHubId);
+        EXPECT_EQ(info->endpointId, kTestEndpointId);
+        mSinkHubId = info->hubId;
+        mSinkDataFlowId = info->dataFlowId;
+        TestEventQueueSingleton::get()->pushEvent(
+            CHRE_EVENT_DATA_FLOW_SINK_CREATED);
         break;
       }
       case CHRE_EVENT_TEST_EVENT: {
@@ -121,6 +197,21 @@ class DataFlowTestApp : public TestNanoapp {
                 mExpectedPermissions,
                 /*elementSize=*/10, /*alignment=*/4, /*minElementCount=*/10,
                 /*maxElementCount=*/10, "test_data_flow_2", &mDataFlowId);
+            EXPECT_EQ(status, CHRE_STATUS_OK);
+            break;
+          }
+          case TEST_CREATE_DATA_FLOW_TO_HOST: {
+            mExpectedSize = 100;
+            mExpectedSinkDomains = CHRE_DATA_FLOW_SINK_DOMAIN_HOST_AVAILABLE;
+            mExpectedPermissions = CHRE_MESSAGE_PERMISSION_NONE;
+
+            uint32_t status = chreDataFlowCreateAsync(
+                /*sinkDomains=*/mExpectedSinkDomains,
+                /*minAverageWriteIntervalNs=*/1000,
+                /*maxAverageWriteBandwidthBytesPerSecond=*/1000,
+                mExpectedPermissions,
+                /*elementSize=*/10, /*alignment=*/4, /*minElementCount=*/10,
+                /*maxElementCount=*/10, "test_data_flow_to_host", &mDataFlowId);
             EXPECT_EQ(status, CHRE_STATUS_OK);
             break;
           }
@@ -318,6 +409,88 @@ class DataFlowTestApp : public TestNanoapp {
             triggerWait(TEST_SOURCE_GET_CAPACITY_ONE_ELEMENT);
             break;
           }
+          case TEST_SINK_ENABLE: {
+            uint32_t status =
+                chreDataFlowSinkEnable(mSinkHubId, mSinkDataFlowId);
+            EXPECT_EQ(status, CHRE_STATUS_OK);
+            triggerWait(TEST_SINK_ENABLE);
+            break;
+          }
+          case TEST_SINK_GET_STATE_OK: {
+            uint32_t status =
+                chreDataFlowSinkGetState(mSinkHubId, mSinkDataFlowId);
+            EXPECT_EQ(status, CHRE_STATUS_OK);
+            triggerWait(TEST_SINK_GET_STATE_OK);
+            break;
+          }
+          case TEST_SINK_POP: {
+            uint32_t offset = 0;
+            uint32_t status =
+                chreDataFlowSinkGetOffset(mSinkHubId, mSinkDataFlowId, &offset);
+            EXPECT_EQ(status, CHRE_STATUS_OK);
+            EXPECT_EQ(offset, 10 * sizeof(uint32_t));
+
+            uint32_t buffer[10];
+            uint32_t numBytes = sizeof(buffer);
+            status = chreDataFlowSinkPop(mSinkHubId, mSinkDataFlowId, buffer,
+                                         &numBytes);
+            EXPECT_EQ(status, CHRE_STATUS_OK);
+            EXPECT_EQ(numBytes, 10 * sizeof(uint32_t));
+            for (auto i = 0; i < std::size(buffer); i++) {
+              EXPECT_EQ(buffer[i], i);
+            }
+
+            status =
+                chreDataFlowSinkGetOffset(mSinkHubId, mSinkDataFlowId, &offset);
+            EXPECT_EQ(status, CHRE_STATUS_OK);
+            EXPECT_EQ(offset, 0);
+            triggerWait(TEST_SINK_POP);
+            break;
+          }
+          case TEST_SINK_PEEK_AND_RELEASE: {
+            uint32_t offset = 0;
+            uint32_t status =
+                chreDataFlowSinkGetOffset(mSinkHubId, mSinkDataFlowId, &offset);
+            EXPECT_EQ(status, CHRE_STATUS_OK);
+            EXPECT_EQ(offset, 10 * sizeof(uint32_t));
+
+            const void *data;
+            uint32_t numBytes = 0;
+            status = chreDataFlowSinkPeek(
+                mSinkHubId, mSinkDataFlowId,
+                /*numRequestedBytes=*/10 * sizeof(uint32_t), &data, &numBytes);
+            EXPECT_EQ(status, CHRE_STATUS_OK);
+            EXPECT_EQ(numBytes, 10 * sizeof(uint32_t));
+            for (auto i = 0; i < 10; i++) {
+              EXPECT_EQ(reinterpret_cast<const uint32_t *>(data)[i], i);
+            }
+
+            status =
+                chreDataFlowSinkGetOffset(mSinkHubId, mSinkDataFlowId, &offset);
+            EXPECT_EQ(status, CHRE_STATUS_OK);
+            EXPECT_EQ(offset, 10 * sizeof(uint32_t));
+
+            status =
+                chreDataFlowSinkRelease(mSinkHubId, mSinkDataFlowId,
+                                        /*numBytes=*/10 * sizeof(uint32_t));
+            EXPECT_EQ(status, CHRE_STATUS_OK);
+
+            status =
+                chreDataFlowSinkGetOffset(mSinkHubId, mSinkDataFlowId, &offset);
+            EXPECT_EQ(status, CHRE_STATUS_OK);
+            EXPECT_EQ(offset, 0);
+            triggerWait(TEST_SINK_PEEK_AND_RELEASE);
+            break;
+          }
+          case TEST_SINK_DISABLE: {
+            uint32_t status =
+                chreDataFlowSinkDisable(mSinkHubId, mSinkDataFlowId);
+            EXPECT_EQ(status, CHRE_STATUS_OK);
+            status = chreDataFlowSinkGetState(mSinkHubId, mSinkDataFlowId);
+            EXPECT_EQ(status, CHRE_STATUS_NOT_FOUND);
+            triggerWait(TEST_SINK_DISABLE);
+            break;
+          }
         }
       }
     }
@@ -329,6 +502,9 @@ class DataFlowTestApp : public TestNanoapp {
   uint32_t mExpectedSize = 0;
   uint32_t mExpectedSinkDomains = 0;
   uint32_t mExpectedPermissions = 0;
+
+  uint64_t mSinkHubId = 0;
+  uint32_t mSinkDataFlowId = 0;
 };
 
 class DataFlowTestApp2 : public DataFlowTestApp {
@@ -338,7 +514,102 @@ class DataFlowTestApp2 : public DataFlowTestApp {
       : DataFlowTestApp(dataFlowId, info, sessionId) {}
 };
 
-class DataFlowTest : public SingleThreadTestBase {};
+class DataFlowTest : public SingleThreadTestBase {
+ protected:
+  // Callback registered with HostMessageHubManager. Must outlive it.
+  testing::NiceMock<MockHostCallback> mMockHostCallback;
+
+  std::optional<message::MessageRouter::MessageHub> mMessageHub;
+  android::contexthub::data_flow::DataNotifier mDataNotifier;
+  std::optional<android::contexthub::data_flow::UntypedProducer> mProducer;
+
+  void setupNanoappSink(uint32_t dataFlowId, uint64_t &appId) {
+    TestNanoappInfo info = {.name = "SinkTest", .id = 0x5678};
+    appId = loadNanoapp(MakeUnique<DataFlowTestApp>(dataFlowId, info));
+    ASSERT_NE(getNanoappByAppId(appId), nullptr);
+
+    // 1. Create a MessageHub for the host.
+    auto callback =
+        pw::MakeRefCounted<testing::NiceMock<MockMessageHubCallbackV2>>();
+    std::optional<EndpointInfo> endpointInfo = EndpointInfo(
+        kTestEndpointId, "test_endpoint", 1, EndpointType::HOST_NATIVE, 0);
+    EXPECT_CALL(*callback, getEndpointInfo(kTestEndpointId))
+        .WillRepeatedly(Return(endpointInfo));
+
+    mMessageHub = message::MessageRouterSingleton::get()->registerMessageHubV2(
+        {.id = kTestHubId, .name = "HOST_HUB"}, callback);
+    ASSERT_TRUE(mMessageHub.has_value());
+
+    // 2. Create a producer.
+    struct {
+      message::MessageRouter::MessageHub *hub;
+      uint32_t dataFlowId;
+    } notifyState = {&*mMessageHub, dataFlowId};
+    android::contexthub::data_flow::RemoteNotifyArgs notifyArgs{
+        .fn =
+            [&notifyState](
+                const android::contexthub::data_flow::RemoteEndpointId
+                    &sinkId) {
+              Endpoint receiverEndpoint(sinkId.aidlId.hubId,
+                                        sinkId.aidlId.endpointId);
+              notifyState.hub->reportDataFlowAlert(
+                  {.dataFlowId = {.hubId = kTestHubId,
+                                  .id = notifyState.dataFlowId},
+                   .receiverEndpoints =
+                       pw::span<Endpoint>(&receiverEndpoint, 1)});
+            },
+        .id = {.aidlId = {.hubId = kTestHubId,
+                          .endpointId = static_cast<int64_t>(kTestEndpointId)}},
+    };
+    android::contexthub::data_flow::AllocatorRegion allocatorRegion;
+    allocatorRegion.base = reinterpret_cast<uintptr_t>(gRegionBuffer);
+    allocatorRegion.size = kRegionSize;
+    allocatorRegion.allocator = getAllocator();
+    EventLoopManagerSingleton::get()
+        ->getSharedDataRegionManager()
+        .setAllocatorRegion(allocatorRegion);
+
+    auto producerResult =
+        android::contexthub::data_flow::UntypedProducer::createRemote(
+            allocatorRegion, /*blockCapacity=*/32, /*elementSize=*/4,
+            /*elementAlignment=*/4, /*maxBlockCount=*/4, /*minBlockCount=*/1,
+            mDataNotifier, std::move(notifyArgs), /*memoryAccess=*/nullptr);
+    ASSERT_TRUE(producerResult.ok());
+    mProducer = std::move(producerResult.value());
+
+    android::contexthub::data_flow::RemoteEndpointId remoteEndpointId = {
+        .aidlId = {.hubId = ChreMessageHubManager::kChreMessageHubId,
+                   .endpointId = static_cast<int64_t>(appId)}};
+    android::contexthub::data_flow::ConsumerPolicyBuilder consumerPolicyBuilder;
+    consumerPolicyBuilder.setNeverNotify();
+    consumerPolicyBuilder.setOverwritable();
+    auto consumerOffsetResult = mProducer->getConsumerManager().addConsumer(
+        remoteEndpointId, consumerPolicyBuilder);
+    ASSERT_TRUE(consumerOffsetResult.ok());
+
+    // 3. Register the sink.
+    DataFlowSinkRegistration registration;
+    registration.dataFlowId = {.hubId = kTestHubId, .id = dataFlowId};
+    registration.sourceId = Endpoint(kTestHubId, kTestEndpointId);
+    registration.sinkId =
+        Endpoint(ChreMessageHubManager::kChreMessageHubId, appId);
+    registration.primaryRegionId = kRegionId;
+    registration.metadataOffset = mProducer->getQueueOffset();
+    registration.sinkMetadataRegionId = -1;
+    registration.sinkMetadataOffset = consumerOffsetResult.value();
+    mMessageHub->registerDataFlowSink(std::move(registration));
+
+    // 4. Wait for the nanoapp to receive the sink created event.
+    waitForEvent(CHRE_EVENT_DATA_FLOW_SINK_CREATED);
+
+    // 5. Enable the sink.
+    sendEventToNanoappAndWait(appId, TEST_SINK_ENABLE, TEST_SINK_ENABLE);
+
+    // 6. Check that the sink is in a good state.
+    sendEventToNanoappAndWait(appId, TEST_SINK_GET_STATE_OK,
+                              TEST_SINK_GET_STATE_OK);
+  }
+};
 
 TEST_F(DataFlowTest, CreateAndDestroyFixedSizeDataFlow) {
   uint32_t dataFlowId = CHRE_DATA_FLOW_ID_INVALID;
@@ -523,6 +794,8 @@ TEST_F(DataFlowTest, SourceAddSinkNoMessage) {
             EXPECT_EQ(registration.sourceId.endpointId, appId);
             EXPECT_EQ(registration.sinkId.messageHubId, kTestHubId);
             EXPECT_EQ(registration.sinkId.endpointId, kTestEndpointId);
+            EXPECT_NE(registration.primaryRegionId, -1);
+            EXPECT_EQ(registration.sinkMetadataRegionId, -1);
           }));
 
   MessageHubInfo messageHubInfo = {
@@ -538,6 +811,47 @@ TEST_F(DataFlowTest, SourceAddSinkNoMessage) {
                             CHRE_EVENT_DATA_FLOW_CREATED);
   EXPECT_NE(dataFlowId, CHRE_DATA_FLOW_ID_INVALID);
 
+  sendEventToNanoappAndWait(appId, TEST_SOURCE_ADD_SINK_NO_MESSAGE,
+                            CHRE_EVENT_DATA_FLOW_SINK_CONFIGURE_DONE);
+}
+
+TEST_F(DataFlowTest, SourceAddHostSinkNoMessage) {
+  uint32_t dataFlowId = CHRE_DATA_FLOW_ID_INVALID;
+
+  TestNanoappInfo info = {.name = "DataFlowTest", .id = 0x1234};
+  uint64_t appId = loadNanoapp(MakeUnique<DataFlowTestApp>(dataFlowId, info));
+  ASSERT_NE(getNanoappByAppId(appId), nullptr);
+
+  // Register the host hub and endpoint.
+  HostMessageHubManager &hostMessageHubManager =
+      EventLoopManagerSingleton::get()->getHostMessageHubManager();
+  hostMessageHubManager.onHostTransportReady(mMockHostCallback);
+  MessageHubInfo messageHubInfo = {
+      .id = kTestHubId,
+      .name = "TEST_HUB",
+      .sharedDataCapabilities = {.dataFlowsSupported = true}};
+  hostMessageHubManager.registerHub(messageHubInfo);
+  EndpointInfo endpointInfo(kTestEndpointId, "test_endpoint", 1,
+                            EndpointType::HOST_NATIVE, 0);
+  DynamicVector<message::ServiceInfo> services;
+  hostMessageHubManager.registerEndpoint(messageHubInfo.id, endpointInfo,
+                                         std::move(services));
+
+  sendEventToNanoappAndWait(appId, TEST_CREATE_DATA_FLOW_TO_HOST,
+                            CHRE_EVENT_DATA_FLOW_CREATED);
+  EXPECT_NE(dataFlowId, CHRE_DATA_FLOW_ID_INVALID);
+
+  EXPECT_CALL(mMockHostCallback, onRegisterDataFlowSink(_))
+      .WillOnce(
+          Invoke([&dataFlowId, appId](DataFlowSinkRegistration &&registration) {
+            EXPECT_FALSE(registration.sessionMessage.has_value());
+            EXPECT_EQ(registration.dataFlowId.id, dataFlowId);
+            EXPECT_EQ(registration.sourceId.endpointId, appId);
+            EXPECT_EQ(registration.sinkId.messageHubId, kTestHubId);
+            EXPECT_EQ(registration.sinkId.endpointId, kTestEndpointId);
+            EXPECT_NE(registration.primaryRegionId, -1);
+            EXPECT_NE(registration.sinkMetadataRegionId, -1);
+          }));
   sendEventToNanoappAndWait(appId, TEST_SOURCE_ADD_SINK_NO_MESSAGE,
                             CHRE_EVENT_DATA_FLOW_SINK_CONFIGURE_DONE);
 }
@@ -847,6 +1161,63 @@ TEST_F(DataFlowTest, SourceGetSizeAndCapacity) {
                             TEST_SOURCE_GET_SIZE_ONE_ELEMENT);
   sendEventToNanoappAndWait(appId, TEST_SOURCE_GET_CAPACITY_ONE_ELEMENT,
                             TEST_SOURCE_GET_CAPACITY_ONE_ELEMENT);
+}
+
+TEST_F(DataFlowTest, SinkDisable) {
+  uint32_t dataFlowId = 123;
+  uint64_t appId = 0;
+  setupNanoappSink(dataFlowId, appId);
+
+  sendEventToNanoappAndWait(appId, TEST_SINK_DISABLE, TEST_SINK_DISABLE);
+}
+
+TEST_F(DataFlowTest, SinkPop) {
+  uint32_t dataFlowId = 123;
+  uint64_t appId = 0;
+  setupNanoappSink(dataFlowId, appId);
+
+  // Push data as the producer.
+  std::vector<uint32_t> data;
+  for (int i = 0; i < 10; i++) {
+    data.push_back(i);
+  }
+  ASSERT_TRUE(mProducer
+                  ->push(pw::span<const std::byte>(
+                             reinterpret_cast<const std::byte *>(data.data()),
+                             data.size() * sizeof(uint32_t)),
+                         /*allOrNothing=*/true)
+                  .ok());
+
+  sendEventToNanoappAndWait(appId, TEST_SINK_POP, TEST_SINK_POP);
+
+  EventLoopManagerSingleton::get()
+      ->getSharedDataRegionManager()
+      .clearAllocatorRegion();
+}
+
+TEST_F(DataFlowTest, SinkPeekAndRelease) {
+  uint32_t dataFlowId = 123;
+  uint64_t appId = 0;
+  setupNanoappSink(dataFlowId, appId);
+
+  // Push data as the producer.
+  std::vector<uint32_t> data;
+  for (int i = 0; i < 10; i++) {
+    data.push_back(i);
+  }
+  ASSERT_TRUE(mProducer
+                  ->push(pw::span<const std::byte>(
+                             reinterpret_cast<const std::byte *>(data.data()),
+                             data.size() * sizeof(uint32_t)),
+                         /*allOrNothing=*/true)
+                  .ok());
+
+  sendEventToNanoappAndWait(appId, TEST_SINK_PEEK_AND_RELEASE,
+                            TEST_SINK_PEEK_AND_RELEASE);
+
+  EventLoopManagerSingleton::get()
+      ->getSharedDataRegionManager()
+      .clearAllocatorRegion();
 }
 
 // TODO(b/457453613): Test destroy sends the appropriate events to registered

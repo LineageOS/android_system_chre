@@ -44,6 +44,7 @@ class SharedDataRegionManager : public PlatformSharedDataRegionManager {
    */
   class RegionGuard : public NonCopyable {
    public:
+    RegionGuard() : mIsValid(false) {}
     explicit RegionGuard(int32_t regionId);
     ~RegionGuard();
 
